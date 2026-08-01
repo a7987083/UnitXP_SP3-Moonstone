@@ -27,15 +27,19 @@ jobs:
       - name: Checkout Moonstone repository
         uses: actions/checkout@v4
 
-      - name: Install build tools
+      - name: Install Clang 19 and build tools
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang lld make curl unzip git patch file
-          test -x /usr/bin/clang-cl-18
-          test -x /usr/bin/lld-link-18
-          sudo ln -sf /usr/bin/clang-cl-18 /usr/local/bin/clang-cl
-          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          test -x /usr/bin/clang-cl-19
+          test -x /usr/bin/lld-link-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
           clang-cl --version
           lld-link --version
 
