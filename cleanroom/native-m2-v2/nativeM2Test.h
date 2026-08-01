@@ -23,6 +23,8 @@ struct Status {
     unsigned long createCalls;
     unsigned long createSuccesses;
     unsigned long updateCalls;
+    unsigned long reattachCalls;
+    unsigned long reattachSuccesses;
     unsigned long releaseCalls;
     unsigned long droppedStalePointers;
     unsigned long loadChecks;

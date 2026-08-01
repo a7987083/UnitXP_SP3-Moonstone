@@ -1,4 +1,4 @@
-name: Build MoonMarker Native M2 Diagnostic v2
+name: Build MoonMarker Native M2 Reattach Diagnostic
 
 on:
   workflow_dispatch:
@@ -76,9 +76,9 @@ jobs:
           echo 'bbe682f9476a4c1b73eded98c1e904632714531b715508d4fe4d00c3fcfff91b  cleanroom/addon-status.patch' | sha256sum -c -
           patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
 
-          echo 'bd670a4146f7c4fcf78f21ae6c90f8386c7fd6117d1eefe13ab94fccec1cc09e  cleanroom/native-m2-v2.patch' | sha256sum -c -
-          echo 'e8df28a2961a63408fd7f1ecca488327d442ffa7ea9f462463b0880c02e3b9e9  cleanroom/native-m2-v2/nativeM2Test.cpp' | sha256sum -c -
-          echo '2c96c24f82feda1c8f5ce1a922592b9544fe5c1cae3dad08aea94dfc538d9866  cleanroom/native-m2-v2/nativeM2Test.h' | sha256sum -c -
+          echo 'e6011923b25aaaf0cd959c620c4d67c3bce087c45dde13bc3c77cf5754d8c046  cleanroom/native-m2-v2.patch' | sha256sum -c -
+          echo '42dd103707962b1be5649795a966eca6ce7d262f5396262efe97ad26bf8b7d7f  cleanroom/native-m2-v2/nativeM2Test.cpp' | sha256sum -c -
+          echo '2779e8f50eb902af39f74de4cb4848a843f66eeca07a5046c5ba47684fef4d6f  cleanroom/native-m2-v2/nativeM2Test.h' | sha256sum -c -
           cp cleanroom/native-m2-v2/nativeM2Test.cpp upstream/
           cp cleanroom/native-m2-v2/nativeM2Test.h upstream/
           patch --dry-run -p1 -d upstream < cleanroom/native-m2-v2.patch
@@ -87,6 +87,7 @@ jobs:
           grep -Fq 'kWorldM2ContextPointerAddress = 0x00C7B298' upstream/nativeM2Test.cpp
           grep -Fq 'kAttachToRenderListAddress = 0x00710B90' upstream/nativeM2Test.cpp
           grep -Fq 'kSetActiveTimestampAddress = 0x00710C50' upstream/nativeM2Test.cpp
+          grep -Fq 'gReattachSuccesses' upstream/nativeM2Test.cpp
           grep -Fq 'Spells\\MoonBeam_Impact_Base.mdx' upstream/nativeM2Test.cpp
           grep -Fq 'markerCommand == "M2Test"' upstream/dllmain.cpp
           grep -Fq 'markerCommand == "M2Status"' upstream/dllmain.cpp
@@ -124,7 +125,7 @@ jobs:
           file UnitXP_SP3.dll
           file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
 
-      - name: Package native M2 diagnostic v2
+      - name: Package native M2 reattach diagnostic
         run: |
           set -euxo pipefail
           mkdir -p release
@@ -134,7 +135,8 @@ jobs:
           cp cleanroom/NATIVE_M2_V2.md release/
           (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
           printf '%s\n' \
-            'MoonMarker Native World M2 Diagnostic v2 - not yet confirmed in game.' \
+            'MoonMarker Native World M2 Reattach Diagnostic - persistence not yet confirmed.' \
+            'The previous build displayed the native model for about 0.1 seconds.' \
             'Keep the previous working DLL as a fallback.' \
             'Run: /run local ok,x,y,z=UnitXP("M2Test"); print(ok,x,y,z)' \
             'Status: /run local s=UnitXP("M2Status"); for k,v in pairs(s) do print(k,v) end' \
@@ -143,10 +145,10 @@ jobs:
             'Lua PlayerModel is not used by this native M2 test.' \
             > release/TESTING.txt
 
-      - name: Upload native M2 diagnostic package
+      - name: Upload native M2 reattach diagnostic package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Native-M2-Diagnostic-v2-x86
+          name: MoonMarker-Native-M2-Reattach-Diagnostic-x86
           path: release/
           if-no-files-found: error
           retention-days: 14

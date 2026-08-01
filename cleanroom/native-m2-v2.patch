@@ -18,7 +18,7 @@
  
  using namespace std;
  
-@@ -61,6 +62,66 @@
+@@ -61,6 +62,68 @@
          const bool clearCommand = markerCommand == "MoonMarker.Clear" || markerCommand == "ClearAllMarks";
          const bool queryCommand = markerCommand == "MoonMarker.Query" || markerCommand == "QueryMarks";
  
@@ -71,6 +71,8 @@
 +            setNumber("createCalls", m2.createCalls);
 +            setNumber("createSuccesses", m2.createSuccesses);
 +            setNumber("updateCalls", m2.updateCalls);
++            setNumber("reattachCalls", m2.reattachCalls);
++            setNumber("reattachSuccesses", m2.reattachSuccesses);
 +            setNumber("releaseCalls", m2.releaseCalls);
 +            setNumber("droppedStalePointers", m2.droppedStalePointers);
 +            setNumber("loadChecks", m2.loadChecks);

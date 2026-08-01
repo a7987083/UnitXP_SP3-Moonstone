@@ -28,5 +28,13 @@ pointer therefore did not mean the instance had entered the active render list.
 - `UnitXP("M2Clear")`: detaches and releases the test model.
 
 The status table includes context, creation, readiness, render-list, update and
-release counters. This code is still a runtime test until an in-game screenshot
-confirms that the native M2 is visible.
+release counters. An in-game test confirmed that the native M2 becomes visible,
+but only for about 0.1 seconds; persistent display is not yet confirmed.
+
+## Reattach diagnostic
+
+The first in-game test displayed the native MoonBeam for about 0.1 seconds.
+After it disappeared, `M2Status` still reported a live, ready model but
+`attachedToRenderList=false`. This revision changes only the known
+`0x00710B90` path: `update()` reattaches that still-live model when offset
+`+0x44` becomes null. It does not restart or change the animation sequence.

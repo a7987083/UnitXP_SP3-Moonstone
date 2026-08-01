@@ -39,6 +39,8 @@ bool gRenderReady = false;
 unsigned long gCreateCalls = 0;
 unsigned long gCreateSuccesses = 0;
 unsigned long gUpdateCalls = 0;
+unsigned long gReattachCalls = 0;
+unsigned long gReattachSuccesses = 0;
 unsigned long gReleaseCalls = 0;
 unsigned long gDroppedStalePointers = 0;
 unsigned long gLoadChecks = 0;
@@ -230,6 +232,21 @@ void update() {
     applyWorldMatrix();
     reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(gModel, 1);
 
+    // One-shot impact models can unlink themselves from M2Scene's active list
+    // while the CM2Model object and its loaded resources remain alive. Keep
+    // this test deliberately narrow: re-use the already validated attach call
+    // without changing sequence state or touching another unknown interface.
+    if (readField<void*>(gModel, 0x44) == nullptr) {
+        ++gReattachCalls;
+        gLastErrorStage = "reattach_render_list";
+        reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(gModel, 1);
+        if (readField<void*>(gModel, 0x44) == nullptr) {
+            gLastErrorStage = "reattach_failed";
+            return;
+        }
+        ++gReattachSuccesses;
+    }
+
     if (pollRenderReady(0)) {
         gLastErrorStage = "active_ready";
     }
@@ -254,6 +271,8 @@ Status status() {
     result.createCalls = gCreateCalls;
     result.createSuccesses = gCreateSuccesses;
     result.updateCalls = gUpdateCalls;
+    result.reattachCalls = gReattachCalls;
+    result.reattachSuccesses = gReattachSuccesses;
     result.releaseCalls = gReleaseCalls;
     result.droppedStalePointers = gDroppedStalePointers;
     result.loadChecks = gLoadChecks;
