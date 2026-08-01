@@ -26,9 +26,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang lld make curl unzip git patch file
 
-      - name: Fetch UnitXP_SP3 v89 source
+      - name: Fetch exact UnitXP_SP3 v89 source
         run: |
-          git clone --depth 1 --branch v89 https://codeberg.org/konaka/UnitXP_SP3.git upstream
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
           test -f upstream/unitxp_sp3/Makefile
 
       - name: Reassemble and apply Moonstone patch
