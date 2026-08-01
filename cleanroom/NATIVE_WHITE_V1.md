@@ -38,4 +38,4 @@ Test alone before testing in a group:
 5. Run `UnitXP("ClearAllMarks")` and confirm the model disappears.
 6. Confirm camera rotation and mouse-look do not hide the model.
 
-This package is a runtime test until those six checks are confirmed in game.
+These six local-placement checks were confirmed in game on 2026-08-02.
