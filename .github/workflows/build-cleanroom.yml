@@ -91,7 +91,8 @@ jobs:
           grep -Fq 'markerCommand == "M2Test"' upstream/dllmain.cpp
           grep -Fq 'markerCommand == "M2Status"' upstream/dllmain.cpp
           grep -Fq 'nativeM2Test::update();' upstream/sceneBegin_sceneEnd.cpp
-          grep -Fq 'MoonMarker.Projected' upstream/dllmain.cpp
+          grep -Fq 'markerCommand == "2DMark"' upstream/dllmain.cpp
+          grep -Fq 'moonMarker::updateProjectedMarks();' upstream/sceneBegin_sceneEnd.cpp
           ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/MoonMarker.lua
 
       - name: Configure Windows compatibility
