@@ -71,6 +71,12 @@ jobs:
           test -f upstream/worldMarks.h
           grep -q 'worldMarks.cpp' upstream/Makefile
 
+      - name: Configure Windows macro compatibility
+        run: |
+          set -euxo pipefail
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' upstream/Makefile
+          grep -n 'NOMINMAX' upstream/Makefile
+
       - name: Install xwin
         run: |
           set -euxo pipefail
