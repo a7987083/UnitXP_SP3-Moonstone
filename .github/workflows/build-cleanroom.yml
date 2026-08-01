@@ -1,0 +1,135 @@
+name: Build MoonMarker Clean-room DLL and Addon
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cleanroom/**'
+      - '.github/workflows/build-cleanroom.yml'
+  push:
+    branches: [cleanroom-v1]
+    paths:
+      - 'cleanroom/**'
+      - '.github/workflows/build-cleanroom.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Decode clean-room source bundle
+        run: |
+          set -euxo pipefail
+          mkdir cleanroom_input
+          cat cleanroom/bundle.part00 cleanroom/bundle.part01 cleanroom/bundle.part02 cleanroom/bundle.part03 | base64 -d > cleanroom_bundle.zip
+          echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
+          unzip -q cleanroom_bundle.zip -d cleanroom_input
+          test -f cleanroom_input/MoonMarker_Cleanroom.patch
+          test -f cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          test -f cleanroom_input/addon/MoonMarker/Textures/moonbeam.png
+
+      - name: Install Clang 19 and build tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
+
+      - name: Normalize and apply clean-room patch
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+          sed -i '1s/^\xEF\xBB\xBF//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+          echo 'c51d0d4c70d010263618d5dcdd48bb11f80ad04ef02feb483bfc3c085ffcd02b  cleanroom_input/MoonMarker_Cleanroom.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
+          patch --batch --forward -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
+          test -f upstream/moonMarker.cpp
+          grep -q 'moonMarker.cpp' upstream/Makefile
+
+      - name: Configure Windows macro compatibility
+        run: |
+          set -euxo pipefail
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' upstream/Makefile
+
+      - name: Install xwin
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+
+      - name: Download Microsoft CRT and Windows SDK x86
+        run: |
+          set -euxo pipefail
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download Microsoft D3DX headers
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+
+      - name: Build clean-room 32-bit DLL
+        working-directory: upstream
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          file UnitXP_SP3.dll
+          file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+
+      - name: Package DLL and independent addon
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp -a cleanroom_input/addon/MoonMarker release/
+          cp upstream/MOONMARKER.md release/
+          sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
+          printf '%s\n' \
+            'MoonMarker clean-room test build.' \
+            'Replace the DLL only after fully closing the game.' \
+            'Install MoonMarker under Interface/AddOns.' \
+            'Keep the old working DLL and addon as a backup.' \
+            > release/TESTING.txt
+
+      - name: Upload clean-room test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Cleanroom-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
