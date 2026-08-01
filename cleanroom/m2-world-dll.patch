@@ -51,7 +51,7 @@ index f73174a..2926643 100644
              const moonMarker::RenderStatus renderer = moonMarker::status();
              lua_pushnumber(L, static_cast<double>(moonMarker::count()));
 diff --git a/base/moonMarker.cpp b/new/moonMarker.cpp
-index b0a4385..40f31ae 100644
+index b0a4385..73b78de 100644
 --- a/base/moonMarker.cpp
 +++ b/new/moonMarker.cpp
 @@ -27,6 +27,10 @@ constexpr float kBeamHeightAt1080 = 440.0f;
@@ -148,6 +148,22 @@ index b0a4385..40f31ae 100644
  
          slot.glowVertices[0] = {glowLeft,  glowTop,    0.0f, 1.0f, glowColor, 0.0f, 0.0f};
          slot.glowVertices[1] = {glowRight, glowTop,    0.0f, 1.0f, glowColor, 1.0f, 0.0f};
+@@ -709,7 +749,6 @@ bool installPresentHook(IDirect3DDevice9* device) {
+     void** presentSlot = &(*object)[17];
+     if (gPresentHookInstalled && gPresentVtableSlot == presentSlot
+         && *presentSlot == reinterpret_cast<void*>(&hookedPresent)) {
+-        ensureTextures(device);
+         return true;
+     }
+ 
+@@ -737,7 +776,6 @@ bool installPresentHook(IDirect3DDevice9* device) {
+ 
+     gPresentHookInstalled = true;
+     gLastPresentDevice = device;
+-    ensureTextures(device);
+     return true;
+ }
+ 
 diff --git a/base/moonMarker.h b/new/moonMarker.h
 index bec40f1..1127137 100644
 --- a/base/moonMarker.h
