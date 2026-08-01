@@ -34,16 +34,17 @@ jobs:
           git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
-          test -f upstream/unitxp_sp3/Makefile
+          test -f upstream/Makefile
+          test -f upstream/dllmain.cpp
 
       - name: Reassemble and apply Moonstone patch
         run: |
           cat patches/moonstone.part* > moonstone.patch
           echo '3a6343c098057f36995042e138ba656950421514d3812bd1dbb094354101c7fa  moonstone.patch' | sha256sum -c -
-          patch --batch --forward -p1 -d upstream < moonstone.patch
-          test -f upstream/unitxp_sp3/worldMarks.cpp
-          test -f upstream/unitxp_sp3/worldMarks.h
-          grep -q 'worldMarks.cpp' upstream/unitxp_sp3/Makefile
+          patch --batch --forward -p2 -d upstream < moonstone.patch
+          test -f upstream/worldMarks.cpp
+          test -f upstream/worldMarks.h
+          grep -q 'worldMarks.cpp' upstream/Makefile
 
       - name: Install xwin
         run: |
@@ -57,7 +58,7 @@ jobs:
 
       - name: Download Microsoft CRT and Windows SDK x86
         run: |
-          xwin --accept-license --arch x86 splat --output upstream/unitxp_sp3/xwinSDK
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
 
       - name: Download Microsoft D3DX headers
         run: |
@@ -65,12 +66,12 @@ jobs:
             "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" \
             -o d3dx.nupkg
           unzip -q d3dx.nupkg -d d3dx_pkg
-          mkdir -p upstream/unitxp_sp3/d3d9x_headers
-          cp -a d3dx_pkg/build/native/include/. upstream/unitxp_sp3/d3d9x_headers/
-          test -f upstream/unitxp_sp3/d3d9x_headers/d3dx9.h
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+          test -f upstream/d3d9x_headers/d3dx9.h
 
       - name: Build 32-bit DLL
-        working-directory: upstream/unitxp_sp3
+        working-directory: upstream
         run: |
           make clean
           make -j2
@@ -80,9 +81,9 @@ jobs:
       - name: Package result
         run: |
           mkdir -p release
-          cp upstream/unitxp_sp3/UnitXP_SP3.dll release/
-          cp upstream/unitxp_sp3/UnitXP_SP3.pdb release/ 2>/dev/null || true
-          cp upstream/unitxp_sp3/MOONSTONE_MARKS.md release/
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp upstream/MOONSTONE_MARKS.md release/
           sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
 
       - name: Upload DLL artifact
