@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file python3-numpy python3-pil
           curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 19
@@ -60,7 +60,7 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
 
-      - name: Apply Stage-1 stability fixes
+      - name: Apply Stage-2 Moonstone renderer
         run: |
           set -euxo pipefail
           sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
@@ -86,14 +86,36 @@ jobs:
           patch --dry-run -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
           patch --batch --forward -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
 
-          test -f upstream/moonMarker.cpp
+          echo 'a8ece6f39d35099498593c4b844c564f4f1c6cf97a2907c51020794d463a5dc1  cleanroom/stage2-moonstone.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < cleanroom/stage2-moonstone.patch
+          patch --batch --forward -p1 -d upstream < cleanroom/stage2-moonstone.patch
+
           grep -Fq 'void** presentSlot = &(*object)[17];' upstream/moonMarker.cpp
           grep -Fq 'reinterpret_cast<LPVOID>(0x006E60F0)' upstream/moonMarker.cpp
           grep -Fq 'moonMarker::updateProjectedMarks();' upstream/sceneBegin_sceneEnd.cpp
-          grep -Fq 'DrawPrimitiveUP' upstream/moonMarker.cpp
-          grep -Fq 'installPresentHook(gDevice)' upstream/sceneBegin_sceneEnd.cpp
-          ! grep -Fq 'moonMarker::render(scene_sprite' upstream/sceneBegin_sceneEnd.cpp
-          grep -Fq 'Present钩子' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'gGlowTexture' upstream/moonMarker.cpp
+          grep -Fq 'kBeamHeightAt1080' upstream/moonMarker.cpp
+          ! grep -Fq '18.0f / std::max(distance' upstream/moonMarker.cpp
+          ! grep -Fq '270.0f - distance' upstream/moonMarker.cpp
+
+      - name: Generate Stage-2 Moonstone textures
+        run: |
+          set -euxo pipefail
+          echo '6bd556db706d5abb0f9af345c90b4acbfe7a242d06334c962d206490b49f7e79  cleanroom/generate_stage2_textures.py' | sha256sum -c -
+          python3 cleanroom/generate_stage2_textures.py cleanroom_input/addon/MoonMarker/Textures
+          test -f cleanroom_input/addon/MoonMarker/Textures/moonbeam.png
+          test -f cleanroom_input/addon/MoonMarker/Textures/moonglow.png
+          python3 - <<'PY'
+          from PIL import Image
+          beam = Image.open('cleanroom_input/addon/MoonMarker/Textures/moonbeam.png').convert('RGBA')
+          glow = Image.open('cleanroom_input/addon/MoonMarker/Textures/moonglow.png').convert('RGBA')
+          assert beam.size == (256, 512), beam.size
+          assert glow.size == (512, 256), glow.size
+          assert beam.getchannel('A').getextrema()[1] > 100
+          assert glow.getchannel('A').getextrema()[1] > 100
+          PY
+          file cleanroom_input/addon/MoonMarker/Textures/moonbeam.png
+          file cleanroom_input/addon/MoonMarker/Textures/moonglow.png
 
       - name: Configure Windows macro compatibility
         run: |
@@ -125,7 +147,7 @@ jobs:
           mkdir -p upstream/d3d9x_headers
           cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
 
-      - name: Build Stage-1 fixed 32-bit DLL
+      - name: Build Stage-2 32-bit DLL
         working-directory: upstream
         run: |
           set -euxo pipefail
@@ -134,7 +156,7 @@ jobs:
           file UnitXP_SP3.dll
           file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
 
-      - name: Package Stage-1 fixed DLL and addon
+      - name: Package Stage-2 DLL and addon
         run: |
           set -euxo pipefail
           mkdir -p release
@@ -144,17 +166,16 @@ jobs:
           cp upstream/MOONMARKER.md release/
           sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
           printf '%s\n' \
-            'MoonMarker Stage 1 fixed build.' \
-            'Ground placement now uses the game native cursor resolver.' \
-            'World-to-screen projection is cached during sceneEnd.' \
-            'Present only draws cached orthographic quads.' \
-            'Distance-based scaling is still retained for Stage 1.' \
+            'MoonMarker Stage 2 - Moonstone visual test.' \
+            'Distance no longer changes beam width, height, or opacity.' \
+            'The effect uses a wide soft shaft plus a separate floor glow.' \
+            'Ground placement and mouse-drag stability fixes are retained.' \
             > release/TESTING.txt
 
-      - name: Upload Stage-1 fixed test package
+      - name: Upload Stage-2 test package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Stage1-PlacementProjectionFix-x86
+          name: MoonMarker-Stage2-Moonstone-NoDepth-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
