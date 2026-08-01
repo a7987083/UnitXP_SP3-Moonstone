@@ -132,7 +132,7 @@ jobs:
           cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
           cp -a cleanroom_input/addon/MoonMarker release/
           cp cleanroom/NATIVE_M2_V2.md release/
-          sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
+          (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
           printf '%s\n' \
             'MoonMarker Native World M2 Diagnostic v2 - not yet confirmed in game.' \
             'Keep the previous working DLL as a fallback.' \
