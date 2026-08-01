@@ -27,18 +27,20 @@ jobs:
       - name: Checkout Moonstone repository
         uses: actions/checkout@v4
 
-      - name: Show runner context
-        run: |
-          set -euxo pipefail
-          pwd
-          find . -maxdepth 3 -type f -print | sort
-          uname -a
-
       - name: Install build tools
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y clang lld make curl unzip git patch file
+          ls -l /usr/bin/clang-cl* /usr/bin/lld-link* || true
+          CLANG_CL="$(find /usr/bin -maxdepth 1 -type f -name 'clang-cl-*' | sort -V | tail -1)"
+          LLD_LINK="$(find /usr/bin -maxdepth 1 -type f -name 'lld-link-*' | sort -V | tail -1)"
+          test -n "$CLANG_CL"
+          test -n "$LLD_LINK"
+          sudo ln -sf "$CLANG_CL" /usr/local/bin/clang-cl
+          sudo ln -sf "$LLD_LINK" /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
 
       - name: Fetch exact UnitXP_SP3 v89 source
         run: |
@@ -48,8 +50,6 @@ jobs:
           git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
           git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
           git -C upstream checkout --detach FETCH_HEAD
-          git -C upstream rev-parse HEAD
-          find upstream -maxdepth 2 -type f -print | sort | head -200
           test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
           test -f upstream/Makefile
           test -f upstream/dllmain.cpp
@@ -58,18 +58,13 @@ jobs:
         run: |
           set -euxo pipefail
           sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp
-          file upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp
 
       - name: Reassemble and apply Moonstone patch
         run: |
           set -euxo pipefail
-          ls -l patches
           cat patches/moonstone.part* > moonstone.patch
-          wc -c moonstone.patch
-          sha256sum moonstone.patch
           echo '3a6343c098057f36995042e138ba656950421514d3812bd1dbb094354101c7fa  moonstone.patch' | sha256sum -c -
-          head -20 moonstone.patch
-          patch --dry-run --verbose -p2 -d upstream < moonstone.patch
+          patch --dry-run -p2 -d upstream < moonstone.patch
           patch --batch --forward -p2 -d upstream < moonstone.patch
           test -f upstream/worldMarks.cpp
           test -f upstream/worldMarks.h
