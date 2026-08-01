@@ -68,6 +68,9 @@ jobs:
           echo 'c51d0d4c70d010263618d5dcdd48bb11f80ad04ef02feb483bfc3c085ffcd02b  cleanroom_input/MoonMarker_Cleanroom.patch' | sha256sum -c -
           patch --dry-run -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
           patch --batch --forward -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
+          echo 'f994d67b58824fc002a1735243f91226944fc60d3b8e500a1999e66dd33fd7a5  cleanroom/fix-lua-string.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < cleanroom/fix-lua-string.patch
+          patch --batch --forward -p1 -d upstream < cleanroom/fix-lua-string.patch
           test -f upstream/moonMarker.cpp
           grep -q 'moonMarker.cpp' upstream/Makefile
 
