@@ -60,23 +60,34 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
 
-      - name: Normalize and apply clean-room patches
+      - name: Apply Stage-1 Present-hook implementation
         run: |
           set -euxo pipefail
           sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
           sed -i '1s/^\xEF\xBB\xBF//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+
           echo 'c51d0d4c70d010263618d5dcdd48bb11f80ad04ef02feb483bfc3c085ffcd02b  cleanroom_input/MoonMarker_Cleanroom.patch' | sha256sum -c -
           patch --dry-run -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
           patch --batch --forward -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
+
           echo 'f994d67b58824fc002a1735243f91226944fc60d3b8e500a1999e66dd33fd7a5  cleanroom/fix-lua-string.patch' | sha256sum -c -
           patch --dry-run -p1 -d upstream < cleanroom/fix-lua-string.patch
           patch --batch --forward -p1 -d upstream < cleanroom/fix-lua-string.patch
-          echo '37a82c9e860c00ddc2fc1c7a41a641b112e35dd7046b80edf7e40b9b734f3e71  cleanroom/render-early.patch' | sha256sum -c -
-          patch --dry-run -p1 -d upstream < cleanroom/render-early.patch
-          patch --batch --forward -p1 -d upstream < cleanroom/render-early.patch
+
+          echo '96f3f255313d80c70cd73b2a8317aba35516e3b46a064185af3352274f926ec8  cleanroom/present-hook.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < cleanroom/present-hook.patch
+          patch --batch --forward -p1 -d upstream < cleanroom/present-hook.patch
+
+          echo 'bbe682f9476a4c1b73eded98c1e904632714531b715508d4fe4d00c3fcfff91b  cleanroom/addon-status.patch' | sha256sum -c -
+          patch --dry-run -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+          patch --batch --forward -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+
           test -f upstream/moonMarker.cpp
-          grep -q 'moonMarker.cpp' upstream/Makefile
-          grep -q 'must not depend on gxDevice_scenePresent' upstream/sceneBegin_sceneEnd.cpp
+          grep -q 'presentSlot = &(*object)\[17\]' upstream/moonMarker.cpp
+          grep -q 'DrawPrimitiveUP' upstream/moonMarker.cpp
+          grep -q 'installPresentHook(gDevice)' upstream/sceneBegin_sceneEnd.cpp
+          ! grep -q 'moonMarker::render(scene_sprite' upstream/sceneBegin_sceneEnd.cpp
+          grep -q 'Present钩子' cleanroom_input/addon/MoonMarker/MoonMarker.lua
 
       - name: Configure Windows macro compatibility
         run: |
@@ -108,7 +119,7 @@ jobs:
           mkdir -p upstream/d3d9x_headers
           cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
 
-      - name: Build clean-room 32-bit DLL
+      - name: Build Stage-1 32-bit DLL
         working-directory: upstream
         run: |
           set -euxo pipefail
@@ -117,7 +128,7 @@ jobs:
           file UnitXP_SP3.dll
           file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
 
-      - name: Package DLL and independent addon
+      - name: Package Stage-1 DLL and addon
         run: |
           set -euxo pipefail
           mkdir -p release
@@ -127,18 +138,17 @@ jobs:
           cp upstream/MOONMARKER.md release/
           sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
           printf '%s\n' \
-            'MoonMarker stage-1 test build.' \
-            'Goal: first prove the orthographic beam renders reliably.' \
-            'Distance scaling is intentionally still enabled in this build.' \
-            'Replace the DLL only after fully closing the game.' \
-            'Install MoonMarker under Interface/AddOns.' \
-            'Keep the old working DLL and addon as a backup.' \
+            'MoonMarker Stage 1 - Present-hook beam verification.' \
+            'This build hooks IDirect3DDevice9::Present at vtable slot 17.' \
+            'It draws a screen-space XYZRHW textured quad with DrawPrimitiveUP.' \
+            'Distance-based scaling is intentionally retained only for Stage 1.' \
+            'Stage 2 removes the simulated depth after beam visibility is confirmed.' \
             > release/TESTING.txt
 
-      - name: Upload clean-room test package
+      - name: Upload Stage-1 test package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Stage1-EarlyRender-x86
+          name: MoonMarker-Stage1-PresentHook-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
