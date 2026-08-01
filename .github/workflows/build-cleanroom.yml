@@ -1,16 +1,16 @@
-name: Build MoonMarker Native World M2 DLL
+name: Build MoonMarker Clean-room DLL and Addon
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cleanroom/**'
+      - '.github/workflows/build-cleanroom.yml'
   push:
     branches: [cleanroom-v1]
     paths:
-      - 'cleanroom/world-m2-engine.patch'
-      - 'cleanroom/bundle.part*'
-      - 'cleanroom/fix-lua-string.patch'
-      - 'cleanroom/present-hook.patch'
-      - 'cleanroom/fix-placement-projection.patch'
-      - 'cleanroom/addon-status.patch'
+      - 'cleanroom/**'
       - '.github/workflows/build-cleanroom.yml'
 
 permissions:
@@ -67,16 +67,12 @@ jobs:
 
           echo 'c51d0d4c70d010263618d5dcdd48bb11f80ad04ef02feb483bfc3c085ffcd02b  cleanroom_input/MoonMarker_Cleanroom.patch' | sha256sum -c -
           patch --batch -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
-
           echo 'f994d67b58824fc002a1735243f91226944fc60d3b8e500a1999e66dd33fd7a5  cleanroom/fix-lua-string.patch' | sha256sum -c -
           patch --batch -p1 -d upstream < cleanroom/fix-lua-string.patch
-
           echo '96f3f255313d80c70cd73b2a8317aba35516e3b46a064185af3352274f926ec8  cleanroom/present-hook.patch' | sha256sum -c -
           patch --batch -p1 -d upstream < cleanroom/present-hook.patch
-
           echo '05f54024fcc705954492c225734e8237b8c689637e6daded5a3ab99ab6b29fe5  cleanroom/fix-placement-projection.patch' | sha256sum -c -
           patch --batch -p1 -d upstream < cleanroom/fix-placement-projection.patch
-
           echo 'bbe682f9476a4c1b73eded98c1e904632714531b715508d4fe4d00c3fcfff91b  cleanroom/addon-status.patch' | sha256sum -c -
           patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
 
