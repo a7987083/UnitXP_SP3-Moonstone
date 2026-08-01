@@ -32,13 +32,10 @@ jobs:
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y clang lld make curl unzip git patch file
-          ls -l /usr/bin/clang-cl* /usr/bin/lld-link* || true
-          CLANG_CL="$(find /usr/bin -maxdepth 1 -type f -name 'clang-cl-*' | sort -V | tail -1)"
-          LLD_LINK="$(find /usr/bin -maxdepth 1 -type f -name 'lld-link-*' | sort -V | tail -1)"
-          test -n "$CLANG_CL"
-          test -n "$LLD_LINK"
-          sudo ln -sf "$CLANG_CL" /usr/local/bin/clang-cl
-          sudo ln -sf "$LLD_LINK" /usr/local/bin/lld-link
+          test -x /usr/bin/clang-cl-18
+          test -x /usr/bin/lld-link-18
+          sudo ln -sf /usr/bin/clang-cl-18 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
           clang-cl --version
           lld-link --version
 
