@@ -83,11 +83,11 @@ jobs:
           patch --batch --forward -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
 
           test -f upstream/moonMarker.cpp
-          grep -q 'presentSlot = &(*object)\[17\]' upstream/moonMarker.cpp
-          grep -q 'DrawPrimitiveUP' upstream/moonMarker.cpp
-          grep -q 'installPresentHook(gDevice)' upstream/sceneBegin_sceneEnd.cpp
-          ! grep -q 'moonMarker::render(scene_sprite' upstream/sceneBegin_sceneEnd.cpp
-          grep -q 'Present钩子' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'void** presentSlot = &(*object)[17];' upstream/moonMarker.cpp
+          grep -Fq 'DrawPrimitiveUP' upstream/moonMarker.cpp
+          grep -Fq 'installPresentHook(gDevice)' upstream/sceneBegin_sceneEnd.cpp
+          ! grep -Fq 'moonMarker::render(scene_sprite' upstream/sceneBegin_sceneEnd.cpp
+          grep -Fq 'Present钩子' cleanroom_input/addon/MoonMarker/MoonMarker.lua
 
       - name: Configure Windows macro compatibility
         run: |
