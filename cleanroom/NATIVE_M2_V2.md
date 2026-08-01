@@ -38,3 +38,7 @@ After it disappeared, `M2Status` still reported a live, ready model but
 `attachedToRenderList=false`. This revision changes only the known
 `0x00710B90` path: `update()` reattaches that still-live model when offset
 `+0x44` becomes null. It does not restart or change the animation sequence.
+
+The reattach revision was confirmed in game on 2026-08-02. Multiple screenshots
+show the native beam, particles and ground glow persisting from overhead, front
+and side camera angles. Native world M2 persistence is therefore confirmed.

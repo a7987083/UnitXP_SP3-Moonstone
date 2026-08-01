@@ -1,0 +1,157 @@
+--- a/moonMarker.h
++++ b/moonMarker.h
+@@ -26,11 +26,14 @@
+ bool shutdownGroundCursorHook();
+ 
+ // Places or replaces one color marker at the ground position under the cursor.
+-bool placeAtCursor(const std::string& colorName, C3Vector& placedPosition, std::string& normalizedColor);
++// renderOverlay=false keeps the marker in QueryMarks without drawing the old PNG.
++bool placeAtCursor(const std::string& colorName, C3Vector& placedPosition,
++                   std::string& normalizedColor, bool renderOverlay = true);
+ 
+ // Places or replaces a marker received from addon communication.
+ bool placeRemote(const std::string& colorName, const C3Vector& position);
+ 
++bool remove(const std::string& colorName);
+ void clearAll();
+ std::size_t count();
+ std::size_t snapshot(MarkInfo* output, std::size_t capacity);
+--- a/moonMarker.cpp
++++ b/moonMarker.cpp
+@@ -44,6 +44,7 @@
+ 
+ struct MarkSlot {
+     bool active = false;
++    bool renderOverlay = true;
+     C3Vector position = {};
+ };
+ 
+@@ -351,7 +352,8 @@
+ 
+ } // namespace
+ 
+-bool placeAtCursor(const std::string& colorName, C3Vector& placedPosition, std::string& normalizedColor) {
++bool placeAtCursor(const std::string& colorName, C3Vector& placedPosition,
++                   std::string& normalizedColor, bool renderOverlay) {
+     const int index = colorIndex(colorName);
+     if (index < 0) {
+         return false;
+@@ -362,8 +364,10 @@
+         return false;
+     }
+ 
+-    gMarks[static_cast<std::size_t>(index)].active = true;
+-    gMarks[static_cast<std::size_t>(index)].position = hit;
++    MarkSlot& slot = gMarks[static_cast<std::size_t>(index)];
++    slot.active = true;
++    slot.renderOverlay = renderOverlay;
++    slot.position = hit;
+     placedPosition = hit;
+     normalizedColor = kColors[static_cast<std::size_t>(index)].name;
+     return true;
+@@ -374,8 +378,25 @@
+     if (index < 0 || !std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+         return false;
+     }
+-    gMarks[static_cast<std::size_t>(index)].active = true;
+-    gMarks[static_cast<std::size_t>(index)].position = position;
++    MarkSlot& slot = gMarks[static_cast<std::size_t>(index)];
++    const bool preserveNativeWhite = std::string(kColors[static_cast<std::size_t>(index)].name) == "white"
++        && slot.active && !slot.renderOverlay
++        && distanceBetween(slot.position, position) < 0.10f;
++    slot.active = true;
++    slot.renderOverlay = !preserveNativeWhite;
++    slot.position = position;
++    return true;
++}
++
++bool remove(const std::string& colorName) {
++    const int index = colorIndex(colorName);
++    if (index < 0) {
++        return false;
++    }
++    MarkSlot& slot = gMarks[static_cast<std::size_t>(index)];
++    slot.active = false;
++    slot.renderOverlay = true;
++    slot.position = {};
+     return true;
+ }
+ 
+@@ -383,6 +404,7 @@
+     resetProjected();
+     for (MarkSlot& mark : gMarks) {
+         mark.active = false;
++        mark.renderOverlay = true;
+         mark.position = {};
+     }
+ }
+@@ -627,7 +649,7 @@
+     unsigned long projected = 0;
+ 
+     for (std::size_t i = 0; i < gMarks.size(); ++i) {
+-        if (!gMarks[i].active) continue;
++        if (!gMarks[i].active || !gMarks[i].renderOverlay) continue;
+ 
+         C3Vector world = gMarks[i].position;
+         const C3Vector screen = vanilla1121_worldToScreen(world);
+--- a/dllmain.cpp
++++ b/dllmain.cpp
+@@ -63,6 +63,7 @@
+         const bool queryCommand = markerCommand == "MoonMarker.Query" || markerCommand == "QueryMarks";
+ 
+         if (markerCommand == "M2Test") {
++            moonMarker::remove("white");
+             C3Vector testPosition = {};
+             const bool created = nativeM2Test::createNearPlayer(testPosition);
+             lua_pushboolean(L, created);
+@@ -73,6 +74,7 @@
+         }
+         else if (markerCommand == "M2Clear") {
+             nativeM2Test::clear();
++            moonMarker::remove("white");
+             lua_pushboolean(L, true);
+             return 1;
+         }
+@@ -128,7 +130,16 @@
+             C3Vector placedPosition = {};
+             std::string normalizedColor = {};
+             const string colorText{ lua_tostring(L, 2) };
+-            if (moonMarker::placeAtCursor(colorText, placedPosition, normalizedColor)) {
++            const bool nativeWhite = colorText == "white";
++            if (moonMarker::placeAtCursor(colorText, placedPosition, normalizedColor, !nativeWhite)) {
++                if (nativeWhite) {
++                    C3Vector modelPosition = placedPosition;
++                    modelPosition.z += 0.05f;
++                    if (!nativeM2Test::createAt(modelPosition)) {
++                        moonMarker::remove("white");
++                        return 0;
++                    }
++                }
+                 lua_pushnumber(L, placedPosition.x);
+                 lua_pushnumber(L, placedPosition.y);
+                 lua_pushnumber(L, placedPosition.z);
+@@ -148,6 +159,7 @@
+             return 1;
+         }
+         else if (clearCommand) {
++            nativeM2Test::clear();
+             moonMarker::clearAll();
+             lua_pushboolean(L, true);
+             return 1;
+--- a/sceneBegin_sceneEnd.cpp
++++ b/sceneBegin_sceneEnd.cpp
+@@ -285,6 +285,7 @@
+ 
+ void scene_end() {
+     nativeM2Test::clear();
++    moonMarker::remove("white");
+     moonMarker::shutdown();
+     scene_unload();
+     scene_isEnabled = false;
+@@ -879,6 +880,7 @@
+ 
+ void scene_onPlayerLeavingWorld() {
+     nativeM2Test::clear();
++    moonMarker::remove("white");
+     scene_inWorld = 0;
+     scene_needUnload = true;

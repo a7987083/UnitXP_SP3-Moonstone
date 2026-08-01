@@ -133,31 +133,15 @@ bool pollRenderReady(int requestLoad) {
     return ready;
 }
 
-} // namespace
-
-bool createNearPlayer(C3Vector& position) {
-    releaseCurrent(false);
-    gLastErrorStage = "find_player";
-
-    const std::uint64_t playerGuid = vanilla1121_unitGUID("player");
-    gPlayerObject = vanilla1121_getVisiableObject(playerGuid);
-    if (gPlayerObject == 0 || (gPlayerObject & 1u) != 0u) {
-        gPlayerObject = 0;
+bool createModelAt(const C3Vector& position, std::uint32_t playerObject) {
+    gLastErrorStage = "validate_world_position";
+    if (!std::isfinite(position.x) || !std::isfinite(position.y)
+        || !std::isfinite(position.z)) {
         return false;
     }
 
-    C3Vector playerPosition = vanilla1121_unitPosition(gPlayerObject);
-    const float facing = vanilla1121_unitFacing(gPlayerObject);
-    if (!std::isfinite(playerPosition.x) || !std::isfinite(playerPosition.y)
-        || !std::isfinite(playerPosition.z) || !std::isfinite(facing)) {
-        gLastErrorStage = "invalid_player_position";
-        return false;
-    }
-
-    gPosition.x = playerPosition.x + std::cos(facing) * 4.0f;
-    gPosition.y = playerPosition.y + std::sin(facing) * 4.0f;
-    gPosition.z = playerPosition.z + 0.05f;
-    position = gPosition;
+    gPlayerObject = playerObject;
+    gPosition = position;
 
     gLastErrorStage = "find_world_context";
     gContext = currentContext();
@@ -199,6 +183,7 @@ bool createNearPlayer(C3Vector& position) {
 
     if (readField<void*>(gModel, 0x44) == nullptr) {
         gLastErrorStage = "render_list_link_missing";
+        releaseCurrent(false);
         return false;
     }
 
@@ -210,6 +195,40 @@ bool createNearPlayer(C3Vector& position) {
         gLastErrorStage = "active_waiting_resources";
     }
     return true;
+}
+
+} // namespace
+
+bool createNearPlayer(C3Vector& position) {
+    releaseCurrent(false);
+    gLastErrorStage = "find_player";
+
+    const std::uint64_t playerGuid = vanilla1121_unitGUID("player");
+    gPlayerObject = vanilla1121_getVisiableObject(playerGuid);
+    if (gPlayerObject == 0 || (gPlayerObject & 1u) != 0u) {
+        gPlayerObject = 0;
+        return false;
+    }
+
+    C3Vector playerPosition = vanilla1121_unitPosition(gPlayerObject);
+    const float facing = vanilla1121_unitFacing(gPlayerObject);
+    if (!std::isfinite(playerPosition.x) || !std::isfinite(playerPosition.y)
+        || !std::isfinite(playerPosition.z) || !std::isfinite(facing)) {
+        gLastErrorStage = "invalid_player_position";
+        return false;
+    }
+
+    C3Vector testPosition = {};
+    testPosition.x = playerPosition.x + std::cos(facing) * 4.0f;
+    testPosition.y = playerPosition.y + std::sin(facing) * 4.0f;
+    testPosition.z = playerPosition.z + 0.05f;
+    position = testPosition;
+    return createModelAt(testPosition, gPlayerObject);
+}
+
+bool createAt(const C3Vector& position) {
+    releaseCurrent(false);
+    return createModelAt(position, 0);
 }
 
 void update() {

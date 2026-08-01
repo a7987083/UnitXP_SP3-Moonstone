@@ -1,4 +1,4 @@
-name: Build MoonMarker Native M2 Reattach Diagnostic
+name: Build MoonMarker Native White Cursor v1
 
 on:
   workflow_dispatch:
@@ -59,7 +59,7 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
 
-      - name: Apply isolated native M2 diagnostic implementation
+      - name: Apply native M2 and white cursor implementation
         run: |
           set -euxo pipefail
           sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
@@ -77,21 +77,30 @@ jobs:
           patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
 
           echo 'e6011923b25aaaf0cd959c620c4d67c3bce087c45dde13bc3c77cf5754d8c046  cleanroom/native-m2-v2.patch' | sha256sum -c -
-          echo '42dd103707962b1be5649795a966eca6ce7d262f5396262efe97ad26bf8b7d7f  cleanroom/native-m2-v2/nativeM2Test.cpp' | sha256sum -c -
-          echo '2779e8f50eb902af39f74de4cb4848a843f66eeca07a5046c5ba47684fef4d6f  cleanroom/native-m2-v2/nativeM2Test.h' | sha256sum -c -
+          echo '9961b924030e235bab91b49b53ccb266c16500e1f5c1329c477f9fa034e696f3  cleanroom/native-m2-v2/nativeM2Test.cpp' | sha256sum -c -
+          echo 'a56840d2bbed52579b6d360d57a21d5050e3bb44a9f6488ac0c438ae6ccf708b  cleanroom/native-m2-v2/nativeM2Test.h' | sha256sum -c -
           cp cleanroom/native-m2-v2/nativeM2Test.cpp upstream/
           cp cleanroom/native-m2-v2/nativeM2Test.h upstream/
           patch --dry-run -p1 -d upstream < cleanroom/native-m2-v2.patch
           patch --batch -p1 -d upstream < cleanroom/native-m2-v2.patch
 
+          echo '9e49dd350183cf07f45727f0812f136efbc7806647b0a6f5cc9827f7ae60ebf6  cleanroom/native-white-v1.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < cleanroom/native-white-v1.patch
+          patch --batch -p1 -d upstream < cleanroom/native-white-v1.patch
+
           grep -Fq 'kWorldM2ContextPointerAddress = 0x00C7B298' upstream/nativeM2Test.cpp
           grep -Fq 'kAttachToRenderListAddress = 0x00710B90' upstream/nativeM2Test.cpp
           grep -Fq 'kSetActiveTimestampAddress = 0x00710C50' upstream/nativeM2Test.cpp
           grep -Fq 'gReattachSuccesses' upstream/nativeM2Test.cpp
+          grep -Fq 'bool createAt(const C3Vector& position)' upstream/nativeM2Test.cpp
           grep -Fq 'Spells\\MoonBeam_Impact_Base.mdx' upstream/nativeM2Test.cpp
           grep -Fq 'markerCommand == "M2Test"' upstream/dllmain.cpp
           grep -Fq 'markerCommand == "M2Status"' upstream/dllmain.cpp
           grep -Fq 'nativeM2Test::update();' upstream/sceneBegin_sceneEnd.cpp
+          grep -Fq 'const bool nativeWhite = colorText == "white"' upstream/dllmain.cpp
+          grep -Fq 'modelPosition.z += 0.05f' upstream/dllmain.cpp
+          grep -Fq '!gMarks[i].renderOverlay' upstream/moonMarker.cpp
+          grep -Fq 'bool renderOverlay = true' upstream/moonMarker.cpp
           grep -Fq 'markerCommand == "2DMark"' upstream/dllmain.cpp
           grep -Fq 'moonMarker::updateProjectedMarks();' upstream/sceneBegin_sceneEnd.cpp
           ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/MoonMarker.lua
@@ -116,7 +125,7 @@ jobs:
           mkdir -p upstream/d3d9x_headers
           cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
 
-      - name: Build diagnostic PE32 DLL
+      - name: Build native white PE32 DLL
         working-directory: upstream
         run: |
           set -euxo pipefail
@@ -125,7 +134,7 @@ jobs:
           file UnitXP_SP3.dll
           file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
 
-      - name: Package native M2 reattach diagnostic
+      - name: Package native white cursor v1
         run: |
           set -euxo pipefail
           mkdir -p release
@@ -133,22 +142,25 @@ jobs:
           cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
           cp -a cleanroom_input/addon/MoonMarker release/
           cp cleanroom/NATIVE_M2_V2.md release/
+          cp cleanroom/NATIVE_WHITE_V1.md release/
           (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
           printf '%s\n' \
-            'MoonMarker Native World M2 Reattach Diagnostic - persistence not yet confirmed.' \
-            'The previous build displayed the native model for about 0.1 seconds.' \
+            'MoonMarker Native White Cursor v1 - mouse placement not yet confirmed in game.' \
+            'Persistent native M2 rendering was confirmed by screenshots on 2026-08-02.' \
             'Keep the previous working DLL as a fallback.' \
             'Run: /run local ok,x,y,z=UnitXP("M2Test"); print(ok,x,y,z)' \
+            'Place white: /run local x,y,z,c=UnitXP("2DMark","white"); print(x,y,z,c)' \
+            'Query: /run local n,t=UnitXP("QueryMarks"); print(n)' \
+            'Clear: /run UnitXP("ClearAllMarks")' \
             'Status: /run local s=UnitXP("M2Status"); for k,v in pairs(s) do print(k,v) end' \
-            'Clear: /run UnitXP("M2Clear")' \
-            'The existing 2DMark/RemoteMark/ClearAllMarks/QueryMarks APIs remain intact.' \
+            'Only local white uses native M2 in this stage; other colors and RemoteMark retain the 2D fallback.' \
             'Lua PlayerModel is not used by this native M2 test.' \
             > release/TESTING.txt
 
-      - name: Upload native M2 reattach diagnostic package
+      - name: Upload native white cursor v1 package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Native-M2-Reattach-Diagnostic-x86
+          name: MoonMarker-Native-White-Cursor-v1-x86
           path: release/
           if-no-files-found: error
           retention-days: 14

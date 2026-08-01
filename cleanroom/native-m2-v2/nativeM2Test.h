@@ -36,6 +36,9 @@ struct Status {
 // Creates one white MoonBeam M2 four yards in front of the player.
 bool createNearPlayer(C3Vector& position);
 
+// Creates one white MoonBeam M2 at an already resolved world position.
+bool createAt(const C3Vector& position);
+
 // Keeps the test model's world matrix and active timestamp current.
 void update();
 
