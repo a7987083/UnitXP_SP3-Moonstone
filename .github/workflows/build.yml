@@ -8,6 +8,12 @@ on:
       - 'patches/**'
       - '.github/workflows/build.yml'
       - 'README.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'patches/**'
+      - '.github/workflows/build.yml'
+      - 'README.md'
 
 permissions:
   contents: read
@@ -21,26 +27,43 @@ jobs:
       - name: Checkout Moonstone repository
         uses: actions/checkout@v4
 
+      - name: Show runner context
+        run: |
+          set -euxo pipefail
+          pwd
+          find . -maxdepth 3 -type f -print | sort
+          uname -a
+
       - name: Install build tools
         run: |
+          set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y clang lld make curl unzip git patch file
 
       - name: Fetch exact UnitXP_SP3 v89 source
         run: |
+          set -euxo pipefail
           mkdir upstream
           git -C upstream init
           git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
           git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
           git -C upstream checkout --detach FETCH_HEAD
+          git -C upstream rev-parse HEAD
+          find upstream -maxdepth 2 -type f -print | sort | head -200
           test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
           test -f upstream/Makefile
           test -f upstream/dllmain.cpp
 
       - name: Reassemble and apply Moonstone patch
         run: |
+          set -euxo pipefail
+          ls -l patches
           cat patches/moonstone.part* > moonstone.patch
+          wc -c moonstone.patch
+          sha256sum moonstone.patch
           echo '3a6343c098057f36995042e138ba656950421514d3812bd1dbb094354101c7fa  moonstone.patch' | sha256sum -c -
+          head -20 moonstone.patch
+          patch --dry-run --verbose -p2 -d upstream < moonstone.patch
           patch --batch --forward -p2 -d upstream < moonstone.patch
           test -f upstream/worldMarks.cpp
           test -f upstream/worldMarks.h
@@ -48,6 +71,7 @@ jobs:
 
       - name: Install xwin
         run: |
+          set -euxo pipefail
           XWIN_VERSION=0.9.0
           curl -L --fail --retry 3 \
             "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
@@ -58,10 +82,12 @@ jobs:
 
       - name: Download Microsoft CRT and Windows SDK x86
         run: |
+          set -euxo pipefail
           xwin --accept-license --arch x86 splat --output upstream/xwinSDK
 
       - name: Download Microsoft D3DX headers
         run: |
+          set -euxo pipefail
           curl -L --fail --retry 3 \
             "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" \
             -o d3dx.nupkg
@@ -73,6 +99,7 @@ jobs:
       - name: Build 32-bit DLL
         working-directory: upstream
         run: |
+          set -euxo pipefail
           make clean
           make -j2
           file UnitXP_SP3.dll
@@ -80,6 +107,7 @@ jobs:
 
       - name: Package result
         run: |
+          set -euxo pipefail
           mkdir -p release
           cp upstream/UnitXP_SP3.dll release/
           cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
