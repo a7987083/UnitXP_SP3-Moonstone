@@ -60,7 +60,7 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
 
-      - name: Normalize and apply clean-room patch
+      - name: Normalize and apply clean-room patches
         run: |
           set -euxo pipefail
           sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
@@ -71,8 +71,12 @@ jobs:
           echo 'f994d67b58824fc002a1735243f91226944fc60d3b8e500a1999e66dd33fd7a5  cleanroom/fix-lua-string.patch' | sha256sum -c -
           patch --dry-run -p1 -d upstream < cleanroom/fix-lua-string.patch
           patch --batch --forward -p1 -d upstream < cleanroom/fix-lua-string.patch
+          echo '37a82c9e860c00ddc2fc1c7a41a641b112e35dd7046b80edf7e40b9b734f3e71  cleanroom/render-early.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < cleanroom/render-early.patch
+          patch --batch --forward -p1 -d upstream < cleanroom/render-early.patch
           test -f upstream/moonMarker.cpp
           grep -q 'moonMarker.cpp' upstream/Makefile
+          grep -q 'must not depend on gxDevice_scenePresent' upstream/sceneBegin_sceneEnd.cpp
 
       - name: Configure Windows macro compatibility
         run: |
@@ -123,7 +127,9 @@ jobs:
           cp upstream/MOONMARKER.md release/
           sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
           printf '%s\n' \
-            'MoonMarker clean-room test build.' \
+            'MoonMarker stage-1 test build.' \
+            'Goal: first prove the orthographic beam renders reliably.' \
+            'Distance scaling is intentionally still enabled in this build.' \
             'Replace the DLL only after fully closing the game.' \
             'Install MoonMarker under Interface/AddOns.' \
             'Keep the old working DLL and addon as a backup.' \
@@ -132,7 +138,7 @@ jobs:
       - name: Upload clean-room test package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Cleanroom-x86
+          name: MoonMarker-Stage1-EarlyRender-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
