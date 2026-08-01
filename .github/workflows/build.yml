@@ -54,6 +54,12 @@ jobs:
           test -f upstream/Makefile
           test -f upstream/dllmain.cpp
 
+      - name: Normalize source line endings
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp
+          file upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp
+
       - name: Reassemble and apply Moonstone patch
         run: |
           set -euxo pipefail
