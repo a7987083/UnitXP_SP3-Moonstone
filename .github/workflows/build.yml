@@ -6,12 +6,14 @@ on:
     branches: [main]
     paths:
       - 'patches/**'
+      - 'fixes/**'
       - '.github/workflows/build.yml'
       - 'README.md'
   pull_request:
     branches: [main]
     paths:
       - 'patches/**'
+      - 'fixes/**'
       - '.github/workflows/build.yml'
       - 'README.md'
 
@@ -60,16 +62,20 @@ jobs:
           set -euxo pipefail
           sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp
 
-      - name: Reassemble and apply Moonstone patch
+      - name: Reassemble and apply Moonstone patches
         run: |
           set -euxo pipefail
           cat patches/moonstone.part* > moonstone.patch
           echo '3a6343c098057f36995042e138ba656950421514d3812bd1dbb094354101c7fa  moonstone.patch' | sha256sum -c -
           patch --dry-run -p2 -d upstream < moonstone.patch
           patch --batch --forward -p2 -d upstream < moonstone.patch
+          patch --dry-run -p1 -d upstream < fixes/independent-render.patch
+          patch --batch --forward -p1 -d upstream < fixes/independent-render.patch
           test -f upstream/worldMarks.cpp
           test -f upstream/worldMarks.h
           grep -q 'worldMarks.cpp' upstream/Makefile
+          grep -q 'Ground markers are independent' upstream/sceneBegin_sceneEnd.cpp
+          test "$(grep -c 'worldMarks::draw' upstream/sceneBegin_sceneEnd.cpp)" -eq 1
 
       - name: Configure Windows macro compatibility
         run: |
