@@ -1,0 +1,89 @@
+name: Build UnitXP_SP3 Moonstone DLL
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'patches/**'
+      - '.github/workflows/build.yml'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Moonstone repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make curl unzip git patch file
+
+      - name: Fetch UnitXP_SP3 v89 source
+        run: |
+          git clone --depth 1 --branch v89 https://codeberg.org/konaka/UnitXP_SP3.git upstream
+          test -f upstream/unitxp_sp3/Makefile
+
+      - name: Reassemble and apply Moonstone patch
+        run: |
+          cat patches/moonstone.part* > moonstone.patch
+          echo '3a6343c098057f36995042e138ba656950421514d3812bd1dbb094354101c7fa  moonstone.patch' | sha256sum -c -
+          patch --batch --forward -p1 -d upstream < moonstone.patch
+          test -f upstream/unitxp_sp3/worldMarks.cpp
+          test -f upstream/unitxp_sp3/worldMarks.h
+          grep -q 'worldMarks.cpp' upstream/unitxp_sp3/Makefile
+
+      - name: Install xwin
+        run: |
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --version
+
+      - name: Download Microsoft CRT and Windows SDK x86
+        run: |
+          xwin --accept-license --arch x86 splat --output upstream/unitxp_sp3/xwinSDK
+
+      - name: Download Microsoft D3DX headers
+        run: |
+          curl -L --fail --retry 3 \
+            "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/unitxp_sp3/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/unitxp_sp3/d3d9x_headers/
+          test -f upstream/unitxp_sp3/d3d9x_headers/d3dx9.h
+
+      - name: Build 32-bit DLL
+        working-directory: upstream/unitxp_sp3
+        run: |
+          make clean
+          make -j2
+          file UnitXP_SP3.dll
+          test -f UnitXP_SP3.dll
+
+      - name: Package result
+        run: |
+          mkdir -p release
+          cp upstream/unitxp_sp3/UnitXP_SP3.dll release/
+          cp upstream/unitxp_sp3/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp upstream/unitxp_sp3/MOONSTONE_MARKS.md release/
+          sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
+
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UnitXP_SP3-Moonstone-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
