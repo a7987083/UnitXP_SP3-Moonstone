@@ -11,8 +11,9 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
          }
      }
  
---- a/moonMarker.cpp
-+++ b/moonMarker.cpp
+diff -ruN base/moonMarker.cpp new/moonMarker.cpp
+--- base/moonMarker.cpp	2026-08-01 17:37:09.261550337 +0000
++++ new/moonMarker.cpp	2026-08-01 18:32:26.973670307 +0000
 @@ -11,6 +11,8 @@
  
  #include <Windows.h>
@@ -52,10 +53,9 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 -    matrix._33 = 1.0f;
 -    matrix._44 = 1.0f;
 -}
--
+ 
  } // namespace
  
- bool placeAtCursor(const std::string& colorName, C3Vector& placedPosition, std::string& normalizedColor) {
 @@ -356,31 +363,68 @@
      return written;
  }
@@ -82,6 +82,8 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
          return;
      }
 +
++    // Count every Present-time rendering attempt. This is the stage-1 proof that
++    // the hook is active even when texture loading or projection later fails.
 +    ++gDrawCalls;
 +    gLastPresentDevice = device;
 +
@@ -130,11 +132,13 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
  
      unsigned long projectedThisFrame = 0;
      const float baseHeight = clientHeight * (300.0f / 768.0f);
-@@ -402,36 +446,132 @@
+@@ -402,36 +446,149 @@
              continue;
          }
  
-+        // Stage 1 intentionally retains distance scaling. Stage 2 removes it.
++        // Stage 1 intentionally retains the original-style distance scaling.
++        // Stage 2 will remove this entire perspective calculation and use a fixed
++        // screen-space width/height at every distance.
          const float perspective = clampFloat(18.0f / std::max(distance, 1.0f), 0.34f, 1.45f);
          const float pulse = 0.985f + 0.015f * std::sin(timeSeconds * 1.75f + static_cast<float>(i));
          const float heightPixels = baseHeight * perspective * pulse;
@@ -167,7 +171,10 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 +        };
 +
 +        if (SUCCEEDED(device->DrawPrimitiveUP(
-+                D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(MarkerVertex)))) {
++                D3DPT_TRIANGLESTRIP,
++                2,
++                vertices,
++                sizeof(MarkerVertex)))) {
 +            ++projectedThisFrame;
 +        }
      }
@@ -176,28 +183,49 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 -    sprite->SetTransform(&previousTransform);
 -    ++gDrawCalls;
 +    device->SetTexture(0, oldTexture);
-+    if (oldTexture != nullptr) oldTexture->Release();
-+    if (oldFVF != 0) device->SetFVF(oldFVF);
++    if (oldTexture != nullptr) {
++        oldTexture->Release();
++    }
++    if (oldFVF != 0) {
++        device->SetFVF(oldFVF);
++    }
 +    device->SetRenderState(D3DRS_DESTBLEND, oldDestinationBlend);
 +    device->SetRenderState(D3DRS_SRCBLEND, oldSourceBlend);
 +    device->SetRenderState(D3DRS_ALPHABLENDENABLE, oldAlphaBlend);
++
      gProjectedMarks = projectedThisFrame;
  }
  
 -void shutdown() {
-+HRESULT WINAPI hookedPresent(IDirect3DDevice9* device, const RECT* sourceRect,
-+    const RECT* destinationRect, HWND destinationWindow, const RGNDATA* dirtyRegion) {
++HRESULT WINAPI hookedPresent(
++    IDirect3DDevice9* device,
++    const RECT* sourceRect,
++    const RECT* destinationRect,
++    HWND destinationWindow,
++    const RGNDATA* dirtyRegion) {
 +    renderPresent(device);
++
 +    PresentProc original = gOriginalPresent;
-+    if (original == nullptr) return D3DERR_INVALIDCALL;
++    if (original == nullptr) {
++        return D3DERR_INVALIDCALL;
++    }
 +    return original(device, sourceRect, destinationRect, destinationWindow, dirtyRegion);
 +}
 +
 +bool writePresentSlot(void** slot, void* value) {
-+    if (slot == nullptr) return false;
++    if (slot == nullptr) {
++        return false;
++    }
++
 +    DWORD oldProtection = 0;
-+    if (!VirtualProtect(slot, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtection)) return false;
-+    InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(slot), value);
++    if (!VirtualProtect(slot, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtection)) {
++        return false;
++    }
++
++    InterlockedExchangePointer(
++        reinterpret_cast<PVOID volatile*>(slot),
++        value);
++
 +    DWORD ignoredProtection = 0;
 +    VirtualProtect(slot, sizeof(void*), oldProtection, &ignoredProtection);
 +    FlushInstructionCache(GetCurrentProcess(), slot, sizeof(void*));
@@ -207,9 +235,14 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 +} // namespace
 +
 +bool installPresentHook(IDirect3DDevice9* device) {
-+    if (device == nullptr) return false;
++    if (device == nullptr) {
++        return false;
++    }
++
 +    void*** object = reinterpret_cast<void***>(device);
-+    if (object == nullptr || *object == nullptr) return false;
++    if (object == nullptr || *object == nullptr) {
++        return false;
++    }
 +
 +    void** presentSlot = &(*object)[17];
 +    if (gPresentHookInstalled && gPresentVtableSlot == presentSlot
@@ -218,6 +251,8 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 +        return true;
 +    }
 +
++    // A recreated D3D device normally shares the same vtable. If it does not,
++    // restore the previous slot before attaching to the new one.
 +    if (gPresentHookInstalled && gPresentVtableSlot != nullptr
 +        && gOriginalPresent != nullptr
 +        && *gPresentVtableSlot == reinterpret_cast<void*>(&hookedPresent)) {
@@ -225,7 +260,10 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 +    }
 +
 +    PresentProc candidate = reinterpret_cast<PresentProc>(*presentSlot);
-+    if (candidate == nullptr || candidate == &hookedPresent) return false;
++    if (candidate == nullptr || candidate == &hookedPresent) {
++        return false;
++    }
++
 +    gOriginalPresent = candidate;
 +    gPresentVtableSlot = presentSlot;
 +    if (!writePresentSlot(presentSlot, reinterpret_cast<void*>(&hookedPresent))) {
@@ -234,6 +272,7 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 +        gPresentHookInstalled = false;
 +        return false;
 +    }
++
 +    gPresentHookInstalled = true;
 +    gLastPresentDevice = device;
 +    ensureTexture(device);
@@ -247,18 +286,20 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
 +
 +void shutdown() {
 +    releaseDeviceResources();
++
 +    if (gPresentHookInstalled && gPresentVtableSlot != nullptr
 +        && gOriginalPresent != nullptr
 +        && *gPresentVtableSlot == reinterpret_cast<void*>(&hookedPresent)) {
 +        writePresentSlot(gPresentVtableSlot, reinterpret_cast<void*>(gOriginalPresent));
 +    }
++
 +    gOriginalPresent = nullptr;
 +    gPresentVtableSlot = nullptr;
 +    gPresentHookInstalled = false;
      gCreateTextureFromFileA = nullptr;
      if (gD3dxModule != nullptr) {
          FreeLibrary(gD3dxModule);
-@@ -444,6 +584,7 @@
+@@ -444,6 +601,7 @@
      result.drawCalls = gDrawCalls;
      result.projectedMarks = gProjectedMarks;
      result.textureLoaded = gTexture != nullptr;
@@ -268,35 +309,40 @@ diff -ruN base/dllmain.cpp new/dllmain.cpp
  
 diff -ruN base/moonMarker.h new/moonMarker.h
 --- base/moonMarker.h	2026-08-01 17:37:09.261550337 +0000
-+++ new/moonMarker.h	2026-08-01 18:31:45.273668799 +0000
-@@ -3,10 +3,8 @@
- #include <cstddef>
++++ new/moonMarker.h	2026-08-01 18:31:45.269668799 +0000
+@@ -4,7 +4,6 @@
  #include <string>
  
  #include <d3d9.h>
 -#include <d3dx9.h>
  
  #include "Vanilla1121_functions.h"
--
- namespace moonMarker {
-@@ -18,6 +16,7 @@
+ 
+@@ -19,6 +18,7 @@
      unsigned long drawCalls;
      unsigned long projectedMarks;
      bool textureLoaded;
 +    bool presentHookInstalled;
  };
-@@ -31,11 +30,12 @@
+ 
+ // Places or replaces one color marker at the ground position under the cursor.
+@@ -31,11 +31,15 @@
  std::size_t count();
  std::size_t snapshot(MarkInfo* output, std::size_t capacity);
  
 -// Called at the beginning of the game's presenting sceneEnd hook. Rendering is
 -// independent from the floating-combat-text font initialization path.
 -void render(ID3DXSprite* sprite, IDirect3DDevice9* device);
-+// Hook IDirect3DDevice9::Present (vtable slot 17), like the working marker DLL.
++// Installs the same kind of orthographic overlay hook used by the known-working
++// marker DLL: IDirect3DDevice9 vtable slot 17 (Present).
 +bool installPresentHook(IDirect3DDevice9* device);
++
++// Releases resources owned by the current Direct3D device but keeps the Present
++// hook installed so a recreated device can be picked up automatically.
++void releaseDeviceResources();
  
 -// Releases texture state. Safe to call multiple times.
-+void releaseDeviceResources();
++// Releases device resources and restores the original Present vtable entry.
  void shutdown();
  RenderStatus status();
  
@@ -309,19 +355,38 @@ diff -ruN base/sceneBegin_sceneEnd.cpp new/sceneBegin_sceneEnd.cpp
  void scene_unloadSprite() {
 -    moonMarker::shutdown();
 +    moonMarker::releaseDeviceResources();
+     if (scene_sprite != NULL) {
+         scene_sprite->Release();
+         scene_sprite = NULL;
 @@ -283,6 +283,7 @@
  }
  
  void scene_end() {
 +    moonMarker::shutdown();
      scene_unload();
+     scene_isEnabled = false;
+ }
 @@ -426,6 +427,11 @@
          return;
      }
-+
-+    moonMarker::installPresentHook(gDevice);
  
++    // The known-working marker implementation patches IDirect3DDevice9::Present
++    // (vtable slot 17) and draws an orthographic XYZRHW quad immediately before
++    // the real Present call. Install that hook as soon as a valid device exists.
++    moonMarker::installPresentHook(gDevice);
++
      uintptr_t ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
+     retAddressCheck(ret);
+ 
 @@ -528,11 +534,6 @@
+             return;
+         }
+ 
+-        // MoonMarker is intentionally rendered before all font checks. The marker
+-        // system requires only the valid D3DX sprite/device and remains available
+-        // when floating combat text fonts are disabled or still reloading.
 -        moonMarker::render(scene_sprite, scene_lastDXdevice);
 -
+         if (scene_fallback == NULL || scene_fallbackBIG == NULL || scene_fallbackSmall == NULL || scene_fallbackHUGE == NULL
+             || scene_selected == NULL || scene_selectedBIG == NULL || scene_selectedSmall == NULL || scene_selectedHUGE == NULL) {
+             scene_needReloadFont = true;
