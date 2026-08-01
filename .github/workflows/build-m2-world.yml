@@ -1,0 +1,131 @@
+name: Build MoonMarker Original M2 World Edition
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cleanroom-v1]
+    paths:
+      - 'cleanroom/m2-world-*.patch'
+      - '.github/workflows/build-m2-world.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Decode clean-room bundle
+        run: |
+          set -euxo pipefail
+          mkdir cleanroom_input
+          cat cleanroom/bundle.part00 cleanroom/bundle.part01 cleanroom/bundle.part02 cleanroom/bundle.part03 | base64 -d > cleanroom_bundle.zip
+          echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
+          unzip -q cleanroom_bundle.zip -d cleanroom_input
+
+      - name: Install Clang 19 and build tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+      - name: Fetch UnitXP_SP3 v89 source
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+
+      - name: Apply marker and M2 projection patches
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+          sed -i '1s/^\xEF\xBB\xBF//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+
+          echo 'c51d0d4c70d010263618d5dcdd48bb11f80ad04ef02feb483bfc3c085ffcd02b  cleanroom_input/MoonMarker_Cleanroom.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
+          echo 'f994d67b58824fc002a1735243f91226944fc60d3b8e500a1999e66dd33fd7a5  cleanroom/fix-lua-string.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/fix-lua-string.patch
+          echo '96f3f255313d80c70cd73b2a8317aba35516e3b46a064185af3352274f926ec8  cleanroom/present-hook.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/present-hook.patch
+          echo '05f54024fcc705954492c225734e8237b8c689637e6daded5a3ab99ab6b29fe5  cleanroom/fix-placement-projection.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/fix-placement-projection.patch
+          echo 'bbe682f9476a4c1b73eded98c1e904632714531b715508d4fe4d00c3fcfff91b  cleanroom/addon-status.patch' | sha256sum -c -
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+          echo 'a8ece6f39d35099498593c4b844c564f4f1c6cf97a2907c51020794d463a5dc1  cleanroom/stage2-moonstone.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/stage2-moonstone.patch
+
+          echo '23bbf4021773ea54835246a13f5702373fd17d541ea08a7cc33a9d52ab6eaa76  cleanroom/m2-world-dll.patch' | sha256sum -c -
+          patch --dry-run -p2 -d upstream < cleanroom/m2-world-dll.patch
+          patch --batch -p2 -d upstream < cleanroom/m2-world-dll.patch
+          echo '56209afc4668563a11e10ab2ad065ed05c525875fd4ccda29fb0bad768a00283  cleanroom/m2-world-addon.patch' | sha256sum -c -
+          patch --dry-run -p2 -d cleanroom_input/addon < cleanroom/m2-world-addon.patch
+          patch --batch -p2 -d cleanroom_input/addon < cleanroom/m2-world-addon.patch
+
+          grep -Fq 'MoonMarker.Projected' upstream/dllmain.cpp
+          grep -Fq 'screenSnapshot' upstream/moonMarker.cpp
+          grep -Fq 'kDrawTextureApproximation = false' upstream/moonMarker.cpp
+          grep -Fq 'Spells\\MoonBeam_Impact_Base.mdx' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+
+      - name: Configure Windows compatibility
+        run: sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' upstream/Makefile
+
+      - name: Install xwin and Windows SDK
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download D3DX headers
+        run: |
+          curl -L --fail --retry 3 "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+
+      - name: Build 32-bit DLL
+        working-directory: upstream
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+
+      - name: Package original M2 world edition
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp -a cleanroom_input/addon/MoonMarker release/
+          sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
+          printf '%s\n' \
+            'MoonMarker Original M2 World Edition.' \
+            'Uses client model Spells\\MoonBeam_Impact_Base.mdx.' \
+            'The old screen-space texture approximation is disabled.' \
+            'Model size is fixed and does not use distance depth simulation.' \
+            > release/TESTING.txt
+
+      - name: Upload test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Original-M2-World-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
