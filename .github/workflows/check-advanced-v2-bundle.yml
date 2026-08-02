@@ -1,0 +1,36 @@
+name: Check Advanced V2 Bundle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['agent/guild-auth-gate']
+    paths:
+      - 'cleanroom/advanced-v2.fixed.part*'
+      - '.github/workflows/check-advanced-v2-bundle.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check every source part
+        run: |
+          set -euxo pipefail
+          wc -c cleanroom/advanced-v2.fixed.part*
+          sha256sum cleanroom/advanced-v2.fixed.part*
+          cat > expected.txt <<'EOF'
+          e8843a2cf7885facc9c948b3a6f2da988773cadd07e536979870e341bb73a5a4  cleanroom/advanced-v2.fixed.part00
+          5063352e00617bba6f5858ac0279680c8fde4b9c2cd08f2ffdd442ae53cda74c  cleanroom/advanced-v2.fixed.part01
+          06e865dd56dfa2dbd895e7726b157ee118afcb534c9d8b232ca2f649e73f9882  cleanroom/advanced-v2.fixed.part02
+          ba9f8e289786b277cae95f25e1628bcd6adadab73c08a1f2673a9a8ff7bc986c  cleanroom/advanced-v2.fixed.part03
+          b6931baedb42bf729792b34a6e3398c62138e64691d3f0f398b0dfdd5619d361  cleanroom/advanced-v2.fixed.part04
+          f67528b28b1fb507794830346feef4d0be609df7a4d2254e186498ef6655474b  cleanroom/advanced-v2.fixed.part05
+          6ead9d1ae02c6d96a2854726d968b94b1dcbbd857d20cdd17ada5c47e6400165  cleanroom/advanced-v2.fixed.part06
+          EOF
+          sha256sum -c expected.txt
+          cat cleanroom/advanced-v2.fixed.part00 cleanroom/advanced-v2.fixed.part01 cleanroom/advanced-v2.fixed.part02 cleanroom/advanced-v2.fixed.part03 cleanroom/advanced-v2.fixed.part04 cleanroom/advanced-v2.fixed.part05 cleanroom/advanced-v2.fixed.part06 | base64 -d > advanced-v2.tar.xz
+          echo 'bb817eb41f64ccea39e5c35119f367146e2ba554597ace2bcb7fa07b6e857e1f  advanced-v2.tar.xz' | sha256sum -c -
+          xz -t advanced-v2.tar.xz
