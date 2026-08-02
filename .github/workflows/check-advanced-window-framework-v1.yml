@@ -6,7 +6,9 @@ on:
     branches: ['agent/guild-auth-gate']
     paths:
       - 'cleanroom/advanced-window-framework-v1/**'
+      - 'cleanroom/advanced-model-scale-v1/**'
       - 'cleanroom/apply_advanced_window_framework_v1.py'
+      - 'cleanroom/apply_advanced_model_scale_v1.py'
       - 'cleanroom/apply_fubar_v1.py'
       - 'cleanroom/fubar-v1/FuBar.lua'
       - '.github/workflows/check-advanced-window-framework-v1.yml'
@@ -14,7 +16,9 @@ on:
     branches: [cleanroom-v1]
     paths:
       - 'cleanroom/advanced-window-framework-v1/**'
+      - 'cleanroom/advanced-model-scale-v1/**'
       - 'cleanroom/apply_advanced_window_framework_v1.py'
+      - 'cleanroom/apply_advanced_model_scale_v1.py'
       - 'cleanroom/apply_fubar_v1.py'
       - 'cleanroom/fubar-v1/FuBar.lua'
       - '.github/workflows/check-advanced-window-framework-v1.yml'
@@ -67,6 +71,7 @@ jobs:
 
           python3 -m py_compile \
             cleanroom/apply_advanced_window_framework_v1.py \
+            cleanroom/apply_advanced_model_scale_v1.py \
             cleanroom/apply_fubar_v1.py
           python3 cleanroom/apply_fubar_v1.py \
             --addon fixture \
@@ -75,11 +80,13 @@ jobs:
           luac5.1 -p fixture/MoonMarker/MoonMarker.lua
           luac5.1 -p fixture/MoonMarker/GuildAdvanced.lua
           luac5.1 -p fixture/MoonMarker/AdvancedEditorFramework.lua
+          luac5.1 -p fixture/MoonMarker/AdvancedModelScale.lua
           luac5.1 -p fixture/MoonMarker/FuBar.lua
 
-          grep -Fq '## Version: 0.3.0-test' fixture/MoonMarker/MoonMarker.toc
+          grep -Fq '## Version: 0.3.1-test' fixture/MoonMarker/MoonMarker.toc
           grep -Fq 'GuildAdvanced.lua' fixture/MoonMarker/MoonMarker.toc
           grep -Fq 'AdvancedEditorFramework.lua' fixture/MoonMarker/MoonMarker.toc
+          grep -Fq 'AdvancedModelScale.lua' fixture/MoonMarker/MoonMarker.toc
           grep -Fq 'FuBar.lua' fixture/MoonMarker/MoonMarker.toc
           grep -Fq 'MoonMarkerAdvancedEditorFrame' fixture/MoonMarker/AdvancedEditorFramework.lua
           grep -Fq 'MoonMarkerDB.advancedLocalPreview' fixture/MoonMarker/AdvancedEditorFramework.lua
@@ -92,9 +99,22 @@ jobs:
           grep -Fq 'label = "预设"' fixture/MoonMarker/AdvancedEditorFramework.lua
           grep -Fq 'label = "设置诊断"' fixture/MoonMarker/AdvancedEditorFramework.lua
           grep -Fq 'SLASH_MOONMARKERADVANCED1 = "/mmadvanced"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'MoonMarkerAdvancedScaleMinus' fixture/MoonMarker/AdvancedModelScale.lua
+          grep -Fq 'MoonMarkerAdvancedScaleReset' fixture/MoonMarker/AdvancedModelScale.lua
+          grep -Fq 'MoonMarkerAdvancedScalePlus' fixture/MoonMarker/AdvancedModelScale.lua
+          grep -Fq 'SCALE_MIN = 0.10' fixture/MoonMarker/AdvancedModelScale.lua
+          grep -Fq 'SCALE_MAX = 5.00' fixture/MoonMarker/AdvancedModelScale.lua
+          grep -Fq 'function MoonMarker_AdvancedGetTransform()' fixture/MoonMarker/GuildAdvanced.lua
+          grep -Fq 'function MoonMarker_AdvancedSetTransform(scale, yaw)' fixture/MoonMarker/GuildAdvanced.lua
+          grep -Fq 'SAVED_FOR_NEXT_PREVIEW' fixture/MoonMarker/GuildAdvanced.lua
           grep -Fq 'MoonMarker_OpenAdvancedEditor' fixture/MoonMarker/FuBar.lua
           ! grep -Fq 'SendAddonMessage(' fixture/MoonMarker/AdvancedEditorFramework.lua
           ! grep -Fq 'MoonMarker.Remote' fixture/MoonMarker/AdvancedEditorFramework.lua
           ! grep -Fq 'MoonMarker.Clear' fixture/MoonMarker/AdvancedEditorFramework.lua
           ! grep -Fq 'SYNCREQ' fixture/MoonMarker/AdvancedEditorFramework.lua
           ! grep -Fq 'TEAM_SYNC_INTERVAL' fixture/MoonMarker/AdvancedEditorFramework.lua
+          ! grep -Fq 'SendAddonMessage(' fixture/MoonMarker/AdvancedModelScale.lua
+          ! grep -Fq 'MoonMarker.Remote' fixture/MoonMarker/AdvancedModelScale.lua
+          ! grep -Fq 'MoonMarker.Clear' fixture/MoonMarker/AdvancedModelScale.lua
+          ! grep -Fq 'SYNCREQ' fixture/MoonMarker/AdvancedModelScale.lua
+          ! grep -Fq 'TEAM_SYNC_INTERVAL' fixture/MoonMarker/AdvancedModelScale.lua
