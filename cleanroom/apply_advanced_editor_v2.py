@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install MoonMarker advanced editor V2, FuBar, and advanced core guards."""
+"""Install MoonMarker advanced editor V2, FuBar, core guards, and logout safety."""
 
 from __future__ import annotations
 
@@ -125,6 +125,15 @@ def main() -> None:
         check=True,
     )
 
+    subprocess.run(
+        [
+            sys.executable,
+            str(cleanroom_dir / "apply_logout_safety_v1.py"),
+            "--upstream", str(upstream),
+        ],
+        check=True,
+    )
+
     checks = {
         auth_path: (
             "isPublicCommand",
@@ -142,6 +151,9 @@ def main() -> None:
             "setAdvancedPreviewPosition",
             "observeWorldContext",
             "NATIVE_CLEAR_ALL",
+            "safeWorldToScreen",
+            "world_not_ready_drop_without_release",
+            "cleared_all_world_not_ready",
         ),
         upstream / "MoonMarkerAdvancedState.h": (
             "struct MarkerDefinition",
