@@ -3,6 +3,7 @@
 
 MoonMarkerDB = MoonMarkerDB or {}
 
+local ADDON_TITLE = "光柱测试板-由太阳神殿-yanz"
 local PREFIX = "MOONMARK"
 local colors = {
     { key = "red",    label = "红", r = 1.00, g = 0.18, b = 0.18 },
@@ -36,12 +37,33 @@ local selectedMarker = MoonMarkerDB.selectedMarker or "skull"
 if not colorByKey[selectedColor] then selectedColor = "white" end
 if not markerByKey[selectedMarker] then selectedMarker = "skull" end
 
+BINDING_HEADER_MOONMARKER = ADDON_TITLE
+BINDING_NAME_MOONMARKER_PLACE = "放置当前颜色和标记"
+BINDING_NAME_MOONMARKER_CLEAR = "清除全部光柱和标记"
+BINDING_NAME_MOONMARKER_COLOR_PREV = "选择上一个颜色"
+BINDING_NAME_MOONMARKER_COLOR_NEXT = "选择下一个颜色"
+BINDING_NAME_MOONMARKER_MARKER_PREV = "选择上一个标记"
+BINDING_NAME_MOONMARKER_MARKER_NEXT = "选择下一个标记"
+BINDING_NAME_MOONMARKER_TOGGLE = "显示或隐藏测试板"
+
 local function Print(message)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff91cfff[MoonMarker]|r " .. tostring(message))
+    DEFAULT_CHAT_FRAME:AddMessage("|cff91cfff[光柱测试板]|r " .. tostring(message))
 end
 
 local function HasDLL()
     return type(UnitXP) == "function"
+end
+
+local function NormalizeName(name)
+    name = string.lower(tostring(name or ""))
+    local dash = string.find(name, "-", 1, true)
+    if dash then name = string.sub(name, 1, dash - 1) end
+    return name
+end
+
+local function SameName(a, b)
+    local left = NormalizeName(a)
+    return left ~= "" and left == NormalizeName(b)
 end
 
 local function GroupChannel()
@@ -57,6 +79,32 @@ local function CanBroadcast()
         return (IsPartyLeader("player") == 1) or (IsRaidOfficer and IsRaidOfficer() == 1)
     end
     return IsPartyLeader("player") == 1
+end
+
+local function SenderCanControl(sender)
+    if not sender then return false end
+    if SameName(sender, UnitName("player")) then return CanBroadcast() end
+
+    if GetNumRaidMembers and GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
+            local name, rank = GetRaidRosterInfo(i)
+            if SameName(sender, name) then return (rank or 0) >= 1 end
+        end
+        return false
+    end
+
+    if GetNumPartyMembers and GetNumPartyMembers() > 0 then
+        local leaderIndex = GetPartyLeaderIndex and GetPartyLeaderIndex() or -1
+        if leaderIndex == 0 then return SameName(sender, UnitName("player")) end
+        if leaderIndex and leaderIndex > 0 then
+            return SameName(sender, UnitName("party" .. leaderIndex))
+        end
+        for i = 1, GetNumPartyMembers() do
+            local unit = "party" .. i
+            if SameName(sender, UnitName(unit)) and IsPartyLeader(unit) == 1 then return true end
+        end
+    end
+    return false
 end
 
 local function Broadcast(payload)
@@ -81,25 +129,44 @@ local function RefreshSelection()
     for key, button in pairs(markerButtons) do
         button:SetAlpha(key == selectedMarker and 1.0 or 0.48)
     end
-    if title then
-        local c = colorByKey[selectedColor]
-        local m = markerByKey[selectedMarker]
-        title:SetText("MoonMarker  " .. (c and c.label or selectedColor) .. "色 + " .. (m and m.name or selectedMarker))
-    end
+    if title then title:SetText(ADDON_TITLE) end
 end
 
-local function SelectColor(color)
+local function SelectColor(color, announce)
     if not colorByKey[color] then return end
     selectedColor = color
     SaveSelection()
     RefreshSelection()
+    if announce then Print("当前颜色：" .. colorByKey[color].label .. "色") end
 end
 
-local function SelectMarker(marker)
+local function SelectMarker(marker, announce)
     if not markerByKey[marker] then return end
     selectedMarker = marker
     SaveSelection()
     RefreshSelection()
+    if announce then Print("当前标记：" .. markerByKey[marker].name) end
+end
+
+local function FindIndex(list, key)
+    for i, info in ipairs(list) do
+        if info.key == key then return i end
+    end
+    return 1
+end
+
+local function CycleColor(step)
+    local index = FindIndex(colors, selectedColor) + step
+    if index < 1 then index = table.getn(colors) end
+    if index > table.getn(colors) then index = 1 end
+    SelectColor(colors[index].key, true)
+end
+
+local function CycleMarker(step)
+    local index = FindIndex(markers, selectedMarker) + step
+    if index < 1 then index = table.getn(markers) end
+    if index > table.getn(markers) then index = 1 end
+    SelectMarker(markers[index].key, true)
 end
 
 local function Place(color, marker)
@@ -107,45 +174,61 @@ local function Place(color, marker)
     marker = string.lower(marker or selectedMarker)
     if not colorByKey[color] then
         Print("未知颜色：" .. tostring(color))
-        return
+        return false
     end
     if not markerByKey[marker] then
         Print("未知标记：" .. tostring(marker))
-        return
+        return false
     end
     if not HasDLL() then
         Print("未检测到新版 UnitXP_SP3.dll")
-        return
+        return false
     end
     if GroupChannel() and not CanBroadcast() then
-        Print("只有队长、团长或助理可以同步光柱")
-        return
+        Print("只有小队队长、团长或团队助理可以放置光柱")
+        return false
     end
 
     local ok, x, y, z, normalizedColor, normalizedMarker =
         pcall(UnitXP, "MoonMarker.Place", color, marker)
     if not ok then
         Print("DLL 调用失败：" .. tostring(x))
-        return
+        return false
     end
     if not x then
         Print("鼠标下没有可放置的地面")
-        return
+        return false
     end
 
     normalizedColor = normalizedColor or color
     normalizedMarker = normalizedMarker or marker
-    SelectColor(normalizedColor)
-    SelectMarker(normalizedMarker)
+    SelectColor(normalizedColor, false)
+    SelectMarker(normalizedMarker, false)
     Broadcast(string.format("PLACE %s %s %.5f %.5f %.5f",
         normalizedColor, normalizedMarker, x, y, z))
-    Print("已放置：" .. normalizedColor .. " + " .. normalizedMarker)
+    Print("已放置：" .. colorByKey[normalizedColor].label .. "色 + " .. markerByKey[normalizedMarker].name)
+    return true
 end
 
 local function Clear(send)
+    if GroupChannel() and not CanBroadcast() then
+        Print("只有小队队长、团长或团队助理可以清除光柱")
+        return false
+    end
     if HasDLL() then pcall(UnitXP, "MoonMarker.Clear") end
     if send then Broadcast("CLEAR") end
     Print("已清除全部光柱和标记")
+    return true
+end
+
+local function ToggleFrame()
+    if frame:IsShown() then
+        frame:Hide()
+        MoonMarkerDB.hidden = true
+    else
+        frame:Show()
+        MoonMarkerDB.hidden = false
+    end
 end
 
 local function Status()
@@ -160,8 +243,9 @@ local function Status()
     end
     local okM2, m2 = pcall(UnitXP, "M2Status")
     local active = okM2 and m2 and m2.activeCount or "?"
-    Print(string.format("记录=%s，原生M2=%s，Present钩子=%s，图标投影=%s",
-        tostring(count), tostring(active), hook and "已安装" or "未安装", tostring(projected)))
+    Print(string.format("记录=%s，原生M2=%s，Present钩子=%s，图标投影=%s，当前=%s色+%s",
+        tostring(count), tostring(active), hook and "已安装" or "未安装", tostring(projected),
+        colorByKey[selectedColor].label, markerByKey[selectedMarker].name))
 end
 
 frame = CreateFrame("Frame", "MoonMarkerFrame", UIParent)
@@ -192,6 +276,7 @@ border:SetTexture(0.15, 0.28, 0.48, 0.42)
 
 title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 title:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 4, 2)
+title:SetText(ADDON_TITLE)
 
 local function MakeColorButton(index, info)
     local button = CreateFrame("Button", "MoonMarkerColorButton" .. index, frame)
@@ -204,7 +289,7 @@ local function MakeColorButton(index, info)
     local text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     text:SetPoint("CENTER", button, "CENTER", 0, 0)
     text:SetText(info.label)
-    button:SetScript("OnClick", function() SelectColor(info.key) end)
+    button:SetScript("OnClick", function() SelectColor(info.key, false) end)
     button:SetScript("OnEnter", function()
         GameTooltip:SetOwner(this, "ANCHOR_TOP")
         GameTooltip:SetText("选择" .. info.label .. "色")
@@ -225,7 +310,7 @@ local function MakeMarkerButton(index, info)
     local text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     text:SetPoint("CENTER", button, "CENTER", 0, 0)
     text:SetText(info.label)
-    button:SetScript("OnClick", function() SelectMarker(info.key) end)
+    button:SetScript("OnClick", function() SelectMarker(info.key, false) end)
     button:SetScript("OnEnter", function()
         GameTooltip:SetOwner(this, "ANCHOR_TOP")
         GameTooltip:SetText("选择" .. info.name .. "标记")
@@ -264,6 +349,14 @@ clearButton:SetScript("OnClick", function() Clear(true) end)
 
 RefreshSelection()
 
+function MoonMarker_BindingPlace() Place(selectedColor, selectedMarker) end
+function MoonMarker_BindingClear() Clear(true) end
+function MoonMarker_BindingColorPrevious() CycleColor(-1) end
+function MoonMarker_BindingColorNext() CycleColor(1) end
+function MoonMarker_BindingMarkerPrevious() CycleMarker(-1) end
+function MoonMarker_BindingMarkerNext() CycleMarker(1) end
+function MoonMarker_BindingToggle() ToggleFrame() end
+
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("VARIABLES_LOADED")
 eventFrame:RegisterEvent("CHAT_MSG_ADDON")
@@ -279,9 +372,10 @@ eventFrame:SetScript("OnEvent", function()
         selectedMarker = MoonMarkerDB.selectedMarker or selectedMarker
         if not colorByKey[selectedColor] then selectedColor = "white" end
         if not markerByKey[selectedMarker] then selectedMarker = "skull" end
+        SaveSelection()
         RefreshSelection()
         if MoonMarkerDB.hidden then frame:Hide() end
-        Print("已加载：8种颜色 × 8个标记。/mmark red skull 可直接放置")
+        Print("已加载。可在按键设置的“" .. ADDON_TITLE .. "”分类中自定义按键")
         return
     end
 
@@ -289,7 +383,15 @@ eventFrame:SetScript("OnEvent", function()
         local prefix, message, channel, sender = arg1, arg2, arg3, arg4
         if prefix ~= PREFIX or not HasDLL() then return end
         local playerName = UnitName("player")
-        if sender and playerName and string.lower(sender) == string.lower(playerName) then return end
+        if sender and playerName and SameName(sender, playerName) then return end
+
+        if not SenderCanControl(sender) then
+            if message == "CLEAR" or string.find(message or "", "^PLACE%s+") then
+                Print("已忽略无权限成员 " .. tostring(sender) .. " 的团队光柱操作")
+            end
+            return
+        end
+
         if message == "CLEAR" then
             pcall(UnitXP, "MoonMarker.Clear")
             return
@@ -320,13 +422,7 @@ SlashCmdList["MOONMARKER"] = function(message)
     command = string.gsub(command, "%s+$", "")
 
     if command == "" or command == "toggle" then
-        if frame:IsShown() then
-            frame:Hide()
-            MoonMarkerDB.hidden = true
-        else
-            frame:Show()
-            MoonMarkerDB.hidden = false
-        end
+        ToggleFrame()
     elseif command == "clear" then
         Clear(true)
     elseif command == "status" then
