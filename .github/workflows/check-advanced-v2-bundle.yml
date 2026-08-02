@@ -7,6 +7,11 @@ on:
     paths:
       - 'cleanroom/advanced-v2.fixed.part*'
       - '.github/workflows/check-advanced-v2-bundle.yml'
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - 'cleanroom/advanced-v2.fixed.part*'
+      - '.github/workflows/check-advanced-v2-bundle.yml'
 
 permissions:
   contents: read
