@@ -40,12 +40,18 @@ function MoonMarker_FuBarEntry:OnClick()
     if arg1 == "LeftButton" then
         MoonMarker_FuBarTogglePanel()
     elseif arg1 == "RightButton" then
-        MoonMarker_FuBarPrint("左键：显示/隐藏光柱面板。也可以在按键设置中绑定。")
+        if type(MoonMarker_OpenAdvancedEditor) == "function" then
+            if not MoonMarker_OpenAdvancedEditor() then
+                MoonMarker_FuBarPrint("未通过高级编辑器 DLL 授权。")
+            end
+        else
+            MoonMarker_FuBarPrint("高级编辑器尚未加载。")
+        end
     end
 end
 
 local function MoonMarker_PrintFuBarStatus()
-    MoonMarker_FuBarPrint("FuBar入口已创建。左键可显示/隐藏光柱面板。")
+    MoonMarker_FuBarPrint("FuBar入口已创建。左键显示/隐藏光柱面板，右键打开高级标记编辑器。")
 end
 
 SlashCmdList["MOONMARKERFUBAR"] = MoonMarker_PrintFuBarStatus
