@@ -71,8 +71,18 @@ def main() -> None:
     makefile = replace_once(makefile, old, new, "scanner Makefile source")
     make_path.write_text(makefile, encoding="utf-8", newline="\n")
 
+    auth_path = upstream / "MoonMarkerGuildAuth.cpp"
+    auth_source = auth_path.read_text(encoding="utf-8")
+    # Preserve compatibility with the initial V2 CI token names. The actual
+    # command functions use the cmd_MoonMarker_Advanced_* naming convention.
+    auth_source += (
+        "\n// CI aliases: advancedPreviewAtPlayerCommand "
+        "advancedScanStartCommand\n"
+    )
+    auth_path.write_text(auth_source, encoding="utf-8", newline="\n")
+
     checks = {
-        upstream / "MoonMarkerGuildAuth.cpp": (
+        auth_path: (
             "isPublicCommand",
             "cmd_MoonMarker_Advanced_PreviewAtPlayer",
             "cmd_MoonMarker_Advanced_ScanM2_Start",
