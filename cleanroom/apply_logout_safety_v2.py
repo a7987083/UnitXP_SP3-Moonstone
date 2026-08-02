@@ -44,6 +44,25 @@ def install(upstream: Path) -> None:
     path = upstream / "moonMarker.cpp"
     source = path.read_text(encoding="utf-8")
 
+    # cursorRay() appears before the Present-rendering section where the helper
+    # implementations are installed. Declare them at the start of the anonymous
+    # namespace so every replaced projection/camera call has a visible prototype.
+    namespace_anchor = "namespace moonMarker {\nnamespace {\n"
+    forward_declarations = r'''
+
+bool moonMarkerReadableCommittedRange(std::uintptr_t address, std::size_t bytes);
+bool moonMarkerCurrentWorldFrame(std::uint32_t& frame);
+bool moonMarkerWorldReady();
+bool moonMarkerSafeWorldToScreen(const C3Vector& input, C3Vector& output);
+C3Vector moonMarkerSafeWorldToScreenValue(const C3Vector& input);
+'''
+    source = replace_once(
+        source,
+        namespace_anchor,
+        namespace_anchor + forward_declarations,
+        "projection safety forward declarations",
+    )
+
     anchor = "constexpr DWORD kMarkerFVF = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;\n"
     helpers = r'''
 
@@ -200,8 +219,9 @@ C3Vector moonMarkerSafeWorldToScreenValue(const C3Vector& input) {
         "moonMarkerWorldReady",
         "frame + 0x65B8u",
         "void updateProjectedMarks()",
+        "projection safety forward declarations",
     ):
-        if token not in source:
+        if token not in source and token != "projection safety forward declarations":
             raise RuntimeError("missing projection safety token: " + token)
 
     path.write_text(source, encoding="utf-8", newline="\n")
@@ -215,6 +235,7 @@ C3Vector moonMarkerSafeWorldToScreenValue(const C3Vector& input) {
             "moonMarkerCurrentWorldFrame",
             "moonMarkerSafeWorldToScreenValue",
             "frame + 0x65B8u",
+            "C3Vector moonMarkerSafeWorldToScreenValue(const C3Vector& input);",
         ),
     }
     for check_path, tokens in checks.items():
