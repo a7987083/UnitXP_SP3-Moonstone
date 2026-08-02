@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install MoonMarker key bindings, guild entry, and configure TOC metadata."""
+"""Install MoonMarker key bindings, DLL guild entry, and configure TOC metadata."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def main() -> None:
         lines.insert(insert_at, saved_line)
         toc = "\n".join(lines) + "\n"
 
-    # Load the guild-only entry after the normal MoonMarker implementation.
+    # Load the DLL-authorized guild entry after the normal MoonMarker implementation.
     lines = [line for line in toc.splitlines() if line.strip() != GUILD_FILE]
     insert_at = len(lines)
     for index, line in enumerate(lines):
@@ -84,15 +84,19 @@ def main() -> None:
 
     guild_lua = (addon_root / GUILD_FILE).read_text(encoding="utf-8")
     required_guild_tokens = (
-        'TARGET_GUILD = "太阳神殿"',
+        'pcall(UnitXP, "MMAuth")',
         "MoonMarkerAdvancedButton",
         "MoonMarkerPlaceButton",
         "MoonMarker_IsTargetGuildMember",
+        "MoonMarker_GetAuthReason",
         "已确认：你是太阳神殿工会成员。",
+        "成员身份由 UnitXP_SP3.dll 验证。",
     )
     for token in required_guild_tokens:
         if token not in guild_lua:
             raise RuntimeError(f"GuildAdvanced.lua missing required token: {token}")
+    if "GetGuildInfo(" in guild_lua or "TARGET_GUILD" in guild_lua:
+        raise RuntimeError("GuildAdvanced.lua must not decide guild authorization in Lua")
 
     bindings = (addon_root / "Bindings.xml").read_text(encoding="utf-8")
     if bindings.count("<Binding ") != 7:
