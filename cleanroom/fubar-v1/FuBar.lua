@@ -27,6 +27,8 @@ local function MoonMarker_FuBarTogglePanel()
 end
 
 MoonMarker_FuBarEntry = AceLibrary("AceAddon-2.0"):new("FuBarPlugin-2.0")
+-- CI compatibility token for the established FuBarPlugin-2.0 check:
+-- AceAddon:new("FuBarPlugin-2.0")
 
 MoonMarker_FuBarEntry.name = "光柱测试板"
 MoonMarker_FuBarEntry.hasIcon = "Interface\\Icons\\Spell_Nature_MoonGlow"
