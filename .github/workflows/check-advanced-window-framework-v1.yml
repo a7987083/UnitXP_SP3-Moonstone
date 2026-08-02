@@ -1,0 +1,100 @@
+name: Check Advanced Editor Framework V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['agent/guild-auth-gate']
+    paths:
+      - 'cleanroom/advanced-window-framework-v1/**'
+      - 'cleanroom/apply_advanced_window_framework_v1.py'
+      - 'cleanroom/apply_fubar_v1.py'
+      - 'cleanroom/fubar-v1/FuBar.lua'
+      - '.github/workflows/check-advanced-window-framework-v1.yml'
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - 'cleanroom/advanced-window-framework-v1/**'
+      - 'cleanroom/apply_advanced_window_framework_v1.py'
+      - 'cleanroom/apply_fubar_v1.py'
+      - 'cleanroom/fubar-v1/FuBar.lua'
+      - '.github/workflows/check-advanced-window-framework-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+      - name: Build fixture and validate framework
+        run: |
+          set -euxo pipefail
+          mkdir -p fixture/MoonMarker
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import zlib
+          from pathlib import Path
+
+          expected = {
+              'MoonMarker.lua': '198abe3af6215255c38fd0999780d46cfcba841f6c0f48211d364b75f7f010f1',
+              'GuildAdvanced.lua': 'ff534ba57b7020d45fd437e5455db14acb7d1c01bfa0c7a13b397be0aea2b0f6',
+          }
+          root = Path('cleanroom/advanced-v2-lua')
+          out = Path('fixture/MoonMarker')
+          for name, wanted in expected.items():
+              encoded = ''.join((root / f'{name}.zlib.b64').read_text(encoding='ascii').split())
+              raw = zlib.decompress(base64.b64decode(encoded))
+              actual = hashlib.sha256(raw).hexdigest()
+              if actual != wanted:
+                  raise SystemExit(f'{name}: checksum mismatch {actual}')
+              (out / name).write_bytes(raw)
+          PY
+          cp cleanroom/eight-markers/Bindings.xml fixture/MoonMarker/Bindings.xml
+          cat > fixture/MoonMarker/MoonMarker.toc <<'TOC'
+          ## Interface: 11200
+          ## Title: MoonMarker framework fixture
+          ## Version: 0.1.0
+          ## SavedVariables: MoonMarkerDB
+          MoonMarker.lua
+          GuildAdvanced.lua
+          TOC
+
+          python3 -m py_compile \
+            cleanroom/apply_advanced_window_framework_v1.py \
+            cleanroom/apply_fubar_v1.py
+          python3 cleanroom/apply_fubar_v1.py \
+            --addon fixture \
+            --source-dir cleanroom/fubar-v1
+
+          luac5.1 -p fixture/MoonMarker/MoonMarker.lua
+          luac5.1 -p fixture/MoonMarker/GuildAdvanced.lua
+          luac5.1 -p fixture/MoonMarker/AdvancedEditorFramework.lua
+          luac5.1 -p fixture/MoonMarker/FuBar.lua
+
+          grep -Fq '## Version: 0.3.0-test' fixture/MoonMarker/MoonMarker.toc
+          grep -Fq 'GuildAdvanced.lua' fixture/MoonMarker/MoonMarker.toc
+          grep -Fq 'AdvancedEditorFramework.lua' fixture/MoonMarker/MoonMarker.toc
+          grep -Fq 'FuBar.lua' fixture/MoonMarker/MoonMarker.toc
+          grep -Fq 'MoonMarkerAdvancedEditorFrame' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'MoonMarkerDB.advancedLocalPreview' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'MoonMarkerDB.advancedEditorPoint' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'MoonMarkerDB.advancedEditorTab' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'label = "模型编辑"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'label = "顶部模型"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'label = "模型库"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'label = "当前标记"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'label = "预设"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'label = "设置诊断"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'SLASH_MOONMARKERADVANCED1 = "/mmadvanced"' fixture/MoonMarker/AdvancedEditorFramework.lua
+          grep -Fq 'MoonMarker_OpenAdvancedEditor' fixture/MoonMarker/FuBar.lua
+          ! grep -Fq 'SendAddonMessage(' fixture/MoonMarker/AdvancedEditorFramework.lua
+          ! grep -Fq 'MoonMarker.Remote' fixture/MoonMarker/AdvancedEditorFramework.lua
+          ! grep -Fq 'MoonMarker.Clear' fixture/MoonMarker/AdvancedEditorFramework.lua
+          ! grep -Fq 'SYNCREQ' fixture/MoonMarker/AdvancedEditorFramework.lua
+          ! grep -Fq 'TEAM_SYNC_INTERVAL' fixture/MoonMarker/AdvancedEditorFramework.lua
