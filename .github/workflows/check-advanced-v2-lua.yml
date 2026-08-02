@@ -11,6 +11,7 @@ on:
       - 'cleanroom/apply_team_state_sync_v1.py'
       - 'cleanroom/apply_team_state_logout_guard_v1.py'
       - 'cleanroom/apply_team_state_upvalue_fix_v1.py'
+      - 'cleanroom/apply_team_state_deferred_scene_v1.py'
       - '.github/workflows/check-advanced-v2-lua.yml'
   pull_request:
     branches: [cleanroom-v1]
@@ -21,6 +22,7 @@ on:
       - 'cleanroom/apply_team_state_sync_v1.py'
       - 'cleanroom/apply_team_state_logout_guard_v1.py'
       - 'cleanroom/apply_team_state_upvalue_fix_v1.py'
+      - 'cleanroom/apply_team_state_deferred_scene_v1.py'
       - '.github/workflows/check-advanced-v2-lua.yml'
 
 permissions:
@@ -64,6 +66,7 @@ jobs:
           cp decoded/MoonMarker.lua staged/MoonMarker/MoonMarker.lua
           python3 cleanroom/apply_team_state_logout_guard_v1.py --addon staged
           python3 cleanroom/apply_team_state_upvalue_fix_v1.py --addon staged
+          python3 cleanroom/apply_team_state_deferred_scene_v1.py --addon staged
           cp staged/MoonMarker/MoonMarker.lua decoded/MoonMarker.lua
           luac5.1 -p decoded/MoonMarker.lua
           luac5.1 -p decoded/GuildAdvanced.lua
@@ -77,5 +80,8 @@ jobs:
           grep -Fq 'local function MoonMarkerHandleWorldEvent(currentEvent)' decoded/MoonMarker.lua
           grep -Fq 'local function MoonMarkerHandleAddonMessage(prefix, message, channel, sender)' decoded/MoonMarker.lua
           grep -Fq 'MoonMarkerHandleAddonMessage(arg1, arg2, arg3, arg4)' decoded/MoonMarker.lua
+          grep -Fq 'if worldReadyForMarkers and pendingSceneApply then' decoded/MoonMarker.lua
+          grep -Fq 'remoteOk == false' decoded/MoonMarker.lua
+          ! grep -Fq 'pcall(UnitXP, "MoonMarker.Remote", color, nx, ny, nz, marker)' decoded/MoonMarker.lua
           grep -Fq 'local function EnsureStorage' decoded/GuildAdvanced.lua
           grep -Fq 'MoonMarker.Advanced.ScanM2.Start' decoded/GuildAdvanced.lua
