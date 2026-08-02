@@ -1,4 +1,4 @@
-name: Build MoonMarker Guild Auth Phase 1
+name: Build MoonMarker Advanced M2 Editor Phase 1
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       - 'cleanroom/**'
       - '.github/workflows/build-eight-markers.yml'
   push:
-    branches: ['agent/eight-colors-eight-icons']
+    branches: ['agent/guild-auth-gate']
     paths:
       - 'cleanroom/**'
       - '.github/workflows/build-eight-markers.yml'
@@ -59,7 +59,7 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
 
-      - name: Apply confirmed native white baseline
+      - name: Apply confirmed MoonMarker baseline
         run: |
           set -euxo pipefail
           sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
@@ -76,34 +76,25 @@ jobs:
           echo 'bbe682f9476a4c1b73eded98c1e904632714531b715508d4fe4d00c3fcfff91b  cleanroom/addon-status.patch' | sha256sum -c -
           patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
 
-          echo 'e6011923b25aaaf0cd959c620c4d67c3bce087c45dde13bc3c77cf5754d8c046  cleanroom/native-m2-v2.patch' | sha256sum -c -
-          echo '9961b924030e235bab91b49b53ccb266c16500e1f5c1329c477f9fa034e696f3  cleanroom/native-m2-v2/nativeM2Test.cpp' | sha256sum -c -
-          echo 'a56840d2bbed52579b6d360d57a21d5050e3bb44a9f6488ac0c438ae6ccf708b  cleanroom/native-m2-v2/nativeM2Test.h' | sha256sum -c -
           cp cleanroom/native-m2-v2/nativeM2Test.cpp upstream/
           cp cleanroom/native-m2-v2/nativeM2Test.h upstream/
           patch --batch -p1 -d upstream < cleanroom/native-m2-v2.patch
-
-          echo '9e49dd350183cf07f45727f0812f136efbc7806647b0a6f5cc9827f7ae60ebf6  cleanroom/native-white-v1.patch' | sha256sum -c -
           patch --batch -p1 -d upstream < cleanroom/native-white-v1.patch
-          echo '503907ba0f4cc14c0bed10f645d951ba554072669bce160fe86ff390b4a5fde9  cleanroom/native-white-remote-v1.patch' | sha256sum -c -
           patch --batch -p1 -d upstream < cleanroom/native-white-remote-v1.patch
-          echo 'a8cd0ebffd874edad6e6b5f0fdd39e30ab75882927e6c7ecd572edbf2f161d50  cleanroom/native-white-remote-addon-v1.patch' | sha256sum -c -
           patch --batch -p1 -d cleanroom_input/addon < cleanroom/native-white-remote-addon-v1.patch
 
-      - name: Apply MoonMarker implementation and guild auth
+      - name: Apply normal version, authorization, and advanced editor
         run: |
           set -euxo pipefail
-          test -s cleanroom/native-eight-v1/nativeM2Test.cpp
-          test -s cleanroom/native-eight-v1/nativeM2Test.h
-          test -s cleanroom/eight-markers/MoonMarker.lua
           test -s cleanroom/eight-markers/Bindings.xml
           test -s cleanroom/eight-markers/GuildAdvanced.lua
           test -s cleanroom/guild-auth-v1/MoonMarkerGuildAuth.cpp
-          test -s cleanroom/guild-auth-v1/MoonMarkerGuildAuth.h
+          test -s cleanroom/apply_advanced_editor_bundle.py
           python3 -m py_compile \
             cleanroom/apply_eight_markers.py \
             cleanroom/configure_eight_marker_addon.py \
-            cleanroom/apply_guild_auth.py
+            cleanroom/apply_guild_auth.py \
+            cleanroom/apply_advanced_editor_bundle.py
 
           cp cleanroom/native-eight-v1/nativeM2Test.cpp upstream/nativeM2Test.cpp
           cp cleanroom/native-eight-v1/nativeM2Test.h upstream/nativeM2Test.h
@@ -117,38 +108,21 @@ jobs:
           python3 cleanroom/apply_guild_auth.py \
             --upstream upstream \
             --source-dir cleanroom/guild-auth-v1
+          python3 cleanroom/apply_advanced_editor_bundle.py \
+            --upstream upstream \
+            --addon cleanroom_input/addon
 
-          grep -Fq 'constexpr std::size_t kSlotCount = 8' upstream/nativeM2Test.cpp
-          grep -Fq 'bool createAt(const std::string& colorName, const std::string& iconName' upstream/nativeM2Test.cpp
-          grep -Fq 'void renderIcons(IDirect3DDevice9* device)' upstream/nativeM2Test.cpp
-          grep -Fq 'nativeM2Test::renderIcons(device);' upstream/moonMarker.cpp
-          grep -Fq 'constexpr std::size_t kColorCount = 8' upstream/moonMarker.cpp
-          grep -Fq '{"cyan",    40, 230, 230}' upstream/moonMarker.cpp
-          grep -Fq 'return 5;' upstream/dllmain.cpp
-          grep -Fq 'activeCount' upstream/dllmain.cpp
-
-          grep -Fq '#include "MoonMarkerGuildAuth.h"' upstream/dllmain.cpp
-          grep -Fq 'moonMarkerGuildAuth::isAuthQuery' upstream/dllmain.cpp
-          grep -Fq 'moonMarkerGuildAuth::isAdvancedCommand' upstream/dllmain.cpp
-          grep -Fq 'MoonMarkerGuildAuth.cpp' upstream/Makefile
-          grep -Fq 'kLuaIsCFunctionAddress = 0x006F34A0' upstream/MoonMarkerGuildAuth.cpp
-          grep -Fq 'kLuaToCFunctionAddress = 0x006F3720' upstream/MoonMarkerGuildAuth.cpp
-          grep -Fq 'FUNCTION_TAMPERED' upstream/MoonMarkerGuildAuth.cpp
-          grep -Fq 'ACCESS_DENIED' upstream/MoonMarkerGuildAuth.cpp
-          grep -Fq 'originalGetGuildInfo' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'bool createAdvancedPreview' upstream/nativeM2Test.cpp
+          grep -Fq 'bool setAdvancedPreviewTransform' upstream/nativeM2Test.cpp
+          grep -Fq 'bool cursorGroundPosition' upstream/moonMarker.cpp
+          grep -Fq 'advancedPreviewCommand' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.PreviewM2' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          grep -Fq '拖动这里旋转当前预览' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          grep -Fq 'advancedFavorites' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          ! grep -Fq 'GetGuildInfo' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
           ! grep -Fq '太阳神殿' upstream/MoonMarkerGuildAuth.cpp
-
-          grep -Fq 'SenderCanControl' cleanroom_input/addon/MoonMarker/MoonMarker.lua
-          grep -Fq 'MoonMarker_BindingPlace' cleanroom_input/addon/MoonMarker/MoonMarker.lua
-          grep -Fq 'MoonMarker.Remote", color, tonumber(x), tonumber(y), tonumber(z), marker' cleanroom_input/addon/MoonMarker/MoonMarker.lua
-          grep -Fq 'pcall(UnitXP, "MMAuth")' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
-          grep -Fq '成员身份由 UnitXP_SP3.dll 验证。' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
-          ! grep -Fq 'GetGuildInfo(' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
-          grep -Fq '## SavedVariables: MoonMarkerDB' cleanroom_input/addon/MoonMarker/*.toc
-          grep -Fq '## Title: 光柱测试板-由太阳神殿-yanz' cleanroom_input/addon/MoonMarker/*.toc
-          grep -Fq 'GuildAdvanced.lua' cleanroom_input/addon/MoonMarker/*.toc
+          ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/*.lua
           test "$(grep -c '<Binding ' cleanroom_input/addon/MoonMarker/Bindings.xml)" -eq 7
-          ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/MoonMarker.lua
 
       - name: Configure Windows compatibility
         run: sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' upstream/Makefile
@@ -190,21 +164,20 @@ jobs:
           cp cleanroom/EIGHT_COLORS_EIGHT_MARKERS_V1.md release/
           (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
           printf '%s\n' \
-            '光柱测试板-由太阳神殿-yanz：DLL 工会授权第一阶段' \
-            '普通版的八色光柱、八种标记、按键、保存和团队同步保持不变。' \
-            '高级按钮只根据 UnitXP("MMAuth") 的 DLL 返回值显示。' \
-            '测试授权：/run local a,g,r=UnitXP("MMAuth");print(a,g,r)' \
-            '测试高级入口：/run local a,r=UnitXP("MoonMarker.Advanced.Ping");print(a,r)' \
-            '非太阳神殿角色必须得到 false / ACCESS_DENIED，且看不到高级按钮。' \
-            '把 GetGuildInfo 替换为 Lua 函数后，MMAuth 必须返回 FUNCTION_TAMPERED。' \
-            '目标工会名在 DLL 中使用 XOR 字节编码，不保存为明文 UTF-8 字符串。' \
-            '光柱仍使用原生 Spells\\MoonBeam_Impact_Base.mdx。' \
+            '光柱测试板：高级 M2 编辑器第一阶段' \
+            '普通八色光柱、八种标记、团队同步和按键逻辑保持不变。' \
+            '太阳神殿成员点击“高级”打开 M2 编辑器。' \
+            '输入游戏资源相对路径（.mdx 或 .m2），鼠标指向地面后点击“鼠标位置预览”。' \
+            '旋转控制区：左键左右拖动；滚轮微调；右键归零；Shift 为精细模式。' \
+            '最近使用与收藏保存在 MoonMarkerDB。' \
+            '高级预览当前只在本机显示，不发送团队同步。' \
+            '路径拒绝绝对路径、盘符、.. 和非 M2 扩展名。' \
             > release/TESTING.txt
 
       - name: Upload runtime package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Guild-Auth-Phase1-x86
+          name: MoonMarker-Advanced-M2-Editor-Phase1-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
