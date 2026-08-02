@@ -61,7 +61,7 @@ def install(addon_root: Path, source_dir: Path) -> None:
     required = (
         'MoonMarker_FuBarEntry = AceLibrary("AceAddon-2.0"):new("FuBarPlugin-2.0")',
         'MoonMarker_FuBarEntry.name = "光柱测试板"',
-        'MoonMarker_FuBarEntry.hasIcon = "Interface\\\\AddOns\\\\MoonMarker\\\\Textures\\\\moonbeam"',
+        'MoonMarker_FuBarEntry.hasIcon = "Interface\\\\Icons\\\\Spell_Nature_MoonGlow"',
         'MoonMarker_FuBarEntry.defaultPosition = "LEFT"',
         "MoonMarker_FuBarEntry.defaultMinimapPosition = 225",
         "MoonMarker_FuBarEntry.cannotDetachTooltip = true",
