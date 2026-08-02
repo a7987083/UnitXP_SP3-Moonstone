@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply all MoonMarker logout-safety guards."""
+"""Apply the validated MoonMarker logout-safety guards."""
 
 from __future__ import annotations
 
@@ -9,14 +9,15 @@ from pathlib import Path
 from apply_logout_safety_native_v1 import install as install_native_safety
 from apply_logout_safety_v2 import install as install_legacy_overlay_safety
 from apply_logout_safety_v3 import install as install_sceneend_correction
-from apply_scene_mutation_guard_v1 import install as install_scene_mutation_guard
 
 
 def install(upstream: Path) -> None:
+    # Keep the already field-tested Persistent-LogoutSafe V3 lifecycle code.
+    # The later scene-mutation experiment is intentionally not installed:
+    # it changed native create/release behavior and regressed logout stability.
     install_native_safety(upstream)
     install_legacy_overlay_safety(upstream)
     install_sceneend_correction(upstream)
-    install_scene_mutation_guard(upstream)
 
 
 def main() -> None:
