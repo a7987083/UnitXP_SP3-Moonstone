@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install MoonMarker advanced editor v2 fixes, targeting UX, M2 scanner, and FuBar."""
+"""Install MoonMarker advanced editor V2, FuBar, and advanced core guards."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import argparse
 import base64
 import hashlib
 import shutil
+import subprocess
+import sys
 import zlib
 from pathlib import Path
 
@@ -47,7 +49,8 @@ def main() -> None:
     args = parser.parse_args()
 
     upstream = Path(args.upstream)
-    addon_root = Path(args.addon) / "MoonMarker"
+    addon_base = Path(args.addon)
+    addon_root = addon_base / "MoonMarker"
     source_dir = Path(args.source_dir)
     cleanroom_dir = Path(__file__).resolve().parent
     lua_source_dir = cleanroom_dir / "advanced-v2-lua"
@@ -111,17 +114,48 @@ def main() -> None:
 
     install_fubar(addon_root, cleanroom_dir / "fubar-v1")
 
+    subprocess.run(
+        [
+            sys.executable,
+            str(cleanroom_dir / "apply_advanced_core_v1.py"),
+            "--upstream", str(upstream),
+            "--addon", str(addon_base),
+            "--source-dir", str(cleanroom_dir / "advanced-core-v1"),
+        ],
+        check=True,
+    )
+
     checks = {
         auth_path: (
             "isPublicCommand",
             "cmd_MoonMarker_Advanced_PreviewAtPlayer",
             "cmd_MoonMarker_Advanced_ScanM2_Start",
             "MoonMarkerM2Scanner.h",
+            "MoonMarker.Advanced.Core.Status",
+            "MoonMarker.Advanced.Core.Policy",
+            "MoonMarker.Advanced.Core.SelfTest",
+            "commitLocalDraft",
         ),
         upstream / "nativeM2Test.cpp": (
             "playerFeetPosition",
             "createPlacementPreview",
             "setAdvancedPreviewPosition",
+            "observeWorldContext",
+            "NATIVE_CLEAR_ALL",
+        ),
+        upstream / "MoonMarkerAdvancedState.h": (
+            "struct MarkerDefinition",
+            "kMaxTeamMarkers = 16",
+            "kAbsoluteMaxDistance = 120.0f",
+            "acceptTeamMutation",
+        ),
+        upstream / "MoonMarkerAdvancedState.cpp": (
+            "PARENT_PATH_TRAVERSAL",
+            "SCALE_OUT_OF_RANGE",
+            "DISTANCE_EXCEEDED",
+            "RATE_LIMITED",
+            "SEQUENCE_STALE",
+            "runSelfTest",
         ),
         addon_root / "GuildAdvanced.lua": (
             "local function EnsureStorage",
@@ -135,10 +169,16 @@ def main() -> None:
             "左键确认，右键取消",
             'BINDING_NAME_MOONMARKER_TOGGLE = "显示/隐藏光柱面板"',
         ),
+        addon_root / "AdvancedCoreDiagnostics.lua": (
+            'SLASH_MOONMARKERCORE1 = "/mmcore"',
+            'SLASH_MOONMARKERCOREPOLICY1 = "/mmcorepolicy"',
+            'SLASH_MOONMARKERCORETEST1 = "/mmcoretest"',
+        ),
         addon_root / "FuBar.lua": (
             'AceAddon:new("FuBarPlugin-2.0")',
             "MoonMarker_BindingToggle",
             'SLASH_MOONMARKERFUBAR1 = "/mmfubar"',
+            'Interface\\\\Icons\\\\Spell_Nature_MoonGlow',
         ),
     }
     for path, tokens in checks.items():
@@ -148,8 +188,12 @@ def main() -> None:
                 raise RuntimeError(f"{path.name} missing token: {token}")
 
     toc = (addon_root / "MoonMarker.toc").read_text(encoding="utf-8")
-    if "## OptionalDeps: !Libs, FuBar" not in toc:
-        raise RuntimeError("MoonMarker.toc missing optional FuBar dependencies")
+    if "## Dependencies: !Libs" not in toc:
+        raise RuntimeError("MoonMarker.toc missing required !Libs dependency")
+    if "## OptionalDeps: FuBar" not in toc:
+        raise RuntimeError("MoonMarker.toc missing optional FuBar dependency")
+    if "AdvancedCoreDiagnostics.lua" not in toc:
+        raise RuntimeError("MoonMarker.toc missing advanced core diagnostics")
     if not toc.rstrip().endswith("FuBar.lua"):
         raise RuntimeError("MoonMarker.toc must load FuBar.lua after the main addon files")
 
