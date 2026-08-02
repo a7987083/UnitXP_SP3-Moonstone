@@ -1,0 +1,199 @@
+name: Build MoonMarker Advanced Editor V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['agent/guild-auth-gate']
+    paths:
+      - 'cleanroom/**'
+      - '.github/workflows/build-advanced-v2.yml'
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - 'cleanroom/**'
+      - '.github/workflows/build-advanced-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Decode clean-room inputs
+        run: |
+          set -euxo pipefail
+          mkdir cleanroom_input
+          cat cleanroom/bundle.part00 cleanroom/bundle.part01 cleanroom/bundle.part02 cleanroom/bundle.part03 | base64 -d > cleanroom_bundle.zip
+          echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
+          unzip -q cleanroom_bundle.zip -d cleanroom_input
+          test -f cleanroom_input/MoonMarker_Cleanroom.patch
+          test -f cleanroom_input/addon/MoonMarker/MoonMarker.lua
+
+          mkdir advanced_v2_input
+          cat cleanroom/advanced-v2.bundle.part00 cleanroom/advanced-v2.bundle.part01 cleanroom/advanced-v2.bundle.part02 | base64 -d > advanced-v2.zip
+          unzip -q advanced-v2.zip -d advanced_v2_input
+          test -f advanced_v2_input/advanced-v2/GuildAdvanced.lua
+          test -f advanced_v2_input/advanced-v2/MoonMarker.lua
+          test -f advanced_v2_input/advanced-v2/MoonMarkerGuildAuth.cpp
+          test -f advanced_v2_input/advanced-v2/MoonMarkerM2Scanner.cpp
+          test -f advanced_v2_input/advanced-v2/nativeM2Test.cpp
+          sha256sum advanced-v2.zip
+
+      - name: Install Clang 19 and build tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
+
+      - name: Fetch exact UnitXP SP3 v89 source
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+
+      - name: Apply confirmed MoonMarker baseline
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+          sed -i '1s/^\xEF\xBB\xBF//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+
+          patch --batch -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
+          patch --batch -p1 -d upstream < cleanroom/fix-lua-string.patch
+          patch --batch -p1 -d upstream < cleanroom/present-hook.patch
+          patch --batch -p1 -d upstream < cleanroom/fix-placement-projection.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+
+          cp cleanroom/native-m2-v2/nativeM2Test.cpp upstream/
+          cp cleanroom/native-m2-v2/nativeM2Test.h upstream/
+          patch --batch -p1 -d upstream < cleanroom/native-m2-v2.patch
+          patch --batch -p1 -d upstream < cleanroom/native-white-v1.patch
+          patch --batch -p1 -d upstream < cleanroom/native-white-remote-v1.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/native-white-remote-addon-v1.patch
+
+      - name: Apply normal version and authorization
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile \
+            cleanroom/apply_eight_markers.py \
+            cleanroom/configure_eight_marker_addon.py \
+            cleanroom/apply_guild_auth.py \
+            cleanroom/apply_advanced_editor_bundle.py \
+            cleanroom/apply_advanced_editor_v2.py
+
+          cp cleanroom/native-eight-v1/nativeM2Test.cpp upstream/nativeM2Test.cpp
+          cp cleanroom/native-eight-v1/nativeM2Test.h upstream/nativeM2Test.h
+          python3 cleanroom/apply_eight_markers.py \
+            --upstream upstream \
+            --addon cleanroom_input/addon \
+            --addon-source cleanroom/eight-markers/MoonMarker.lua
+          python3 cleanroom/configure_eight_marker_addon.py \
+            --addon cleanroom_input/addon \
+            --source-dir cleanroom/eight-markers
+          python3 cleanroom/apply_guild_auth.py \
+            --upstream upstream \
+            --source-dir cleanroom/guild-auth-v1
+          python3 cleanroom/apply_advanced_editor_bundle.py \
+            --upstream upstream \
+            --addon cleanroom_input/addon
+
+      - name: Apply V2 Lua fixes targeting and scanner
+        run: |
+          set -euxo pipefail
+          python3 cleanroom/apply_advanced_editor_v2.py \
+            --upstream upstream \
+            --addon cleanroom_input/addon \
+            --source-dir advanced_v2_input/advanced-v2
+
+          grep -Fq 'MoonMarkerM2Scanner.cpp' upstream/Makefile
+          grep -Fq 'MoonMarkerM2Scanner.h' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'isPublicCommand' upstream/dllmain.cpp
+          grep -Fq 'advancedPreviewAtPlayerCommand' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'advancedScanStartCommand' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'playerFeetPosition' upstream/nativeM2Test.cpp
+          grep -Fq 'createPlacementPreview' upstream/nativeM2Test.cpp
+          grep -Fq 'setAdvancedPreviewPosition' upstream/nativeM2Test.cpp
+
+          grep -Fq 'local function EnsureStorage' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          grep -Fq 'MoonMarker.Advanced.ScanM2.Start' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          grep -Fq 'MoonMarkerAdvancedScanFrame' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          grep -Fq '人物脚下预览' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          grep -Fq 'MoonMarker.Targeting.Begin' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'MoonMarkerGroundTargetFrame' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq '左键确认，右键取消' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          ! grep -Fq 'GetGuildInfo' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          ! grep -Fq '太阳神殿' upstream/MoonMarkerGuildAuth.cpp
+          ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/*.lua
+
+      - name: Configure Windows compatibility
+        run: sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' upstream/Makefile
+
+      - name: Install xwin and Windows SDK
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download D3DX headers
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+
+      - name: Build PE32 DLL
+        working-directory: upstream
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          file UnitXP_SP3.dll
+          file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+          ! strings UnitXP_SP3.dll | grep -Fq '太阳神殿'
+
+      - name: Package V2 runtime test
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp -a cleanroom_input/addon/MoonMarker release/
+          (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
+          printf '%s\n' \
+            '光柱测试板：高级编辑器 V2 测试版' \
+            '修复 GuildAdvanced.lua 第 49 行与第 95 行空表报错。' \
+            '普通放置和高级地面预览改为两段式选点：左键确认，右键取消。' \
+            '选点过程中显示鼠标地面预览标记。' \
+            '新增自动扫描 M2 窗口，点击名称在人物脚下预览，并可直接收藏。' \
+            '扫描使用后台分批处理，避免一次性阻塞游戏界面。' \
+            '高级预览暂不进行团队同步。' \
+            > release/TESTING.txt
+
+      - name: Upload V2 runtime package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Advanced-Editor-V2-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
