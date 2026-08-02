@@ -1,23 +1,27 @@
--- Guild-only entry button for future MoonMarker advanced features.
--- This stage only identifies membership and shows a message; no advanced action is executed.
+-- DLL-authorized guild entry button for future MoonMarker advanced features.
+-- Lua only controls visibility. The DLL is the authority for membership.
 
-local TARGET_GUILD = "太阳神殿"
 local guildName = nil
+local authReason = "GUILD_NOT_READY"
 local isTargetGuildMember = false
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage("|cffffd56a[光柱测试板]|r " .. tostring(message))
 end
 
-local function ReadGuildName()
-    if type(GetGuildInfo) ~= "function" then
-        return nil
+local function QueryDLLAuth()
+    if type(UnitXP) ~= "function" then
+        return false, nil, "DLL_MISSING"
     end
-    local name = GetGuildInfo("player")
-    if name and name ~= "" then
-        return name
+
+    local callOK, allowed, detectedGuild, reason = pcall(UnitXP, "MMAuth")
+    if not callOK then
+        return false, nil, "DLL_CALL_FAILED"
     end
-    return nil
+
+    local granted = allowed == true or allowed == 1
+    if not detectedGuild or detectedGuild == "" then detectedGuild = nil end
+    return granted, detectedGuild, reason or "AUTH_UNAVAILABLE"
 end
 
 local advancedButton = CreateFrame("Button", "MoonMarkerAdvancedButton", MoonMarkerFrame)
@@ -33,27 +37,8 @@ local advancedText = advancedButton:CreateFontString(nil, "OVERLAY", "GameFontNo
 advancedText:SetPoint("CENTER", advancedButton, "CENTER", 0, 0)
 advancedText:SetText("高级")
 
-advancedButton:SetScript("OnClick", function()
-    local currentGuild = ReadGuildName()
-    if currentGuild == TARGET_GUILD then
-        Print("已确认：你是太阳神殿工会成员。")
-    else
-        advancedButton:Hide()
-    end
-end)
-
-advancedButton:SetScript("OnEnter", function()
-    GameTooltip:SetOwner(this, "ANCHOR_TOP")
-    GameTooltip:SetText("太阳神殿工会成员入口")
-    GameTooltip:AddLine("当前版本仅用于识别成员身份。", 0.85, 0.85, 0.85)
-    GameTooltip:Show()
-end)
-advancedButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
-advancedButton:Hide()
-
 local function UpdateGuildAccess()
-    guildName = ReadGuildName()
-    isTargetGuildMember = guildName == TARGET_GUILD
+    isTargetGuildMember, guildName, authReason = QueryDLLAuth()
     if isTargetGuildMember then
         advancedButton:Show()
     else
@@ -61,6 +46,21 @@ local function UpdateGuildAccess()
     end
     return isTargetGuildMember
 end
+
+advancedButton:SetScript("OnClick", function()
+    if UpdateGuildAccess() then
+        Print("已确认：你是太阳神殿工会成员。")
+    end
+end)
+
+advancedButton:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_TOP")
+    GameTooltip:SetText("太阳神殿工会成员入口")
+    GameTooltip:AddLine("成员身份由 UnitXP_SP3.dll 验证。", 0.85, 0.85, 0.85)
+    GameTooltip:Show()
+end)
+advancedButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+advancedButton:Hide()
 
 -- Read-only helpers reserved for the future advanced panel.
 function MoonMarker_IsTargetGuildMember()
@@ -70,6 +70,11 @@ end
 function MoonMarker_GetDetectedGuildName()
     UpdateGuildAccess()
     return guildName
+end
+
+function MoonMarker_GetAuthReason()
+    UpdateGuildAccess()
+    return authReason
 end
 
 local eventFrame = CreateFrame("Frame", "MoonMarkerGuildAccessFrame")
@@ -98,7 +103,7 @@ eventFrame:SetScript("OnUpdate", function()
     this.retryCount = this.retryCount + 1
     UpdateGuildAccess()
 
-    if guildName or this.retryCount >= 10 then
+    if authReason ~= "GUILD_NOT_READY" or this.retryCount >= 10 then
         this.retrying = false
     end
 end)
