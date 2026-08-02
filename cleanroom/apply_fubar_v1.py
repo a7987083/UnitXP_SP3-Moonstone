@@ -7,6 +7,8 @@ import argparse
 import shutil
 from pathlib import Path
 
+from apply_team_state_sync_v1 import install as install_team_state_sync
+
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
@@ -30,6 +32,12 @@ def install(addon_root: Path, source_dir: Path) -> None:
         "panel binding label",
     )
     moonmarker_path.write_text(moonmarker, encoding="utf-8", newline="\n")
+
+    # The complete V2 payload is identifiable by its native ground-targeting
+    # command. Install ordinary-marker relog recovery only in that complete
+    # runtime; the isolated FuBar compatibility fixture remains unchanged.
+    if "MoonMarker.Targeting.Begin" in moonmarker:
+        install_team_state_sync(addon_root)
 
     bindings_path = addon_root / "Bindings.xml"
     bindings = bindings_path.read_text(encoding="utf-8-sig")
