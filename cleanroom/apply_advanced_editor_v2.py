@@ -25,6 +25,7 @@ def main() -> None:
     upstream = Path(args.upstream)
     addon_root = Path(args.addon) / "MoonMarker"
     source_dir = Path(args.source_dir)
+    lua_source_dir = Path(__file__).resolve().parent / "advanced-v2-lua"
 
     upstream_files = (
         "MoonMarkerGuildAuth.cpp",
@@ -41,9 +42,9 @@ def main() -> None:
         shutil.copyfile(source, upstream / name)
 
     for name in ("MoonMarker.lua", "GuildAdvanced.lua"):
-        source = source_dir / name
+        source = lua_source_dir / name
         if not source.is_file():
-            raise RuntimeError(f"missing advanced v2 addon file: {source}")
+            raise RuntimeError(f"missing corrected advanced v2 Lua: {source}")
         shutil.copyfile(source, addon_root / name)
 
     dll_path = upstream / "dllmain.cpp"
@@ -94,7 +95,7 @@ def main() -> None:
             "setAdvancedPreviewPosition",
         ),
         addon_root / "GuildAdvanced.lua": (
-            "EnsureStorage",
+            "local function EnsureStorage",
             "MoonMarker.Advanced.ScanM2.Start",
             "MoonMarkerAdvancedScanFrame",
             "人物脚下预览",
