@@ -36,14 +36,14 @@ jobs:
           test -f cleanroom_input/addon/MoonMarker/MoonMarker.lua
 
           mkdir advanced_v2_input
-          cat cleanroom/advanced-v2.bundle.part00 cleanroom/advanced-v2.bundle.part01 cleanroom/advanced-v2.bundle.part02 | base64 -d > advanced-v2.zip
-          unzip -q advanced-v2.zip -d advanced_v2_input
+          cat cleanroom/advanced-v2.fixed.part00 cleanroom/advanced-v2.fixed.part01 cleanroom/advanced-v2.fixed.part02 cleanroom/advanced-v2.fixed.part03 cleanroom/advanced-v2.fixed.part04 cleanroom/advanced-v2.fixed.part05 cleanroom/advanced-v2.fixed.part06 | base64 -d > advanced-v2.tar.xz
+          echo 'bb817eb41f64ccea39e5c35119f367146e2ba554597ace2bcb7fa07b6e857e1f  advanced-v2.tar.xz' | sha256sum -c -
+          tar -xJf advanced-v2.tar.xz -C advanced_v2_input
           test -f advanced_v2_input/advanced-v2/GuildAdvanced.lua
           test -f advanced_v2_input/advanced-v2/MoonMarker.lua
           test -f advanced_v2_input/advanced-v2/MoonMarkerGuildAuth.cpp
           test -f advanced_v2_input/advanced-v2/MoonMarkerM2Scanner.cpp
           test -f advanced_v2_input/advanced-v2/nativeM2Test.cpp
-          sha256sum advanced-v2.zip
 
       - name: Install Clang 19 and build tools
         run: |
