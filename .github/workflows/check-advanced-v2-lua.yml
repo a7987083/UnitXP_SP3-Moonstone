@@ -7,12 +7,16 @@ on:
     paths:
       - 'cleanroom/advanced-v2-lua/**'
       - 'cleanroom/apply_advanced_editor_v2.py'
+      - 'cleanroom/apply_fubar_v1.py'
+      - 'cleanroom/apply_team_state_sync_v1.py'
       - '.github/workflows/check-advanced-v2-lua.yml'
   pull_request:
     branches: [cleanroom-v1]
     paths:
       - 'cleanroom/advanced-v2-lua/**'
       - 'cleanroom/apply_advanced_editor_v2.py'
+      - 'cleanroom/apply_fubar_v1.py'
+      - 'cleanroom/apply_team_state_sync_v1.py'
       - '.github/workflows/check-advanced-v2-lua.yml'
 
 permissions:
@@ -27,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y lua5.1
-      - name: Decode and validate Lua
+      - name: Decode, install sync, and validate Lua
         run: |
           set -euxo pipefail
           mkdir decoded
@@ -51,8 +55,12 @@ jobs:
                   raise SystemExit(f'{name}: checksum mismatch {actual}')
               (out / name).write_bytes(raw)
           PY
+          python3 cleanroom/apply_team_state_sync_v1.py --addon-root decoded
           luac5.1 -p decoded/MoonMarker.lua
           luac5.1 -p decoded/GuildAdvanced.lua
           grep -Fq 'MoonMarker.Targeting.Begin' decoded/MoonMarker.lua
+          grep -Fq 'TEAM_SYNC_INTERVAL = 5.0' decoded/MoonMarker.lua
+          grep -Fq 'message == "SYNCREQ"' decoded/MoonMarker.lua
+          grep -Fq 'SLASH_MOONMARKERSYNC1 = "/mmsync"' decoded/MoonMarker.lua
           grep -Fq 'local function EnsureStorage' decoded/GuildAdvanced.lua
           grep -Fq 'MoonMarker.Advanced.ScanM2.Start' decoded/GuildAdvanced.lua
