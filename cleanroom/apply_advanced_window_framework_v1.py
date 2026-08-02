@@ -7,6 +7,8 @@ import argparse
 import shutil
 from pathlib import Path
 
+from apply_advanced_model_scale_v1 import install as install_model_scale
+
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
@@ -37,14 +39,14 @@ def install(addon_root: Path, source_dir: Path) -> None:
 
     help_path = addon_root / "高级编辑器框架说明.txt"
     help_path.write_text(
-        "高级标记编辑器框架 V1\n"
+        "高级标记编辑器框架 V1.1\n"
         "\n"
         "普通面板的“高级”按钮：打开新框架。\n"
         "FuBar 左键：显示/隐藏普通光柱面板。\n"
         "FuBar 右键：打开高级标记编辑器。\n"
         "命令：/mmadvanced\n"
         "\n"
-        "本阶段只增加窗口、分页、本地预览勾选、权限与身份显示。\n"
+        "模型编辑页已加入本地主模型大小调整。\n"
         "高级团队同步和自动重登恢复均未启用。\n",
         encoding="utf-8",
         newline="\n",
@@ -81,6 +83,17 @@ def install(addon_root: Path, source_dir: Path) -> None:
     for token in forbidden:
         if token in final:
             raise RuntimeError("framework must not mutate or synchronize scenes: " + token)
+
+    install_model_scale(
+        addon_root,
+        source_dir.parent / "advanced-model-scale-v1",
+    )
+
+    final_toc = toc_path.read_text(encoding="utf-8")
+    if "AdvancedModelScale.lua" not in final_toc:
+        raise RuntimeError("MoonMarker.toc missing advanced model scale controls")
+    if final_toc.find("AdvancedEditorFramework.lua") > final_toc.find("AdvancedModelScale.lua"):
+        raise RuntimeError("advanced model scale controls must load after the framework")
 
 
 def main() -> None:
