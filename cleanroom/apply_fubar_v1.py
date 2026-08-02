@@ -10,6 +10,7 @@ from pathlib import Path
 from apply_team_state_sync_v1 import install as install_team_state_sync
 from apply_team_state_logout_guard_v1 import install as install_team_state_logout_guard
 from apply_team_state_upvalue_fix_v1 import install as install_team_state_upvalue_fix
+from apply_team_state_deferred_scene_v1 import install as install_team_state_deferred_scene
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -42,6 +43,7 @@ def install(addon_root: Path, source_dir: Path) -> None:
         install_team_state_sync(addon_root)
         install_team_state_logout_guard(addon_root)
         install_team_state_upvalue_fix(addon_root)
+        install_team_state_deferred_scene(addon_root)
 
     bindings_path = addon_root / "Bindings.xml"
     bindings = bindings_path.read_text(encoding="utf-8-sig")
