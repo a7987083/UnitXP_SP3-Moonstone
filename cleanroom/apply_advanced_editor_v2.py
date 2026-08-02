@@ -74,8 +74,8 @@ def main() -> None:
     checks = {
         upstream / "MoonMarkerGuildAuth.cpp": (
             "isPublicCommand",
-            "advancedPreviewAtPlayerCommand",
-            "advancedScanStartCommand",
+            "cmd_MoonMarker_Advanced_PreviewAtPlayer",
+            "cmd_MoonMarker_Advanced_ScanM2_Start",
             "MoonMarkerM2Scanner.h",
         ),
         upstream / "nativeM2Test.cpp": (
