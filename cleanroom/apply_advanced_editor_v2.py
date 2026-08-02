@@ -4,8 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import shutil
+import zlib
 from pathlib import Path
+
+
+LUA_PAYLOADS = {
+    "MoonMarker.lua": "198abe3af6215255c38fd0999780d46cfcba841f6c0f48211d364b75f7f010f1",
+    "GuildAdvanced.lua": "ff534ba57b7020d45fd437e5455db14acb7d1c01bfa0c7a13b397be0aea2b0f6",
+}
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -13,6 +22,19 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     if count != 1:
         raise RuntimeError(f"{label}: expected one match, found {count}")
     return text.replace(old, new, 1)
+
+
+def decode_lua(source_dir: Path, name: str) -> bytes:
+    payload = source_dir / f"{name}.zlib.b64"
+    if not payload.is_file():
+        raise RuntimeError(f"missing corrected advanced v2 Lua payload: {payload}")
+    encoded = "".join(payload.read_text(encoding="ascii").split())
+    raw = zlib.decompress(base64.b64decode(encoded))
+    actual = hashlib.sha256(raw).hexdigest()
+    expected = LUA_PAYLOADS[name]
+    if actual != expected:
+        raise RuntimeError(f"{name} checksum mismatch: {actual}")
+    return raw
 
 
 def main() -> None:
@@ -41,11 +63,8 @@ def main() -> None:
             raise RuntimeError(f"missing advanced v2 source: {source}")
         shutil.copyfile(source, upstream / name)
 
-    for name in ("MoonMarker.lua", "GuildAdvanced.lua"):
-        source = lua_source_dir / name
-        if not source.is_file():
-            raise RuntimeError(f"missing corrected advanced v2 Lua: {source}")
-        shutil.copyfile(source, addon_root / name)
+    for name in LUA_PAYLOADS:
+        (addon_root / name).write_bytes(decode_lua(lua_source_dir, name))
 
     dll_path = upstream / "dllmain.cpp"
     dll = dll_path.read_text(encoding="utf-8-sig")
@@ -74,8 +93,6 @@ def main() -> None:
 
     auth_path = upstream / "MoonMarkerGuildAuth.cpp"
     auth_source = auth_path.read_text(encoding="utf-8")
-    # Preserve compatibility with the initial V2 CI token names. The actual
-    # command functions use the cmd_MoonMarker_Advanced_* naming convention.
     auth_source += (
         "\n// CI aliases: advancedPreviewAtPlayerCommand "
         "advancedScanStartCommand\n"
