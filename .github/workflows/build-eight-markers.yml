@@ -1,4 +1,4 @@
-name: Build MoonMarker Native 8 Colors 8 Markers v1
+name: Build MoonMarker Native 8 Colors 8 Markers v2
 
 on:
   workflow_dispatch:
@@ -96,13 +96,17 @@ jobs:
           test -s cleanroom/native-eight-v1/nativeM2Test.cpp
           test -s cleanroom/native-eight-v1/nativeM2Test.h
           test -s cleanroom/eight-markers/MoonMarker.lua
-          python3 -m py_compile cleanroom/apply_eight_markers.py
+          test -s cleanroom/eight-markers/Bindings.xml
+          python3 -m py_compile cleanroom/apply_eight_markers.py cleanroom/configure_eight_marker_addon.py
           cp cleanroom/native-eight-v1/nativeM2Test.cpp upstream/nativeM2Test.cpp
           cp cleanroom/native-eight-v1/nativeM2Test.h upstream/nativeM2Test.h
           python3 cleanroom/apply_eight_markers.py \
             --upstream upstream \
             --addon cleanroom_input/addon \
             --addon-source cleanroom/eight-markers/MoonMarker.lua
+          python3 cleanroom/configure_eight_marker_addon.py \
+            --addon cleanroom_input/addon \
+            --source-dir cleanroom/eight-markers
 
           grep -Fq 'constexpr std::size_t kSlotCount = 8' upstream/nativeM2Test.cpp
           grep -Fq 'bool createAt(const std::string& colorName, const std::string& iconName' upstream/nativeM2Test.cpp
@@ -112,8 +116,12 @@ jobs:
           grep -Fq '{"cyan",    40, 230, 230}' upstream/moonMarker.cpp
           grep -Fq 'return 5;' upstream/dllmain.cpp
           grep -Fq 'activeCount' upstream/dllmain.cpp
-          grep -Fq '8种颜色 × 8个标记' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'SenderCanControl' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'MoonMarker_BindingPlace' cleanroom_input/addon/MoonMarker/MoonMarker.lua
           grep -Fq 'MoonMarker.Remote", color, tonumber(x), tonumber(y), tonumber(z), marker' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq '## SavedVariables: MoonMarkerDB' cleanroom_input/addon/MoonMarker/*.toc
+          grep -Fq '## Title: 光柱测试板-由太阳神殿-yanz' cleanroom_input/addon/MoonMarker/*.toc
+          test "$(grep -c '<Binding ' cleanroom_input/addon/MoonMarker/Bindings.xml)" -eq 7
           ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/MoonMarker.lua
 
       - name: Configure Windows compatibility
@@ -155,19 +163,17 @@ jobs:
           cp cleanroom/EIGHT_COLORS_EIGHT_MARKERS_V1.md release/
           (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
           printf '%s\n' \
-            'MoonMarker Native 8 Colors x 8 Markers v1 - runtime test.' \
-            'Beam: native Spells\\MoonBeam_Impact_Base.mdx.' \
-            'Markers: procedural fixed-size world projection; no Lua PlayerModel.' \
-            'Macro: /run local x,y,z,c,m=UnitXP("MoonMarker.Place","red","skull"); print(x,y,z,c,m)' \
-            'Slash: /mmark red skull' \
-            'Clear: /mmclear' \
-            'Test all eight beams and verify whether the M2 particles accept runtime color multiplication.' \
+            '光柱测试板-由太阳神殿-yanz v2' \
+            '队伍中只有小队队长、团长或团队助理可以放置和清除。' \
+            '进入游戏按键设置，找到“光柱测试板-由太阳神殿-yanz”分类即可绑定操作按键。' \
+            '当前颜色、当前标记、面板位置和显示状态保存在 MoonMarkerDB。' \
+            '光柱使用原生 Spells\\MoonBeam_Impact_Base.mdx；不使用 Lua PlayerModel。' \
             > release/TESTING.txt
 
       - name: Upload runtime package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Native-8Colors-8Markers-v1-x86
+          name: MoonMarker-Native-8Colors-8Markers-v2-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
