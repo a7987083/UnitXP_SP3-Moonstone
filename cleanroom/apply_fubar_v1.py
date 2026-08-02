@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the optional MoonMarker FuBar entry and clarify the panel binding."""
+"""Install the MoonMarker FuBar entry and clarify the panel binding."""
 
 from __future__ import annotations
 
@@ -40,16 +40,15 @@ def install(addon_root: Path, source_dir: Path) -> None:
 
     toc_path = addon_root / "MoonMarker.toc"
     toc = toc_path.read_text(encoding="utf-8-sig")
-    if "## OptionalDeps:" not in toc:
-        toc = replace_once(
-            toc,
-            "## Version: 0.1.0\n",
-            "## Version: 0.2.1-test\n## OptionalDeps: !Libs, FuBar\n",
-            "toc optional dependencies",
-        )
-    else:
-        raise RuntimeError("unexpected existing OptionalDeps line; review required")
+    if "## Dependencies:" in toc or "## OptionalDeps:" in toc:
+        raise RuntimeError("unexpected existing dependency line; review required")
 
+    toc = replace_once(
+        toc,
+        "## Version: 0.1.0\n",
+        "## Version: 0.2.1-test\n## Dependencies: !Libs\n## OptionalDeps: FuBar\n",
+        "toc FuBar dependencies",
+    )
     toc = replace_once(
         toc,
         "MoonMarker.lua\nGuildAdvanced.lua\n",
@@ -60,11 +59,14 @@ def install(addon_root: Path, source_dir: Path) -> None:
 
     fubar = (addon_root / "FuBar.lua").read_text(encoding="utf-8")
     required = (
-        'AceAddon:new("FuBarPlugin-2.0")',
+        'MoonMarker_FuBarEntry = AceLibrary("AceAddon-2.0"):new("FuBarPlugin-2.0")',
+        'MoonMarker_FuBarEntry.name = "光柱测试板"',
+        'MoonMarker_FuBarEntry.hasIcon = "Interface\\\\AddOns\\\\MoonMarker\\\\Textures\\\\moonbeam"',
+        'MoonMarker_FuBarEntry.defaultPosition = "LEFT"',
+        "MoonMarker_FuBarEntry.defaultMinimapPosition = 225",
+        "MoonMarker_FuBarEntry.cannotDetachTooltip = true",
         "MoonMarker_BindingToggle",
         'SLASH_MOONMARKERFUBAR1 = "/mmfubar"',
-        "ACE_LIBRARY_MISSING",
-        "FUBAR_PLUGIN_MISSING",
     )
     for token in required:
         if token not in fubar:
@@ -74,11 +76,11 @@ def install(addon_root: Path, source_dir: Path) -> None:
     help_path.write_text(
         "光柱测试板 FuBar 入口\n"
         "\n"
-        "需要启用兼容的 !Libs 与 FuBar。\n"
+        "必须启用同级共享库插件 !Libs。\n"
+        "FuBar 本体为可选依赖。\n"
         "左键 FuBar 图标：显示/隐藏光柱面板。\n"
         "右键 FuBar 图标：显示简短使用说明。\n"
-        "诊断命令：/mmfubar\n"
-        "未安装 FuBar 时，光柱测试板其他功能仍可正常使用。\n",
+        "诊断命令：/mmfubar\n",
         encoding="utf-8",
         newline="\n",
     )
