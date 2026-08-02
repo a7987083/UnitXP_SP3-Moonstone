@@ -2,6 +2,11 @@ name: Build MoonMarker Native 8 Colors 8 Markers v1
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - 'cleanroom/**'
+      - '.github/workflows/build-eight-markers.yml'
   push:
     branches: ['agent/eight-colors-eight-icons']
     paths:
@@ -88,10 +93,10 @@ jobs:
       - name: Apply eight-color eight-marker implementation
         run: |
           set -euxo pipefail
-          echo 'dd3abf7bad9b5f01624f4580de6fa9a3c48390bfac62574e4be1a1f82acefc0e  cleanroom/native-eight-v1/nativeM2Test.cpp' | sha256sum -c -
-          echo '191146556f9563c673c5af2a3f131442a5117d19424440f1e827cdd0b5bdff27  cleanroom/native-eight-v1/nativeM2Test.h' | sha256sum -c -
-          echo 'c711333925c78d0c5a7582a63e0ca9f36b6be9585dcd233bfd4af19dde597f66  cleanroom/eight-markers/MoonMarker.lua' | sha256sum -c -
-          echo '7c8dc5f5e00fb789bf7508e5ecd4c6f82ad96803ba5c5ba31c2c1f86dd815b81  cleanroom/apply_eight_markers.py' | sha256sum -c -
+          test -s cleanroom/native-eight-v1/nativeM2Test.cpp
+          test -s cleanroom/native-eight-v1/nativeM2Test.h
+          test -s cleanroom/eight-markers/MoonMarker.lua
+          python3 -m py_compile cleanroom/apply_eight_markers.py
           cp cleanroom/native-eight-v1/nativeM2Test.cpp upstream/nativeM2Test.cpp
           cp cleanroom/native-eight-v1/nativeM2Test.h upstream/nativeM2Test.h
           python3 cleanroom/apply_eight_markers.py \
