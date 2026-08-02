@@ -1,0 +1,23 @@
+<Bindings>
+    <Binding name="MOONMARKER_PLACE" header="MOONMARKER">
+        MoonMarker_BindingPlace()
+    </Binding>
+    <Binding name="MOONMARKER_CLEAR">
+        MoonMarker_BindingClear()
+    </Binding>
+    <Binding name="MOONMARKER_COLOR_PREV">
+        MoonMarker_BindingColorPrevious()
+    </Binding>
+    <Binding name="MOONMARKER_COLOR_NEXT">
+        MoonMarker_BindingColorNext()
+    </Binding>
+    <Binding name="MOONMARKER_MARKER_PREV">
+        MoonMarker_BindingMarkerPrevious()
+    </Binding>
+    <Binding name="MOONMARKER_MARKER_NEXT">
+        MoonMarker_BindingMarkerNext()
+    </Binding>
+    <Binding name="MOONMARKER_TOGGLE">
+        MoonMarker_BindingToggle()
+    </Binding>
+</Bindings>
