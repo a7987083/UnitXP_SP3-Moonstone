@@ -8,11 +8,6 @@ on:
       - 'cleanroom/advanced-v2-lua/**'
       - 'cleanroom/apply_advanced_editor_v2.py'
       - 'cleanroom/apply_fubar_v1.py'
-      - 'cleanroom/apply_team_state_sync_v1.py'
-      - 'cleanroom/apply_team_state_logout_guard_v1.py'
-      - 'cleanroom/apply_team_state_upvalue_fix_v1.py'
-      - 'cleanroom/apply_team_state_deferred_scene_v1.py'
-      - 'cleanroom/apply_team_state_local_scene_fix_v1.py'
       - '.github/workflows/check-advanced-v2-lua.yml'
   pull_request:
     branches: [cleanroom-v1]
@@ -20,11 +15,6 @@ on:
       - 'cleanroom/advanced-v2-lua/**'
       - 'cleanroom/apply_advanced_editor_v2.py'
       - 'cleanroom/apply_fubar_v1.py'
-      - 'cleanroom/apply_team_state_sync_v1.py'
-      - 'cleanroom/apply_team_state_logout_guard_v1.py'
-      - 'cleanroom/apply_team_state_upvalue_fix_v1.py'
-      - 'cleanroom/apply_team_state_deferred_scene_v1.py'
-      - 'cleanroom/apply_team_state_local_scene_fix_v1.py'
       - '.github/workflows/check-advanced-v2-lua.yml'
 
 permissions:
@@ -39,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y lua5.1
-      - name: Decode, install sync guards, and validate Lua
+      - name: Decode and validate stable Lua
         run: |
           set -euxo pipefail
           mkdir decoded
@@ -63,30 +53,16 @@ jobs:
                   raise SystemExit(f'{name}: checksum mismatch {actual}')
               (out / name).write_bytes(raw)
           PY
-          python3 cleanroom/apply_team_state_sync_v1.py --addon-root decoded
-          mkdir -p staged/MoonMarker
-          cp decoded/MoonMarker.lua staged/MoonMarker/MoonMarker.lua
-          python3 cleanroom/apply_team_state_logout_guard_v1.py --addon staged
-          python3 cleanroom/apply_team_state_upvalue_fix_v1.py --addon staged
-          python3 cleanroom/apply_team_state_deferred_scene_v1.py --addon staged
-          python3 cleanroom/apply_team_state_local_scene_fix_v1.py --addon staged
-          cp staged/MoonMarker/MoonMarker.lua decoded/MoonMarker.lua
           luac5.1 -p decoded/MoonMarker.lua
           luac5.1 -p decoded/GuildAdvanced.lua
           grep -Fq 'MoonMarker.Targeting.Begin' decoded/MoonMarker.lua
-          grep -Fq 'TEAM_SYNC_INTERVAL = 5.0' decoded/MoonMarker.lua
-          grep -Fq 'message == "SYNCREQ"' decoded/MoonMarker.lua
-          grep -Fq 'SLASH_MOONMARKERSYNC1 = "/mmsync"' decoded/MoonMarker.lua
-          grep -Fq 'PLAYER_LEAVING_WORLD' decoded/MoonMarker.lua
-          grep -Fq 'not worldReadyForMarkers then return end' decoded/MoonMarker.lua
-          grep -Fq 'local function MoonMarkerHandleVariablesLoaded()' decoded/MoonMarker.lua
-          grep -Fq 'local function MoonMarkerHandleWorldEvent(currentEvent)' decoded/MoonMarker.lua
-          grep -Fq 'local function MoonMarkerHandleAddonMessage(prefix, message, channel, sender)' decoded/MoonMarker.lua
-          grep -Fq 'MoonMarkerHandleAddonMessage(arg1, arg2, arg3, arg4)' decoded/MoonMarker.lua
-          grep -Fq 'local function ApplyPendingSceneChanges()' decoded/MoonMarker.lua
-          grep -Fq 'SetTeamMark(color, marker, x, y, z, true)' decoded/MoonMarker.lua
-          grep -Fq 'ClearTeamState(true)' decoded/MoonMarker.lua
-          grep -Fq 'local pendingSceneColors = {}' decoded/MoonMarker.lua
-          ! grep -Fq 'pcall(UnitXP, "MoonMarker.Remote", color, nx, ny, nz, marker)' decoded/MoonMarker.lua
+          grep -Fq 'CHAT_MSG_ADDON' decoded/MoonMarker.lua
+          grep -Fq '^PLACE' decoded/MoonMarker.lua
+          grep -Fq 'message == "CLEAR"' decoded/MoonMarker.lua
+          ! grep -Fq 'SYNCREQ' decoded/MoonMarker.lua
+          ! grep -Fq 'SYNCBEGIN' decoded/MoonMarker.lua
+          ! grep -Fq 'SYNCEND' decoded/MoonMarker.lua
+          ! grep -Fq 'TEAM_SYNC_INTERVAL' decoded/MoonMarker.lua
+          ! grep -Fq 'pendingSceneApply' decoded/MoonMarker.lua
           grep -Fq 'local function EnsureStorage' decoded/GuildAdvanced.lua
           grep -Fq 'MoonMarker.Advanced.ScanM2.Start' decoded/GuildAdvanced.lua
