@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install MoonMarker advanced editor v2 fixes, targeting UX, and M2 scanner."""
+"""Install MoonMarker advanced editor v2 fixes, targeting UX, M2 scanner, and FuBar."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ import hashlib
 import shutil
 import zlib
 from pathlib import Path
+
+from apply_fubar_v1 import install as install_fubar
 
 
 LUA_PAYLOADS = {
@@ -47,7 +49,8 @@ def main() -> None:
     upstream = Path(args.upstream)
     addon_root = Path(args.addon) / "MoonMarker"
     source_dir = Path(args.source_dir)
-    lua_source_dir = Path(__file__).resolve().parent / "advanced-v2-lua"
+    cleanroom_dir = Path(__file__).resolve().parent
+    lua_source_dir = cleanroom_dir / "advanced-v2-lua"
 
     upstream_files = (
         "MoonMarkerGuildAuth.cpp",
@@ -106,6 +109,8 @@ def main() -> None:
     )
     auth_path.write_text(auth_source, encoding="utf-8", newline="\n")
 
+    install_fubar(addon_root, cleanroom_dir / "fubar-v1")
+
     checks = {
         auth_path: (
             "isPublicCommand",
@@ -128,6 +133,12 @@ def main() -> None:
             "MoonMarker.Targeting.Begin",
             "MoonMarkerGroundTargetFrame",
             "左键确认，右键取消",
+            'BINDING_NAME_MOONMARKER_TOGGLE = "显示/隐藏光柱面板"',
+        ),
+        addon_root / "FuBar.lua": (
+            'AceAddon:new("FuBarPlugin-2.0")',
+            "MoonMarker_BindingToggle",
+            'SLASH_MOONMARKERFUBAR1 = "/mmfubar"',
         ),
     }
     for path, tokens in checks.items():
@@ -135,6 +146,12 @@ def main() -> None:
         for token in tokens:
             if token not in text:
                 raise RuntimeError(f"{path.name} missing token: {token}")
+
+    toc = (addon_root / "MoonMarker.toc").read_text(encoding="utf-8")
+    if "## OptionalDeps: !Libs, FuBar" not in toc:
+        raise RuntimeError("MoonMarker.toc missing optional FuBar dependencies")
+    if not toc.rstrip().endswith("FuBar.lua"):
+        raise RuntimeError("MoonMarker.toc must load FuBar.lua after the main addon files")
 
     guild_lua = (addon_root / "GuildAdvanced.lua").read_text(encoding="utf-8")
     if "GetGuildInfo" in guild_lua:
