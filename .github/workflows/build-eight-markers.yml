@@ -1,0 +1,168 @@
+name: Build MoonMarker Native 8 Colors 8 Markers v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['agent/eight-colors-eight-icons']
+    paths:
+      - 'cleanroom/**'
+      - '.github/workflows/build-eight-markers.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Decode clean-room bundle
+        run: |
+          set -euxo pipefail
+          mkdir cleanroom_input
+          cat cleanroom/bundle.part00 cleanroom/bundle.part01 cleanroom/bundle.part02 cleanroom/bundle.part03 | base64 -d > cleanroom_bundle.zip
+          echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
+          unzip -q cleanroom_bundle.zip -d cleanroom_input
+          test -f cleanroom_input/MoonMarker_Cleanroom.patch
+          test -f cleanroom_input/addon/MoonMarker/MoonMarker.lua
+
+      - name: Install Clang 19 and build tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+
+      - name: Apply confirmed native white baseline
+        run: |
+          set -euxo pipefail
+          sed -i 's/\r$//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+          sed -i '1s/^\xEF\xBB\xBF//' upstream/dllmain.cpp upstream/sceneBegin_sceneEnd.cpp upstream/sceneBegin_sceneEnd.h upstream/Makefile
+
+          echo 'c51d0d4c70d010263618d5dcdd48bb11f80ad04ef02feb483bfc3c085ffcd02b  cleanroom_input/MoonMarker_Cleanroom.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom_input/MoonMarker_Cleanroom.patch
+          echo 'f994d67b58824fc002a1735243f91226944fc60d3b8e500a1999e66dd33fd7a5  cleanroom/fix-lua-string.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/fix-lua-string.patch
+          echo '96f3f255313d80c70cd73b2a8317aba35516e3b46a064185af3352274f926ec8  cleanroom/present-hook.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/present-hook.patch
+          echo '05f54024fcc705954492c225734e8237b8c689637e6daded5a3ab99ab6b29fe5  cleanroom/fix-placement-projection.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/fix-placement-projection.patch
+          echo 'bbe682f9476a4c1b73eded98c1e904632714531b715508d4fe4d00c3fcfff91b  cleanroom/addon-status.patch' | sha256sum -c -
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+
+          echo 'e6011923b25aaaf0cd959c620c4d67c3bce087c45dde13bc3c77cf5754d8c046  cleanroom/native-m2-v2.patch' | sha256sum -c -
+          echo '9961b924030e235bab91b49b53ccb266c16500e1f5c1329c477f9fa034e696f3  cleanroom/native-m2-v2/nativeM2Test.cpp' | sha256sum -c -
+          echo 'a56840d2bbed52579b6d360d57a21d5050e3bb44a9f6488ac0c438ae6ccf708b  cleanroom/native-m2-v2/nativeM2Test.h' | sha256sum -c -
+          cp cleanroom/native-m2-v2/nativeM2Test.cpp upstream/
+          cp cleanroom/native-m2-v2/nativeM2Test.h upstream/
+          patch --batch -p1 -d upstream < cleanroom/native-m2-v2.patch
+
+          echo '9e49dd350183cf07f45727f0812f136efbc7806647b0a6f5cc9827f7ae60ebf6  cleanroom/native-white-v1.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/native-white-v1.patch
+          echo '503907ba0f4cc14c0bed10f645d951ba554072669bce160fe86ff390b4a5fde9  cleanroom/native-white-remote-v1.patch' | sha256sum -c -
+          patch --batch -p1 -d upstream < cleanroom/native-white-remote-v1.patch
+          echo 'a8cd0ebffd874edad6e6b5f0fdd39e30ab75882927e6c7ecd572edbf2f161d50  cleanroom/native-white-remote-addon-v1.patch' | sha256sum -c -
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/native-white-remote-addon-v1.patch
+
+      - name: Apply eight-color eight-marker implementation
+        run: |
+          set -euxo pipefail
+          echo 'dd3abf7bad9b5f01624f4580de6fa9a3c48390bfac62574e4be1a1f82acefc0e  cleanroom/native-eight-v1/nativeM2Test.cpp' | sha256sum -c -
+          echo '191146556f9563c673c5af2a3f131442a5117d19424440f1e827cdd0b5bdff27  cleanroom/native-eight-v1/nativeM2Test.h' | sha256sum -c -
+          echo 'c711333925c78d0c5a7582a63e0ca9f36b6be9585dcd233bfd4af19dde597f66  cleanroom/eight-markers/MoonMarker.lua' | sha256sum -c -
+          echo '7c8dc5f5e00fb789bf7508e5ecd4c6f82ad96803ba5c5ba31c2c1f86dd815b81  cleanroom/apply_eight_markers.py' | sha256sum -c -
+          cp cleanroom/native-eight-v1/nativeM2Test.cpp upstream/nativeM2Test.cpp
+          cp cleanroom/native-eight-v1/nativeM2Test.h upstream/nativeM2Test.h
+          python3 cleanroom/apply_eight_markers.py \
+            --upstream upstream \
+            --addon cleanroom_input/addon \
+            --addon-source cleanroom/eight-markers/MoonMarker.lua
+
+          grep -Fq 'constexpr std::size_t kSlotCount = 8' upstream/nativeM2Test.cpp
+          grep -Fq 'bool createAt(const std::string& colorName, const std::string& iconName' upstream/nativeM2Test.cpp
+          grep -Fq 'void renderIcons(IDirect3DDevice9* device)' upstream/nativeM2Test.cpp
+          grep -Fq 'nativeM2Test::renderIcons(device);' upstream/moonMarker.cpp
+          grep -Fq 'constexpr std::size_t kColorCount = 8' upstream/moonMarker.cpp
+          grep -Fq '{"cyan",    40, 230, 230}' upstream/moonMarker.cpp
+          grep -Fq 'return 5;' upstream/dllmain.cpp
+          grep -Fq 'activeCount' upstream/dllmain.cpp
+          grep -Fq '8种颜色 × 8个标记' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'MoonMarker.Remote", color, tonumber(x), tonumber(y), tonumber(z), marker' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+
+      - name: Configure Windows compatibility
+        run: sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' upstream/Makefile
+
+      - name: Install xwin and Windows SDK
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download D3DX headers
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+
+      - name: Build PE32 DLL
+        working-directory: upstream
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          file UnitXP_SP3.dll
+          file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+
+      - name: Package runtime test
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp -a cleanroom_input/addon/MoonMarker release/
+          cp cleanroom/EIGHT_COLORS_EIGHT_MARKERS_V1.md release/
+          (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
+          printf '%s\n' \
+            'MoonMarker Native 8 Colors x 8 Markers v1 - runtime test.' \
+            'Beam: native Spells\\MoonBeam_Impact_Base.mdx.' \
+            'Markers: procedural fixed-size world projection; no Lua PlayerModel.' \
+            'Macro: /run local x,y,z,c,m=UnitXP("MoonMarker.Place","red","skull"); print(x,y,z,c,m)' \
+            'Slash: /mmark red skull' \
+            'Clear: /mmclear' \
+            'Test all eight beams and verify whether the M2 particles accept runtime color multiplication.' \
+            > release/TESTING.txt
+
+      - name: Upload runtime package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Native-8Colors-8Markers-v1-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
