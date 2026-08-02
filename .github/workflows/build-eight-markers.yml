@@ -124,6 +124,23 @@ jobs:
           ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/*.lua
           test "$(grep -c '<Binding ' cleanroom_input/addon/MoonMarker/Bindings.xml)" -eq 7
 
+      - name: Export generated advanced sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Advanced-Generated-Sources
+          path: |
+            upstream/MoonMarkerGuildAuth.cpp
+            upstream/MoonMarkerGuildAuth.h
+            upstream/nativeM2Test.cpp
+            upstream/nativeM2Test.h
+            upstream/moonMarker.cpp
+            upstream/moonMarker.h
+            upstream/dllmain.cpp
+            cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+            cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Configure Windows compatibility
         run: sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' upstream/Makefile
 
