@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Install the MoonMarker FuBar entry and clarify the panel binding."""
+"""Install the MoonMarker FuBar entry and advanced editor framework."""
 
 from __future__ import annotations
 
 import argparse
 import shutil
 from pathlib import Path
+
+from apply_advanced_window_framework_v1 import install as install_advanced_window_framework
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -74,6 +76,11 @@ def install(addon_root: Path, source_dir: Path) -> None:
     )
     toc_path.write_text(toc, encoding="utf-8", newline="\n")
 
+    install_advanced_window_framework(
+        addon_root,
+        source_dir.parent / "advanced-window-framework-v1",
+    )
+
     fubar = (addon_root / "FuBar.lua").read_text(encoding="utf-8")
     required = (
         'MoonMarker_FuBarEntry = AceLibrary("AceAddon-2.0"):new("FuBarPlugin-2.0")',
@@ -83,11 +90,20 @@ def install(addon_root: Path, source_dir: Path) -> None:
         "MoonMarker_FuBarEntry.defaultMinimapPosition = 225",
         "MoonMarker_FuBarEntry.cannotDetachTooltip = true",
         "MoonMarker_BindingToggle",
+        "MoonMarker_OpenAdvancedEditor",
         'SLASH_MOONMARKERFUBAR1 = "/mmfubar"',
     )
     for token in required:
         if token not in fubar:
             raise RuntimeError(f"FuBar.lua missing token: {token}")
+
+    final_toc = toc_path.read_text(encoding="utf-8")
+    if "AdvancedEditorFramework.lua" not in final_toc:
+        raise RuntimeError("MoonMarker.toc missing advanced editor framework")
+    if final_toc.find("GuildAdvanced.lua") > final_toc.find("AdvancedEditorFramework.lua"):
+        raise RuntimeError("advanced editor framework must load after GuildAdvanced.lua")
+    if final_toc.find("AdvancedEditorFramework.lua") > final_toc.find("FuBar.lua"):
+        raise RuntimeError("advanced editor framework must load before FuBar.lua")
 
     help_path = addon_root / "FuBar说明.txt"
     help_path.write_text(
@@ -96,7 +112,7 @@ def install(addon_root: Path, source_dir: Path) -> None:
         "必须启用同级共享库插件 !Libs。\n"
         "FuBar 本体为可选依赖。\n"
         "左键 FuBar 图标：显示/隐藏光柱面板。\n"
-        "右键 FuBar 图标：显示简短使用说明。\n"
+        "右键 FuBar 图标：打开高级标记编辑器。\n"
         "诊断命令：/mmfubar\n",
         encoding="utf-8",
         newline="\n",
