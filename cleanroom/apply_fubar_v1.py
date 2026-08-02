@@ -7,12 +7,6 @@ import argparse
 import shutil
 from pathlib import Path
 
-from apply_team_state_sync_v1 import install as install_team_state_sync
-from apply_team_state_logout_guard_v1 import install as install_team_state_logout_guard
-from apply_team_state_upvalue_fix_v1 import install as install_team_state_upvalue_fix
-from apply_team_state_deferred_scene_v1 import install as install_team_state_deferred_scene
-from apply_team_state_local_scene_fix_v1 import install as install_team_state_local_scene_fix
-
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
@@ -37,15 +31,22 @@ def install(addon_root: Path, source_dir: Path) -> None:
     )
     moonmarker_path.write_text(moonmarker, encoding="utf-8", newline="\n")
 
-    # The complete V2 payload is identifiable by its native ground-targeting
-    # command. Install ordinary-marker relog recovery only in that complete
-    # runtime; the isolated FuBar compatibility fixture remains unchanged.
-    if "MoonMarker.Targeting.Begin" in moonmarker:
-        install_team_state_sync(addon_root)
-        install_team_state_logout_guard(addon_root)
-        install_team_state_upvalue_fix(addon_root)
-        install_team_state_deferred_scene(addon_root)
-        install_team_state_local_scene_fix(addon_root)
+    # Automatic relog/team-state recovery is intentionally disabled.
+    # Field testing showed that merely loading that experiment could invoke
+    # native Clear/Remote during the client world lifecycle and cause ERROR #132,
+    # even when no marker had been placed. Keep the stable real-time PLACE/CLEAR
+    # protocol from the base addon and do not install any team-state patches here.
+    forbidden_sync_tokens = (
+        "SYNCREQ",
+        "SYNCBEGIN",
+        "SYNCEND",
+        "TEAM_SYNC_INTERVAL",
+        "pendingSceneApply",
+    )
+    for token in forbidden_sync_tokens:
+        if token in moonmarker:
+            raise RuntimeError(
+                "automatic team-state recovery unexpectedly present: " + token)
 
     bindings_path = addon_root / "Bindings.xml"
     bindings = bindings_path.read_text(encoding="utf-8-sig")
