@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the legacy MoonMarker Present overlay during world teardown."""
+"""Guard MoonMarker SceneEnd projection during world teardown."""
 
 from __future__ import annotations
 
@@ -15,6 +15,32 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def install(upstream: Path) -> None:
+    # The first bad build inserted nativeM2Test::update() and
+    # moonMarker::updateProjectedMarks() before scene_inWorld was checked.
+    # Put an unconditional teardown guard at the first instruction of SceneEnd.
+    scene_path = upstream / "sceneBegin_sceneEnd.cpp"
+    scene = scene_path.read_text(encoding="utf-8")
+    scene_signature = (
+        "void __fastcall detoured_sceneEnd(uint32_t CGxDevice, void* ignored) {\n"
+    )
+    scene_guard = (
+        scene_signature
+        + "    // MoonMarker lifecycle guard: no M2 update or projection after the world starts tearing down.\n"
+        + "    const uint32_t moonMarkerWorldFrame = vanilla1121_worldFrame();\n"
+        + "    if (scene_inWorld != 1 || moonMarkerWorldFrame == 0\n"
+        + "        || (moonMarkerWorldFrame & 3u) != 0u) {\n"
+        + "        p_original_sceneEnd(CGxDevice);\n"
+        + "        return;\n"
+        + "    }\n\n"
+    )
+    scene = replace_once(
+        scene,
+        scene_signature,
+        scene_guard,
+        "SceneEnd pre-update world guard",
+    )
+    scene_path.write_text(scene, encoding="utf-8", newline="\n")
+
     path = upstream / "moonMarker.cpp"
     source = path.read_text(encoding="utf-8")
 
@@ -55,8 +81,22 @@ bool moonMarkerReadableCommittedRange(std::uintptr_t address, std::size_t bytes)
 bool moonMarkerCurrentWorldFrame(std::uint32_t& frame) {
     frame = *reinterpret_cast<const std::uint32_t*>(
         kMoonMarkerWorldFramePointerAddress);
-    if ((frame & 3u) != 0u) return false;
-    return moonMarkerReadableCommittedRange(frame, 0x3B0u);
+    if (frame < 0x10000u || (frame & 3u) != 0u) return false;
+
+    // 0x00483EFA reads [WorldFrame + 0x65B8]. Validate the exact fields used by
+    // the client projection routine before calling it.
+    if (!moonMarkerReadableCommittedRange(frame + 0x3A0u, 8u)
+        || !moonMarkerReadableCommittedRange(frame + 0x65B8u, 4u)) {
+        return false;
+    }
+
+    const std::uint32_t cameraBlock =
+        *reinterpret_cast<const std::uint32_t*>(frame + 0x65B8u);
+    if (cameraBlock < 0x10000u
+        || !moonMarkerReadableCommittedRange(cameraBlock, 0x40u)) {
+        return false;
+    }
+    return true;
 }
 
 bool moonMarkerWorldReady() {
@@ -122,52 +162,66 @@ C3Vector moonMarkerSafeWorldToScreenValue(const C3Vector& input) {
         source,
         anchor,
         anchor + helpers,
-        "legacy overlay world helpers",
+        "marker projection safety helpers",
     )
 
     source = replace_once(
         source,
-        "void renderPresent(IDirect3DDevice9* device) {\n"
-        "    if (device == nullptr || count() == 0) {\n",
-        "void renderPresent(IDirect3DDevice9* device) {\n"
+        "void updateProjectedMarks() {\n",
+        "void updateProjectedMarks() {\n"
         "    if (!moonMarkerWorldReady()) {\n"
-        "        gProjectedMarks = 0;\n"
+        "        resetProjected();\n"
         "        return;\n"
-        "    }\n"
-        "    if (device == nullptr || count() == 0) {\n",
-        "legacy overlay early world guard",
-    )
-
-    source = replace_once(
-        source,
-        "    const uint32_t camera = vanilla1121_getCamera();\n"
-        "    if (camera == 0 || (camera & 1) != 0) {\n",
-        "    const uint32_t camera = vanilla1121_getCamera();\n"
-        "    if (camera == 0 || (camera & 1) != 0\n"
-        "        || !moonMarkerReadableCommittedRange(camera, 0x400u)) {\n",
-        "legacy overlay camera guard",
+        "    }\n",
+        "projected marker world guard",
     )
 
     call_count = source.count("vanilla1121_worldToScreen(")
     if call_count < 1:
-        raise RuntimeError("legacy overlay has no worldToScreen call to replace")
+        raise RuntimeError("MoonMarker has no worldToScreen call to replace")
     source = source.replace(
         "vanilla1121_worldToScreen(",
         "moonMarkerSafeWorldToScreenValue(",
     )
 
+    # Validate every camera pointer used by placement/projection helpers.
+    camera_guard = "if (camera == 0 || (camera & 1) != 0) {"
+    camera_guard_safe = (
+        "if (camera == 0 || (camera & 1) != 0\n"
+        "        || !moonMarkerReadableCommittedRange(camera, 0x100u)) {"
+    )
+    source = source.replace(camera_guard, camera_guard_safe)
+
     if "vanilla1121_worldToScreen(" in source:
-        raise RuntimeError("unsafe legacy worldToScreen call remains")
+        raise RuntimeError("unsafe MoonMarker worldToScreen call remains")
 
     for token in (
         "moonMarkerSafeWorldToScreen",
         "moonMarkerWorldReady",
-        "moonMarkerReadableCommittedRange(camera, 0x400u)",
+        "frame + 0x65B8u",
+        "void updateProjectedMarks()",
     ):
         if token not in source:
-            raise RuntimeError("missing legacy logout guard token: " + token)
+            raise RuntimeError("missing projection safety token: " + token)
 
     path.write_text(source, encoding="utf-8", newline="\n")
+
+    checks = {
+        scene_path: (
+            "MoonMarker lifecycle guard",
+            "scene_inWorld != 1 || moonMarkerWorldFrame == 0",
+        ),
+        path: (
+            "moonMarkerCurrentWorldFrame",
+            "moonMarkerSafeWorldToScreenValue",
+            "frame + 0x65B8u",
+        ),
+    }
+    for check_path, tokens in checks.items():
+        text = check_path.read_text(encoding="utf-8")
+        for token in tokens:
+            if token not in text:
+                raise RuntimeError(f"{check_path.name} missing token: {token}")
 
 
 def main() -> None:
