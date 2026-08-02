@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install MoonMarker key bindings and configure its TOC metadata."""
+"""Install MoonMarker key bindings, guild entry, and configure TOC metadata."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 TITLE = "光柱测试板-由太阳神殿-yanz"
 SAVED_VARIABLE = "MoonMarkerDB"
+GUILD_FILE = "GuildAdvanced.lua"
 
 
 def main() -> None:
@@ -27,6 +28,11 @@ def main() -> None:
     if not bindings_source.is_file():
         raise RuntimeError(f"missing bindings source: {bindings_source}")
     shutil.copyfile(bindings_source, addon_root / "Bindings.xml")
+
+    guild_source = source_dir / GUILD_FILE
+    if not guild_source.is_file():
+        raise RuntimeError(f"missing guild entry source: {guild_source}")
+    shutil.copyfile(guild_source, addon_root / GUILD_FILE)
 
     toc_files = sorted(addon_root.glob("*.toc"))
     if len(toc_files) != 1:
@@ -53,6 +59,15 @@ def main() -> None:
         lines.insert(insert_at, saved_line)
         toc = "\n".join(lines) + "\n"
 
+    # Load the guild-only entry after the normal MoonMarker implementation.
+    lines = [line for line in toc.splitlines() if line.strip() != GUILD_FILE]
+    insert_at = len(lines)
+    for index, line in enumerate(lines):
+        if line.strip() == "MoonMarker.lua":
+            insert_at = index + 1
+            break
+    lines.insert(insert_at, GUILD_FILE)
+    toc = "\n".join(lines) + "\n"
     toc_path.write_text(toc, encoding="utf-8", newline="\n")
 
     lua = (addon_root / "MoonMarker.lua").read_text(encoding="utf-8")
@@ -67,6 +82,18 @@ def main() -> None:
         if token not in lua:
             raise RuntimeError(f"MoonMarker.lua missing required token: {token}")
 
+    guild_lua = (addon_root / GUILD_FILE).read_text(encoding="utf-8")
+    required_guild_tokens = (
+        'TARGET_GUILD = "太阳神殿"',
+        "MoonMarkerAdvancedButton",
+        "MoonMarkerPlaceButton",
+        "MoonMarker_IsTargetGuildMember",
+        "已确认：你是太阳神殿工会成员。",
+    )
+    for token in required_guild_tokens:
+        if token not in guild_lua:
+            raise RuntimeError(f"GuildAdvanced.lua missing required token: {token}")
+
     bindings = (addon_root / "Bindings.xml").read_text(encoding="utf-8")
     if bindings.count("<Binding ") != 7:
         raise RuntimeError("Bindings.xml must contain exactly seven bindings")
@@ -74,6 +101,8 @@ def main() -> None:
         raise RuntimeError("TOC SavedVariables declaration was not written")
     if title_line not in toc:
         raise RuntimeError("TOC title was not written")
+    if toc.count(GUILD_FILE) != 1:
+        raise RuntimeError("TOC must load GuildAdvanced.lua exactly once")
 
 
 if __name__ == "__main__":
