@@ -1,4 +1,4 @@
-name: Build MoonMarker Native 8 Colors 8 Markers v2
+name: Build MoonMarker Guild Auth Phase 1
 
 on:
   workflow_dispatch:
@@ -90,14 +90,21 @@ jobs:
           echo 'a8cd0ebffd874edad6e6b5f0fdd39e30ab75882927e6c7ecd572edbf2f161d50  cleanroom/native-white-remote-addon-v1.patch' | sha256sum -c -
           patch --batch -p1 -d cleanroom_input/addon < cleanroom/native-white-remote-addon-v1.patch
 
-      - name: Apply eight-color eight-marker implementation
+      - name: Apply MoonMarker implementation and guild auth
         run: |
           set -euxo pipefail
           test -s cleanroom/native-eight-v1/nativeM2Test.cpp
           test -s cleanroom/native-eight-v1/nativeM2Test.h
           test -s cleanroom/eight-markers/MoonMarker.lua
           test -s cleanroom/eight-markers/Bindings.xml
-          python3 -m py_compile cleanroom/apply_eight_markers.py cleanroom/configure_eight_marker_addon.py
+          test -s cleanroom/eight-markers/GuildAdvanced.lua
+          test -s cleanroom/guild-auth-v1/MoonMarkerGuildAuth.cpp
+          test -s cleanroom/guild-auth-v1/MoonMarkerGuildAuth.h
+          python3 -m py_compile \
+            cleanroom/apply_eight_markers.py \
+            cleanroom/configure_eight_marker_addon.py \
+            cleanroom/apply_guild_auth.py
+
           cp cleanroom/native-eight-v1/nativeM2Test.cpp upstream/nativeM2Test.cpp
           cp cleanroom/native-eight-v1/nativeM2Test.h upstream/nativeM2Test.h
           python3 cleanroom/apply_eight_markers.py \
@@ -107,6 +114,9 @@ jobs:
           python3 cleanroom/configure_eight_marker_addon.py \
             --addon cleanroom_input/addon \
             --source-dir cleanroom/eight-markers
+          python3 cleanroom/apply_guild_auth.py \
+            --upstream upstream \
+            --source-dir cleanroom/guild-auth-v1
 
           grep -Fq 'constexpr std::size_t kSlotCount = 8' upstream/nativeM2Test.cpp
           grep -Fq 'bool createAt(const std::string& colorName, const std::string& iconName' upstream/nativeM2Test.cpp
@@ -116,11 +126,27 @@ jobs:
           grep -Fq '{"cyan",    40, 230, 230}' upstream/moonMarker.cpp
           grep -Fq 'return 5;' upstream/dllmain.cpp
           grep -Fq 'activeCount' upstream/dllmain.cpp
+
+          grep -Fq '#include "MoonMarkerGuildAuth.h"' upstream/dllmain.cpp
+          grep -Fq 'moonMarkerGuildAuth::isAuthQuery' upstream/dllmain.cpp
+          grep -Fq 'moonMarkerGuildAuth::isAdvancedCommand' upstream/dllmain.cpp
+          grep -Fq 'MoonMarkerGuildAuth.cpp' upstream/Makefile
+          grep -Fq 'kLuaIsCFunctionAddress = 0x006F34A0' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'kLuaToCFunctionAddress = 0x006F3720' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'FUNCTION_TAMPERED' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'ACCESS_DENIED' upstream/MoonMarkerGuildAuth.cpp
+          grep -Fq 'originalGetGuildInfo' upstream/MoonMarkerGuildAuth.cpp
+          ! grep -Fq '太阳神殿' upstream/MoonMarkerGuildAuth.cpp
+
           grep -Fq 'SenderCanControl' cleanroom_input/addon/MoonMarker/MoonMarker.lua
           grep -Fq 'MoonMarker_BindingPlace' cleanroom_input/addon/MoonMarker/MoonMarker.lua
           grep -Fq 'MoonMarker.Remote", color, tonumber(x), tonumber(y), tonumber(z), marker' cleanroom_input/addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'pcall(UnitXP, "MMAuth")' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          grep -Fq '成员身份由 UnitXP_SP3.dll 验证。' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
+          ! grep -Fq 'GetGuildInfo(' cleanroom_input/addon/MoonMarker/GuildAdvanced.lua
           grep -Fq '## SavedVariables: MoonMarkerDB' cleanroom_input/addon/MoonMarker/*.toc
           grep -Fq '## Title: 光柱测试板-由太阳神殿-yanz' cleanroom_input/addon/MoonMarker/*.toc
+          grep -Fq 'GuildAdvanced.lua' cleanroom_input/addon/MoonMarker/*.toc
           test "$(grep -c '<Binding ' cleanroom_input/addon/MoonMarker/Bindings.xml)" -eq 7
           ! grep -Fq 'CreateFrame("PlayerModel"' cleanroom_input/addon/MoonMarker/MoonMarker.lua
 
@@ -152,6 +178,7 @@ jobs:
           make -j2
           file UnitXP_SP3.dll
           file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+          ! strings UnitXP_SP3.dll | grep -Fq '太阳神殿'
 
       - name: Package runtime test
         run: |
@@ -163,17 +190,21 @@ jobs:
           cp cleanroom/EIGHT_COLORS_EIGHT_MARKERS_V1.md release/
           (cd release && sha256sum UnitXP_SP3.dll > SHA256.txt && sha256sum -c SHA256.txt)
           printf '%s\n' \
-            '光柱测试板-由太阳神殿-yanz v2' \
-            '队伍中只有小队队长、团长或团队助理可以放置和清除。' \
-            '进入游戏按键设置，找到“光柱测试板-由太阳神殿-yanz”分类即可绑定操作按键。' \
-            '当前颜色、当前标记、面板位置和显示状态保存在 MoonMarkerDB。' \
-            '光柱使用原生 Spells\\MoonBeam_Impact_Base.mdx；不使用 Lua PlayerModel。' \
+            '光柱测试板-由太阳神殿-yanz：DLL 工会授权第一阶段' \
+            '普通版的八色光柱、八种标记、按键、保存和团队同步保持不变。' \
+            '高级按钮只根据 UnitXP("MMAuth") 的 DLL 返回值显示。' \
+            '测试授权：/run local a,g,r=UnitXP("MMAuth");print(a,g,r)' \
+            '测试高级入口：/run local a,r=UnitXP("MoonMarker.Advanced.Ping");print(a,r)' \
+            '非太阳神殿角色必须得到 false / ACCESS_DENIED，且看不到高级按钮。' \
+            '把 GetGuildInfo 替换为 Lua 函数后，MMAuth 必须返回 FUNCTION_TAMPERED。' \
+            '目标工会名在 DLL 中使用 XOR 字节编码，不保存为明文 UTF-8 字符串。' \
+            '光柱仍使用原生 Spells\\MoonBeam_Impact_Base.mdx。' \
             > release/TESTING.txt
 
       - name: Upload runtime package
         uses: actions/upload-artifact@v4
         with:
-          name: MoonMarker-Native-8Colors-8Markers-v2-x86
+          name: MoonMarker-Guild-Auth-Phase1-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
