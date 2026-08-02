@@ -93,6 +93,13 @@ def main() -> None:
 
     auth_path = upstream / "MoonMarkerGuildAuth.cpp"
     auth_source = auth_path.read_text(encoding="utf-8")
+    auth_source = replace_once(
+        auth_source,
+        '    const char* guild = lua_tostring(luaState, oldTop + 1);\n'
+        '    if (guild) result.guildName = guild;\n',
+        '    result.guildName = lua_tostring(luaState, oldTop + 1);\n',
+        "Lua string wrapper type",
+    )
     auth_source += (
         "\n// CI aliases: advancedPreviewAtPlayerCommand "
         "advancedScanStartCommand\n"
