@@ -1,0 +1,85 @@
+name: Check Advanced Marker Core V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['agent/guild-auth-gate']
+    paths:
+      - 'cleanroom/advanced-core-v1/**'
+      - 'cleanroom/apply_advanced_core_v1.py'
+      - '.github/workflows/check-advanced-core-v1.yml'
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - 'cleanroom/advanced-core-v1/**'
+      - 'cleanroom/apply_advanced_core_v1.py'
+      - '.github/workflows/check-advanced-core-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  core-self-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install compiler and Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ lua5.1
+
+      - name: Decode verified sources
+        run: |
+          set -euxo pipefail
+          mkdir -p generated/MoonMarker stub
+          cp cleanroom/advanced-core-v1/MoonMarkerAdvancedState.h generated/
+          python3 - <<'PY'
+          import base64, hashlib, pathlib, zlib
+          items = {
+              'MoonMarkerAdvancedState.cpp': '6df374c49cadd64424aa6eb590dd05d361317572e0758f17f9067c069cbfe543',
+              'AdvancedCoreDiagnostics.lua': '9d874763205ffc585d2bee330475cedd43b85d35ecd6fb5956c43667ac037dbc',
+          }
+          src = pathlib.Path('cleanroom/advanced-core-v1')
+          for name, expected in items.items():
+              encoded = ''.join((src / f'{name}.zlib.b64').read_text().split())
+              raw = zlib.decompress(base64.b64decode(encoded))
+              actual = hashlib.sha256(raw).hexdigest()
+              assert actual == expected, (name, actual)
+              target = pathlib.Path('generated/MoonMarker') / name if name.endswith('.lua') else pathlib.Path('generated') / name
+              target.write_bytes(raw)
+          PY
+
+      - name: Check Lua 5.1 syntax
+        run: luac5.1 -p generated/MoonMarker/AdvancedCoreDiagnostics.lua
+
+      - name: Compile and run core self-test
+        run: |
+          cat > stub/Vanilla1121_functions.h <<'EOF'
+          #pragma once
+          typedef struct structC3Vector {
+              float x = 0.0f;
+              float y = 0.0f;
+              float z = 0.0f;
+          } C3Vector;
+          EOF
+          cat > generated/self_test.cpp <<'EOF'
+          #include <iostream>
+          #include <string>
+          #include "MoonMarkerAdvancedState.h"
+          int main() {
+              std::size_t passed = 0;
+              std::size_t total = 0;
+              std::string failure;
+              const bool ok = moonMarkerAdvancedState::runSelfTest(passed, total, failure);
+              std::cout << passed << "/" << total << " " << failure << "\n";
+              return ok ? 0 : 1;
+          }
+          EOF
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            -Istub -Igenerated \
+            generated/MoonMarkerAdvancedState.cpp generated/self_test.cpp \
+            -o generated/core_self_test
+          generated/core_self_test | tee generated/self-test.txt
+          grep -Fq '10/10' generated/self-test.txt
