@@ -5,6 +5,10 @@ on:
     branches: ['agent/top-model-sync-v1']
     paths:
       - '.github/workflows/export-top-sync-baseline.yml'
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - '.github/workflows/export-top-sync-baseline.yml'
   workflow_dispatch:
 
 permissions:
