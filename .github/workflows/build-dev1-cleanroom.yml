@@ -6,6 +6,11 @@ on:
     paths:
       - 'build-dev1/**'
       - '.github/workflows/build-dev1-cleanroom.yml'
+  pull_request:
+    branches: ['cleanroom-v1']
+    paths:
+      - 'build-dev1/**'
+      - '.github/workflows/build-dev1-cleanroom.yml'
   workflow_dispatch:
 
 permissions:
