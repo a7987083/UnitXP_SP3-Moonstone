@@ -6,6 +6,11 @@ on:
       - agent/clean-v89-baseline-size-20260804
     paths:
       - .github/workflows/build-clean-v89-baseline-size.yml
+  pull_request:
+    branches:
+      - cleanroom-v1
+    paths:
+      - .github/workflows/build-clean-v89-baseline-size.yml
   workflow_dispatch:
 
 permissions:
