@@ -28,6 +28,9 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          echo '5ebcd959816305e69df28e907cf3fa774c1539a35e17db5816c11f019af52d2e  build-dev1/input/part06a0' | sha256sum -c -
+          echo '90d34a3dfeae391d77ed8a6b15cae52f2d42660ce00f6b03d0ff10541cec8def  build-dev1/input/part06a1' | sha256sum -c -
+          echo '8137d5922b15c75cc854a2b37f44395e8b3eaa23055aac4e4975f1c692ab9ff5  build-dev1/input/part10' | sha256sum -c -
           cat \
             build-dev1/input/part00 \
             build-dev1/input/part01 \
@@ -35,7 +38,8 @@ jobs:
             build-dev1/input/part03 \
             build-dev1/input/part04 \
             build-dev1/input/part05 \
-            build-dev1/input/part06a \
+            build-dev1/input/part06a0 \
+            build-dev1/input/part06a1 \
             build-dev1/input/part10 \
             build-dev1/input/part07 \
             build-dev1/input/part08 \
