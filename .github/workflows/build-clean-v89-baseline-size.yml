@@ -1,0 +1,122 @@
+name: Build Clean UnitXP SP3 v89 Baseline
+
+on:
+  push:
+    branches:
+      - agent/clean-v89-baseline-size-20260804
+    paths:
+      - .github/workflows/build-clean-v89-baseline-size.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout workflow branch
+        uses: actions/checkout@v4
+
+      - name: Fetch exact clean v89 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir source
+          git -C source init
+          git -C source remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C source fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
+          test -z "$(git -C source status --porcelain)"
+          ! find source -maxdepth 1 -iname '*MoonMarker*' -print -quit | grep -q .
+
+      - name: Install Clang 19 and build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+      - name: Install Windows x86 SDK and D3DX headers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 \
+            "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" \
+            /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output source/xwinSDK
+
+          curl -L --fail --retry 3 \
+            "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p source/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. source/d3d9x_headers/
+
+      - name: Compile untouched v89 functionality
+        working-directory: source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # NOMINMAX only prevents Windows header macro collisions; no UnitXP feature source is changed.
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' Makefile
+          make clean
+          make -j2
+          file UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+          stat -c '%s' UnitXP_SP3.dll | tee DLL-SIZE-BYTES.txt
+          sha256sum UnitXP_SP3.dll | tee DLL-SHA256.txt
+          objdump -h UnitXP_SP3.dll > DLL-SECTIONS.txt
+
+          {
+            echo '## Clean UnitXP SP3 v89 baseline'
+            echo
+            echo "- Upstream commit: 3370011e396ccdbf4c9921f6cf2b005bed818b24"
+            echo "- DLL size: $(stat -c '%s' UnitXP_SP3.dll) bytes"
+            echo "- File type: $(file UnitXP_SP3.dll)"
+            echo "- SHA-256: $(sha256sum UnitXP_SP3.dll | cut -d' ' -f1)"
+            echo '- MoonMarker modifications: none'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package baseline DLL and report
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir release
+          cp source/UnitXP_SP3.dll release/UnitXP_SP3-v89-Clean.dll
+          cp source/DLL-FILE-TYPE.txt release/
+          cp source/DLL-SIZE-BYTES.txt release/
+          cp source/DLL-SHA256.txt release/
+          cp source/DLL-SECTIONS.txt release/
+          printf '%s\n' \
+            'Exact upstream UnitXP SP3 v89 baseline.' \
+            'Source commit: 3370011e396ccdbf4c9921f6cf2b005bed818b24' \
+            'No MoonMarker source, patch, plugin, or DLL was used.' \
+            'Build target: PE32 Intel 80386.' \
+            > release/BUILD-INFO.txt
+          cd release
+          zip -q -9 ../UnitXP-SP3-v89-Clean-Baseline-x86.zip .
+
+      - name: Upload clean baseline artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UnitXP-SP3-v89-Clean-Baseline-x86
+          path: |
+            release/
+            UnitXP-SP3-v89-Clean-Baseline-x86.zip
+          if-no-files-found: error
+          retention-days: 14
