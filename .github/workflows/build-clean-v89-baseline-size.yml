@@ -114,7 +114,7 @@ jobs:
             'Build target: PE32 Intel 80386.' \
             > release/BUILD-INFO.txt
           cd release
-          zip -q -9 ../UnitXP-SP3-v89-Clean-Baseline-x86.zip .
+          zip -q -9 -r ../UnitXP-SP3-v89-Clean-Baseline-x86.zip .
 
       - name: Upload clean baseline artifact
         uses: actions/upload-artifact@v4
