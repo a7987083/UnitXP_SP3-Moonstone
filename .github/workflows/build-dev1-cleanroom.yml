@@ -54,6 +54,9 @@ jobs:
           echo '34607e1a216f67ebf7d5a84a5d25c2b4b42b798292bed1640a7a4e07ac953d92  dev1-delta.tar.xz' | sha256sum -c -
           mkdir delta
           tar -xJf dev1-delta.tar.xz -C delta
+          find "$GITHUB_WORKSPACE/delta" -maxdepth 2 -type d -print
+          test -d "$GITHUB_WORKSPACE/delta/native"
+          test -d "$GITHUB_WORKSPACE/delta/addon/MoonMarker"
 
           mkdir upstream
           git -C upstream init
@@ -62,7 +65,7 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
 
-          cp -a delta/native/. upstream/
+          cp -a "$GITHUB_WORKSPACE/delta/native/." "$GITHUB_WORKSPACE/upstream/"
           find upstream -type f \( -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name 'Makefile' \) -exec sed -i 's/\r$//' {} +
           find upstream -type f \( -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name 'Makefile' \) -exec sed -i '1s/^\xEF\xBB\xBF//' {} +
 
@@ -74,7 +77,7 @@ jobs:
 
           test -f upstream/MoonMarkerRuntime.cpp
           grep -Fq 'MoonMarkerRuntime.cpp' upstream/Makefile
-          test -f delta/addon/MoonMarker/MoonMarker.toc
+          test -f "$GITHUB_WORKSPACE/delta/addon/MoonMarker/MoonMarker.toc"
 
       - name: Install Clang 19 and build tools
         run: |
@@ -117,7 +120,7 @@ jobs:
           set -euxo pipefail
           mkdir -p release/Interface/AddOns
           cp upstream/UnitXP_SP3.dll release/
-          cp -a delta/addon/MoonMarker release/Interface/AddOns/
+          cp -a "$GITHUB_WORKSPACE/delta/addon/MoonMarker" release/Interface/AddOns/
           sha256sum release/UnitXP_SP3.dll > release/DLL-SHA256.txt
           printf '%s\n' \
             'MoonMarker Cleanroom Dev1' \
