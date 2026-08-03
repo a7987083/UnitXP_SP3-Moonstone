@@ -1,0 +1,2 @@
+Trigger isolated MoonMarker Cleanroom Dev1 x86 build.
+Auto marker restoration remains paused.
