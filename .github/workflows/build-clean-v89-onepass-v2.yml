@@ -1,0 +1,203 @@
+name: Build MoonMarker Clean v89 One-Pass V2
+
+on:
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - '.github/workflows/build-clean-v89-onepass-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout feature source assets
+        uses: actions/checkout@v4
+
+      - name: Decode verified inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir cleanroom_input advanced_v2_input
+          cat cleanroom/bundle.part00 cleanroom/bundle.part01 cleanroom/bundle.part02 cleanroom/bundle.part03 | base64 -d > cleanroom_bundle.zip
+          echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
+          unzip -q cleanroom_bundle.zip -d cleanroom_input
+          cat cleanroom/advanced-v2.fixed.part00 cleanroom/advanced-v2.fixed.part01 cleanroom/advanced-v2.fixed.part02 cleanroom/advanced-v2.fixed.part03 cleanroom/advanced-v2.fixed.part04 cleanroom/advanced-v2.fixed.part05 cleanroom/advanced-v2.fixed.part06 | base64 -d > advanced-v2.tar.xz
+          echo 'bb817eb41f64ccea39e5c35119f367146e2ba554597ace2bcb7fa07b6e857e1f  advanced-v2.tar.xz' | sha256sum -c -
+          tar -xJf advanced-v2.tar.xz -C advanced_v2_input
+
+      - name: Reconstruct known DLL features
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir reconstructed
+          git -C reconstructed init
+          git -C reconstructed remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C reconstructed fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C reconstructed checkout --detach FETCH_HEAD
+          test "$(git -C reconstructed rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+
+          sed -i 's/\r$//' reconstructed/dllmain.cpp reconstructed/sceneBegin_sceneEnd.cpp reconstructed/sceneBegin_sceneEnd.h reconstructed/Makefile
+          sed -i '1s/^\xEF\xBB\xBF//' reconstructed/dllmain.cpp reconstructed/sceneBegin_sceneEnd.cpp reconstructed/sceneBegin_sceneEnd.h reconstructed/Makefile
+          patch --batch -p1 -d reconstructed < cleanroom_input/MoonMarker_Cleanroom.patch
+          patch --batch -p1 -d reconstructed < cleanroom/fix-lua-string.patch
+          patch --batch -p1 -d reconstructed < cleanroom/present-hook.patch
+          patch --batch -p1 -d reconstructed < cleanroom/fix-placement-projection.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+          cp cleanroom/native-m2-v2/nativeM2Test.cpp reconstructed/
+          cp cleanroom/native-m2-v2/nativeM2Test.h reconstructed/
+          patch --batch -p1 -d reconstructed < cleanroom/native-m2-v2.patch
+          patch --batch -p1 -d reconstructed < cleanroom/native-white-v1.patch
+          patch --batch -p1 -d reconstructed < cleanroom/native-white-remote-v1.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/native-white-remote-addon-v1.patch
+          cp cleanroom/native-eight-v1/nativeM2Test.cpp reconstructed/nativeM2Test.cpp
+          cp cleanroom/native-eight-v1/nativeM2Test.h reconstructed/nativeM2Test.h
+          python3 cleanroom/apply_eight_markers.py --upstream reconstructed --addon cleanroom_input/addon --addon-source cleanroom/eight-markers/MoonMarker.lua
+          python3 cleanroom/configure_eight_marker_addon.py --addon cleanroom_input/addon --source-dir cleanroom/eight-markers
+          python3 cleanroom/apply_guild_auth.py --upstream reconstructed --source-dir cleanroom/guild-auth-v1
+          python3 cleanroom/apply_advanced_editor_bundle.py --upstream reconstructed --addon cleanroom_input/addon
+          python3 cleanroom/apply_advanced_editor_v2.py --upstream reconstructed --addon cleanroom_input/addon --source-dir advanced_v2_input/advanced-v2
+          base64 -d cleanroom/main-model-v1/native-patches.tar.gz.b64 > native-patches.tar.gz
+          echo 'dcee1a75e9b3fa55d472a80db0c0a2d1d17fe9ba444f923b4b423172d112147f  native-patches.tar.gz' | sha256sum -c -
+          tar -xzf native-patches.tar.gz
+          for patch_file in native/*.patch; do patch --batch -p0 -d reconstructed < "$patch_file"; done
+
+          grep -Fq 'createCustomAt' reconstructed/nativeM2Test.cpp
+          grep -Fq 'MoonMarker.Main.Remote' reconstructed/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarkerMainModel.cpp' reconstructed/Makefile
+          ! grep -RFq 'MoonMarker.Advanced.Top' reconstructed
+          ! grep -RFq 'SYNCREQ' reconstructed
+          ! grep -RFq 'SYNCBEGIN' reconstructed
+          ! grep -RFq 'SYNCEND' reconstructed
+
+      - name: Extract delta onto a second fresh v89 checkout
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git -C reconstructed diff --name-only --diff-filter=ACMRT > tracked-files.txt
+          git -C reconstructed ls-files --others --exclude-standard > untracked-files.txt
+          cat tracked-files.txt untracked-files.txt | sed '/^$/d' | sort -u > native-delta-files.txt
+          test -s native-delta-files.txt
+
+          mkdir clean_final
+          git -C clean_final init
+          git -C clean_final remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C clean_final fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C clean_final checkout --detach FETCH_HEAD
+          test "$(git -C clean_final rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+
+          while IFS= read -r file; do
+            test -f "reconstructed/$file"
+            mkdir -p "clean_final/$(dirname "$file")"
+            cp -a "reconstructed/$file" "clean_final/$file"
+          done < native-delta-files.txt
+
+          git -C reconstructed diff --binary > reconstructed.patch
+          git -C clean_final diff --binary > clean-final.patch
+          cmp reconstructed.patch clean-final.patch
+          while IFS= read -r file; do
+            test "$(sha256sum "reconstructed/$file" | cut -d' ' -f1)" = "$(sha256sum "clean_final/$file" | cut -d' ' -f1)"
+          done < native-delta-files.txt
+
+      - name: Decode exact matching plugin
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo '1f4e402aa75694885a09839697efc7ac287b3f749ad871a222184050a4f54e2b  cleanroom/main-model-v1/addon.part00' | sha256sum -c -
+          echo '2ec2a1284aacb77ea920dea10e15466c8aeba73f212ca1034665910b50261a4f  cleanroom/main-model-v1/addon.part01' | sha256sum -c -
+          echo '07e05ab6e6ee6ea5078fc50f864410446d3da9839fc3cfb391e91a4990343d6a  cleanroom/main-model-v1/addon.part02' | sha256sum -c -
+          echo 'b1de5af9d50fcf0927eed9aa2d81f1745dc9db04d3a314dde5cdc72d987f0273  cleanroom/main-model-v1/addon.part03' | sha256sum -c -
+          echo 'cd4123b59352f2c43958d8efac00ab165aebc5be962a8364f20475f180324f02  cleanroom/main-model-v1/addon.part04' | sha256sum -c -
+          echo 'b837f806d5f03d536d879cfcbb7bd2ba0944843c1aaeb3ffbd9986aa0b44033a  cleanroom/main-model-v1/addon.part05' | sha256sum -c -
+          echo '43cf4a7d92aebb559706260e9d8919950df317fee7e62a95d8953d14f2354af2  cleanroom/main-model-v1/addon.part06' | sha256sum -c -
+          echo '9b93e4d396b9f97fb61bc67ca594e3ed77dbafeaa808d86fcfc5e21167fe5bb1  cleanroom/main-model-v1/addon.part07' | sha256sum -c -
+          echo '37ce6eea035ba0b10ce34288541f89e92367622cd7d4e9d7a9256e2382575ea7  cleanroom/main-model-v1/addon.part08' | sha256sum -c -
+          cat cleanroom/main-model-v1/addon.part00 cleanroom/main-model-v1/addon.part01 cleanroom/main-model-v1/addon.part02 cleanroom/main-model-v1/addon.part03 cleanroom/main-model-v1/addon.part04 cleanroom/main-model-v1/addon.part05 cleanroom/main-model-v1/addon.part06 cleanroom/main-model-v1/addon.part07 cleanroom/main-model-v1/addon.part08 | base64 -d > addon.tar.xz
+          echo '266c465bda70eb7619d733501aab6c63bd149be7c6a63b9f800b1e147b0e99bc  addon.tar.xz' | sha256sum -c -
+          mkdir addon_package
+          tar -xJf addon.tar.xz -C addon_package
+          test -f addon_package/MoonMarker/MainModels.lua
+          ! grep -RFq 'SYNCREQ' addon_package/MoonMarker
+          ! grep -RFq 'MoonMarker.Advanced.Top' addon_package/MoonMarker
+
+      - name: Install Windows x86 toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output clean_final/xwinSDK
+          curl -L --fail --retry 3 'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p clean_final/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. clean_final/d3d9x_headers/
+
+      - name: Compile clean-final PE32 x86 DLL
+        working-directory: clean_final
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' Makefile
+          make clean
+          make -j2
+          file UnitXP_SP3.dll
+          file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+          ! strings UnitXP_SP3.dll | grep -Fq '太阳神殿'
+          ! strings UnitXP_SP3.dll | grep -Fq 'MoonMarker.Advanced.Top'
+
+      - name: Package plugin and DLL
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release/Interface/AddOns
+          cp clean_final/UnitXP_SP3.dll release/UnitXP_SP3.dll
+          cp -a addon_package/MoonMarker release/Interface/AddOns/
+          cp native-delta-files.txt release/NATIVE-DELTA-FILES.txt
+          sha256sum release/UnitXP_SP3.dll > release/DLL-SHA256.txt
+          file release/UnitXP_SP3.dll > release/DLL-FILE-TYPE.txt
+          cat > release/DLL-FEATURES.txt <<'EOF'
+          Native M2 creation/update/attachment/release
+          Eight independent color marker slots
+          Ground cursor targeting begin/update/commit/cancel
+          Fixed raid-style top icons
+          One local preview slot and transform editing
+          Per-color custom main-model replacement and restore-default
+          Model path and numeric validation
+          Target-guild authorization for advanced actions
+          Leader/raid-leader/assistant authorization for synchronized send
+          Signed main-model configuration and validated remote display
+          Scene/D3D/game-exit cleanup
+          Marker auto-restoration excluded
+          EOF
+          printf '%s\n' \
+            'Built from fresh UnitXP_SP3 v89 commit 3370011e396ccdbf4c9921f6cf2b005bed818b24.' \
+            'The complete native feature delta was extracted from the known feature source and copied to a second fresh v89 checkout.' \
+            'Tracked patches and every changed/new native file were hash-verified before compilation.' \
+            'Marker auto-restoration remains excluded.' \
+            > release/BUILD.txt
+          cd release
+          zip -q -r ../MoonMarker-Clean-v89-OnePass-x86.zip .
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Clean-v89-OnePass-x86
+          path: |
+            release/
+            MoonMarker-Clean-v89-OnePass-x86.zip
+          if-no-files-found: error
+          retention-days: 14
