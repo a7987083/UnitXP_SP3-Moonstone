@@ -30,6 +30,11 @@ jobs:
           echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
           unzip -q cleanroom_bundle.zip -d cleanroom_input
 
+          # Advanced-v2 source parts are pinned to the previously verified one-pass asset commit.
+          git fetch --depth 1 origin 100463402c468a97c0804bbdcf4b077d321ebd96
+          for part in 00 01 02 03 04 05 06; do
+            git show FETCH_HEAD:cleanroom/advanced-v2.fixed.part${part} > cleanroom/advanced-v2.fixed.part${part}
+          done
           cat cleanroom/advanced-v2.fixed.part00 cleanroom/advanced-v2.fixed.part01 \
               cleanroom/advanced-v2.fixed.part02 cleanroom/advanced-v2.fixed.part03 \
               cleanroom/advanced-v2.fixed.part04 cleanroom/advanced-v2.fixed.part05 \
