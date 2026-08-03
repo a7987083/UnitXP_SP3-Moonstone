@@ -1,0 +1,22 @@
+--- MoonMarkerGuildAuth.cpp
++++ MoonMarkerGuildAuth.cpp
+@@ -184,8 +184,7 @@
+         return result;
+     }
+ 
+-    const char* guildName = lua_tostring(luaState, oldTop + 1);
+-    if (guildName) result.guildName = guildName;
++    result.guildName = lua_tostring(luaState, oldTop + 1);
+     lua_settop(luaState, oldTop);
+     if (result.guildName.empty()) {
+         result.reason = "GUILD_NOT_READY";
+@@ -245,8 +244,7 @@
+     if (lua_pcall(luaState, 1, 1, 0) != 0) {
+         lua_settop(luaState, oldTop); return false;
+     }
+-    const char* name = lua_tostring(luaState, oldTop + 1);
+-    if (name) result = name; else result.clear();
++    result = lua_tostring(luaState, oldTop + 1);
+     lua_settop(luaState, oldTop);
+     return !result.empty();
+ }
