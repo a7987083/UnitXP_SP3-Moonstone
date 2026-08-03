@@ -1,0 +1,234 @@
+--- nativeM2Test.cpp.orig
++++ nativeM2Test.cpp
+@@ -123,6 +123,7 @@
+ 
+ std::array<Slot, kSlotCount> gSlots = {};
+ AdvancedPreviewSlot gAdvancedPreview = {};
++std::array<AdvancedPreviewSlot, kSlotCount> gAdvancedTopModels = {};
+ PlacementPreviewSlot gPlacementPreview = {};
+ std::array<ProjectedIcon, kSlotCount> gProjected = {};
+ unsigned long gCreateCalls = 0;
+@@ -354,6 +355,58 @@
+     return ready;
+ }
+ 
++void applyAdvancedTopWorldMatrix(AdvancedPreviewSlot& slot) {
++    if (slot.model == nullptr) return;
++    float matrix[16] = {};
++    buildAdvancedWorldMatrix(slot.position, slot.scale, slot.yawDegrees, matrix);
++    reinterpret_cast<SetWorldMatrixProc>(kSetWorldMatrixAddress)(slot.model, matrix);
++}
++
++void resetAdvancedTopModel(AdvancedPreviewSlot& slot) {
++    slot.context = nullptr;
++    slot.model = nullptr;
++    slot.position = {};
++    slot.active = false;
++    slot.renderReady = false;
++    slot.scale = 1.0f;
++    slot.yawDegrees = 0.0f;
++    slot.path.clear();
++}
++
++void releaseAdvancedTopModel(AdvancedPreviewSlot& slot, bool updateStage) {
++    if (slot.model == nullptr) {
++        resetAdvancedTopModel(slot);
++        if (updateStage) gLastErrorStage = "top_cleared_no_model";
++        return;
++    }
++
++    void* liveContext = currentContext();
++    void* modelContext = readField<void*>(slot.model, 0x2C);
++    if (liveContext != nullptr && liveContext == slot.context
++        && modelContext == slot.context) {
++        reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot.model, 0);
++        reinterpret_cast<ReleaseModelProc>(kReleaseModelAddress)(slot.model);
++        ++gReleaseCalls;
++        if (updateStage) gLastErrorStage = "top_cleared";
++    } else {
++        ++gDroppedStalePointers;
++        if (updateStage) gLastErrorStage = "top_cleared_stale_context";
++    }
++    resetAdvancedTopModel(slot);
++}
++
++bool pollAdvancedTopRenderReady(AdvancedPreviewSlot& slot, int requestLoad) {
++    if (slot.model == nullptr) return false;
++    ++gLoadChecks;
++    const bool ready = reinterpret_cast<EnsureRenderReadyProc>(
++        kEnsureRenderReadyAddress)(slot.model, requestLoad, 1) != 0;
++    if (ready && !slot.renderReady) {
++        slot.renderReady = true;
++        ++gLoadReadyTransitions;
++    }
++    return ready;
++}
++
+ void resetPlacementPreview() {
+     gPlacementPreview.context = nullptr;
+     gPlacementPreview.model = nullptr;
+@@ -941,6 +994,103 @@
+     return result;
+ }
+ 
++bool createAdvancedTopModel(const std::string& colorName,
++                            const std::string& modelPath,
++                            const C3Vector& position,
++                            float scale,
++                            float yawDegrees,
++                            std::string& normalizedPath) {
++    const int selectedColor = colorIndex(colorName);
++    gLastErrorStage = "top_validate";
++    if (selectedColor < 0) {
++        gLastErrorStage = "top_unknown_color";
++        return false;
++    }
++    if (!normalizeModelPath(modelPath, normalizedPath)
++        || !std::isfinite(position.x) || !std::isfinite(position.y)
++        || !std::isfinite(position.z) || !std::isfinite(scale)
++        || !std::isfinite(yawDegrees)
++        || scale < kAdvancedMinScale || scale > kAdvancedMaxScale) {
++        gLastErrorStage = "top_invalid_arguments";
++        return false;
++    }
++
++    AdvancedPreviewSlot& slot = gAdvancedTopModels[static_cast<std::size_t>(selectedColor)];
++    releaseAdvancedTopModel(slot, false);
++    slot.position = position;
++    slot.scale = scale;
++    slot.yawDegrees = yawDegrees;
++    slot.path = normalizedPath;
++    slot.context = currentContext();
++    if (slot.context == nullptr) {
++        resetAdvancedTopModel(slot);
++        gLastErrorStage = "top_no_world_context";
++        return false;
++    }
++
++    ++gCreateCalls;
++    slot.model = reinterpret_cast<CreateModelProc>(kCreateModelAddress)(
++        slot.context, slot.path.c_str(), 0);
++    if (slot.model == nullptr) {
++        resetAdvancedTopModel(slot);
++        gLastErrorStage = "top_create_failed";
++        return false;
++    }
++    ++gCreateSuccesses;
++
++    if (readField<void*>(slot.model, 0x2C) != slot.context) {
++        gLastErrorStage = "top_context_mismatch";
++        releaseAdvancedTopModel(slot, false);
++        return false;
++    }
++
++    applyAdvancedTopWorldMatrix(slot);
++    const C3Vector white = {1.0f, 1.0f, 1.0f};
++    reinterpret_cast<SetAlphaProc>(kSetAlphaAddress)(slot.model, 1.0f);
++    reinterpret_cast<SetColorProc>(kSetColorAddress)(slot.model, &white);
++    reinterpret_cast<SetSequenceProc>(kSetSequenceAddress)(
++        slot.model, -1, 0, -1, 0, 1.0f, 1, 1);
++    reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot.model, 1);
++    reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot.model, 1);
++    slot.active = true;
++
++    if (readField<void*>(slot.model, 0x44) == nullptr) {
++        gLastErrorStage = "top_render_list_missing";
++        releaseAdvancedTopModel(slot, false);
++        return false;
++    }
++
++    gLastErrorStage = pollAdvancedTopRenderReady(slot, 1)
++        ? "top_ready" : "top_waiting_resources";
++    return true;
++}
++
++bool clearAdvancedTopModel(const std::string& colorName) {
++    const int selectedColor = colorIndex(colorName);
++    if (selectedColor < 0) {
++        gLastErrorStage = "top_unknown_color";
++        return false;
++    }
++    releaseAdvancedTopModel(
++        gAdvancedTopModels[static_cast<std::size_t>(selectedColor)], true);
++    return true;
++}
++
++void clearAdvancedTopModels() {
++    for (AdvancedPreviewSlot& slot : gAdvancedTopModels) {
++        releaseAdvancedTopModel(slot, false);
++    }
++    gLastErrorStage = "top_cleared_all";
++}
++
++std::size_t advancedTopModelCount() {
++    std::size_t count = 0;
++    for (const AdvancedPreviewSlot& slot : gAdvancedTopModels) {
++        if (slot.active && slot.model != nullptr) ++count;
++    }
++    return count;
++}
++
+ bool clearColor(const std::string& colorName) {
+     const int selectedColor = colorIndex(colorName);
+     if (selectedColor < 0) return false;
+@@ -987,6 +1137,10 @@
+         }
+         resetPlacementPreview();
+         resetAdvancedPreview();
++        for (AdvancedPreviewSlot& slot : gAdvancedTopModels) {
++            if (slot.active || slot.model != nullptr) ++gDroppedStalePointers;
++            resetAdvancedTopModel(slot);
++        }
+         moonMarkerAdvancedState::clearAll("WORLD_NOT_READY");
+         gLastErrorStage = "world_not_ready_drop_without_release";
+         return;
+@@ -1064,6 +1218,30 @@
+                 ? "advanced_ready" : "advanced_waiting_resources";
+         }
+     }
++
++    for (AdvancedPreviewSlot& slot : gAdvancedTopModels) {
++        if (!slot.active || slot.model == nullptr) continue;
++        if (liveContext == nullptr || liveContext != slot.context) {
++            ++gDroppedStalePointers;
++            resetAdvancedTopModel(slot);
++            gLastErrorStage = "top_world_context_changed";
++            continue;
++        }
++
++        ++gUpdateCalls;
++        applyAdvancedTopWorldMatrix(slot);
++        reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot.model, 1);
++        if (readField<void*>(slot.model, 0x44) == nullptr) {
++            ++gReattachCalls;
++            reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot.model, 1);
++            if (readField<void*>(slot.model, 0x44) != nullptr) {
++                ++gReattachSuccesses;
++            }
++        }
++        gLastErrorStage = pollAdvancedTopRenderReady(slot, 0)
++            ? "top_ready" : "top_waiting_resources";
++    }
+ }
+ 
+ void renderIcons(IDirect3DDevice9* device) {
+@@ -1119,6 +1297,9 @@
+         for (Slot& slot : gSlots) resetSlot(slot);
+         resetPlacementPreview();
+         resetAdvancedPreview();
++        for (AdvancedPreviewSlot& slot : gAdvancedTopModels) {
++            resetAdvancedTopModel(slot);
++        }
+         resetProjected();
+         gLastErrorStage = "cleared_all_world_not_ready";
+         return;
+@@ -1126,6 +1307,9 @@
+     for (Slot& slot : gSlots) releaseSlot(slot, false);
+     releasePlacementPreview(false);
+     releaseAdvancedPreview(false);
++    for (AdvancedPreviewSlot& slot : gAdvancedTopModels) {
++        releaseAdvancedTopModel(slot, false);
++    }
+     resetProjected();
+     gLastErrorStage = "cleared_all";
+ }
