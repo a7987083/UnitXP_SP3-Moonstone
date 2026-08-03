@@ -1,0 +1,120 @@
+--- MoonMarkerGuildAuth.cpp.orig
++++ MoonMarkerGuildAuth.cpp
+@@ -102,6 +102,18 @@
+     return value;
+ }
+ 
++const std::string& cmd_MoonMarker_Advanced_TopSet() {
++    static const std::array<std::uint8_t, 26> encoded = {{ 22, 52, 52, 53, 22, 58, 41, 48, 62, 41, 117, 26, 63, 45, 58, 53, 56, 62, 63, 117, 15, 52, 43, 8, 62, 47 }};
++    static const std::string value = decode(encoded, 0x5B);
++    return value;
++}
++
++const std::string& cmd_MoonMarker_Advanced_TopClear() {
++    static const std::array<std::uint8_t, 28> encoded = {{ 98, 64, 64, 65, 98, 78, 93, 68, 74, 93, 1, 110, 75, 89, 78, 65, 76, 74, 75, 1, 123, 64, 95, 108, 67, 74, 78, 93 }};
++    static const std::string value = decode(encoded, 0x2F);
++    return value;
++}
++
+ const std::string& cmd_MoonMarker_Advanced_ScanM2_Start() {
+     static const std::array<std::uint8_t, 32> encoded = {{ 100, 70, 70, 71, 100, 72, 91, 66, 76, 91, 7, 104, 77, 95, 72, 71, 74, 76, 77, 7, 122, 74, 72, 71, 100, 27, 7, 122, 93, 72, 91, 93 }};
+     static const std::string value = decode(encoded, 0x29);
+@@ -271,6 +283,55 @@
+     return 5;
+ }
+ 
++int createAdvancedTopAt(void* luaState,
++                        const std::string& color,
++                        const std::string& path,
++                        C3Vector basePosition,
++                        float height,
++                        float scale,
++                        float yaw) {
++    C3Vector actorPosition = {};
++    if (!nativeM2Test::playerFeetPosition(actorPosition)) {
++        return pushFailure(luaState, "PLAYER_POSITION_UNAVAILABLE");
++    }
++
++    moonMarkerAdvancedState::MarkerDefinition marker;
++    marker.primaryPath = path;
++    marker.primary.position = basePosition;
++    marker.primary.scale = 1.0f;
++    marker.primary.yawDegrees = 0.0f;
++    marker.top.enabled = true;
++    marker.top.path = path;
++    marker.top.height = height;
++    marker.top.scale = scale;
++    marker.top.yawDegrees = yaw;
++    marker.localOnly = false;
++
++    const auto validated = moonMarkerAdvancedState::normalizeAndValidate(
++        marker, false, &actorPosition,
++        moonMarkerAdvancedState::kAbsoluteMaxDistance);
++    if (!validated) return pushFailure(luaState, validated.name);
++
++    C3Vector renderPosition = marker.primary.position;
++    renderPosition.z += marker.top.height;
++    std::string rendererPath;
++    if (!nativeM2Test::createAdvancedTopModel(color, marker.top.path,
++            renderPosition, marker.top.scale, marker.top.yawDegrees,
++            rendererPath)) {
++        const auto status = nativeM2Test::advancedPreviewStatus();
++        return pushFailure(luaState, status.lastErrorStage);
++    }
++
++    lua_pushboolean(luaState, 1);
++    lua_pushstring(luaState, color);
++    lua_pushstring(luaState, rendererPath);
++    lua_pushnumber(luaState, renderPosition.x);
++    lua_pushnumber(luaState, renderPosition.y);
++    lua_pushnumber(luaState, renderPosition.z);
++    return 6;
++}
++
+ } // namespace
+ 
+ bool isAuthQuery(const std::string& command) { return command == authQueryCommand(); }
+@@ -377,6 +438,44 @@
+         return createAdvancedAt(luaState, path, position, scale, yaw);
+     }
+ 
++    if (command == cmd_MoonMarker_Advanced_TopSet()) {
++        if (lua_gettop(luaState) < 9
++            || !lua_isstring(luaState, 2) || !lua_isstring(luaState, 3)
++            || !lua_isnumber(luaState, 4) || !lua_isnumber(luaState, 5)
++            || !lua_isnumber(luaState, 6) || !lua_isnumber(luaState, 7)
++            || !lua_isnumber(luaState, 8) || !lua_isnumber(luaState, 9)) {
++            return pushFailure(luaState, "TOP_ARGUMENTS_REQUIRED");
++        }
++        const std::string color = lua_tostring(luaState, 2);
++        const std::string path = lua_tostring(luaState, 3);
++        C3Vector position = {
++            static_cast<float>(lua_tonumber(luaState, 4)),
++            static_cast<float>(lua_tonumber(luaState, 5)),
++            static_cast<float>(lua_tonumber(luaState, 6))};
++        const float height = static_cast<float>(lua_tonumber(luaState, 7));
++        const float scale = static_cast<float>(lua_tonumber(luaState, 8));
++        const float yaw = static_cast<float>(lua_tonumber(luaState, 9));
++        return createAdvancedTopAt(luaState, color, path, position,
++            height, scale, yaw);
++    }
++
++    if (command == cmd_MoonMarker_Advanced_TopClear()) {
++        if (lua_gettop(luaState) < 2 || !lua_isstring(luaState, 2)) {
++            return pushFailure(luaState, "TOP_COLOR_REQUIRED");
++        }
++        const std::string color = lua_tostring(luaState, 2);
++        if (color == "all" || color == "ALL") {
++            nativeM2Test::clearAdvancedTopModels();
++        } else if (!nativeM2Test::clearAdvancedTopModel(color)) {
++            return pushFailure(luaState, "UNKNOWN_COLOR");
++        }
++        lua_pushboolean(luaState, 1);
++        lua_pushnumber(luaState,
++            static_cast<double>(nativeM2Test::advancedTopModelCount()));
++        return 2;
++    }
++
+     if (command == cmd_MoonMarker_Advanced_ClearPreview()) {
+         nativeM2Test::clearAdvancedPreview();
+         moonMarkerAdvancedState::clearLocalDraft("LOCAL_PREVIEW_CLEARED");
