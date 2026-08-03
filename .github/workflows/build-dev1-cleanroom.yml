@@ -29,7 +29,9 @@ jobs:
         run: |
           set -euxo pipefail
           echo '5ebcd959816305e69df28e907cf3fa774c1539a35e17db5816c11f019af52d2e  build-dev1/input/part06a0' | sha256sum -c -
-          echo '90d34a3dfeae391d77ed8a6b15cae52f2d42660ce00f6b03d0ff10541cec8def  build-dev1/input/part06a1' | sha256sum -c -
+          echo '8eb0fed569fb80f7b607dc90b78d448a0c311f8b70a89ce401d55d9053a2efcb  build-dev1/input/part06a10' | sha256sum -c -
+          echo '9733171ecd62c46badb482e3836e173d2c45b9d6b657ecf8f5cce5e44a6ab95c  build-dev1/input/part06a11' | sha256sum -c -
+          echo 'd3419dc903b001bdfec087916b37ea13786ed064fa5b9e3c34da14caaa46666a  build-dev1/input/part06a12' | sha256sum -c -
           echo '8137d5922b15c75cc854a2b37f44395e8b3eaa23055aac4e4975f1c692ab9ff5  build-dev1/input/part10' | sha256sum -c -
           cat \
             build-dev1/input/part00 \
@@ -39,7 +41,9 @@ jobs:
             build-dev1/input/part04 \
             build-dev1/input/part05 \
             build-dev1/input/part06a0 \
-            build-dev1/input/part06a1 \
+            build-dev1/input/part06a10 \
+            build-dev1/input/part06a11 \
+            build-dev1/input/part06a12 \
             build-dev1/input/part10 \
             build-dev1/input/part07 \
             build-dev1/input/part08 \
