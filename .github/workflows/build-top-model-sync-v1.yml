@@ -77,9 +77,13 @@ jobs:
       - name: Apply persistent top-model slots
         run: |
           set -euxo pipefail
+          cp cleanroom/top-model-sync-v1/nativeM2Test.cpp.patch /tmp/nativeM2Test.cpp.patch
+          cp cleanroom/top-model-sync-v1/MoonMarkerGuildAuth.cpp.patch /tmp/MoonMarkerGuildAuth.cpp.patch
+          sed -i 's/@@ -1064,6 +1218,30 @@/@@ -1064,6 +1218,29 @@/' /tmp/nativeM2Test.cpp.patch
+          sed -i 's/@@ -271,6 +283,55 @@/@@ -271,6 +283,54 @@/; s/@@ -377,6 +438,44 @@/@@ -377,6 +438,43 @@/' /tmp/MoonMarkerGuildAuth.cpp.patch
           patch --batch -p0 -d upstream < cleanroom/top-model-sync-v1/nativeM2Test.h.patch
-          patch --batch -p0 -d upstream < cleanroom/top-model-sync-v1/nativeM2Test.cpp.patch
-          patch --batch -p0 -d upstream < cleanroom/top-model-sync-v1/MoonMarkerGuildAuth.cpp.patch
+          patch --batch -p0 -d upstream < /tmp/nativeM2Test.cpp.patch
+          patch --batch -p0 -d upstream < /tmp/MoonMarkerGuildAuth.cpp.patch
           grep -Fq 'gAdvancedTopModels' upstream/nativeM2Test.cpp
           grep -Fq 'createAdvancedTopModel' upstream/nativeM2Test.cpp
           grep -Fq 'cmd_MoonMarker_Advanced_TopSet' upstream/MoonMarkerGuildAuth.cpp
