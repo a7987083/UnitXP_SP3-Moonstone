@@ -1,0 +1,105 @@
+name: Audit MoonMarker Slimming Candidates
+
+on:
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - '.github/workflows/audit-moonmarker-slimming.yml'
+      - '.github/workflows/build-clean-v89-onepass-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout verified feature assets
+        uses: actions/checkout@v4
+
+      - name: Re-run the verified reconstruction steps
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y python3-yaml patch unzip xz-utils git
+
+          cat > /tmp/run_named_step.py <<'PY'
+          import pathlib, subprocess, sys, yaml
+          workflow = pathlib.Path('.github/workflows/build-clean-v89-onepass-v2.yml')
+          data = yaml.safe_load(workflow.read_text(encoding='utf-8'))
+          wanted = sys.argv[1]
+          for step in data['jobs']['build-x86']['steps']:
+              if step.get('name') == wanted:
+                  script = step.get('run')
+                  if not script:
+                      raise SystemExit('named step has no run script: ' + wanted)
+                  path = pathlib.Path('/tmp/replayed-step.sh')
+                  path.write_text(script, encoding='utf-8')
+                  subprocess.run(['bash', str(path)], check=True)
+                  break
+          else:
+              raise SystemExit('step not found: ' + wanted)
+          PY
+
+          python3 /tmp/run_named_step.py 'Decode verified inputs'
+          python3 /tmp/run_named_step.py 'Reconstruct known DLL features'
+          python3 /tmp/run_named_step.py 'Extract delta onto a second fresh v89 checkout'
+          python3 /tmp/run_named_step.py 'Decode exact matching plugin'
+
+      - name: Produce source-level slimming reports
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p audit/source audit/plugin audit/reports
+
+          while IFS= read -r file; do
+            mkdir -p "audit/source/$(dirname "$file")"
+            cp -a "clean_final/$file" "audit/source/$file"
+          done < native-delta-files.txt
+          cp -a addon_package/MoonMarker/. audit/plugin/
+          cp native-delta-files.txt audit/reports/
+          git -C clean_final diff --stat > audit/reports/NATIVE-DIFF-STAT.txt
+          git -C clean_final diff --numstat > audit/reports/NATIVE-DIFF-NUMSTAT.txt
+          git -C clean_final diff --binary > audit/reports/NATIVE-TRACKED.patch
+
+          {
+            printf 'file\tbytes\tlines\n'
+            while IFS= read -r file; do
+              if [ -f "clean_final/$file" ]; then
+                printf '%s\t%s\t%s\n' "$file" "$(stat -c '%s' "clean_final/$file")" "$(wc -l < "clean_final/$file")"
+              fi
+            done < native-delta-files.txt
+          } > audit/reports/NATIVE-FILE-SIZES.tsv
+
+          {
+            printf 'file\tbytes\tlines\n'
+            find addon_package/MoonMarker -maxdepth 1 -type f -name '*.lua' -print0 | sort -z | while IFS= read -r -d '' file; do
+              printf '%s\t%s\t%s\n' "${file#addon_package/MoonMarker/}" "$(stat -c '%s' "$file")" "$(wc -l < "$file")"
+            done
+          } > audit/reports/PLUGIN-LUA-SIZES.tsv
+
+          grep -RInE 'SelfTest|Core\.Status|Core\.Policy|ScanM2|Scanner|Diagnostics|DEBUG|debug|Test|test|status|Status' clean_final --include='*.cpp' --include='*.h' > audit/reports/NATIVE-DIAGNOSTIC-SCANNER-HITS.txt || true
+          grep -RInE 'SelfTest|ScanM2|Scanner|Diagnostics|DEBUG|debug|Test|test' addon_package/MoonMarker --include='*.lua' > audit/reports/PLUGIN-DIAGNOSTIC-SCANNER-HITS.txt || true
+          grep -RInoE 'MoonMarker\.[A-Za-z0-9_.]+' addon_package/MoonMarker --include='*.lua' | sort -u > audit/reports/PLUGIN-COMMAND-INVENTORY.txt || true
+          grep -RInoE 'MoonMarker\.[A-Za-z0-9_.]+' clean_final --include='*.cpp' --include='*.h' | sort -u > audit/reports/NATIVE-COMMAND-INVENTORY.txt || true
+          grep -RInE 'restore|Restore|恢复|login|PLAYER_LOGIN|VARIABLES_LOADED|SYNCREQ|SYNCBEGIN|SYNCEND|Advanced\.Top|T1S|T1C' clean_final addon_package/MoonMarker --include='*.cpp' --include='*.h' --include='*.lua' > audit/reports/RESTORE-LEGACY-PROTOCOL-HITS.txt || true
+
+          find audit/source -type f -print0 | sort -z | xargs -0 sha256sum > audit/reports/SOURCE-SHA256.txt
+          find audit/plugin -type f -print0 | sort -z | xargs -0 sha256sum > audit/reports/PLUGIN-SHA256.txt
+
+          tar -cJf MoonMarker-Slim-Audit-Source.tar.xz audit/source audit/plugin audit/reports
+          sha256sum MoonMarker-Slim-Audit-Source.tar.xz > MoonMarker-Slim-Audit-Source-SHA256.txt
+
+      - name: Upload audit source and reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Slim-Audit-Source
+          path: |
+            audit/
+            MoonMarker-Slim-Audit-Source.tar.xz
+            MoonMarker-Slim-Audit-Source-SHA256.txt
+          if-no-files-found: error
+          retention-days: 14
