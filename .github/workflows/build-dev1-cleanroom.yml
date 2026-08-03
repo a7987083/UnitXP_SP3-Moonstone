@@ -28,10 +28,19 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          wc -c build-dev1/input/part*
-          sha256sum build-dev1/input/part*
-          cat build-dev1/input/part* > dev1-delta.b64
-          wc -c dev1-delta.b64
+          cat \
+            build-dev1/input/part00 \
+            build-dev1/input/part01 \
+            build-dev1/input/part02 \
+            build-dev1/input/part03 \
+            build-dev1/input/part04 \
+            build-dev1/input/part05 \
+            build-dev1/input/part06a \
+            build-dev1/input/part10 \
+            build-dev1/input/part07 \
+            build-dev1/input/part08 \
+            build-dev1/input/part09 > dev1-delta.b64
+          test "$(wc -c < dev1-delta.b64)" = '99048'
           LC_ALL=C grep -n '[^A-Za-z0-9+/=]' dev1-delta.b64 && exit 1 || true
           base64 -d dev1-delta.b64 > dev1-delta.tar.xz
           echo '34607e1a216f67ebf7d5a84a5d25c2b4b42b798292bed1640a7a4e07ac953d92  dev1-delta.tar.xz' | sha256sum -c -
