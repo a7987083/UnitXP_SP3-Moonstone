@@ -28,7 +28,12 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          cat build-dev1/input/part* | base64 -d > dev1-delta.tar.xz
+          wc -c build-dev1/input/part*
+          sha256sum build-dev1/input/part*
+          cat build-dev1/input/part* > dev1-delta.b64
+          wc -c dev1-delta.b64
+          LC_ALL=C grep -n '[^A-Za-z0-9+/=]' dev1-delta.b64 && exit 1 || true
+          base64 -d dev1-delta.b64 > dev1-delta.tar.xz
           echo '34607e1a216f67ebf7d5a84a5d25c2b4b42b798292bed1640a7a4e07ac953d92  dev1-delta.tar.xz' | sha256sum -c -
           mkdir delta
           tar -xJf dev1-delta.tar.xz -C delta
