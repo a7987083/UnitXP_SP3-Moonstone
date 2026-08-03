@@ -1,0 +1,110 @@
+name: Build MoonMarker Cleanroom Dev1
+
+on:
+  push:
+    branches: ['agent/dev1-compile-20260804']
+    paths:
+      - 'build-dev1/**'
+      - '.github/workflows/build-dev1-cleanroom.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct clean source and Dev1 delta
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat build-dev1/input/part* | base64 -d > dev1-delta.tar.xz
+          echo '34607e1a216f67ebf7d5a84a5d25c2b4b42b798292bed1640a7a4e07ac953d92  dev1-delta.tar.xz' | sha256sum -c -
+          mkdir delta
+          tar -xJf dev1-delta.tar.xz -C delta
+
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+
+          cp -a delta/native/. upstream/
+          find upstream -type f \( -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name 'Makefile' \) -exec sed -i 's/\r$//' {} +
+          find upstream -type f \( -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name 'Makefile' \) -exec sed -i '1s/^\xEF\xBB\xBF//' {} +
+
+          if compgen -G 'build-dev1/patches/*.patch' > /dev/null; then
+            for patch_file in build-dev1/patches/*.patch; do
+              patch --batch -p1 -d upstream < "$patch_file"
+            done
+          fi
+
+          test -f upstream/MoonMarkerRuntime.cpp
+          grep -Fq 'MoonMarkerRuntime.cpp' upstream/Makefile
+          test -f delta/addon/MoonMarker/MoonMarker.toc
+
+      - name: Install Clang 19 and build tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+      - name: Install Windows SDK and D3DX headers
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+          curl -L --fail --retry 3 "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+
+      - name: Build PE32 x86 DLL
+        working-directory: upstream
+        run: |
+          set -euxo pipefail
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' Makefile
+          make clean
+          make -j2
+          file UnitXP_SP3.dll
+          file UnitXP_SP3.dll | grep -q 'PE32 executable.*Intel 80386'
+
+      - name: Package runtime
+        run: |
+          set -euxo pipefail
+          mkdir -p release/Interface/AddOns
+          cp upstream/UnitXP_SP3.dll release/
+          cp -a delta/addon/MoonMarker release/Interface/AddOns/
+          sha256sum release/UnitXP_SP3.dll > release/DLL-SHA256.txt
+          printf '%s\n' \
+            'MoonMarker Cleanroom Dev1' \
+            'Auto marker restoration remains PAUSED.' \
+            'Build source: clean UnitXP SP3 v89 plus Dev1 delta.' > release/BUILD.txt
+          cd release
+          zip -q -r ../MoonMarker-Cleanroom-Dev1-Runtime.zip .
+
+      - name: Upload complete runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Cleanroom-Dev1-x86
+          path: |
+            release/
+            MoonMarker-Cleanroom-Dev1-Runtime.zip
+          if-no-files-found: error
+          retention-days: 14
