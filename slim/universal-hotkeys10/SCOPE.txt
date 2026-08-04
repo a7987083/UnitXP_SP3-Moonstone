@@ -1,0 +1,5 @@
+Scope lock:
+- Do not modify or merge upstream UnitXP_SP3 v89 behavior.
+- Do not reintroduce Creature Display ID/DBC/skin/generated-M2 experiments.
+- Do not alter main-model MAC, nonce, timestamp, replay protection, guild authorization, leader/assistant permissions, or CLEAR/PLACE/M1 protocol.
+- Do not auto-merge.
