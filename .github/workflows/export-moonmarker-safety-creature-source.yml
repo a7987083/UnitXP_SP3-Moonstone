@@ -1,0 +1,142 @@
+name: Export MoonMarker Safety Creature Source
+
+on:
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - '.github/workflows/export-moonmarker-safety-creature-source.yml'
+      - 'slim/safety-creature/**'
+      - 'slim/compat-cleanup/**'
+      - 'slim/consolidated/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout verified build assets
+        uses: actions/checkout@v4
+
+      - name: Decode verified reconstruction inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir cleanroom_input advanced_v2_input
+          cat cleanroom/bundle.part00 cleanroom/bundle.part01 cleanroom/bundle.part02 cleanroom/bundle.part03 | base64 -d > cleanroom_bundle.zip
+          echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
+          unzip -q cleanroom_bundle.zip -d cleanroom_input
+          git fetch --depth 1 origin 100463402c468a97c0804bbdcf4b077d321ebd96
+          git archive FETCH_HEAD cleanroom | tar -x
+          cat cleanroom/advanced-v2.fixed.part00 cleanroom/advanced-v2.fixed.part01 cleanroom/advanced-v2.fixed.part02 cleanroom/advanced-v2.fixed.part03 cleanroom/advanced-v2.fixed.part04 cleanroom/advanced-v2.fixed.part05 cleanroom/advanced-v2.fixed.part06 | base64 -d > advanced-v2.tar.xz
+          echo 'bb817eb41f64ccea39e5c35119f367146e2ba554597ace2bcb7fa07b6e857e1f  advanced-v2.tar.xz' | sha256sum -c -
+          tar -xJf advanced-v2.tar.xz -C advanced_v2_input
+
+      - name: Reconstruct upstream v89 and complete MoonMarker source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir reconstructed
+          git -C reconstructed init
+          git -C reconstructed remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C reconstructed fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C reconstructed checkout --detach FETCH_HEAD
+          test "$(git -C reconstructed rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+          mkdir upstream_v89
+          git -C reconstructed archive HEAD | tar -x -C upstream_v89
+
+          sed -i 's/\r$//' reconstructed/dllmain.cpp reconstructed/sceneBegin_sceneEnd.cpp reconstructed/sceneBegin_sceneEnd.h reconstructed/Makefile
+          sed -i '1s/^\xEF\xBB\xBF//' reconstructed/dllmain.cpp reconstructed/sceneBegin_sceneEnd.cpp reconstructed/sceneBegin_sceneEnd.h reconstructed/Makefile
+          patch --batch -p1 -d reconstructed < cleanroom_input/MoonMarker_Cleanroom.patch
+          patch --batch -p1 -d reconstructed < cleanroom/fix-lua-string.patch
+          patch --batch -p1 -d reconstructed < cleanroom/present-hook.patch
+          patch --batch -p1 -d reconstructed < cleanroom/fix-placement-projection.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+          cp cleanroom/native-m2-v2/nativeM2Test.cpp reconstructed/
+          cp cleanroom/native-m2-v2/nativeM2Test.h reconstructed/
+          patch --batch -p1 -d reconstructed < cleanroom/native-m2-v2.patch
+          patch --batch -p1 -d reconstructed < cleanroom/native-white-v1.patch
+          patch --batch -p1 -d reconstructed < cleanroom/native-white-remote-v1.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/native-white-remote-addon-v1.patch
+          cp cleanroom/native-eight-v1/nativeM2Test.cpp reconstructed/nativeM2Test.cpp
+          cp cleanroom/native-eight-v1/nativeM2Test.h reconstructed/nativeM2Test.h
+          python3 cleanroom/apply_eight_markers.py --upstream reconstructed --addon cleanroom_input/addon --addon-source cleanroom/eight-markers/MoonMarker.lua
+          python3 cleanroom/configure_eight_marker_addon.py --addon cleanroom_input/addon --source-dir cleanroom/eight-markers
+          python3 cleanroom/apply_guild_auth.py --upstream reconstructed --source-dir cleanroom/guild-auth-v1
+          python3 cleanroom/apply_advanced_editor_bundle.py --upstream reconstructed --addon cleanroom_input/addon
+          python3 cleanroom/apply_advanced_editor_v2.py --upstream reconstructed --addon cleanroom_input/addon --source-dir advanced_v2_input/advanced-v2
+          base64 -d cleanroom/main-model-v1/native-patches.tar.gz.b64 > native-patches.tar.gz
+          echo 'dcee1a75e9b3fa55d472a80db0c0a2d1d17fe9ba444f923b4b423172d112147f  native-patches.tar.gz' | sha256sum -c -
+          tar -xzf native-patches.tar.gz
+          for patch_file in native/*.patch; do patch --batch -p0 -d reconstructed < "$patch_file"; done
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          p = Path('reconstructed/MoonMarkerGuildAuth.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('const char* guildName = lua_tostring(luaState, oldTop + 1);','const std::string guildName = lua_tostring(luaState, oldTop + 1);')
+          s = s.replace('result.guildName = guildName ? guildName : "";', 'result.guildName = guildName;')
+          s = s.replace('if (guildName) result.guildName = guildName;', 'result.guildName = guildName;')
+          s = s.replace('const char* name = lua_tostring(luaState, oldTop + 1);','const std::string name = lua_tostring(luaState, oldTop + 1);')
+          s = s.replace('result = name ? name : "";', 'result = name;')
+          s = s.replace('if (name) result = name; else result.clear();', 'result = name;')
+          p.write_text(s, encoding='utf-8')
+          PYFIX
+
+      - name: Reconstruct exact consolidated baseline
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat cleanroom/main-model-v1/addon.part00 cleanroom/main-model-v1/addon.part01 cleanroom/main-model-v1/addon.part02 cleanroom/main-model-v1/addon.part03 cleanroom/main-model-v1/addon.part04 cleanroom/main-model-v1/addon.part05 cleanroom/main-model-v1/addon.part06 cleanroom/main-model-v1/addon.part07 cleanroom/main-model-v1/addon.part08 | base64 -d > addon.tar.xz
+          echo '266c465bda70eb7619d733501aab6c63bd149be7c6a63b9f800b1e147b0e99bc  addon.tar.xz' | sha256sum -c -
+          mkdir addon_package
+          tar -xJf addon.tar.xz -C addon_package
+          mkdir -p round3/native round3/plugin
+          cp -a reconstructed/. round3/native/
+          cp -a addon_package/MoonMarker/. round3/plugin/
+          base64 -d slim/round2/apply-round1-corrected.py.gz.b64 | gzip -dc > round1-corrected.py
+          python3 round1-corrected.py round3
+          base64 -d slim/round2/apply-round2-slim.py.gz.b64 | gzip -dc > round2-slim.py
+          python3 round2-slim.py round3
+          base64 -d slim/round3/round3-replacements.tar.xz.b64 > round3-replacements.tar.xz
+          tar -xJf round3-replacements.tar.xz -C round3
+          (cd round3 && grep -v '^NEW' "$GITHUB_WORKSPACE/slim/consolidated/baseline-sha256.txt" | sha256sum -c -)
+
+          cp -a round3 consolidated
+          cat slim/consolidated/consolidated-replacements.tar.xz.b64.part00 slim/consolidated/consolidated-replacements.tar.xz.b64.part01 slim/consolidated/consolidated-replacements.tar.xz.b64.part02 slim/consolidated/consolidated-replacements.tar.xz.b64.part03 | base64 -d > consolidated-replacements.tar.xz
+          echo '57cae78f1fd77bc55f684a07657befb53dd6e325b9a9e713a11eca35a178108e  consolidated-replacements.tar.xz' | sha256sum -c -
+          tar -xJf consolidated-replacements.tar.xz -C consolidated
+          while IFS= read -r file; do rm -f "consolidated/plugin/$file"; done < slim/consolidated/deleted-plugin-files.txt
+          grep -Fq '## Version: 0.8.0-consolidated' consolidated/plugin/MoonMarker.toc
+
+      - name: Apply allowlisted compatibility cleanup
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp -a consolidated compat
+          python3 -m py_compile slim/compat-cleanup/apply-compat-cleanup.py
+          python3 slim/compat-cleanup/apply-compat-cleanup.py compat
+          grep -Fq '## Version: 0.8.1-compat-cleanup' compat/plugin/MoonMarker.toc
+
+      - name: Package exact compatibility-cleanup source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p source-export/native source-export/plugin
+          cp -a compat/native/. source-export/native/
+          cp -a compat/plugin/. source-export/plugin/
+          find source-export -type f -printf '%P\n' | sort > source-export/FILES.txt
+          (cd source-export && sha256sum $(find native plugin -type f | sort) > SHA256.txt)
+          tar -cJf MoonMarker-Compat-Cleanup-Exact-Source.tar.xz source-export
+          sha256sum MoonMarker-Compat-Cleanup-Exact-Source.tar.xz > MoonMarker-Compat-Cleanup-Exact-Source.tar.xz.sha256
+
+      - name: Upload exact source
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Compat-Cleanup-Exact-Source
+          path: |
+            MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+            MoonMarker-Compat-Cleanup-Exact-Source.tar.xz.sha256
+          if-no-files-found: error
