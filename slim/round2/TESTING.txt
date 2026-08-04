@@ -1,0 +1,1 @@
+Static checks and CI compilation only. In-game runtime testing remains required.
