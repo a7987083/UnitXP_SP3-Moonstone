@@ -1,0 +1,27 @@
+MoonMarker Hook Safety Stable
+
+Baseline:
+- UnitXP_SP3 compatibility-cleanup DLL: 606,208 bytes
+- Addon: 0.8.1-compat-cleanup
+
+Included:
+- Validate the supported PE32 WoW client, image base, COFF timestamp, hardcoded code/data addresses and sampled target bytes before enabling MoonMarker-owned hooks/native ABI calls.
+- If validation fails, keep MoonMarker hooks disabled and expose MoonMarker.Runtime.Status to Lua.
+- Show once: 当前 WoW 客户端版本不受支持，MoonMarker Hook 未安装。
+- Display a persistent red unsupported-client status on the MoonMarker panel.
+- Disable ordinary 光柱测试板 chat output.
+
+Explicitly excluded/rolled back:
+- CreatureModelData.dbc and CreatureDisplayInfo.dbc support.
+- Creature Display ID commands and UI.
+- PlayerModel:SetDisplayInfo experiment.
+- Generated Creature M2/skin cache.
+- Any Creature skin binding or preview logic.
+
+Protected unchanged:
+- Upstream UnitXP_SP3 functions and hooks.
+- Main-model MAC, nonce, timestamp and replay protection.
+- Guild authorization and leader/assistant permissions.
+- CLEAR / PLACE / M1 synchronization protocol.
+- M2 scanner core and MPQ/listfile behavior on supported clients.
+- Present hook, ground targeting, eight M2 slots and two preview instances on supported clients.
