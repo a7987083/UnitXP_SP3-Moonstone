@@ -1,0 +1,11 @@
+MoonMarker Universal Layout Hotkeys10
+Version: 0.9.2-universal-layout-hotkeys10
+
+Changed files after stable source reconstruction:
+- native/MoonMarkerRuntimeGuard.cpp
+- plugin/Bindings.xml
+- plugin/MoonMarker.lua
+- plugin/MoonMarker.toc
+- plugin/QuickPresets.lua
+
+No merge is permitted without explicit user approval and in-game testing.
