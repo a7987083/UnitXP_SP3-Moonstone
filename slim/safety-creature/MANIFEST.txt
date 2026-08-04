@@ -1,0 +1,42 @@
+MoonMarker safety + Creature Display ID development manifest
+
+BASELINE
+- Exact user-tested compatibility-cleanup build: 606,208-byte PE32 DLL.
+- Protected upstream: UnitXP_SP3 v89 commit 3370011e396ccdbf4c9921f6cf2b005bed818b24.
+
+MODULE A - MOONMARKER RUNTIME GUARD
+- Validates the main WoW process before any MoonMarker-owned hook/native ABI call.
+- Requires fixed image base 0x00400000, PE32 i386, and the supported 1.12.1.5875 COFF timestamp 0x4510B6DB.
+- Validates every MoonMarker hardcoded code target as committed/executable and every data target as committed/readable.
+- Samples target prologues and exposes a diagnostic fingerprint.
+- Unsupported/mismatching clients skip the ground cursor hook, Present hook, native M2 calls, scanner/DBC calls and MoonMarker authorization helpers.
+- Original upstream UnitXP_SP3 hooks remain available.
+- Lua command: MoonMarker.Runtime.Status.
+- UI message: 当前 WoW 客户端版本不受支持 · MoonMarker 已安全停用.
+- A forced-unsupported DLL is built separately to test the safe fallback path.
+
+MODULE B - CHAT OUTPUT CLEANUP
+- All ordinary 光柱测试板 chat print helpers are no-ops.
+- Retains one warning per login when the client is unsupported.
+- UI status labels and error states remain.
+
+MODULE C - CREATURE DISPLAY ID / SKIN CATALOG
+- Reads DBFilesClient\\CreatureModelData.dbc and CreatureDisplayInfo.dbc from loose Data files or MPQs.
+- Uses Classic 1.12 field layouts and validates WDBC headers, field counts, sizes and string offsets.
+- Maps raw Creature M2 paths to Display IDs, model/display scales and three texture-variation strings.
+- Adds guild-authorized UnitXP commands: Creature.Load, Creature.Count and Creature.Get.
+- Creature entries in Model Library open a PlayerModel:SetDisplayInfo skin viewer with previous/next variant controls.
+- Saves the last selected Display ID per Creature path.
+
+LIMITATION
+- This build provides correct Creature Display-ID/skin discovery and PlayerModel UI rendering.
+- Native world M2 placement still accepts a raw M2 path. Binding Creature replaceable textures to the native world model is not guessed because the current source has no verified client function/structure for that operation.
+
+VALIDATION
+- Exact baseline reconstruction and hash verification.
+- Replacement archive allowlist.
+- Every upstream-v89 native file remains byte-identical except Makefile/dllmain.cpp, where only MoonMarker-owned integration lines are changed.
+- Current CLEAR/PLACE/M1 protocol, MAC, nonce, timestamps, replay cache, guild authorization and leader/assistant rules retained.
+- Lua 5.1 syntax.
+- Normal and forced-unsupported PE32 Intel 80386 builds.
+- In-game runtime testing required.
