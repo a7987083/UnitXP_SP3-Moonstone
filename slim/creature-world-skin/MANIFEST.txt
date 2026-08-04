@@ -1,0 +1,34 @@
+MoonMarker Creature world-skin test build
+
+BEHAVIOR
+- Creature Display IDs are de-duplicated and sorted by numeric value.
+- Opening a Creature model always selects the minimum Display ID first.
+- Previous/next changes the selected Display ID in numeric order.
+- PlayerModel:SetDisplayInfo is no longer used.
+- The selected Display ID is applied to the actual native foot preview.
+
+IMPLEMENTATION
+- Reads the original Classic MD20 M2 through the existing MPQ/loose-file reader.
+- Keeps original geometry, animation, views, materials and all non-Creature textures.
+- Converts texture records of type 11/12/13 (MONSTER_SKIN_1/2/3) to explicit BLP paths from CreatureDisplayInfo.
+- Writes a generated M2 under Interface\AddOns\MoonMarker\Generated\Creature\Display.
+- The cache path is deliberately deeper than the scanner's addon traversal depth, so generated files do not appear in the Model Library.
+- Loads the generated path through the existing native advanced-preview function.
+
+UNCHANGED
+- UnitXP_SP3 upstream functionality.
+- Hook safety guard.
+- Present and ground-targeting hooks.
+- Main-model MAC, nonce, timestamp and replay protection.
+- Guild authorization and leader/assistant permissions.
+- Team synchronization.
+- M2 scanner core and MPQ/listfile behavior.
+- Normal non-Creature M2 previews.
+
+RUNTIME RISKS TO TEST
+- The WoW client must accept loose M2 resources under Interface\AddOns.
+- The selected BLP names must exist in the game archives.
+- Creature models with no type 11/12/13 slots return CREATURE_M2_NO_BINDABLE_SKIN_SLOTS instead of showing a misleading black preview.
+- Generated files remain on disk as a cache and can be removed safely while the game is closed.
+
+In-game runtime testing is required before this replaces the previous build.
