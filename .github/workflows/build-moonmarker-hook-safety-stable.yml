@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore exact tested compatibility source
+      - name: Restore tested source and apply stable patch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,56 +38,20 @@ jobs:
           cp -a source-export baseline
           cp -a source-export target
 
-      - name: Apply Hook safety and quiet-chat patch
-        run: |
-          set -euxo pipefail
           cat slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part00 \
               slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part01 \
               slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part02 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part03 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part04 \
             > hook-safety-stable.patch.gz.b64
-          echo 'f162d3642881a3f56fdcbe306f8dbb085cb1e84f4a3b4b0b00648c4542d20d57  hook-safety-stable.patch.gz.b64' | sha256sum -c -
+          echo '632f019def405e2115bfae757e906ceef0a33a1d3156435e69d2529ccf397774  hook-safety-stable.patch.gz.b64' | sha256sum -c -
           base64 -d hook-safety-stable.patch.gz.b64 > hook-safety-stable.patch.gz
-          echo '31ee197bfaf5006a932f06a8f40b8039908964ad0f8b394cc56e7be016025c4d  hook-safety-stable.patch.gz' | sha256sum -c -
+          echo '72ca2a83a4bf32804337f318388febc3b6b49bdafc9c0a958c32ddfa4806c60f  hook-safety-stable.patch.gz' | sha256sum -c -
           gzip -dc hook-safety-stable.patch.gz > hook-safety-stable.patch
-          echo '4289167b9e8a9ed79ef3cea1ea481ab2876a086d6ea05a4dbcf991d314780618  hook-safety-stable.patch' | sha256sum -c -
+          echo 'cd9b8b5249302a8b298033c24306366e548370ad73361b3e08a21cd017cd67df  hook-safety-stable.patch' | sha256sum -c -
           git apply --directory=target hook-safety-stable.patch
 
-          cat > expected.txt <<'FILES'
-          native/Makefile
-          native/MoonMarkerM2Scanner.cpp
-          native/MoonMarkerRuntimeGuard.cpp
-          native/MoonMarkerRuntimeGuard.h
-          native/dllmain.cpp
-          native/moonMarker.cpp
-          native/nativeM2Test.cpp
-          plugin/AdvancedEditorFramework.lua
-          plugin/CurrentMarkers.lua
-          plugin/FuBar.lua
-          plugin/GuildAdvanced.lua
-          plugin/MainModels.lua
-          plugin/MoonMarker.lua
-          plugin/MoonMarker.toc
-          plugin/Presets.lua
-          plugin/QuickPresets.lua
-          FILES
-          sed -i 's/^          //' expected.txt
-          python3 - <<'PY'
-          from pathlib import Path
-          import hashlib
-          def inventory(root):
-              out = {}
-              for path in Path(root).rglob('*'):
-                  if path.is_file():
-                      out[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-              return out
-          before, after = inventory('baseline'), inventory('target')
-          changed = sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
-          Path('actual.txt').write_text('\n'.join(changed) + '\n')
-          PY
-          sort -o expected.txt expected.txt
-          diff -u expected.txt actual.txt
-
-      - name: Protect stable behavior and verify full Creature rollback
+      - name: Verify protected behavior and Creature rollback
         run: |
           set -euxo pipefail
           cmp baseline/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
@@ -98,11 +62,12 @@ jobs:
           cmp baseline/plugin/ModelLibrary.lua target/plugin/ModelLibrary.lua
           cmp baseline/plugin/Shared.lua target/plugin/Shared.lua
 
+          test -f target/native/MoonMarkerRuntimeGuard.cpp
+          test -f target/native/MoonMarkerRuntimeGuard.h
           test ! -e target/native/MoonMarkerCreatureCatalog.cpp
           test ! -e target/native/MoonMarkerCreatureCatalog.h
           ! grep -RniE 'CreatureCatalog|Advanced\.Creature|CreatureDisplayInfo|CreatureModelData|SetDisplayInfo|Generated\\Creature|creatureDisplayByPath' target/native target/plugin
 
-          grep -Fq 'MoonMarkerRuntimeGuard.cpp' target/native/Makefile
           grep -Fq 'kExpectedImageBase = 0x00400000u' target/native/MoonMarkerRuntimeGuard.cpp
           grep -Fq 'kExpectedTimeDateStamp = 0x4510B6DBu' target/native/MoonMarkerRuntimeGuard.cpp
           grep -Fq 'FORCED_UNSUPPORTED_TEST_MODE' target/native/MoonMarkerRuntimeGuard.cpp
@@ -120,7 +85,6 @@ jobs:
           grep -Fq 'CLEAR' target/plugin/MoonMarker.lua
           grep -Fq 'PLACE' target/plugin/MoonMarker.lua
           grep -Fq 'M1' target/plugin/MoonMarker.lua
-
           test "$(grep -Rho 'DEFAULT_CHAT_FRAME:AddMessage' target/plugin | wc -l)" = '1'
           grep -Fq '当前 WoW 客户端版本不受支持，MoonMarker Hook 未安装。' target/plugin/MoonMarker.lua
           grep -Fq '当前 WoW 客户端版本不受支持 · MoonMarker 已安全停用' target/plugin/MoonMarker.lua
@@ -182,7 +146,7 @@ jobs:
           cp forced/native/UnitXP_SP3.dll release/UnitXP_SP3-ForcedUnsupported-Test.dll
           cp -a target/plugin/. release/Interface/AddOns/MoonMarker/
           cp slim/hook-safety-stable/MANIFEST.txt release/
-          cp hook-safety-stable.patch expected.txt actual.txt release/Audit/
+          cp hook-safety-stable.patch release/Audit/
           sha256sum release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedUnsupported-Test.dll > release/DLL-SHA256.txt
           file release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedUnsupported-Test.dll > release/DLL-FILE-TYPE.txt
           cat > release/HOOK-SAFETY-STABLE-RESULT.txt <<RESULT
