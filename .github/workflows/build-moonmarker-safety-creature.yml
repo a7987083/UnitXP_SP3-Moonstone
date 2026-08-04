@@ -1,0 +1,278 @@
+name: Build MoonMarker Safety Creature
+
+on:
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - '.github/workflows/build-moonmarker-safety-creature.yml'
+      - 'slim/safety-creature/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout verified build assets
+        uses: actions/checkout@v4
+
+      - name: Restore exact user-tested compatibility baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8885426844/zip" \
+            -o exact-source-artifact.zip
+          unzip -q exact-source-artifact.zip -d exact-source-artifact
+          echo 'cbb7faf8d18006f68ef8bc1538daaaf2d627b365fc85bb58481c488c2f9aace9  exact-source-artifact/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
+          tar -xJf exact-source-artifact/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+          test -f source-export/native/Makefile
+          test -f source-export/plugin/MoonMarker.toc
+          grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
+          rm -rf source-export/native/.git
+          cp -a source-export baseline
+          cp -a source-export target
+
+      - name: Apply audited hook-safety and Creature patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          base64 -d slim/safety-creature/safety-creature.patch.gz.b64 > safety-creature.patch.gz
+          echo 'c32402d08e6471fd8a9405d8427dd1d08f480afb97920323caeb71ba38f900e3  safety-creature.patch.gz' | sha256sum -c -
+          gzip -dc safety-creature.patch.gz > safety-creature.patch
+          echo 'da4a565b61fb0a293399f75e11409be9c9b2004d75487bbcc84789b62cccace9  safety-creature.patch' | sha256sum -c -
+          patch --batch -p1 -d target < safety-creature.patch
+
+          cat > expected-changed-files.txt <<'EOF'
+          native/Makefile
+          native/MoonMarkerCreatureCatalog.cpp
+          native/MoonMarkerCreatureCatalog.h
+          native/MoonMarkerGuildAuth.cpp
+          native/MoonMarkerM2Scanner.cpp
+          native/MoonMarkerM2Scanner.h
+          native/MoonMarkerRuntimeGuard.cpp
+          native/MoonMarkerRuntimeGuard.h
+          native/dllmain.cpp
+          native/moonMarker.cpp
+          native/nativeM2Test.cpp
+          plugin/AdvancedEditorFramework.lua
+          plugin/CurrentMarkers.lua
+          plugin/FuBar.lua
+          plugin/GuildAdvanced.lua
+          plugin/MainModels.lua
+          plugin/ModelLibrary.lua
+          plugin/MoonMarker.lua
+          plugin/MoonMarker.toc
+          plugin/Presets.lua
+          plugin/QuickPresets.lua
+          EOF
+          sed -i 's/^          //' expected-changed-files.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+
+          def digest(path: Path) -> str:
+              h = hashlib.sha256()
+              with path.open('rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def inventory(root: Path):
+              return {p.relative_to(root).as_posix(): digest(p)
+                      for p in root.rglob('*') if p.is_file()}
+
+          before = inventory(Path('baseline'))
+          after = inventory(Path('target'))
+          changed = sorted(name for name in set(before) | set(after)
+                           if before.get(name) != after.get(name))
+          Path('actual-changed-files.txt').write_text('\n'.join(changed) + '\n')
+          PY
+          sort -o expected-changed-files.txt expected-changed-files.txt
+          diff -u expected-changed-files.txt actual-changed-files.txt
+
+      - name: Protect upstream behavior and current secure protocol
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cmp baseline/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
+          cmp baseline/native/MoonMarkerMainModel.h target/native/MoonMarkerMainModel.h
+          cmp baseline/native/moonMarker.h target/native/moonMarker.h
+          cmp baseline/native/nativeM2Test.h target/native/nativeM2Test.h
+
+          # Upstream-owned Makefile only gains the two new MoonMarker source files.
+          diff -u baseline/native/Makefile target/native/Makefile > makefile.diff || true
+          test "$(grep -c '^+' makefile.diff)" = '2'
+          test "$(grep -c '^-' makefile.diff)" = '0'
+          grep -Fq '+            MoonMarkerRuntimeGuard.cpp \' makefile.diff
+          grep -Fq '+            MoonMarkerCreatureCatalog.cpp \' makefile.diff
+
+          # Original UnitXP initialization and hooks remain present.
+          grep -Fq 'edit_CWorld_Intersect_init()' target/native/dllmain.cpp
+          grep -Fq 'MH_CreateHook(p_UnitXP' target/native/dllmain.cpp
+          grep -Fq 'MH_EnableHook(MH_ALL_HOOKS)' target/native/dllmain.cpp
+          grep -Fq 'moonMarkerRuntimeGuard::initialize()' target/native/dllmain.cpp
+          grep -Fq 'MoonMarker.Runtime.Status' target/native/dllmain.cpp
+
+          # Secure current protocol is retained.
+          grep -Fq 'std::uint32_t nonce' target/native/MoonMarkerMainModel.cpp
+          grep -Fq 'rememberPacket' target/native/MoonMarkerMainModel.cpp
+          grep -Fq 'MoonMarker.Main.Remote' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.Main.Seal' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.Main.Validate' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'originalIsPartyLeader' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'CLEAR' target/plugin/MoonMarker.lua
+          grep -Fq 'PLACE' target/plugin/MoonMarker.lua
+          grep -Fq 'M1' target/plugin/MainModels.lua
+
+      - name: Verify safety, quiet chat, and Creature DisplayID features
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'kExpectedImageBase = 0x00400000u' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'kExpectedTimeDateStamp = 0x4510B6DBu' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'MOONMARKER_FORCE_UNSUPPORTED' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'FORCED_UNSUPPORTED_TEST_MODE' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'moonMarkerRuntimeGuard::enabled()' target/native/moonMarker.cpp
+          grep -Fq 'moonMarkerRuntimeGuard::enabled()' target/native/nativeM2Test.cpp
+          grep -Fq 'UNSUPPORTED_CLIENT' target/native/MoonMarkerM2Scanner.cpp
+
+          # Ordinary beam-test chat messages are disabled; one unsupported warning remains.
+          test "$(grep -Rho 'DEFAULT_CHAT_FRAME:AddMessage' target/plugin | wc -l)" = '1'
+          grep -Fq '当前 WoW 客户端版本不受支持，MoonMarker Hook 未安装。' target/plugin/MoonMarker.lua
+          grep -Fq '当前 WoW 客户端版本不受支持 · MoonMarker 已安全停用' target/plugin/MoonMarker.lua
+          for file in AdvancedEditorFramework.lua CurrentMarkers.lua FuBar.lua GuildAdvanced.lua MainModels.lua Presets.lua QuickPresets.lua; do
+            ! grep -Fq 'DEFAULT_CHAT_FRAME:AddMessage' "target/plugin/$file"
+          done
+
+          # Creature DBC catalog and PlayerModel DisplayID viewer are present.
+          grep -Fq 'DBFilesClient\\CreatureModelData.dbc' target/native/MoonMarkerCreatureCatalog.cpp
+          grep -Fq 'DBFilesClient\\CreatureDisplayInfo.dbc' target/native/MoonMarkerCreatureCatalog.cpp
+          grep -Fq 'MoonMarker.Advanced.Creature.Load' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.Creature.Count' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.Creature.Get' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'PlayerModel' target/plugin/ModelLibrary.lua
+          grep -Fq 'SetDisplayInfo' target/plugin/ModelLibrary.lua
+          grep -Fq 'Creature Display ID 与皮肤' target/plugin/ModelLibrary.lua
+          grep -Fq '## Version: 0.9.0-safety-creature' target/plugin/MoonMarker.toc
+
+      - name: Validate Lua 5.1 syntax
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          for tree in baseline/plugin target/plugin; do
+            while IFS= read -r file; do luac5.1 -p "$file"; done < <(find "$tree" -type f -name '*.lua' | sort)
+          done
+
+      - name: Install Windows x86 build toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+
+          curl -L --fail --retry 3 \
+            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile baseline, normal, and forced-unsupported DLLs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp -a target forced
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DMOONMARKER_FORCE_UNSUPPORTED|' forced/native/Makefile
+
+          for tree in baseline/native target/native forced/native; do
+            ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
+            make -C "$tree" clean
+            make -C "$tree" -j2
+            file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
+            grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
+          done
+
+          stat -c '%s' baseline/native/UnitXP_SP3.dll > baseline-dll-size.txt
+          stat -c '%s' target/native/UnitXP_SP3.dll > target-dll-size.txt
+          stat -c '%s' forced/native/UnitXP_SP3.dll > forced-dll-size.txt
+          test "$(cat baseline-dll-size.txt)" = '606208'
+
+      - name: Package safety and Creature test build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          baseline_size=$(cat baseline-dll-size.txt)
+          target_size=$(cat target-dll-size.txt)
+          forced_size=$(cat forced-dll-size.txt)
+          original_full=636928
+          clean_v89=491008
+
+          mkdir -p release/Interface/AddOns/MoonMarker release/Audit
+          cp target/native/UnitXP_SP3.dll release/UnitXP_SP3.dll
+          cp forced/native/UnitXP_SP3.dll release/UnitXP_SP3-ForcedUnsupported-Test.dll
+          cp -a target/plugin/. release/Interface/AddOns/MoonMarker/
+          cp slim/safety-creature/MANIFEST.txt release/
+          cp safety-creature.patch expected-changed-files.txt actual-changed-files.txt release/Audit/
+          sha256sum release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedUnsupported-Test.dll > release/DLL-SHA256.txt
+          file release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedUnsupported-Test.dll > release/DLL-FILE-TYPE.txt
+
+          cat > release/SAFETY-CREATURE-RESULT.txt <<EOF
+          Compatibility-cleanup baseline DLL: ${baseline_size} bytes
+          Safety + Creature normal DLL: ${target_size} bytes
+          Forced-unsupported test DLL: ${forced_size} bytes
+          Change versus baseline: $((target_size-baseline_size)) bytes
+          Original full MoonMarker A/B baseline: ${original_full} bytes
+          Change versus original full: $((target_size-original_full)) bytes
+          Clean v89 baseline: ${clean_v89} bytes
+          Increase over clean v89: $((target_size-clean_v89)) bytes
+          Hook/client ABI guard: added
+          Unsupported client skips MoonMarker hook/native ABI: yes
+          Original UnitXP hooks retained: yes
+          Ordinary beam-test chat output: disabled
+          Unsupported-client warning: retained once per login
+          Creature DisplayID/skin DBC catalog: added
+          Creature PlayerModel skin viewer: added
+          Native world replaceable-texture binding: not implemented
+          Lua 5.1 validation: passed
+          Normal PE32 x86 compilation: passed
+          Forced-unsupported PE32 x86 compilation: passed
+          In-game runtime test: not performed
+          EOF
+
+          (cd release && zip -9 -r ../MoonMarker-Safety-Creature-x86.zip .)
+
+      - name: Upload safety and Creature artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Safety-Creature-x86
+          path: |
+            release
+            MoonMarker-Safety-Creature-x86.zip
+          if-no-files-found: error
