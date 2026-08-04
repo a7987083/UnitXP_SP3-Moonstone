@@ -1,0 +1,1 @@
+The CI workflow reconstructs the exact 606,208-byte compatibility-cleanup source, applies the verified hook-safety-stable patch, then applies universal-hotkeys10.patch. It compiles a normal PE32 x86 DLL and a forced-fallback validation DLL, validates Lua 5.1, and packages runtime plus editable source.
