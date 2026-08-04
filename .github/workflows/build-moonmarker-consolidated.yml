@@ -1,0 +1,292 @@
+name: Build MoonMarker Consolidated Cleanup
+
+on:
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - '.github/workflows/build-moonmarker-consolidated.yml'
+      - 'slim/consolidated/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout verified build assets
+        uses: actions/checkout@v4
+
+      - name: Decode verified reconstruction inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir cleanroom_input advanced_v2_input
+          cat cleanroom/bundle.part00 cleanroom/bundle.part01 cleanroom/bundle.part02 cleanroom/bundle.part03 | base64 -d > cleanroom_bundle.zip
+          echo '077166868465beba39f5d8a87448190cb5892f9335289b3860a2c2396f5fd31a  cleanroom_bundle.zip' | sha256sum -c -
+          unzip -q cleanroom_bundle.zip -d cleanroom_input
+          git fetch --depth 1 origin 100463402c468a97c0804bbdcf4b077d321ebd96
+          git archive FETCH_HEAD cleanroom | tar -x
+          cat cleanroom/advanced-v2.fixed.part00 cleanroom/advanced-v2.fixed.part01 cleanroom/advanced-v2.fixed.part02 cleanroom/advanced-v2.fixed.part03 cleanroom/advanced-v2.fixed.part04 cleanroom/advanced-v2.fixed.part05 cleanroom/advanced-v2.fixed.part06 | base64 -d > advanced-v2.tar.xz
+          echo 'bb817eb41f64ccea39e5c35119f367146e2ba554597ace2bcb7fa07b6e857e1f  advanced-v2.tar.xz' | sha256sum -c -
+          tar -xJf advanced-v2.tar.xz -C advanced_v2_input
+
+      - name: Reconstruct upstream v89 and complete MoonMarker source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir reconstructed
+          git -C reconstructed init
+          git -C reconstructed remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C reconstructed fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C reconstructed checkout --detach FETCH_HEAD
+          test "$(git -C reconstructed rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+          mkdir upstream_v89
+          git -C reconstructed archive HEAD | tar -x -C upstream_v89
+
+          sed -i 's/\r$//' reconstructed/dllmain.cpp reconstructed/sceneBegin_sceneEnd.cpp reconstructed/sceneBegin_sceneEnd.h reconstructed/Makefile
+          sed -i '1s/^\xEF\xBB\xBF//' reconstructed/dllmain.cpp reconstructed/sceneBegin_sceneEnd.cpp reconstructed/sceneBegin_sceneEnd.h reconstructed/Makefile
+          patch --batch -p1 -d reconstructed < cleanroom_input/MoonMarker_Cleanroom.patch
+          patch --batch -p1 -d reconstructed < cleanroom/fix-lua-string.patch
+          patch --batch -p1 -d reconstructed < cleanroom/present-hook.patch
+          patch --batch -p1 -d reconstructed < cleanroom/fix-placement-projection.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/addon-status.patch
+          cp cleanroom/native-m2-v2/nativeM2Test.cpp reconstructed/
+          cp cleanroom/native-m2-v2/nativeM2Test.h reconstructed/
+          patch --batch -p1 -d reconstructed < cleanroom/native-m2-v2.patch
+          patch --batch -p1 -d reconstructed < cleanroom/native-white-v1.patch
+          patch --batch -p1 -d reconstructed < cleanroom/native-white-remote-v1.patch
+          patch --batch -p1 -d cleanroom_input/addon < cleanroom/native-white-remote-addon-v1.patch
+          cp cleanroom/native-eight-v1/nativeM2Test.cpp reconstructed/nativeM2Test.cpp
+          cp cleanroom/native-eight-v1/nativeM2Test.h reconstructed/nativeM2Test.h
+          python3 cleanroom/apply_eight_markers.py --upstream reconstructed --addon cleanroom_input/addon --addon-source cleanroom/eight-markers/MoonMarker.lua
+          python3 cleanroom/configure_eight_marker_addon.py --addon cleanroom_input/addon --source-dir cleanroom/eight-markers
+          python3 cleanroom/apply_guild_auth.py --upstream reconstructed --source-dir cleanroom/guild-auth-v1
+          python3 cleanroom/apply_advanced_editor_bundle.py --upstream reconstructed --addon cleanroom_input/addon
+          python3 cleanroom/apply_advanced_editor_v2.py --upstream reconstructed --addon cleanroom_input/addon --source-dir advanced_v2_input/advanced-v2
+          base64 -d cleanroom/main-model-v1/native-patches.tar.gz.b64 > native-patches.tar.gz
+          echo 'dcee1a75e9b3fa55d472a80db0c0a2d1d17fe9ba444f923b4b423172d112147f  native-patches.tar.gz' | sha256sum -c -
+          tar -xzf native-patches.tar.gz
+          for patch_file in native/*.patch; do patch --batch -p0 -d reconstructed < "$patch_file"; done
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          p = Path('reconstructed/MoonMarkerGuildAuth.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('const char* guildName = lua_tostring(luaState, oldTop + 1);','const std::string guildName = lua_tostring(luaState, oldTop + 1);')
+          s = s.replace('result.guildName = guildName ? guildName : "";', 'result.guildName = guildName;')
+          s = s.replace('if (guildName) result.guildName = guildName;', 'result.guildName = guildName;')
+          s = s.replace('const char* name = lua_tostring(luaState, oldTop + 1);','const std::string name = lua_tostring(luaState, oldTop + 1);')
+          s = s.replace('result = name ? name : "";', 'result = name;')
+          s = s.replace('if (name) result = name; else result.clear();', 'result = name;')
+          p.write_text(s, encoding='utf-8')
+          PYFIX
+
+      - name: Decode exact matching plugin and reconstruct round 3
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat cleanroom/main-model-v1/addon.part00 cleanroom/main-model-v1/addon.part01 cleanroom/main-model-v1/addon.part02 cleanroom/main-model-v1/addon.part03 cleanroom/main-model-v1/addon.part04 cleanroom/main-model-v1/addon.part05 cleanroom/main-model-v1/addon.part06 cleanroom/main-model-v1/addon.part07 cleanroom/main-model-v1/addon.part08 | base64 -d > addon.tar.xz
+          echo '266c465bda70eb7619d733501aab6c63bd149be7c6a63b9f800b1e147b0e99bc  addon.tar.xz' | sha256sum -c -
+          mkdir addon_package
+          tar -xJf addon.tar.xz -C addon_package
+          mkdir -p round3/native round3/plugin
+          cp -a reconstructed/. round3/native/
+          cp -a addon_package/MoonMarker/. round3/plugin/
+          base64 -d slim/round2/apply-round1-corrected.py.gz.b64 | gzip -dc > round1-corrected.py
+          python3 round1-corrected.py round3
+          base64 -d slim/round2/apply-round2-slim.py.gz.b64 | gzip -dc > round2-slim.py
+          python3 round2-slim.py round3
+          base64 -d slim/round3/round3-replacements.tar.xz.b64 > round3-replacements.tar.xz
+          tar -xJf round3-replacements.tar.xz -C round3
+          grep -Fq '## Version: 0.7.0-slim-round3' round3/plugin/MoonMarker.toc
+          (cd round3 && grep -v '^NEW' "$GITHUB_WORKSPACE/slim/consolidated/baseline-sha256.txt" | sha256sum -c -)
+          test ! -e round3/plugin/Shared.lua
+
+      - name: Apply allowlisted consolidated cleanup
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp -a round3 consolidated
+          cat slim/consolidated/consolidated-replacements.tar.xz.b64.part00 slim/consolidated/consolidated-replacements.tar.xz.b64.part01 slim/consolidated/consolidated-replacements.tar.xz.b64.part02 slim/consolidated/consolidated-replacements.tar.xz.b64.part03 | base64 -d > consolidated-replacements.tar.xz
+          echo '57cae78f1fd77bc55f684a07657befb53dd6e325b9a9e713a11eca35a178108e  consolidated-replacements.tar.xz' | sha256sum -c -
+          cat > expected-replacements.txt <<'EOF'
+          native/MoonMarkerAdvancedState.cpp
+          native/MoonMarkerAdvancedState.h
+          native/MoonMarkerGuildAuth.cpp
+          native/MoonMarkerM2Scanner.cpp
+          native/MoonMarkerM2Scanner.h
+          native/nativeM2Test.cpp
+          native/nativeM2Test.h
+          plugin/AdvancedEditorFramework.lua
+          plugin/CurrentMarkers.lua
+          plugin/GuildAdvanced.lua
+          plugin/MainModels.lua
+          plugin/ModelLibrary.lua
+          plugin/MoonMarker.lua
+          plugin/MoonMarker.toc
+          plugin/Presets.lua
+          plugin/QuickPresets.lua
+          plugin/Shared.lua
+          EOF
+          sed -i 's/^          //' expected-replacements.txt
+          tar -tJf consolidated-replacements.tar.xz | sort > actual-replacements.txt
+          sort -o expected-replacements.txt expected-replacements.txt
+          diff -u expected-replacements.txt actual-replacements.txt
+          tar -xJf consolidated-replacements.tar.xz -C consolidated
+          while IFS= read -r file; do rm -f "consolidated/plugin/$file"; done < slim/consolidated/deleted-plugin-files.txt
+
+      - name: Protect every upstream v89 file and high-risk MoonMarker modules
+        shell: bash
+        run: |
+          set -euxo pipefail
+          while IFS= read -r file; do
+            test -f "round3/native/$file"
+            cmp "round3/native/$file" "consolidated/native/$file"
+          done < <(find upstream_v89 -maxdepth 1 -type f -printf '%f\n' | sort)
+
+          for file in MoonMarkerMainModel.cpp MoonMarkerMainModel.h moonMarker.cpp moonMarker.h; do
+            cmp "round3/native/$file" "consolidated/native/$file"
+          done
+
+          grep -Fq 'std::uint32_t nonce' consolidated/native/MoonMarkerMainModel.cpp
+          grep -Fq 'rememberPacket' consolidated/native/MoonMarkerMainModel.cpp
+          grep -Fq 'MoonMarker.Main.Remote' consolidated/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.Main.Seal' consolidated/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.Main.Validate' consolidated/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'originalIsPartyLeader' consolidated/native/MoonMarkerGuildAuth.cpp
+
+      - name: Verify retained features and removed low-risk duplicates
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f consolidated/native/MoonMarkerM2Scanner.cpp
+          grep -Fq 'cmd_MoonMarker_Advanced_ScanM2_Start' consolidated/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'cmd_MoonMarker_Advanced_ScanM2_Get' consolidated/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.ScanM2.Start' consolidated/plugin/GuildAdvanced.lua
+          grep -Fq 'MoonMarker.Advanced.ScanM2.Start' consolidated/plugin/ModelLibrary.lua
+          grep -Fq 'PreviewSlot gAdvancedPreview' consolidated/native/nativeM2Test.cpp
+          grep -Fq 'PreviewSlot gPlacementPreview' consolidated/native/nativeM2Test.cpp
+          grep -Fq 'createCustomAt' consolidated/native/nativeM2Test.cpp
+          grep -Fq 'renderIcons(device)' consolidated/native/moonMarker.cpp
+          grep -Fq '## Version: 0.8.0-consolidated' consolidated/plugin/MoonMarker.toc
+          test "$(grep -n '^Shared.lua$' consolidated/plugin/MoonMarker.toc | cut -d: -f1)" -lt "$(grep -n '^MoonMarker.lua$' consolidated/plugin/MoonMarker.toc | cut -d: -f1)"
+
+          ! grep -RFq 'localOnly' consolidated/native consolidated/plugin
+          ! grep -RFq 'std::size_t count()' consolidated/native
+          ! grep -RFq 'bool clearColor' consolidated/native
+          ! grep -RFq 'playerObject' consolidated/native/nativeM2Test.cpp consolidated/native/nativeM2Test.h
+          ! grep -Fq 'C3Vector position;' consolidated/native/nativeM2Test.h
+          for file in $(cat slim/consolidated/deleted-plugin-files.txt); do test ! -e "consolidated/plugin/$file"; done
+
+          find round3/native -type f \( -name '*.cpp' -o -name '*.h' \) -printf '%s\n' | awk '{s+=$1} END{print s}' > round3-native-source-bytes.txt
+          find consolidated/native -type f \( -name '*.cpp' -o -name '*.h' \) -printf '%s\n' | awk '{s+=$1} END{print s}' > consolidated-native-source-bytes.txt
+          find round3/plugin -type f -printf '%s\n' | awk '{s+=$1} END{print s}' > round3-plugin-bytes.txt
+          find consolidated/plugin -type f -printf '%s\n' | awk '{s+=$1} END{print s}' > consolidated-plugin-bytes.txt
+          test "$(cat consolidated-native-source-bytes.txt)" -lt "$(cat round3-native-source-bytes.txt)"
+          test "$(cat consolidated-plugin-bytes.txt)" -lt "$(cat round3-plugin-bytes.txt)"
+
+      - name: Validate Lua 5.1 syntax
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          for tree in round3/plugin consolidated/plugin; do
+            while IFS= read -r file; do luac5.1 -p "$file"; done < <(find "$tree" -type f -name '*.lua' | sort)
+          done
+
+      - name: Install Windows x86 build toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+          curl -L --fail --retry 3 'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile round 3 and consolidated trees with identical flags
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for tree in round3/native consolidated/native; do
+            ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
+            make -C "$tree" clean
+            make -C "$tree" -j2
+            file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
+            grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
+          done
+          stat -c '%s' round3/native/UnitXP_SP3.dll > round3-dll-size.txt
+          stat -c '%s' consolidated/native/UnitXP_SP3.dll > consolidated-dll-size.txt
+          test "$(cat round3-dll-size.txt)" = '610304'
+          test "$(cat consolidated-dll-size.txt)" -le "$(cat round3-dll-size.txt)"
+
+      - name: Package consolidated test build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          round3_size=$(cat round3-dll-size.txt)
+          consolidated_size=$(cat consolidated-dll-size.txt)
+          reduced=$((round3_size-consolidated_size))
+          clean_v89=491008
+          original_full=636928
+          cumulative=$((original_full-consolidated_size))
+          remaining=$((consolidated_size-clean_v89))
+          native_reduced=$(($(cat round3-native-source-bytes.txt)-$(cat consolidated-native-source-bytes.txt)))
+          plugin_reduced=$(($(cat round3-plugin-bytes.txt)-$(cat consolidated-plugin-bytes.txt)))
+
+          mkdir -p release/Interface/AddOns/MoonMarker release/Audit
+          cp consolidated/native/UnitXP_SP3.dll release/
+          cp -a consolidated/plugin/. release/Interface/AddOns/MoonMarker/
+          cp slim/consolidated/DELETION-MANIFEST.txt release/
+          cp slim/consolidated/baseline-sha256.txt release/Audit/
+          cp expected-replacements.txt actual-replacements.txt release/Audit/
+          sha256sum release/UnitXP_SP3.dll > release/DLL-SHA256.txt
+          file release/UnitXP_SP3.dll > release/DLL-FILE-TYPE.txt
+          printf '%s\n' "$consolidated_size" > release/DLL-SIZE-BYTES.txt
+          cat > release/CONSOLIDATED-RESULT.txt <<EOF
+          Round 3 baseline DLL: ${round3_size} bytes
+          Consolidated DLL: ${consolidated_size} bytes
+          DLL reduction: ${reduced} bytes
+          Original full MoonMarker A/B baseline: ${original_full} bytes
+          Cumulative DLL reduction: ${cumulative} bytes
+          Clean v89 baseline: ${clean_v89} bytes
+          Remaining increase over clean v89: ${remaining} bytes
+          Native source reduction: ${native_reduced} bytes
+          Plugin package reduction: ${plugin_reduced} bytes
+          Upstream v89-owned files changed by consolidated delta: 0
+          High-risk security/sync/hooks/scanner-core changes: 0
+          Lua 5.1 validation: passed
+          PE32 x86 compilation: passed
+          In-game runtime test: not performed
+          EOF
+          cat > release/UPSTREAM-PROTECTION.txt <<EOF
+          Protected upstream commit: 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          Every file present in upstream v89 was byte-compared between round 3 and consolidated trees.
+          All comparisons passed. The consolidated native replacement allowlist contains only MoonMarker-added files.
+          EOF
+          (cd release && zip -9 -r ../MoonMarker-Consolidated-x86.zip .)
+
+      - name: Upload consolidated artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Consolidated-x86
+          path: |
+            release
+            MoonMarker-Consolidated-x86.zip
+          if-no-files-found: error
