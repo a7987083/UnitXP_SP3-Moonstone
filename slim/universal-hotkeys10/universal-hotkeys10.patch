@@ -48,7 +48,7 @@ index 49654c7..90462cf 100644
  
  const std::string& detail() { return gDetail; }
 diff --git a/plugin/Bindings.xml b/plugin/Bindings.xml
-index 3788412..b5167b0 100644
+index bd547cb..3742fa7 100644
 --- a/plugin/Bindings.xml
 +++ b/plugin/Bindings.xml
 @@ -20,4 +20,34 @@
@@ -87,10 +87,11 @@ index 3788412..b5167b0 100644
 +    </Binding>
  </Bindings>
 diff --git a/plugin/MoonMarker.lua b/plugin/MoonMarker.lua
-index 50db57a..c5b1bdd 100644
+index f457c0c..64bc9db 100644
 --- a/plugin/MoonMarker.lua
 +++ b/plugin/MoonMarker.lua
-@@ -28,6 +28,16 @@ BINDING_NAME_MOONMARKER_MARKER_PREV = "选择上一个标记"
+@@ -28,6 +28,16 @@ BINDING_NAME_MOONMARKER_COLOR_NEXT = "选择下一个颜色"
+ BINDING_NAME_MOONMARKER_MARKER_PREV = "选择上一个标记"
  BINDING_NAME_MOONMARKER_MARKER_NEXT = "选择下一个标记"
  BINDING_NAME_MOONMARKER_TOGGLE = "显示/隐藏光柱面板"
 +BINDING_NAME_MOONMARKER_QUICK_PRESET_1 = "直接应用当前地图队伍光柱配置 1"
@@ -106,7 +107,7 @@ index 50db57a..c5b1bdd 100644
  
  local runtimeSupported = true
  local runtimeCode = "NOT_CHECKED"
-@@ -45,7 +55,7 @@ local function ShowRuntimeWarningOnce()
+@@ -45,7 +55,7 @@ local function PrintRuntimeWarningOnce()
      runtimeWarningShown = true
      if DEFAULT_CHAT_FRAME then
          DEFAULT_CHAT_FRAME:AddMessage(
@@ -115,7 +116,7 @@ index 50db57a..c5b1bdd 100644
      end
  end
  
-@@ -158,7 +168,7 @@ local function RefreshRuntimeWarning()
+@@ -158,7 +168,7 @@ local function QueryRuntimeStatus()
              runtimeWarningText:SetText("")
              runtimeWarningText:Hide()
          else
@@ -125,7 +126,7 @@ index 50db57a..c5b1bdd 100644
          end
      end
 diff --git a/plugin/MoonMarker.toc b/plugin/MoonMarker.toc
-index a4c6a54..603a4a5 100644
+index e5344e9..1c0b047 100644
 --- a/plugin/MoonMarker.toc
 +++ b/plugin/MoonMarker.toc
 @@ -2,7 +2,7 @@
@@ -138,10 +139,10 @@ index a4c6a54..603a4a5 100644
  ## OptionalDeps: FuBar
  ## SavedVariables: MoonMarkerDB
 diff --git a/plugin/QuickPresets.lua b/plugin/QuickPresets.lua
-index 6398e36..078c0e8 100644
+index c472420..40b37fb 100644
 --- a/plugin/QuickPresets.lua
 +++ b/plugin/QuickPresets.lua
-@@ -327,6 +327,27 @@ local function ApplySelectedPreset()
+@@ -327,6 +327,27 @@ local function ApplyAndSyncPreset(mapName, preset)
      return false
  end
  
