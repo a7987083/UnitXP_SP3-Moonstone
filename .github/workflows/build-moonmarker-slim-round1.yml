@@ -105,10 +105,12 @@ jobs:
               "const char* guildName = lua_tostring(luaState, oldTop + 1);",
               "const std::string guildName = lua_tostring(luaState, oldTop + 1);")
           s = s.replace('result.guildName = guildName ? guildName : \"\";', 'result.guildName = guildName;')
+          s = s.replace('if (guildName) result.guildName = guildName;', 'result.guildName = guildName;')
           s = s.replace(
               "const char* name = lua_tostring(luaState, oldTop + 1);",
               "const std::string name = lua_tostring(luaState, oldTop + 1);")
           s = s.replace('result = name ? name : \"\";', 'result = name;')
+          s = s.replace('if (name) result = name; else result.clear();', 'result = name;')
           p.write_text(s, encoding="utf-8")
           PYFIX
 
