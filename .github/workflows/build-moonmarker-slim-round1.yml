@@ -95,6 +95,23 @@ jobs:
             patch --batch -p0 -d reconstructed < "$patch_file"
           done
 
+          # Apply the same compiler-compatibility corrections to both A/B trees.
+          # These are not counted as slimming changes.
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          p = Path("reconstructed/MoonMarkerGuildAuth.cpp")
+          s = p.read_text(encoding="utf-8")
+          s = s.replace(
+              "const char* guildName = lua_tostring(luaState, oldTop + 1);",
+              "const std::string guildName = lua_tostring(luaState, oldTop + 1);")
+          s = s.replace('result.guildName = guildName ? guildName : \"\";', 'result.guildName = guildName;')
+          s = s.replace(
+              "const char* name = lua_tostring(luaState, oldTop + 1);",
+              "const std::string name = lua_tostring(luaState, oldTop + 1);")
+          s = s.replace('result = name ? name : \"\";', 'result = name;')
+          p.write_text(s, encoding="utf-8")
+          PYFIX
+
           grep -Fq 'createCustomAt' reconstructed/nativeM2Test.cpp
           grep -Fq 'MoonMarker.Main.Remote' reconstructed/MoonMarkerGuildAuth.cpp
           grep -Fq 'MoonMarkerMainModel.cpp' reconstructed/Makefile
@@ -127,11 +144,11 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p before/native before/plugin work
-          cp -a reconstructed before/native
-          cp -a addon_package/MoonMarker before/plugin/MoonMarker
-          cp -a reconstructed work/native
-          cp -a addon_package/MoonMarker work/plugin
+          mkdir -p before/native before/plugin/MoonMarker work/native work/plugin
+          cp -a reconstructed/. before/native/
+          cp -a addon_package/MoonMarker/. before/plugin/MoonMarker/
+          cp -a reconstructed/. work/native/
+          cp -a addon_package/MoonMarker/. work/plugin/
 
           base64 -d slim/apply-round1-slim.py.gz.b64 > apply-round1-slim.py.gz
           echo '16bdb944b2d856a94b47578db06faa99963aca2ee7f69febff33b72735e54a33  apply-round1-slim.py.gz' | sha256sum -c -
