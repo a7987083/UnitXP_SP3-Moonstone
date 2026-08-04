@@ -1,0 +1,48 @@
+MoonMarker compatibility cleanup manifest
+
+OWNERSHIP AND SAFETY
+- Protected upstream: UnitXP_SP3 v89 commit 3370011e396ccdbf4c9921f6cf2b005bed818b24.
+- No original v89 function or structure is removed.
+- Changes are limited to MoonMarker-added compatibility branches and MoonMarker addon import formats.
+- Signing, MAC, nonce, timestamp, replay protection, guild authorization, leader/assistant checks, Present hook, ground targeting hook and scene cleanup remain.
+
+REMOVED LEGACY COMPATIBILITY
+1. Full preset transfer
+   - Removed MOONMARKER_PRESET_V1 import support.
+   - MOONMARKER_PRESET_V2 is the only accepted/exported full-preset format.
+2. Quick preset transfer
+   - Current YS-prefixed color format is formalized as MOONMARKER_QUICK_PRESETS_V2.
+   - Removed unprefixed RED/ORANGE/YELLOW/GREEN/CYAN/BLUE/PURPLE/WHITE tokens.
+   - Removed the old MARKed parser workaround.
+3. External M2 text lists
+   - Retained embedded MPQ (listfile) reading.
+   - Retained per-archive <archive>.mpq.listfile sidecars.
+   - Retained one explicit loose text filename: MoonMarkerM2List.txt.
+   - Removed ambiguous <archive>.listfile, <archive>-listfile.txt and <archive>.txt sidecar fallbacks.
+   - Removed automatic parsing of every *listfile*.txt filename.
+4. Obsolete marker call protocol branches
+   - MoonMarker.Place now requires the canonical icon argument.
+   - MoonMarker.Remote now requires the canonical icon argument.
+   - Removed the historical one-letter icon alias x; canonical cross remains.
+
+CURRENT PROTOCOLS RETAINED
+- CLEAR ordinary marker synchronization.
+- PLACE <color> <marker> <x> <y> <z> ordinary marker synchronization.
+- Signed M1 main-model packets.
+- Current canonical marker names: star, circle, diamond, triangle, moon, square, cross, skull.
+
+EXPECTED BREAKAGE BY DESIGN
+- Preset text exported by V1-era builds will be rejected.
+- Quick-preset text without YS-prefixed color tokens will be rejected.
+- External list files using removed ambiguous names will no longer be loaded.
+- Old macros/clients calling MoonMarker.Place or MoonMarker.Remote without an icon will fail.
+- Old callers using icon name x must use cross.
+
+VALIDATION
+- Exact 608,768-byte consolidated baseline reconstruction.
+- Upstream-v89 ownership protection.
+- Only the eight allowlisted files may differ.
+- Lua 5.1 syntax validation.
+- PE32 Intel 80386 A/B compilation with identical flags.
+- Current scanner, preview, marker, signed main-model, authorization and hook symbols retained.
+- In-game runtime testing remains required.
