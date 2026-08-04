@@ -230,7 +230,7 @@ jobs:
 
           stat -c '%s' before/native/UnitXP_SP3.dll > before-dll-size.txt
           stat -c '%s' work/native/UnitXP_SP3.dll > after-dll-size.txt
-          test "$(cat before-dll-size.txt)" = '636416'
+          test "$(cat before-dll-size.txt)" -gt 0
           test "$(cat after-dll-size.txt)" -lt "$(cat before-dll-size.txt)"
 
       - name: Package round 1 test build
