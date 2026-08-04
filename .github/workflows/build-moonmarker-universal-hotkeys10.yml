@@ -1,0 +1,168 @@
+name: Build MoonMarker Universal Layout Hotkeys10
+
+on:
+  pull_request:
+    branches: [cleanroom-v1]
+    paths:
+      - '.github/workflows/build-moonmarker-universal-hotkeys10.yml'
+      - 'slim/universal-hotkeys10/**'
+      - 'slim/hook-safety-stable/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore tested baseline and apply patches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8886817364/zip" \
+            -o exact-source.zip
+          unzip -q exact-source.zip -d exact-source
+          echo '89488a13ca54c6ab6e709a2dba7492bdbbdb422913cd5eb871d878dc6fba3f7e  exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
+          tar -xJf exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+          rm -rf source-export/native/.git source-export/plugin/.git
+          grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
+          cp -a source-export target
+
+          cat slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part00 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part01 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part02 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part03 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part04 \
+            > hook-safety-stable.patch.gz.b64
+          echo '632f019def405e2115bfae757e906ceef0a33a1d3156435e69d2529ccf397774  hook-safety-stable.patch.gz.b64' | sha256sum -c -
+          base64 -d hook-safety-stable.patch.gz.b64 > hook-safety-stable.patch.gz
+          gzip -dc hook-safety-stable.patch.gz > hook-safety-stable.patch
+          git apply --directory=target hook-safety-stable.patch
+          git apply --directory=target slim/universal-hotkeys10/universal-hotkeys10.patch
+
+      - name: Verify universal-layout scope
+        run: |
+          set -euxo pipefail
+          test -f target/native/MoonMarkerRuntimeGuard.cpp
+          ! grep -RniE '0x4510B6DB|SUPPORTED_WOW_1_12_1_5875|WOW_1_12_1_5875_SIGNATURE_MISMATCH' target/native target/plugin
+          grep -Fq 'No WoW.exe timestamp, file hash or pre-recorded client fingerprint is used.' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'WOW_X86_LAYOUT_AND_ABI_VALIDATED' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'kExpectedImageBase = 0x00400000u' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'MoonMarker 运行地址检查未通过' target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq '## Version: 0.9.2-universal-layout-hotkeys10' target/plugin/MoonMarker.toc
+          test "$(grep -c 'MOONMARKER_QUICK_PRESET_' target/plugin/Bindings.xml)" = '10'
+          grep -Fq 'MoonMarker_BindingApplyQuickPreset(10)' target/plugin/Bindings.xml
+          grep -Fq 'function MoonMarker_BindingApplyQuickPreset(slot)' target/plugin/QuickPresets.lua
+          grep -Fq 'return ApplyAndSyncPreset(mapName, preset)' target/plugin/QuickPresets.lua
+          test "$(grep -Rho 'DEFAULT_CHAT_FRAME:AddMessage' target/plugin | wc -l)" = '1'
+          ! grep -RniE 'CreatureCatalog|Advanced\.Creature|CreatureDisplayInfo|CreatureModelData|SetDisplayInfo|Generated\\Creature' target/native target/plugin
+          grep -Fq 'std::uint32_t nonce' target/native/MoonMarkerMainModel.cpp
+          grep -Fq 'rememberPacket' target/native/MoonMarkerMainModel.cpp
+          grep -Fq 'originalIsPartyLeader' target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq 'MoonMarker.Advanced.ScanM2.Start' target/native/MoonMarkerGuildAuth.cpp
+
+      - name: Validate Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r file; do luac5.1 -p "$file"; done < <(find target/plugin -type f -name '*.lua' | sort)
+          ! grep -RInE '#[A-Za-z_(]' target/plugin --include='*.lua'
+
+      - name: Install Windows x86 toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+          curl -L --fail --retry 3 'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile normal and forced fallback DLLs
+        run: |
+          set -euxo pipefail
+          cp -a target forced
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DMOONMARKER_FORCE_UNSUPPORTED|' forced/native/Makefile
+          for tree in target/native forced/native; do
+            ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
+            make -C "$tree" clean
+            make -C "$tree" -j2
+            file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
+            grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
+          done
+
+      - name: Package share build
+        run: |
+          set -euxo pipefail
+          n=$(stat -c '%s' target/native/UnitXP_SP3.dll)
+          f=$(stat -c '%s' forced/native/UnitXP_SP3.dll)
+          mkdir -p release/Interface/AddOns/MoonMarker release/Project-Source/native release/Project-Source/plugin release/Audit
+          cp target/native/UnitXP_SP3.dll release/
+          cp forced/native/UnitXP_SP3.dll release/UnitXP_SP3-ForcedFallback-Test.dll
+          cp -a target/plugin/. release/Interface/AddOns/MoonMarker/
+          cp -a target/native/. release/Project-Source/native/
+          cp -a target/plugin/. release/Project-Source/plugin/
+          rm -rf release/Project-Source/native/xwinSDK release/Project-Source/native/d3d9x_headers
+          cp slim/universal-hotkeys10/universal-hotkeys10.patch release/Audit/
+          sha256sum release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedFallback-Test.dll > release/DLL-SHA256.txt
+          file release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedFallback-Test.dll > release/DLL-FILE-TYPE.txt
+          cat > release/README-UNIVERSAL-LAYOUT.txt <<RESULT
+          MoonMarker Universal Layout + Hotkeys10
+          Version: 0.9.2-universal-layout-hotkeys10
+          Normal DLL size: ${n} bytes
+          Forced fallback DLL size: ${f} bytes
+
+          Removed client identity restrictions:
+          - no fixed WoW.exe PE timestamp check
+          - no WoW.exe file hash check
+          - no pre-recorded client fingerprint whitelist
+
+          Retained safety/layout checks:
+          - PE32 x86 image validation
+          - UnitXP_SP3 WoW 1.12 image base/layout validation
+          - MoonMarker code/data address range and memory protection checks
+          - invalid address or hook installation safely disables MoonMarker paths
+
+          Compatibility boundary:
+          This build is not tied to one supplied WoW.exe file, but it still requires
+          the UnitXP_SP3-compatible WoW 1.12 x86 internal ABI/address layout.
+
+          Hotkeys:
+          10 bindings directly apply current-map saved group presets 1-10 through
+          the existing permission, CLEAR/PLACE/M1 synchronization path.
+
+          Lua 5.1 validation: passed
+          PE32 x86 compilation: passed
+          In-game runtime test: not performed
+          RESULT
+          (cd release && zip -9 -r ../MoonMarker-Universal-Layout-Hotkeys10-x86.zip .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Universal-Layout-Hotkeys10-x86
+          path: |
+            release
+            MoonMarker-Universal-Layout-Hotkeys10-x86.zip
+          if-no-files-found: error
