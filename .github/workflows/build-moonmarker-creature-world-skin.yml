@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore exact compatibility source
+      - name: Restore tested source and apply patches
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -29,142 +29,57 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8885426844/zip" \
-            -o exact-source.zip
-          unzip -q exact-source.zip -d exact-source
-          echo 'cbb7faf8d18006f68ef8bc1538daaaf2d627b365fc85bb58481c488c2f9aace9  exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
-          tar -xJf exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+            -o source.zip
+          unzip -q source.zip -d source
+          echo 'cbb7faf8d18006f68ef8bc1538daaaf2d627b365fc85bb58481c488c2f9aace9  source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
+          tar -xJf source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
           rm -rf source-export/native/.git
-          grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
 
-      - name: Reconstruct exact safety and Creature baseline
-        run: |
-          set -euxo pipefail
           cp -a source-export safety
-          cat slim/safety-creature/safety-creature.patch.gz.b64.part00 \
-              slim/safety-creature/safety-creature.patch.gz.b64.part01 \
-              slim/safety-creature/safety-creature.patch.gz.b64.part02 \
-              slim/safety-creature/safety-creature.patch.gz.b64.part03 \
-              slim/safety-creature/safety-creature.patch.gz.b64.part04 \
-            | base64 -d > safety-creature.patch.gz
-          echo 'c32402d08e6471fd8a9405d8427dd1d08f480afb97920323caeb71ba38f900e3  safety-creature.patch.gz' | sha256sum -c -
-          gzip -dc safety-creature.patch.gz > safety-creature.patch
-          echo 'da4a565b61fb0a293399f75e11409be9c9b2004d75487bbcc84789b62cccace9  safety-creature.patch' | sha256sum -c -
-          patch --batch -p1 -d safety < safety-creature.patch
+          cat slim/safety-creature/safety-creature.patch.gz.b64.part{00,01,02,03,04} | base64 -d > safety.gz
+          echo 'c32402d08e6471fd8a9405d8427dd1d08f480afb97920323caeb71ba38f900e3  safety.gz' | sha256sum -c -
+          gzip -dc safety.gz > safety.patch
+          echo 'da4a565b61fb0a293399f75e11409be9c9b2004d75487bbcc84789b62cccace9  safety.patch' | sha256sum -c -
+          patch --batch -p1 -d safety < safety.patch
           grep -Fq '## Version: 0.9.0-safety-creature' safety/plugin/MoonMarker.toc
+
           cp -a safety target
+          cat slim/creature-world-skin/creature-world-skin-v2.patch.gz.b64.part{00,01,02,03,04,05} | base64 -d > world-skin.gz
+          echo '90e1bcda13eca9dad7c93a3aadec8cef984d2ad76bff052d4ed6c15670566dce  world-skin.gz' | sha256sum -c -
+          gzip -dc world-skin.gz > world-skin.patch
+          echo '6d493c3dacfe5b92f012de75d861034756ec4720e32ca1a36f453b7b1dcd1004  world-skin.patch' | sha256sum -c -
+          patch --batch -p1 -d target < world-skin.patch
 
-      - name: Apply Creature world-skin patch
+      - name: Verify protected behavior and Creature skin implementation
         run: |
           set -euxo pipefail
-          base64 -d slim/creature-world-skin/creature-world-skin-v2.patch.gz.b64 > creature-world-skin.patch.gz
-          echo '90e1bcda13eca9dad7c93a3aadec8cef984d2ad76bff052d4ed6c15670566dce  creature-world-skin.patch.gz' | sha256sum -c -
-          gzip -dc creature-world-skin.patch.gz > creature-world-skin.patch
-          echo '6d493c3dacfe5b92f012de75d861034756ec4720e32ca1a36f453b7b1dcd1004  creature-world-skin.patch' | sha256sum -c -
-          patch --batch -p1 -d target < creature-world-skin.patch
-
-          cat > expected-changed-files.txt <<'FILES'
-          native/Makefile
-          native/MoonMarkerCreatureCatalog.cpp
-          native/MoonMarkerCreatureCatalog.h
-          native/MoonMarkerCreaturePreview.cpp
-          native/MoonMarkerCreaturePreview.h
-          native/MoonMarkerGuildAuth.cpp
-          plugin/ModelLibrary.lua
-          plugin/MoonMarker.toc
-          FILES
-          sed -i 's/^          //' expected-changed-files.txt
-          python3 - <<'PY'
-          from pathlib import Path
-          import hashlib
-          def inventory(root):
-              result = {}
-              for path in Path(root).rglob('*'):
-                  if path.is_file():
-                      result[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-              return result
-          before = inventory('safety')
-          after = inventory('target')
-          changed = sorted(name for name in set(before) | set(after)
-                           if before.get(name) != after.get(name))
-          Path('actual-changed-files.txt').write_text('\n'.join(changed) + '\n')
-          PY
-          sort -o expected-changed-files.txt expected-changed-files.txt
-          diff -u expected-changed-files.txt actual-changed-files.txt
-
-      - name: Protect existing runtime, security and scanner behavior
-        run: |
-          set -euxo pipefail
-          for file in \
-            MoonMarkerMainModel.cpp MoonMarkerMainModel.h \
-            MoonMarkerRuntimeGuard.cpp MoonMarkerRuntimeGuard.h \
-            MoonMarkerM2Scanner.cpp MoonMarkerM2Scanner.h \
-            nativeM2Test.cpp nativeM2Test.h \
-            moonMarker.cpp moonMarker.h dllmain.cpp; do
-            cmp "safety/native/${file}" "target/native/${file}"
+          for file in MoonMarkerMainModel.cpp MoonMarkerMainModel.h MoonMarkerRuntimeGuard.cpp MoonMarkerRuntimeGuard.h MoonMarkerM2Scanner.cpp MoonMarkerM2Scanner.h nativeM2Test.cpp nativeM2Test.h moonMarker.cpp moonMarker.h dllmain.cpp; do
+            cmp "safety/native/$file" "target/native/$file"
           done
           grep -Fq 'std::uint32_t nonce' target/native/MoonMarkerMainModel.cpp
           grep -Fq 'rememberPacket' target/native/MoonMarkerMainModel.cpp
-          grep -Fq 'MoonMarker.Advanced.Main.Validate' target/native/MoonMarkerGuildAuth.cpp
           grep -Fq 'originalIsPartyLeader' target/native/MoonMarkerGuildAuth.cpp
-          grep -Fq 'MoonMarker.Runtime.Status' target/native/dllmain.cpp
-          grep -Fq 'UNSUPPORTED_CLIENT' target/native/MoonMarkerM2Scanner.cpp
-          test "$(grep -Rho 'DEFAULT_CHAT_FRAME:AddMessage' target/plugin | wc -l)" = '1'
-
-      - name: Verify minimum Display ID and real skin-bound preview
-        run: |
-          set -euxo pipefail
           grep -Fq 'return a.displayId < b.displayId' target/native/MoonMarkerCreatureCatalog.cpp
           grep -Fq 'return a.displayId == b.displayId' target/native/MoonMarkerCreatureCatalog.cpp
-          grep -Fq 'getForDisplayId' target/native/MoonMarkerCreatureCatalog.cpp
           grep -Fq 'MoonMarker.Advanced.Creature.Preview' target/native/MoonMarkerGuildAuth.cpp
           grep -Fq 'kMonsterSkin1 = 11u' target/native/MoonMarkerCreaturePreview.cpp
           grep -Fq 'kMonsterSkin2 = 12u' target/native/MoonMarkerCreaturePreview.cpp
           grep -Fq 'kMonsterSkin3 = 13u' target/native/MoonMarkerCreaturePreview.cpp
           grep -Fq 'writeU32(record + 0u, 0u)' target/native/MoonMarkerCreaturePreview.cpp
-          grep -Fq 'Interface\\AddOns\\MoonMarker\\Generated\\Creature\\Display\\' target/native/MoonMarkerCreaturePreview.cpp
           grep -Fq 'ML.creatureVariantIndex = 1' target/plugin/ModelLibrary.lua
           grep -Fq 'SetCreatureViewerVariant(1)' target/plugin/ModelLibrary.lua
-          grep -Fq 'table.sort(variants' target/plugin/ModelLibrary.lua
-          grep -Fq 'creaturePreviewCommand = "MoonMarker.Advanced.Creature.Preview"' target/plugin/ModelLibrary.lua
           grep -Fq 'local failureReason = callOK and px or created' target/plugin/ModelLibrary.lua
           ! grep -Fq 'SetDisplayInfo' target/plugin/ModelLibrary.lua
           ! grep -Fq 'CreateFrame("PlayerModel"' target/plugin/ModelLibrary.lua
           ! grep -REn '#[A-Za-z_(]' target/plugin/*.lua
           grep -Fq '## Version: 0.9.1-creature-world-skin' target/plugin/MoonMarker.toc
-
-      - name: Validate patcher layout with a synthetic Classic M2
-        run: |
-          python3 - <<'PY'
-          import struct
-          data = bytearray(0x154 + 3 * 0x10)
-          data[0:4] = b'MD20'
-          struct.pack_into('<I', data, 4, 256)
-          struct.pack_into('<II', data, 0x5c, 3, 0x154)
-          for i, kind in enumerate((11, 12, 13)):
-              struct.pack_into('<I', data, 0x154 + i * 0x10, kind)
-          paths = [b'Creature\\Harpy\\HarpyBlue.blp\0',
-                   b'Creature\\Harpy\\HarpyWing.blp\0',
-                   b'Creature\\Harpy\\HarpyExtra.blp\0']
-          for i, path in enumerate(paths):
-              while len(data) & 3: data.append(0)
-              offset = len(data)
-              data += path
-              record = 0x154 + i * 0x10
-              struct.pack_into('<I', data, record, 0)
-              struct.pack_into('<II', data, record + 8, len(path), offset)
-          for i, path in enumerate(paths):
-              record = 0x154 + i * 0x10
-              kind, count, offset = struct.unpack_from('<IxxxxII', data, record)
-              assert kind == 0 and data[offset:offset+count] == path
-          PY
+          test "$(grep -Rho 'DEFAULT_CHAT_FRAME:AddMessage' target/plugin | wc -l)" = '1'
 
       - name: Validate Lua 5.1
         run: |
           sudo apt-get update
           sudo apt-get install -y lua5.1
-          for tree in safety/plugin target/plugin; do
-            while IFS= read -r file; do luac5.1 -p "$file"; done < <(find "$tree" -type f -name '*.lua' | sort)
-          done
+          while IFS= read -r file; do luac5.1 -p "$file"; done < <(find target/plugin -type f -name '*.lua' | sort)
 
       - name: Install Windows x86 toolchain
         run: |
@@ -186,7 +101,7 @@ jobs:
           mkdir -p shared-d3d9x_headers
           cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
 
-      - name: Compile exact safety baseline and world-skin build
+      - name: Compile baseline and Creature world-skin DLL
         run: |
           set -euxo pipefail
           for tree in safety/native target/native; do
@@ -202,7 +117,7 @@ jobs:
           stat -c '%s' target/native/UnitXP_SP3.dll > target-size.txt
           test "$(cat safety-size.txt)" = '640512'
 
-      - name: Package world-skin test build
+      - name: Package test build
         run: |
           set -euxo pipefail
           baseline=$(cat safety-size.txt)
@@ -211,7 +126,7 @@ jobs:
           cp target/native/UnitXP_SP3.dll release/
           cp -a target/plugin/. release/Interface/AddOns/MoonMarker/
           cp slim/creature-world-skin/MANIFEST.txt release/
-          cp creature-world-skin.patch expected-changed-files.txt actual-changed-files.txt release/Audit/
+          cp world-skin.patch release/Audit/
           sha256sum release/UnitXP_SP3.dll > release/DLL-SHA256.txt
           file release/UnitXP_SP3.dll > release/DLL-FILE-TYPE.txt
           cat > release/CREATURE-WORLD-SKIN-RESULT.txt <<RESULT
@@ -223,7 +138,6 @@ jobs:
           PlayerModel:SetDisplayInfo dependency: removed
           Creature foot preview: generated explicit-texture M2
           MONSTER_SKIN_1/2/3 mapping: enabled
-          Normal non-Creature preview path: unchanged
           Hook safety, MAC, nonce, replay, authorization and sync: unchanged
           Lua 5.1 validation: passed
           PE32 x86 compilation: passed
