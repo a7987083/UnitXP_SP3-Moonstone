@@ -1,0 +1,50 @@
+MoonMarker consolidated cleanup manifest
+
+OWNERSHIP RULE
+- Protected upstream: UnitXP_SP3 v89 commit 3370011e396ccdbf4c9921f6cf2b005bed818b24.
+- The consolidated delta changes no file that existed in upstream v89.
+- Native replacements are limited to files added later by MoonMarker.
+- Plugin files are MoonMarker addon files and are not part of upstream UnitXP_SP3 v89.
+
+LOW-RISK MOONMARKER CLEANUP APPLIED
+1. MoonMarkerAdvancedState.cpp/.h
+   - Removed unused MarkerDefinition.localOnly field.
+   - Removed an unused boolean validation parameter.
+   - Removed unused diagnostic reason parameters from local state clear helpers.
+2. MoonMarkerM2Scanner.cpp/.h
+   - Removed unused count() API; scanner core, sources, sorting, status, get() and UI commands remain.
+3. nativeM2Test.cpp/.h
+   - Removed unused playerObject and renderReady state from color slots.
+   - Removed unused AdvancedPreviewStatus.position result field.
+   - Removed unused clearColor() API with no callers.
+   - Reused MoonMarkerAdvancedState model-path and scale validation.
+   - Reused one world-matrix helper instead of a duplicate identity transform helper.
+4. MoonMarkerGuildAuth.cpp
+   - Only adjusted calls for the removed unused AdvancedState parameters/field.
+   - Authorization, signing and synchronization logic was not changed.
+5. MoonMarker addon Lua
+   - Added Shared.lua for common color, marker, name, RGB, ordering and default-pair definitions.
+   - Reused common Trim, ShortPath and SafeLength helpers.
+   - Removed duplicated local copies from MoonMarker, QuickPresets, GuildAdvanced, ModelLibrary,
+     MainModels, CurrentMarkers, Presets and AdvancedEditorFramework.
+6. Plugin package documentation
+   - Removed ten development/help TXT files that are not loaded by the TOC and do not affect runtime.
+
+HIGH-RISK ITEMS DEFERRED / UNCHANGED
+- Main-model signing/MAC implementation.
+- Nonces, timestamps and replay-protection caches.
+- Guild authorization core and leader/assistant permission rules.
+- Team synchronization message format and compatibility parsers.
+- Hook addresses, Present hook, ground cursor and world/scene lifecycle hooks.
+- M2 scanner core, MPQ/listfile behavior and external-list compatibility.
+- Creature Display ID / skin support.
+- MoonMarkerMainModel.cpp/.h and moonMarker.cpp/.h remain byte-identical to round 3.
+
+VALIDATION REQUIRED
+- Exact round 3 reconstruction and baseline hashes.
+- Replacement archive allowlist.
+- Every upstream-v89-owned native file byte-identical between round 3 and consolidated trees.
+- Lua 5.1 syntax.
+- PE32 Intel 80386 A/B compilation with identical flags.
+- Public scanner, preview, marker, main-model, authorization and synchronization symbols retained.
+- In-game runtime testing remains required.
