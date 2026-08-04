@@ -56,10 +56,10 @@ jobs:
       - name: Apply Creature world-skin patch
         run: |
           set -euxo pipefail
-          base64 -d slim/creature-world-skin/creature-world-skin.patch.gz.b64 > creature-world-skin.patch.gz
-          echo '443f8a5f5f6767c3e28d288ec7cb2315af5c8a381bf91fb280045200e2adc53e  creature-world-skin.patch.gz' | sha256sum -c -
+          base64 -d slim/creature-world-skin/creature-world-skin-v2.patch.gz.b64 > creature-world-skin.patch.gz
+          echo '90e1bcda13eca9dad7c93a3aadec8cef984d2ad76bff052d4ed6c15670566dce  creature-world-skin.patch.gz' | sha256sum -c -
           gzip -dc creature-world-skin.patch.gz > creature-world-skin.patch
-          echo '21ad1ca6cf54eaac7b6dc25b76996d7b5d91389dca4efdd0be143e95d44d014c  creature-world-skin.patch' | sha256sum -c -
+          echo '6d493c3dacfe5b92f012de75d861034756ec4720e32ca1a36f453b7b1dcd1004  creature-world-skin.patch' | sha256sum -c -
           patch --batch -p1 -d target < creature-world-skin.patch
 
           cat > expected-changed-files.txt <<'FILES'
@@ -126,6 +126,7 @@ jobs:
           grep -Fq 'SetCreatureViewerVariant(1)' target/plugin/ModelLibrary.lua
           grep -Fq 'table.sort(variants' target/plugin/ModelLibrary.lua
           grep -Fq 'creaturePreviewCommand = "MoonMarker.Advanced.Creature.Preview"' target/plugin/ModelLibrary.lua
+          grep -Fq 'local failureReason = callOK and px or created' target/plugin/ModelLibrary.lua
           ! grep -Fq 'SetDisplayInfo' target/plugin/ModelLibrary.lua
           ! grep -Fq 'CreateFrame("PlayerModel"' target/plugin/ModelLibrary.lua
           ! grep -REn '#[A-Za-z_(]' target/plugin/*.lua
