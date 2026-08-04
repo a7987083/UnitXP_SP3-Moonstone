@@ -1,0 +1,2 @@
+Corrected baseline: restore and retain M2 scanning.
+Round 2: remove old PNG overlay renderer and duplicate gMarks state only.
