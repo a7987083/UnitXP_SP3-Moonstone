@@ -137,8 +137,9 @@ jobs:
           test -f target/native/MoonMarkerDreamAvatar.h
           test -f target/plugin/DreamAvatar.lua
           grep -Fq 'MoonMarkerDreamAvatar.cpp' target/native/Makefile
-          grep -Fq 'MoonMarker.DreamAvatar.Apply' target/native/MoonMarkerDreamAvatar.cpp
-          grep -Fq 'MoonMarker.DreamAvatar.Restore' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'std::string("MoonMarker.DreamAvatar.") + suffix' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'commandEquals(command, "Apply")' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'commandEquals(command, "Restore")' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'kDisplayIdOffset = 0x1F4u' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'vanilla1121_unitGUID("player")' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'DreamAvatar.lua' target/plugin/MoonMarker.toc
