@@ -1,0 +1,190 @@
+name: DreamAvatar v0.3 Three Tabs Guild Auth
+
+run-name: 'DreamAvatar v0.3 · Character Weapon Glow · Guild Auth · #${{ github.run_number }}'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/dreamavatar-v0.3-three-tabs-guild-auth
+    paths:
+      - '.github/workflows/build-dreamavatar-v0.3-three-tabs-guild-auth.yml'
+      - 'slim/dreamavatar-v0.3-three-tabs-guild-auth/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build three-tab local appearance tool with per-command guild authorization
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out v0.3 branch
+        uses: actions/checkout@v4
+
+      - name: Restore exact successful v0.2 source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8945180520/zip" \
+            -o v02-artifact.zip
+          unzip -q v02-artifact.zip -d v02-artifact
+          source_tar='v02-artifact/DreamAvatar-v0.2-Native-Model-Rebuild-Source.tar.xz'
+          echo 'd5847080eb78b9b01736ef97dfb4e909bec53538309adeffc2d65ad5284d6626  v02-artifact/DreamAvatar-v0.2-Native-Model-Rebuild-Source.tar.xz' | sha256sum -c -
+          tar -xJf "$source_tar"
+          cp -a target v02-baseline
+          grep -Fq '## Version: 0.2.0-native-model-rebuild-experimental' target/DreamAvatar/DreamAvatar.toc
+
+      - name: Apply v0.3 three-tab guild-auth patch
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.3-three-tabs-guild-auth/v03.patch.gz.b64.part* > v03.patch.gz.b64
+          echo '8fdbbe8a8f92e08b818de9cee831e4371130a5c9338af443a74a22c6fff270b6  v03.patch.gz.b64' | sha256sum -c -
+          base64 -d v03.patch.gz.b64 > v03.patch.gz
+          echo 'c2cabe8890430a78a2e5f08a0ca3abe900475df7a381a52a74daf74ec0e68ec7  v03.patch.gz' | sha256sum -c -
+          gzip -dc v03.patch.gz > v03.patch
+          echo '03514a5b49db86f3570df93beac7614bf494174a5af0003c24b4f2f44888c63c  v03.patch' | sha256sum -c -
+          git apply --check --directory=target v03.patch
+          git apply --directory=target v03.patch
+
+      - name: Audit scope permissions and MoonMarker isolation
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          before = Path('v02-baseline')
+          after = Path('target')
+          allowed = {
+              'DREAMAVATAR-V0.3-THREE-TABS-GUILD-AUTH-NOTES.md',
+              'DreamAvatar/DreamAvatar.lua',
+              'DreamAvatar/DreamAvatar.toc',
+              'native/MoonMarkerDreamAvatar.cpp',
+              'native/dllmain.cpp',
+          }
+          paths = {str(p.relative_to(before)) for p in before.rglob('*') if p.is_file()}
+          paths |= {str(p.relative_to(after)) for p in after.rglob('*') if p.is_file()}
+          changed = set()
+          for rel in paths:
+              a, b = before / rel, after / rel
+              if not a.exists() or not b.exists() or a.read_bytes() != b.read_bytes():
+                  changed.add(rel)
+          if changed != allowed:
+              raise SystemExit(f'unexpected changed files: {sorted(changed)}')
+          PY
+
+          echo '75da72a17962bb35fcc70547ab165d0dc1be03748bf5ca19a05ed0a70dc05fe1  target/native/MoonMarkerRuntimeGuard.cpp' | sha256sum -c -
+          echo '805e791b63ee51cc7c22db9477135e681d61d055fe62466822e1d7a74caaf563  target/native/moonMarker.cpp' | sha256sum -c -
+          echo '5d80f9d3fce17eea1fbd9e373cac10746a18e9f887aa12025d9dd37b2bc1b86e  target/native/moonMarker.h' | sha256sum -c -
+          echo 'dea4733d013a4399c606a5dbf0de0ec1a0d1f2f827f675f6943112534b1bd43f  target/native/nativeM2Test.cpp' | sha256sum -c -
+          echo '4b7c39f6c37251d6faf17793c91810d2661e621e330f555d7fb28e39eb76bdb9  target/native/nativeM2Test.h' | sha256sum -c -
+          echo 'dbf2027f882e03f176b3eed28220bb354d285fcd398be41ed8a1cd7e25939c81  target/native/MoonMarkerMainModel.cpp' | sha256sum -c -
+          echo '7d000054538458c713bcb4f7e4a2d9d929124ca43bb1f60e2139d04db8aeb313  target/native/MoonMarkerGuildAuth.cpp' | sha256sum -c -
+
+          grep -Fq 'kPlayerVisibleItem1DataOffset = 0x03C8u' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'kWeaponVisibleSlots = {{16, 17, 18}}' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'kGlowVisibleSlots = {{16, 17}}' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'commandEquals(command, "ApplyWeapon")' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'commandEquals(command, "ApplyGlow")' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'moonMarkerGuildAuth::isAuthorized(L)' target/native/dllmain.cpp
+          grep -Fq 'local AUTH_COMMAND = "MMAuth"' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq '## Version: 0.3.0-three-tabs-guild-auth-experimental' target/DreamAvatar/DreamAvatar.toc
+          grep -Fq '## RequiredDeps: MoonMarker' target/DreamAvatar/DreamAvatar.toc
+          ! grep -RniE 'vanilla1121_unitDisable|vanilla1121_unitEnable|rebuildPlayerModel|0x005FBB60|0x005FBD60|0x005FBE00' target/native/MoonMarkerDreamAvatar.cpp
+          ! grep -RniE 'MH_CreateHook|MH_EnableHook|MH_DisableHook' target/native/MoonMarkerDreamAvatar.cpp
+
+      - name: Validate Lua 5.1
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r file; do luac5.1 -p "$file"; done < <(find target/plugin target/DreamAvatar -type f -name '*.lua' | sort)
+          ! grep -RInE '#[A-Za-z_(]' target/plugin target/DreamAvatar --include='*.lua'
+
+      - name: Prepare clean source snapshot
+        run: |
+          set -euxo pipefail
+          cp -a target target-source
+          find target-source/native -maxdepth 1 -type f \( -name '*.obj' -o -name '*.dll' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' \) -delete
+          rm -rf target-source/native/xwinSDK target-source/native/d3d9x_headers
+          tar --sort=name --mtime='UTC 2026-08-06' --owner=0 --group=0 --numeric-owner \
+            -cJf DreamAvatar-v0.3-Three-Tabs-Guild-Auth-Source.tar.xz target-source
+
+      - name: Install Windows x86 build toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+
+          curl -L --fail --retry 3 \
+            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile PE32 x86 DLL
+        run: |
+          set -euxo pipefail
+          rm -rf target/native/xwinSDK target/native/d3d9x_headers
+          ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" target/native/xwinSDK
+          ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" target/native/d3d9x_headers
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' target/native/Makefile
+          make -C target/native clean
+          make -C target/native -j2
+          file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
+
+      - name: Package build
+        run: |
+          set -euxo pipefail
+          root='release/DreamAvatar-v0.3-Three-Tabs-Guild-Auth-Experimental'
+          mkdir -p "$root/Interface/AddOns/DreamAvatar" "$root/Audit"
+          cp target/native/UnitXP_SP3.dll "$root/UnitXP_SP3.dll"
+          cp target/DreamAvatar/DreamAvatar.lua "$root/Interface/AddOns/DreamAvatar/DreamAvatar.lua"
+          cp target/DreamAvatar/DreamAvatar.toc "$root/Interface/AddOns/DreamAvatar/DreamAvatar.toc"
+          cp target/DREAMAVATAR-V0.3-THREE-TABS-GUILD-AUTH-NOTES.md "$root/README.md"
+          cp v03.patch "$root/Audit/DreamAvatar-v0.3-three-tabs-guild-auth.patch"
+          cp DreamAvatar-v0.3-Three-Tabs-Guild-Auth-Source.tar.xz "$root/Audit/"
+          (cd "$root" && sha256sum UnitXP_SP3.dll Interface/AddOns/DreamAvatar/DreamAvatar.lua Interface/AddOns/DreamAvatar/DreamAvatar.toc > SHA256.txt)
+          {
+            echo 'DreamAvatar v0.3 Three Tabs + Guild Authorization'
+            cat DLL-FILE-TYPE.txt
+            stat -c 'DLL bytes: %s' target/native/UnitXP_SP3.dll
+            sha256sum target/native/UnitXP_SP3.dll
+            echo 'Every DreamAvatar native command is guarded by MoonMarker guild authorization.'
+            echo 'Build/static audit do not replace in-game testing.'
+          } > "$root/BUILD-RESULT.txt"
+          mkdir -p artifact
+          (cd release && zip -9 -r ../artifact/DreamAvatar-v0.3-Three-Tabs-Guild-Auth-Experimental-x86.zip DreamAvatar-v0.3-Three-Tabs-Guild-Auth-Experimental)
+          cp DreamAvatar-v0.3-Three-Tabs-Guild-Auth-Source.tar.xz artifact/
+          cp v03.patch artifact/
+          sha256sum artifact/* > artifact/ARTIFACT-SHA256.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamAvatar-v0.3-Three-Tabs-Guild-Auth-Experimental-x86-${{ github.run_number }}
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 30
