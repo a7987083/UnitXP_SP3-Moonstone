@@ -1,0 +1,120 @@
+--- a/native/nativeM2Test.cpp
++++ b/native/nativeM2Test.cpp
+@@ -7,6 +7,7 @@
+ #include <cmath>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstring>
+ #include <string>
+ #include <vector>
+ 
+@@ -39,6 +40,18 @@
+ constexpr float kIconWorldHeight = 8.5f;
+ constexpr float kBaseIconPixels = 42.0f;
+ constexpr DWORD kIconFVF = D3DFVF_XYZRHW | D3DFVF_DIFFUSE;
++constexpr DWORD kTexturedIconFVF = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
++constexpr const char* kRaidIconTexturePath =
++    "Interface\\TargetingFrame\\UI-RaidTargetingIcons.blp";
++
++constexpr std::uintptr_t kSFileOpenArchiveAddress = 0x00648DD0;
++constexpr std::uintptr_t kSFileOpenFileExAddress = 0x006477C0;
++constexpr std::uintptr_t kSFileReadFileAddress = 0x00648460;
++constexpr std::uintptr_t kSFileGetFileSizeAddress = 0x006487F0;
++constexpr std::uintptr_t kSFileCloseFileAddress = 0x00648730;
++constexpr std::uintptr_t kSFileCloseArchiveAddress = 0x00648EF0;
++constexpr DWORD kInvalidFileSize = 0xFFFFFFFFu;
++constexpr DWORD kMaximumRaidTextureBytes = 16u * 1024u * 1024u;
+ 
+ using CreateModelProc = void* (__thiscall*)(void*, const char*, std::uint32_t);
+ using WorldToScreenProc = bool (__thiscall*)(std::uint32_t, float*, float*);
+@@ -50,6 +63,12 @@
+ using SetAlphaProc = void (__thiscall*)(void*, float);
+ using SetColorProc = void (__thiscall*)(void*, const C3Vector*);
+ using SetSequenceProc = void (__thiscall*)(void*, int, int, int, int, float, int, int);
++using SFileOpenArchiveProc = BOOL (__stdcall*)(const char*, DWORD, DWORD, void**);
++using SFileOpenFileExProc = BOOL (__stdcall*)(void*, const char*, DWORD, void**);
++using SFileReadFileProc = BOOL (__stdcall*)(void*, void*, DWORD, DWORD*, void*, DWORD);
++using SFileGetFileSizeProc = DWORD (__stdcall*)(void*, DWORD*);
++using SFileCloseFileProc = BOOL (__stdcall*)(void*);
++using SFileCloseArchiveProc = BOOL (__stdcall*)(void*);
+ 
+ struct ColorDefinition {
+     const char* name;
+@@ -113,11 +132,28 @@
+     D3DCOLOR color;
+ };
+ 
++struct TexturedIconVertex {
++    float x;
++    float y;
++    float z;
++    float rhw;
++    D3DCOLOR color;
++    float u;
++    float v;
++};
++
+ std::array<Slot, kSlotCount> gSlots = {};
+ PreviewSlot gAdvancedPreview = {};
+ PreviewSlot gPlacementPreview = {};
+ std::array<ProjectedIcon, kSlotCount> gProjected = {};
+ std::string gLastErrorStage = "not_started";
++IDirect3DTexture9* gRaidIconTexture = nullptr;
++IDirect3DDevice9* gRaidIconTextureDevice = nullptr;
++UINT gRaidIconTextureWidth = 0;
++UINT gRaidIconTextureHeight = 0;
++float gRaidIconUCell = 0.25f;
++float gRaidIconVCell = 0.5f;
++bool gRaidIconTextureLoadAttempted = false;
+ 
+ std::string lowerAscii(std::string value) {
+     for (char& c : value) {
+@@ -653,6 +689,384 @@
+         size * 0.06f, size * 0.22f, 0.0f, color);
+ }
+ 
++
++std::uint32_t readLe32(const std::uint8_t* bytes) {
++    return static_cast<std::uint32_t>(bytes[0])
++        | (static_cast<std::uint32_t>(bytes[1]) << 8u)
++        | (static_cast<std::uint32_t>(bytes[2]) << 16u)
++        | (static_cast<std::uint32_t>(bytes[3]) << 24u);
++}
++
++std::string parentDirectory(std::string path) {
++    for (char& c : path) if (c == '/') c = '\\';
++    const std::size_t slash = path.find_last_of('\\');
++    return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
++}
++
++void collectMpqArchives(const std::string& directory, int depth,
++                        std::vector<std::string>& archives) {
++    if (depth < 0) return;
++    WIN32_FIND_DATAA data = {};
++    HANDLE find = FindFirstFileA((directory + "\\*").c_str(), &data);
++    if (find == INVALID_HANDLE_VALUE) return;
++    do {
++        const std::string name = data.cFileName;
++        if (name == "." || name == "..") continue;
++        const std::string full = directory + "\\" + name;
++        if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
++            collectMpqArchives(full, depth - 1, archives);
++            continue;
++        }
++        const std::string lowered = lowerAscii(name);
++        if (lowered.size() >= 4
++            && lowered.compare(lowered.size() - 4, 4, ".mpq") == 0) {
++            archives.push_back(full);
++        }
++    } while (FindNextFileA(find, &data));
++    FindClose(find);
++}
++
++bool readRaidTextureFromArchive(const std::string& archivePath,
++                                std::vector<std::uint8_t>& bytes) {
++    const auto openArchive = reinterpret_cast<SFileOpenArchiveProc>(kSFileOpenArchiveAddress);
++    const auto openFile = reinterpret_cast<SFileOpenFileExProc>(kSFileOpenFileExAddress);
++    const auto readFile = reinterpret_cast<SFileReadFileProc>(kSFileReadFileAddress);
++    const auto getFileSize = reinterpret_cast<SFileGetFileSizeProc>(kSFileGetFileSizeAddress);
++    const auto closeFile = reinterpret_cast<SFileCloseFileProc>(kSFileCloseFileAddress);
++    const auto closeArchive = reinterpret_cast<SFileCloseArchiveProc>(kSFileCloseArchiveAddress);
