@@ -1,0 +1,174 @@
+name: Build MoonMarker Hotkeys10 System Icons
+
+on:
+  push:
+    branches:
+      - agent/moonmarker-hotkeys10-system-icons-20260806
+    paths:
+      - '.github/workflows/build-moonmarker-hotkeys10-system-icons.yml'
+      - 'fixes/hotkeys10-system-icons/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact working Hotkeys10 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8886817364/zip" \
+            -o exact-source.zip
+          unzip -q exact-source.zip -d exact-source
+          echo '89488a13ca54c6ab6e709a2dba7492bdbbdb422913cd5eb871d878dc6fba3f7e  exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
+          tar -xJf exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+          rm -rf source-export/native/.git source-export/plugin/.git
+          grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
+          cp -a source-export target
+
+          cat slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part00 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part01 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part02 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part03 \
+              slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part04 \
+            > hook-safety-stable.patch.gz.b64
+          echo '632f019def405e2115bfae757e906ceef0a33a1d3156435e69d2529ccf397774  hook-safety-stable.patch.gz.b64' | sha256sum -c -
+          base64 -d hook-safety-stable.patch.gz.b64 > hook-safety-stable.patch.gz
+          gzip -dc hook-safety-stable.patch.gz > hook-safety-stable.patch
+          git apply --directory=target hook-safety-stable.patch
+          git apply --directory=target slim/universal-hotkeys10/universal-hotkeys10.patch
+
+          echo 'b5e782ca97b54082160c7ccf4ce276c8685af8d8e650fb2037c6b36b8fc86a71  fixes/hotkeys10-system-icons/hotkeys10-system-icons.patch' | sha256sum -c -
+          git apply --check --directory=target fixes/hotkeys10-system-icons/hotkeys10-system-icons.patch
+          git apply --directory=target fixes/hotkeys10-system-icons/hotkeys10-system-icons.patch
+
+      - name: Verify narrow replacement scope
+        run: |
+          set -euxo pipefail
+          grep -Fq '## Version: 0.9.3-universal-hotkeys10-system-icons' target/plugin/MoonMarker.toc
+          grep -Fxq 'SystemRaidIcons.lua' target/plugin/MoonMarker.toc
+          grep -Fq 'Interface\\TargetingFrame\\UI-RaidTargetingIcons' target/plugin/SystemRaidIcons.lua
+          grep -Fq 'SetRaidTargetIconTexture(iconFrame.texture, iconIndex)' target/plugin/SystemRaidIcons.lua
+          grep -Fq 'xNorm * uiWidth, (1 - yNorm) * uiHeight' target/plugin/SystemRaidIcons.lua
+          grep -Fq 'MoonMarker.IconProjection' target/native/dllmain.cpp
+          grep -Fq 'int pushIconProjection(void* L)' target/native/nativeM2Test.cpp
+          grep -Fq 'projectSlot(i);' target/native/nativeM2Test.cpp
+          grep -Fq 'Spells\\MoonBeam_Impact_Base.mdx' target/native/nativeM2Test.cpp
+          grep -Fq 'reinterpret_cast<SetColorProc>(kSetColorAddress)(slot.model, tint);' target/native/nativeM2Test.cpp
+          grep -Fq 'nativeM2Test::createAt(normalizedColor, iconText, modelPosition)' target/native/dllmain.cpp
+          grep -Fq 'renders Blizzard' target/native/nativeM2Test.cpp
+          test "$(grep -c 'MOONMARKER_QUICK_PRESET_' target/plugin/Bindings.xml)" = '10'
+          ! grep -RniE 'CreatureCatalog|Advanced\.Creature|CreatureDisplayInfo|CreatureModelData|SetDisplayInfo|Generated\\Creature' target/native target/plugin
+
+      - name: Validate Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r file; do luac5.1 -p "$file"; done < <(find target/plugin -type f -name '*.lua' | sort)
+          ! grep -RInE '#[A-Za-z_(]' target/plugin --include='*.lua'
+
+      - name: Install Windows x86 toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+          curl -L --fail --retry 3 'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile normal and forced fallback DLLs
+        run: |
+          set -euxo pipefail
+          cp -a target forced
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DMOONMARKER_FORCE_UNSUPPORTED|' forced/native/Makefile
+          for tree in target/native forced/native; do
+            ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
+            make -C "$tree" clean
+            make -C "$tree" -j2
+            file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
+            grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
+          done
+
+      - name: Package matching DLL and addon
+        run: |
+          set -euxo pipefail
+          normal_size=$(stat -c '%s' target/native/UnitXP_SP3.dll)
+          fallback_size=$(stat -c '%s' forced/native/UnitXP_SP3.dll)
+          mkdir -p release/Interface/AddOns/MoonMarker release/Project-Source/native release/Project-Source/plugin release/Audit
+          cp target/native/UnitXP_SP3.dll release/
+          cp forced/native/UnitXP_SP3.dll release/UnitXP_SP3-ForcedFallback-Test.dll
+          cp -a target/plugin/. release/Interface/AddOns/MoonMarker/
+          cp -a target/native/. release/Project-Source/native/
+          cp -a target/plugin/. release/Project-Source/plugin/
+          rm -rf release/Project-Source/native/xwinSDK release/Project-Source/native/d3d9x_headers
+          cp fixes/hotkeys10-system-icons/hotkeys10-system-icons.patch release/Audit/
+          sha256sum release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedFallback-Test.dll > release/DLL-SHA256.txt
+          find release/Interface/AddOns/MoonMarker -type f -print0 | sort -z | xargs -0 sha256sum > release/MoonMarker-Plugin-SHA256.txt
+          file release/UnitXP_SP3.dll release/UnitXP_SP3-ForcedFallback-Test.dll > release/DLL-FILE-TYPE.txt
+          cat > release/README-安装说明.txt <<RESULT
+          MoonMarker Universal Hotkeys10 · 系统顶部图标版
+          Version: 0.9.3-universal-hotkeys10-system-icons
+          Normal DLL size: ${normal_size} bytes
+          Forced fallback DLL size: ${fallback_size} bytes
+
+          唯一功能基准：MoonMarker-Universal-Hotkeys10-x86.zip
+
+          保持不变：
+          - 原 Hotkeys10 光柱 M2 创建与颜色着色
+          - 原 Hotkeys10 地面选点与世界坐标
+          - 原 Hotkeys10 八色槽位、同步、权限、主模型与 M2 扫描器
+          - 原 Hotkeys10 十个快捷配置键
+
+          唯一显示替换：
+          - DLL 不再绘制手工近似顶部形状
+          - DLL 使用 Hotkeys10 原有 safeWorldToScreen 缓存坐标
+          - 坐标归一化后交给 Lua，避免 UI 缩放造成偏移
+          - Lua 使用客户端原版 Interface\\TargetingFrame\\UI-RaidTargetingIcons
+          - Lua 使用 SetRaidTargetIconTexture 选择 1-8 原版团队图标
+
+          安装：
+          1. 退出游戏。
+          2. 用 UnitXP_SP3.dll 替换游戏目录中的同名 DLL。
+          3. 用 Interface/AddOns/MoonMarker 覆盖插件目录。
+          4. 不要只换 DLL 或只换插件；两者必须配套。
+
+          Lua 5.1 validation: passed
+          PE32 x86 compilation: passed
+          In-game runtime test: not performed
+          RESULT
+          (cd release && zip -9 -r ../MoonMarker-Universal-Hotkeys10-System-Icons-x86.zip .)
+          sha256sum MoonMarker-Universal-Hotkeys10-System-Icons-x86.zip > MoonMarker-Universal-Hotkeys10-System-Icons-x86.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-Universal-Hotkeys10-System-Icons-x86
+          path: |
+            release
+            MoonMarker-Universal-Hotkeys10-System-Icons-x86.zip
+            MoonMarker-Universal-Hotkeys10-System-Icons-x86.zip.sha256
+          if-no-files-found: error
