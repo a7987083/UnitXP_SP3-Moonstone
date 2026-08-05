@@ -1,0 +1,315 @@
+diff --git a/native/dllmain.cpp b/native/dllmain.cpp
+index c84bf9b..47a53f4 100644
+--- a/native/dllmain.cpp
++++ b/native/dllmain.cpp
+@@ -96,8 +96,11 @@ int __fastcall detoured_UnitXP(void* L) {
+         const bool placeCommand = markerCommand == "MoonMarker.Place";
+         const bool remoteCommand = markerCommand == "MoonMarker.Remote";
+         const bool clearCommand = markerCommand == "MoonMarker.Clear";
++        const bool iconProjectionCommand = markerCommand == "MoonMarker.IconProjection";
+ 
+-
++        if (iconProjectionCommand) {
++            return nativeM2Test::pushIconProjection(L);
++        }
+         if (placeCommand && argumentCount >= 3 && lua_isstring(L, 3)) {
+             C3Vector placedPosition = {};
+             std::string normalizedColor = {};
+diff --git a/native/nativeM2Test.cpp b/native/nativeM2Test.cpp
+index f581f98..a9bb697 100644
+--- a/native/nativeM2Test.cpp
++++ b/native/nativeM2Test.cpp
+@@ -653,6 +653,18 @@ void appendSkullCutouts(std::vector<IconVertex>& output, float cx, float cy,
+         size * 0.06f, size * 0.22f, 0.0f, color);
+ }
+ 
++void setLuaNumber(void* L, const char* key, double value) {
++    lua_pushstring(L, key);
++    lua_pushnumber(L, value);
++    lua_settable(L, -3);
++}
++
++void setLuaString(void* L, const char* key, const char* value) {
++    lua_pushstring(L, key);
++    lua_pushstring(L, value != nullptr ? value : "");
++    lua_settable(L, -3);
++}
++
+ void resetProjected() {
+     for (ProjectedIcon& icon : gProjected) icon.visible = false;
+ }
+@@ -853,6 +865,40 @@ std::string iconForColor(const std::string& colorName) {
+     return kIconNames[static_cast<std::size_t>(slot.iconIndex)];
+ }
+ 
++int pushIconProjection(void* L) {
++    if (L == nullptr || !moonMarkerRuntimeGuard::enabled()) return 0;
++
++    const RECT client = vanilla1121_gameClientRect();
++    const double width = static_cast<double>(client.right - client.left);
++    const double height = static_cast<double>(client.bottom - client.top);
++
++    lua_newtable(L);
++    setLuaNumber(L, "clientWidth", width);
++    setLuaNumber(L, "clientHeight", height);
++    if (width <= 1.0 || height <= 1.0) return 1;
++
++    for (std::size_t i = 0; i < gProjected.size(); ++i) {
++        const ProjectedIcon& projected = gProjected[i];
++        if (!projected.visible || projected.iconIndex < 0
++            || projected.iconIndex >= static_cast<int>(kIconCount)) {
++            continue;
++        }
++
++        lua_pushstring(L, kColors[i].name);
++        lua_newtable(L);
++        setLuaNumber(L, "x", projected.x);
++        setLuaNumber(L, "y", projected.y);
++        setLuaNumber(L, "size", projected.size);
++        setLuaNumber(L, "xNorm", static_cast<double>(projected.x) / width);
++        setLuaNumber(L, "yNorm", static_cast<double>(projected.y) / height);
++        setLuaNumber(L, "sizeNorm", static_cast<double>(projected.size) / height);
++        setLuaNumber(L, "iconIndex", projected.iconIndex + 1);
++        setLuaString(L, "icon", kIconNames[static_cast<std::size_t>(projected.iconIndex)]);
++        lua_settable(L, -3);
++    }
++    return 1;
++}
++
+ void update() {
+     if (!moonMarkerRuntimeGuard::enabled()) { resetProjected(); return; }
+     resetProjected();
+@@ -904,50 +950,10 @@ void update() {
+ }
+ 
+ void renderIcons(IDirect3DDevice9* device) {
+-    if (!moonMarkerRuntimeGuard::enabled()) return;
+-    if (device == nullptr) return;
+-
+-    std::vector<IconVertex> vertices;
+-    vertices.reserve(2400);
+-    const D3DCOLOR outline = D3DCOLOR_ARGB(210, 8, 8, 12);
+-    const D3DCOLOR cutout = D3DCOLOR_ARGB(235, 10, 10, 14);
+-    for (const ProjectedIcon& icon : gProjected) {
+-        if (!icon.visible) continue;
+-        appendShape(vertices, icon.iconIndex, icon.x, icon.y,
+-            icon.size + 6.0f, outline);
+-        appendShape(vertices, icon.iconIndex, icon.x, icon.y,
+-            icon.size, colorValue(icon.colorIndex, 245));
+-        if (icon.iconIndex == 7) {
+-            appendSkullCutouts(vertices, icon.x, icon.y, icon.size, cutout);
+-        }
+-    }
+-    if (vertices.empty()) return;
+-
+-    IDirect3DStateBlock9* state = nullptr;
+-    if (FAILED(device->CreateStateBlock(D3DSBT_ALL, &state)) || state == nullptr) return;
+-    state->Capture();
+-
+-    device->SetTexture(0, nullptr);
+-    device->SetVertexShader(nullptr);
+-    device->SetPixelShader(nullptr);
+-    device->SetRenderState(D3DRS_ZENABLE, FALSE);
+-    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+-    device->SetRenderState(D3DRS_LIGHTING, FALSE);
+-    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+-    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+-    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+-    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+-    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+-    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+-    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+-    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+-    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+-    device->SetFVF(kIconFVF);
+-    device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,
+-        static_cast<UINT>(vertices.size() / 3), vertices.data(), sizeof(IconVertex));
+-
+-    state->Apply();
+-    state->Release();
++    // Hotkeys10 still owns projection and all native M2 beam updates. The old
++    // hand-drawn D3D shapes are intentionally disabled; the matching addon
++    // renders Blizzard's original raid-target atlas at these cached positions.
++    (void)device;
+ }
+ 
+ void clear() {
+diff --git a/native/nativeM2Test.h b/native/nativeM2Test.h
+index 010459f..8a18286 100644
+--- a/native/nativeM2Test.h
++++ b/native/nativeM2Test.h
+@@ -59,6 +59,11 @@ AdvancedPreviewStatus advancedPreviewStatus();
+ std::string defaultIconForColor(const std::string& colorName);
+ std::string iconForColor(const std::string& colorName);
+ 
++// Pushes the cached Hotkeys10 screen projection for all active slots to Lua.
++// Coordinates are normalized to the current game client so Lua UI scale cannot
++// offset the original system raid-target textures.
++int pushIconProjection(void* luaState);
++
+ // Updates all live native models and caches icon screen positions during sceneEnd.
+ void update();
+ 
+diff --git a/plugin/MoonMarker.toc b/plugin/MoonMarker.toc
+index 1c0b047..812ac13 100644
+--- a/plugin/MoonMarker.toc
++++ b/plugin/MoonMarker.toc
+@@ -2,12 +2,13 @@
+ ## Title: 光柱测试板-由太阳神殿-yanz
+ ## Notes: Independent UnitXP_SP3 world marker addon for Turtle WoW 1.12
+ ## Author: a7987083
+-## Version: 0.9.2-universal-layout-hotkeys10
++## Version: 0.9.3-universal-hotkeys10-system-icons
+ ## Dependencies: !Libs
+ ## OptionalDeps: FuBar
+ ## SavedVariables: MoonMarkerDB
+ Shared.lua
+ MoonMarker.lua
++SystemRaidIcons.lua
+ QuickPresets.lua
+ GuildAdvanced.lua
+ ModelLibrary.lua
+diff --git a/plugin/SystemRaidIcons.lua b/plugin/SystemRaidIcons.lua
+new file mode 100644
+index 0000000..2b1c64e
+--- /dev/null
++++ b/plugin/SystemRaidIcons.lua
+@@ -0,0 +1,138 @@
++-- Blizzard original raid-target icons above Hotkeys10 native M2 beams.
++-- Native Hotkeys10 remains responsible for beam creation, color, world position,
++-- projection and synchronization. Lua only draws the untouched system atlas.
++
++local PROJECTION_COMMAND = "MoonMarker.IconProjection"
++local SYSTEM_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
++local UPDATE_INTERVAL = 0.03
++local MIN_SIZE = 24
++local MAX_SIZE = 72
++
++local colors = MoonMarkerShared and MoonMarkerShared.colors or {}
++local frames = {}
++local elapsed = 0
++
++local function HideAll()
++    for _, iconFrame in pairs(frames) do
++        iconFrame:Hide()
++    end
++end
++
++local function CreateIconFrame(colorKey)
++    local iconFrame = CreateFrame("Frame", "MoonMarkerSystemRaidIcon_" .. colorKey, UIParent)
++    iconFrame:SetWidth(42)
++    iconFrame:SetHeight(42)
++    iconFrame:SetFrameStrata("TOOLTIP")
++    iconFrame:EnableMouse(false)
++
++    local texture = iconFrame:CreateTexture(nil, "OVERLAY")
++    texture:SetAllPoints(iconFrame)
++    texture:SetTexture(SYSTEM_TEXTURE)
++    texture:SetVertexColor(1, 1, 1, 1)
++
++    iconFrame.texture = texture
++    iconFrame.iconIndex = 0
++    iconFrame.lastSize = 0
++    iconFrame:Hide()
++    frames[colorKey] = iconFrame
++    return iconFrame
++end
++
++local function ValidNumber(value)
++    value = tonumber(value)
++    if not value then return nil end
++    if value ~= value then return nil end
++    return value
++end
++
++local function UpdateIcons()
++    if type(UnitXP) ~= "function" or type(SetRaidTargetIconTexture) ~= "function" then
++        HideAll()
++        return
++    end
++
++    local ok, projection = pcall(UnitXP, PROJECTION_COMMAND)
++    if not ok or type(projection) ~= "table" then
++        HideAll()
++        return
++    end
++
++    local uiWidth = UIParent:GetWidth()
++    local uiHeight = UIParent:GetHeight()
++    local clientWidth = ValidNumber(projection.clientWidth)
++    local clientHeight = ValidNumber(projection.clientHeight)
++    if not uiWidth or not uiHeight or uiWidth <= 1 or uiHeight <= 1
++        or not clientWidth or not clientHeight or clientWidth <= 1 or clientHeight <= 1 then
++        HideAll()
++        return
++    end
++
++    for _, colorInfo in ipairs(colors) do
++        local colorKey = colorInfo.key
++        local point = projection[colorKey]
++        local iconFrame = frames[colorKey]
++        local shown = false
++
++        if type(point) == "table" then
++            local iconIndex = ValidNumber(point.iconIndex)
++            local xNorm = ValidNumber(point.xNorm)
++            local yNorm = ValidNumber(point.yNorm)
++            local sizeNorm = ValidNumber(point.sizeNorm)
++
++            -- Compatibility fallback for a DLL that returns physical pixels.
++            if not xNorm then
++                local x = ValidNumber(point.x)
++                if x then xNorm = x / clientWidth end
++            end
++            if not yNorm then
++                local y = ValidNumber(point.y)
++                if y then yNorm = y / clientHeight end
++            end
++            if not sizeNorm then
++                local size = ValidNumber(point.size)
++                if size then sizeNorm = size / clientHeight end
++            end
++
++            if iconIndex and iconIndex >= 1 and iconIndex <= 8
++                and xNorm and yNorm and sizeNorm
++                and xNorm >= 0 and xNorm <= 1 and yNorm >= 0 and yNorm <= 1 then
++                if not iconFrame then iconFrame = CreateIconFrame(colorKey) end
++                if iconFrame.iconIndex ~= iconIndex then
++                    iconFrame.texture:SetTexture(SYSTEM_TEXTURE)
++                    SetRaidTargetIconTexture(iconFrame.texture, iconIndex)
++                    iconFrame.iconIndex = iconIndex
++                end
++
++                local size = sizeNorm * uiHeight
++                if size < MIN_SIZE then size = MIN_SIZE end
++                if size > MAX_SIZE then size = MAX_SIZE end
++                if math.abs((iconFrame.lastSize or 0) - size) > 0.1 then
++                    iconFrame:SetWidth(size)
++                    iconFrame:SetHeight(size)
++                    iconFrame.lastSize = size
++                end
++
++                iconFrame:ClearAllPoints()
++                iconFrame:SetPoint("CENTER", UIParent, "BOTTOMLEFT",
++                    xNorm * uiWidth, (1 - yNorm) * uiHeight)
++                iconFrame:Show()
++                shown = true
++            end
++        end
++
++        if iconFrame and not shown then iconFrame:Hide() end
++    end
++end
++
++local driver = CreateFrame("Frame", "MoonMarkerSystemRaidIconDriver", UIParent)
++driver:SetScript("OnUpdate", function()
++    elapsed = elapsed + (arg1 or 0)
++    if elapsed < UPDATE_INTERVAL then return end
++    elapsed = 0
++    UpdateIcons()
++end)
++driver:RegisterEvent("PLAYER_LEAVING_WORLD")
++driver:RegisterEvent("PLAYER_ENTERING_WORLD")
++driver:SetScript("OnEvent", function()
++    HideAll()
++end)
