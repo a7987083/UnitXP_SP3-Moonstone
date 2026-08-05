@@ -1,0 +1,263 @@
+name: DreamAvatar · v0.2 · Native Model Rebuild Experimental
+
+run-name: 'DreamAvatar v0.2 · Native CGUnit UpdateDisplayInfo · Preserve MoonMarker Beams · #${{ github.run_number }}'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/dreamavatar-v0.2-native-model-rebuild
+    paths:
+      - '.github/workflows/build-dreamavatar-v0.2-native-model-rebuild.yml'
+      - 'slim/dreamavatar-v0.2-native-model-rebuild/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-native-model-rebuild:
+    name: Build local-player native model replacement while preserving MoonMarker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out v0.2 branch
+        uses: actions/checkout@v4
+
+      - name: Restore exact MoonMarker source and Hook Safety baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8886817364/zip" \
+            -o exact-source.zip
+          unzip -q exact-source.zip -d exact-source
+          echo '89488a13ca54c6ab6e709a2dba7492bdbbdb422913cd5eb871d878dc6fba3f7e  exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
+          tar -xJf exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+          rm -rf source-export/native/.git source-export/plugin/.git
+          grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
+
+          mkdir -p stable-patch-parts
+          for part in 00 01 02 03 04; do
+            curl -L --fail --retry 3 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github.raw' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part${part}?ref=78aba13fb005a52b82b437f8153bde6f9c1f213a" \
+              -o "stable-patch-parts/part${part}"
+          done
+          cat stable-patch-parts/part* > hook-safety-stable.patch.gz.b64
+          echo '632f019def405e2115bfae757e906ceef0a33a1d3156435e69d2529ccf397774  hook-safety-stable.patch.gz.b64' | sha256sum -c -
+          base64 -d hook-safety-stable.patch.gz.b64 > hook-safety-stable.patch.gz
+          echo '72ca2a83a4bf32804337f318388febc3b6b49bdafc9c0a958c32ddfa4806c60f  hook-safety-stable.patch.gz' | sha256sum -c -
+          gzip -dc hook-safety-stable.patch.gz > hook-safety-stable.patch
+          echo 'cd9b8b5249302a8b298033c24306366e548370ad73361b3e08a21cd017cd67df  hook-safety-stable.patch' | sha256sum -c -
+          cp -a source-export stable
+          git apply --directory=stable hook-safety-stable.patch
+          grep -Fq '## Version: 0.9.0-hook-safety-stable' stable/plugin/MoonMarker.toc
+
+      - name: Rebuild exact working Hook Safety Hotkeys10 baseline
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1/hotkeys10.patch.gz.b64.part* > hotkeys10.patch.gz.b64
+          echo 'd691ce6b5c7d3a0f2d4f0859548b25118028da150249eb93d70903bd5382c581  hotkeys10.patch.gz.b64' | sha256sum -c -
+          base64 -d hotkeys10.patch.gz.b64 > hotkeys10.patch.gz
+          echo '15d53e04dfc3a41fdec0f2b17ed8930d4e7d9409ee9f7827aa102b0237d7b0e9  hotkeys10.patch.gz' | sha256sum -c -
+          gzip -dc hotkeys10.patch.gz > hotkeys10.patch
+          echo '24a862d9634a1c8612ae944f540ff05b11dd58c6a714039a783b4548b5206a59  hotkeys10.patch' | sha256sum -c -
+          cp -a stable target
+          git apply --check --directory=target hotkeys10.patch
+          git apply --directory=target hotkeys10.patch
+          grep -Fq '## Version: 0.9.1-hook-safety-hotkeys10' target/plugin/MoonMarker.toc
+          test "$(grep -c 'MOONMARKER_QUICK_PRESET_' target/plugin/Bindings.xml)" = '10'
+
+      - name: Apply DreamAvatar v0.1.1 safe hotfix
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1.1-safe-hotfix/dreamavatar-v0.1.1-safe-hotfix.patch.gz.b64.part* > v011.patch.gz.b64
+          echo '78cc2c410f1dafc6ef22412145a44c68ac079551696457a3ff939d3e308acf66  v011.patch.gz.b64' | sha256sum -c -
+          base64 -d v011.patch.gz.b64 > v011.patch.gz
+          echo '0f9dea0df3e441b6c3ae3be15f8413948318f7388444f96eefd74a21b2530241  v011.patch.gz' | sha256sum -c -
+          gzip -dc v011.patch.gz > v011.patch
+          echo '67d4f3b866c0438c7ea7cace601a890cf0f99e9ef39091c7bc28b5f63bb12f6b  v011.patch' | sha256sum -c -
+          git apply --check --directory=target v011.patch
+          git apply --directory=target v011.patch
+
+      - name: Apply DreamAvatar v0.1.2 target reader
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1.2-target-reader/target-reader.patch.gz.b64.part* > v012.patch.gz.b64
+          base64 -d v012.patch.gz.b64 > v012.patch.gz
+          echo 'bd37ef402847175c2d52a24ceabff7faf30d79f0840e446114bb0b26c8861e23  v012.patch.gz' | sha256sum -c -
+          gzip -dc v012.patch.gz > v012.patch
+          echo 'a44635eb9e4b0a1129a0a6a797ad2c66ab6cafd3b66ff7fd711d7d5237df3f57  v012.patch' | sha256sum -c -
+          git apply --check --directory=target v012.patch
+          git apply --directory=target v012.patch
+          cp -a target v012-baseline
+
+      - name: Apply DreamAvatar v0.2 native model rebuild
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.2-native-model-rebuild/native-model-rebuild.patch.gz.b64 > v02.patch.gz.b64
+          echo '8ceefa6b76313acaf3c3018110a7b4cae11ec71911edf200baadc652265cab5b  v02.patch.gz.b64' | sha256sum -c -
+          base64 -d v02.patch.gz.b64 > v02.patch.gz
+          echo '0b1c0a2eecfc8bfcfd4905ad22eab01f43be4ef588b91f6a023f8b25714be031  v02.patch.gz' | sha256sum -c -
+          gzip -dc v02.patch.gz > v02.patch
+          echo 'b450c27e7cf33f5115696d1d0e6d0121767f9f237be22ed42a460c5302e2c88b  v02.patch' | sha256sum -c -
+          git apply --check --directory=target v02.patch
+          git apply --directory=target v02.patch
+
+      - name: Prove v0.2 scope and preserve MoonMarker beams
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          before = Path('v012-baseline')
+          after = Path('target')
+          allowed = {
+              'DREAMAVATAR-V0.2-NATIVE-MODEL-REBUILD-NOTES.md',
+              'DreamAvatar/DreamAvatar.lua',
+              'DreamAvatar/DreamAvatar.toc',
+              'native/MoonMarkerDreamAvatar.cpp',
+          }
+          paths = {str(p.relative_to(before)) for p in before.rglob('*') if p.is_file()}
+          paths |= {str(p.relative_to(after)) for p in after.rglob('*') if p.is_file()}
+          changed = set()
+          for rel in paths:
+              a, b = before / rel, after / rel
+              if not a.exists() or not b.exists() or a.read_bytes() != b.read_bytes():
+                  changed.add(rel)
+          if changed != allowed:
+              raise SystemExit(f'unexpected changed files: {sorted(changed)}')
+          PY
+
+          diff -qr v012-baseline/plugin target/plugin
+          cmp v012-baseline/native/MoonMarkerRuntimeGuard.cpp target/native/MoonMarkerRuntimeGuard.cpp
+          cmp v012-baseline/native/moonMarker.cpp target/native/moonMarker.cpp
+          cmp v012-baseline/native/moonMarker.h target/native/moonMarker.h
+          cmp v012-baseline/native/nativeM2Test.cpp target/native/nativeM2Test.cpp
+          cmp v012-baseline/native/nativeM2Test.h target/native/nativeM2Test.h
+          cmp v012-baseline/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
+          cmp v012-baseline/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
+
+          grep -Fq 'kUpdateDisplayInfoAddress = 0x0060ABE0u' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'using UpdateDisplayInfoProc = void (__thiscall *)(void*)' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'APPLIED_NATIVE_MODEL_REBUILD' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'RESTORED_NATIVE_MODEL_REBUILD' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'MAINTAIN_REAPPLIED_NATIVE' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq '## Version: 0.2.0-native-model-rebuild-experimental' target/DreamAvatar/DreamAvatar.toc
+          grep -Fq 'CGUnit_C::UpdateDisplayInfo' target/DreamAvatar/DreamAvatar.lua
+
+          ! grep -RniE 'vanilla1121_unitDisable|vanilla1121_unitEnable|rebuildPlayerModel|0x005FBB60|0x005FBD60|0x005FBE00' \
+            target/native/MoonMarkerDreamAvatar.cpp target/native/MoonMarkerRuntimeGuard.cpp
+          ! grep -RniE 'MH_CreateHook|MH_EnableHook|MH_DisableHook' target/native/MoonMarkerDreamAvatar.cpp
+
+      - name: Validate MoonMarker and DreamAvatar Lua 5.1
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r file; do luac5.1 -p "$file"; done \
+            < <(find target/plugin target/DreamAvatar -type f -name '*.lua' | sort)
+          ! grep -RInE '#[A-Za-z_(]' target/plugin target/DreamAvatar --include='*.lua'
+
+      - name: Install Windows x86 build toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+
+          curl -L --fail --retry 3 \
+            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile v0.1.2 baseline and v0.2 PE32 x86 DLLs
+        run: |
+          set -euxo pipefail
+          for tree in v012-baseline/native target/native; do
+            ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
+            make -C "$tree" clean
+            make -C "$tree" -j2
+            file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
+            grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
+          done
+          sha256sum v012-baseline/native/UnitXP_SP3.dll > baseline-sha256.txt
+          sha256sum target/native/UnitXP_SP3.dll > v02-sha256.txt
+          stat -c '%s' v012-baseline/native/UnitXP_SP3.dll > baseline-size.txt
+          stat -c '%s' target/native/UnitXP_SP3.dll > v02-size.txt
+
+      - name: Package experimental build and source
+        run: |
+          set -euxo pipefail
+          package='release/DreamAvatar-v0.2-Native-Model-Rebuild-Experimental'
+          mkdir -p "$package/Interface/AddOns/DreamAvatar" "$package/Audit"
+          cp target/native/UnitXP_SP3.dll "$package/UnitXP_SP3.dll"
+          cp target/DreamAvatar/DreamAvatar.lua "$package/Interface/AddOns/DreamAvatar/DreamAvatar.lua"
+          cp target/DreamAvatar/DreamAvatar.toc "$package/Interface/AddOns/DreamAvatar/DreamAvatar.toc"
+          cp target/DREAMAVATAR-V0.2-NATIVE-MODEL-REBUILD-NOTES.md "$package/README-NATIVE-MODEL-REBUILD.md"
+          cp v02.patch "$package/Audit/DreamAvatar-v0.2-native-model-rebuild.patch"
+
+          tar --sort=name --mtime='UTC 2026-08-06' --owner=0 --group=0 --numeric-owner \
+            -cJf release/DreamAvatar-v0.2-Native-Model-Rebuild-Source.tar.xz target
+          cp release/DreamAvatar-v0.2-Native-Model-Rebuild-Source.tar.xz "$package/Audit/"
+
+          baseline_sha=$(cut -d' ' -f1 baseline-sha256.txt)
+          v02_sha=$(cut -d' ' -f1 v02-sha256.txt)
+          baseline_size=$(cat baseline-size.txt)
+          v02_size=$(cat v02-size.txt)
+          lua_sha=$(sha256sum "$package/Interface/AddOns/DreamAvatar/DreamAvatar.lua" | cut -d' ' -f1)
+          toc_sha=$(sha256sum "$package/Interface/AddOns/DreamAvatar/DreamAvatar.toc" | cut -d' ' -f1)
+          cat > "$package/BUILD-RESULT.txt" <<EOF
+          DreamAvatar v0.2.0 Native Model Rebuild Experimental
+          Workflow run: ${GITHUB_RUN_ID} / #${GITHUB_RUN_NUMBER}
+          Commit: ${GITHUB_SHA}
+          Baseline DLL size: ${baseline_size}
+          Baseline DLL SHA256: ${baseline_sha}
+          v0.2 DLL size: ${v02_size}
+          v0.2 DLL SHA256: ${v02_sha}
+          DreamAvatar.lua SHA256: ${lua_sha}
+          DreamAvatar.toc SHA256: ${toc_sha}
+          Native rebuild: CGUnit_C::UpdateDisplayInfo @ 0x0060ABE0 (__thiscall)
+          DreamAvatar-added MinHook hooks: NONE
+          Player unitDisable/unitEnable calls: NONE
+          In-game runtime test: NOT PERFORMED BY CI
+          EOF
+
+          (cd "$package" && sha256sum UnitXP_SP3.dll Interface/AddOns/DreamAvatar/DreamAvatar.lua Interface/AddOns/DreamAvatar/DreamAvatar.toc > SHA256.txt)
+          (cd release && zip -9 -r DreamAvatar-v0.2-Native-Model-Rebuild-Experimental-x86.zip DreamAvatar-v0.2-Native-Model-Rebuild-Experimental)
+          cp v02.patch release/DreamAvatar-v0.2-native-model-rebuild.patch
+          sha256sum release/DreamAvatar-v0.2-Native-Model-Rebuild-Experimental-x86.zip \
+            release/DreamAvatar-v0.2-Native-Model-Rebuild-Source.tar.xz \
+            release/DreamAvatar-v0.2-native-model-rebuild.patch | tee release/ARTIFACT-SHA256.txt
+
+      - name: Upload native model rebuild package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamAvatar-v0.2-Native-Model-Rebuild-Experimental-x86-${{ github.run_number }}
+          path: release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
