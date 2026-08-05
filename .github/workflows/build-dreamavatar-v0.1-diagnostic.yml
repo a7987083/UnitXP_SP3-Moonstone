@@ -1,0 +1,234 @@
+name: DreamAvatar · Build x86 DLL + AddOn Test Package
+
+run-name: 'DreamAvatar v0.1 Diagnostic · x86 DLL + AddOn · #${{ github.run_number }}'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/dreamavatar-v0.1-diagnostic
+    paths:
+      - '.github/workflows/build-dreamavatar-v0.1-diagnostic.yml'
+      - 'slim/dreamavatar-v0.1/**'
+      - 'slim/hook-safety-stable/**'
+      - 'DREAMAVATAR.md'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-dreamavatar-x86-dll-and-addon:
+    name: Build DreamAvatar x86 DLL and matching AddOn package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out DreamAvatar diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Restore exact source and Hook Safety Stable baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8886817364/zip" \
+            -o exact-source.zip
+          unzip -q exact-source.zip -d exact-source
+          echo '89488a13ca54c6ab6e709a2dba7492bdbbdb422913cd5eb871d878dc6fba3f7e  exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
+          tar -xJf exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+          rm -rf source-export/native/.git source-export/plugin/.git
+          grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
+
+          cat slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part* \
+            > hook-safety-stable.patch.gz.b64
+          echo '632f019def405e2115bfae757e906ceef0a33a1d3156435e69d2529ccf397774  hook-safety-stable.patch.gz.b64' | sha256sum -c -
+          base64 -d hook-safety-stable.patch.gz.b64 > hook-safety-stable.patch.gz
+          echo '72ca2a83a4bf32804337f318388febc3b6b49bdafc9c0a958c32ddfa4806c60f  hook-safety-stable.patch.gz' | sha256sum -c -
+          gzip -dc hook-safety-stable.patch.gz > hook-safety-stable.patch
+          echo 'cd9b8b5249302a8b298033c24306366e548370ad73361b3e08a21cd017cd67df  hook-safety-stable.patch' | sha256sum -c -
+
+          cp -a source-export stable
+          git apply --directory=stable hook-safety-stable.patch
+          grep -Fq '## Version: 0.9.0-hook-safety-stable' stable/plugin/MoonMarker.toc
+          cp -a stable target
+
+      - name: Reassemble, verify and apply DreamAvatar patch
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1/dreamavatar-v0.1-diagnostic.patch.gz.b64.part* \
+            > dreamavatar-v0.1-diagnostic.patch.gz.b64
+          echo '9d0f87f78347473b803152bc307ff77eb4b081c2ca377d24fbcab5ecc0e79329  dreamavatar-v0.1-diagnostic.patch.gz.b64' | sha256sum -c -
+          base64 -d dreamavatar-v0.1-diagnostic.patch.gz.b64 \
+            > dreamavatar-v0.1-diagnostic.patch.gz
+          echo 'c421c5b5b75971040520eae5a5e4aea793cd49b0f630fa6669087749483f2997  dreamavatar-v0.1-diagnostic.patch.gz' | sha256sum -c -
+          gzip -dc dreamavatar-v0.1-diagnostic.patch.gz \
+            > dreamavatar-v0.1-diagnostic.patch
+          echo 'a84790e9761ace49da3e0db64e1e513770b91dadfc3f8448bfd7a48105fbfed6  dreamavatar-v0.1-diagnostic.patch' | sha256sum -c -
+          git apply --check --directory=target dreamavatar-v0.1-diagnostic.patch
+          git apply --directory=target dreamavatar-v0.1-diagnostic.patch
+
+      - name: Verify DreamAvatar scope and protected MoonMarker behavior
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+
+          expected = {
+              'DREAMAVATAR-V0.1-TEST-NOTES.md',
+              'native/Makefile',
+              'native/MoonMarkerDreamAvatar.cpp',
+              'native/MoonMarkerDreamAvatar.h',
+              'native/MoonMarkerRuntimeGuard.cpp',
+              'native/dllmain.cpp',
+              'plugin/DreamAvatar.lua',
+              'plugin/MoonMarker.toc',
+          }
+
+          def snapshot(root):
+              result = {}
+              for path in sorted(Path(root).rglob('*')):
+                  if path.is_file():
+                      rel = path.relative_to(root).as_posix()
+                      result[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+              return result
+
+          before = snapshot('stable')
+          after = snapshot('target')
+          changed = {p for p in before.keys() | after.keys() if before.get(p) != after.get(p)}
+          print('DreamAvatar changed files:')
+          print('\n'.join(sorted(changed)))
+          if changed != expected:
+              raise SystemExit(f'Unexpected DreamAvatar patch scope: {sorted(changed ^ expected)}')
+          PY
+
+          test -f target/native/MoonMarkerDreamAvatar.cpp
+          test -f target/native/MoonMarkerDreamAvatar.h
+          test -f target/plugin/DreamAvatar.lua
+          grep -Fq 'MoonMarkerDreamAvatar.cpp' target/native/Makefile
+          grep -Fq 'MoonMarker.DreamAvatar.Apply' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'MoonMarker.DreamAvatar.Restore' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'kDisplayIdOffset = 0x1F4u' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'vanilla1121_unitGUID("player")' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'DreamAvatar.lua' target/plugin/MoonMarker.toc
+          grep -Fq '## Version: 0.10.0-dreamavatar-diagnostic' target/plugin/MoonMarker.toc
+
+          cmp stable/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
+          cmp stable/native/MoonMarkerMainModel.h target/native/MoonMarkerMainModel.h
+          cmp stable/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
+          cmp stable/native/MoonMarkerGuildAuth.h target/native/MoonMarkerGuildAuth.h
+          cmp stable/plugin/ModelLibrary.lua target/plugin/ModelLibrary.lua
+          cmp stable/plugin/Shared.lua target/plugin/Shared.lua
+          ! grep -RniE 'CreatureCatalog|Advanced\.Creature|CreatureDisplayInfo|CreatureModelData|SetDisplayInfo|Generated\\Creature|creatureDisplayByPath' target/native target/plugin
+
+      - name: Validate DreamAvatar Lua 5.1
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r file; do
+            luac5.1 -p "$file"
+          done < <(find target/plugin -type f -name '*.lua' | sort)
+          if grep -RniE '#[A-Za-z_(]' target/plugin; then
+            echo 'Unsupported Lua length operator found for the WoW 1.12 client.' >&2
+            exit 1
+          fi
+
+      - name: Install Windows x86 build toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 \
+            "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" \
+            /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+
+          curl -L --fail --retry 3 \
+            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile stable baseline and DreamAvatar PE32 x86 DLLs
+        run: |
+          set -euxo pipefail
+          for tree in stable/native target/native; do
+            ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
+            make -C "$tree" clean
+            make -C "$tree" -j2
+            file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
+            grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
+          done
+          stat -c '%s' stable/native/UnitXP_SP3.dll > stable-size.txt
+          stat -c '%s' target/native/UnitXP_SP3.dll > dreamavatar-size.txt
+
+      - name: Package DreamAvatar x86 DLL and matching AddOn
+        run: |
+          set -euxo pipefail
+          stable_size=$(cat stable-size.txt)
+          dreamavatar_size=$(cat dreamavatar-size.txt)
+          package='release/DreamAvatar-v0.1-Diagnostic-Test'
+          addon="$package/Interface/AddOns/MoonMarker"
+          mkdir -p "$addon" "$package/Audit"
+          cp target/native/UnitXP_SP3.dll "$package/UnitXP_SP3.dll"
+          cp -a target/plugin/. "$addon/"
+          cp target/DREAMAVATAR-V0.1-TEST-NOTES.md "$package/README-TEST.md"
+          cp DREAMAVATAR.md "$package/"
+          cp slim/dreamavatar-v0.1/MANIFEST.txt "$package/Audit/"
+          cp dreamavatar-v0.1-diagnostic.patch "$package/Audit/"
+          cat > "$package/BUILD-RESULT.txt" <<RESULT
+          DreamAvatar version: v0.1 Diagnostic
+          Base: MoonMarker Hook Safety Stable
+          Stable baseline DLL: ${stable_size} bytes
+          DreamAvatar DLL: ${dreamavatar_size} bytes
+          Change versus stable baseline: $((dreamavatar_size-stable_size)) bytes
+          Lua 5.1 validation: passed
+          Patch scope validation: passed
+          Creature experiment rollback protection: passed
+          PE32 Intel 80386 compilation: passed
+          Local player only design check: passed
+          In-game runtime test: not performed
+          RESULT
+          (
+            cd "$package"
+            sha256sum UnitXP_SP3.dll > SHA256.txt
+            find Interface/AddOns/MoonMarker -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum >> SHA256.txt
+          )
+          (
+            cd release
+            zip -9 -r DreamAvatar-v0.1-Diagnostic-x86-DLL-and-Addon.zip \
+              DreamAvatar-v0.1-Diagnostic-Test
+          )
+
+      - name: Upload DreamAvatar v0.1 x86 DLL and AddOn test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamAvatar-v0.1-Diagnostic-x86-DLL-and-Addon-${{ github.run_number }}
+          path: |
+            release/DreamAvatar-v0.1-Diagnostic-x86-DLL-and-Addon.zip
+            release/DreamAvatar-v0.1-Diagnostic-Test/BUILD-RESULT.txt
+            release/DreamAvatar-v0.1-Diagnostic-Test/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
