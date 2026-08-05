@@ -1,0 +1,224 @@
+name: Build MoonMarker System Icons 0.6.1 x86
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/moonmarker-system-icons-20260806
+    paths:
+      - 'build-input/system-icons-0.6.1/**'
+      - '.github/workflows/build-moonmarker-system-icons-0.6.1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Install build and validation tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip zip git file lua5.1 python3
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
+          lua5.1 -v
+
+      - name: Decode exact build input
+        run: |
+          set -euxo pipefail
+          cat build-input/system-icons-0.6.1/build-input.part* | base64 --decode > MoonMarker-System-Icons-0.6.1-build-input.zip
+          echo '922b532988206faa3915c3b6e5bc76b84986c4d8e9dfa8c8b112f1dcde55a297  MoonMarker-System-Icons-0.6.1-build-input.zip' | sha256sum -c -
+          mkdir build_input
+          unzip -q MoonMarker-System-Icons-0.6.1-build-input.zip -d build_input
+          (cd build_input && sha256sum -c SHA256.txt)
+
+      - name: Fetch exact clean UnitXP_SP3 v89 source
+        run: |
+          set -euxo pipefail
+          git clone --no-checkout https://github.com/brues-code/UnitXP_SP3.git upstream
+          git -C upstream checkout --detach 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          test "$(git -C upstream rev-parse HEAD)" = '3370011e396ccdbf4c9921f6cf2b005bed818b24'
+          (cd upstream && sha256sum -c "$GITHUB_WORKSPACE/build_input/BASE-FILE-SHA256.txt")
+
+      - name: Reconstruct development source and matching addon
+        run: |
+          set -euxo pipefail
+          cp -a upstream development
+          git -C development apply --check --binary --whitespace=nowarn "$GITHUB_WORKSPACE/build_input/MoonMarker-System-Icons-0.6.1.patch"
+          git -C development apply --binary --whitespace=nowarn "$GITHUB_WORKSPACE/build_input/MoonMarker-System-Icons-0.6.1.patch"
+          mkdir addon
+          unzip -q build_input/MoonMarker-System-Icons-0.6.1-addon.zip -d addon
+          test -f addon/MoonMarker/MoonMarker.lua
+          test -f development/MoonMarkerProjection.cpp
+          test ! -e development/MoonMarkerIconRenderer.cpp
+
+      - name: Verify development manifest and Lua 5.1 syntax
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import hashlib, pathlib, re
+          manifest = pathlib.Path('build_input/DEVELOPMENT-SOURCE-SHA256-0.6.1.txt')
+          section = None
+          roots = {
+              'UNITXP_DEV_SOURCE': pathlib.Path('development'),
+              'MOONMARKER_ADDON': pathlib.Path('addon/MoonMarker'),
+          }
+          checked = 0
+          for raw in manifest.read_text(encoding='utf-8').splitlines():
+              line = raw.strip()
+              if line.startswith('[') and line.endswith(']'):
+                  section = line[1:-1]
+                  continue
+              match = re.match(r'^([0-9a-f]{64})  \.\/(.+)$', line)
+              if not match:
+                  continue
+              if section not in roots:
+                  raise SystemExit(f'Unknown manifest section: {section}')
+              path = roots[section] / match.group(2)
+              actual = hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual != match.group(1):
+                  raise SystemExit(f'SHA mismatch: {path}')
+              checked += 1
+          if checked < 100:
+              raise SystemExit(f'Unexpected manifest length: {checked}')
+          print(f'Validated {checked} development/addon files')
+          PY
+          grep -Fq 'MoonMarker.IconProjection' development/MoonMarkerLuaBridge.cpp
+          grep -Fq 'MoonMarkerProjection.cpp' development/Makefile
+          grep -Fq 'Interface\\TargetingFrame\\UI-RaidTargetingIcons' addon/MoonMarker/MoonMarker.lua
+          grep -Fq 'SetRaidTargetIconTexture' addon/MoonMarker/MoonMarker.lua
+          grep -Fq '0.6.1-system-icons' addon/MoonMarker/MoonMarker.toc
+          ! grep -R -n --include='*.cpp' --include='*.h' 'renderMarkerIcons' development
+          while IFS= read -r -d '' file; do
+            luac5.1 -p "$file"
+          done < <(find addon/MoonMarker -type f -name '*.lua' -print0)
+
+      - name: Install x86 Microsoft CRT and Windows SDK
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output "$GITHUB_WORKSPACE/xwinSDK"
+          test -f "$GITHUB_WORKSPACE/xwinSDK/sdk/include/um/windows.h"
+
+      - name: Install Microsoft D3DX9 headers
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p "$GITHUB_WORKSPACE/d3d9x_headers"
+          cp -a d3dx_pkg/build/native/include/. "$GITHUB_WORKSPACE/d3d9x_headers/"
+          test -f "$GITHUB_WORKSPACE/d3d9x_headers/d3dx9.h"
+
+      - name: Prepare identical build dependencies
+        run: |
+          set -euxo pipefail
+          for SRC in upstream development; do
+            ln -s "$GITHUB_WORKSPACE/xwinSDK" "$SRC/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/d3d9x_headers" "$SRC/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$SRC/Makefile"
+            grep -q NOMINMAX "$SRC/Makefile"
+          done
+
+      - name: Build clean v89 baseline x86
+        run: |
+          set -euxo pipefail
+          make -C upstream clean
+          make -C upstream -j2
+          test -f upstream/UnitXP_SP3.dll
+          file upstream/UnitXP_SP3.dll | tee baseline-file.txt
+          file upstream/UnitXP_SP3.dll | grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386'
+
+      - name: Build MoonMarker 0.6.1 x86
+        run: |
+          set -euxo pipefail
+          make -C development clean
+          make -C development -j2
+          test -f development/UnitXP_SP3.dll
+          file development/UnitXP_SP3.dll | tee development-file.txt
+          file development/UnitXP_SP3.dll | grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386'
+
+      - name: Produce size and PE-section report
+        run: |
+          set -euxo pipefail
+          mkdir -p report
+          {
+            echo 'MoonMarker System Icons 0.6.1 build report'
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Commit: $GITHUB_SHA"
+            echo
+            echo '[File types]'
+            file upstream/UnitXP_SP3.dll
+            file development/UnitXP_SP3.dll
+            echo
+            echo '[Sizes]'
+            stat -c 'Base bytes: %s' upstream/UnitXP_SP3.dll
+            stat -c 'Dev bytes:  %s' development/UnitXP_SP3.dll
+            BASE_SIZE=$(stat -c %s upstream/UnitXP_SP3.dll)
+            DEV_SIZE=$(stat -c %s development/UnitXP_SP3.dll)
+            echo "Delta bytes: $((DEV_SIZE - BASE_SIZE))"
+            echo
+            echo '[SHA-256]'
+            sha256sum upstream/UnitXP_SP3.dll development/UnitXP_SP3.dll
+            echo
+            echo '[Base PE sections]'
+            llvm-objdump-19 -h upstream/UnitXP_SP3.dll
+            echo
+            echo '[Dev PE sections]'
+            llvm-objdump-19 -h development/UnitXP_SP3.dll
+            echo
+            echo '[Validation boundary]'
+            echo 'Compiled and statically validated in GitHub Actions.'
+            echo 'Not tested inside Turtle WoW / WoW 1.12.'
+          } | tee report/BUILD-REPORT.txt
+
+      - name: Package matching DLL and addon
+        run: |
+          set -euxo pipefail
+          PACKAGE="$GITHUB_WORKSPACE/package/MoonMarker-System-Icons-0.6.1"
+          mkdir -p "$PACKAGE/Interface/AddOns/MoonMarker" "$PACKAGE/Diagnostics"
+          cp development/UnitXP_SP3.dll "$PACKAGE/UnitXP_SP3.dll"
+          cp development/UnitXP_SP3.pdb "$PACKAGE/Diagnostics/UnitXP_SP3-MoonMarker-System-Icons.pdb" 2>/dev/null || true
+          cp upstream/UnitXP_SP3.dll "$PACKAGE/Diagnostics/UnitXP_SP3-v89-Clean-Baseline.dll"
+          cp -a addon/MoonMarker/. "$PACKAGE/Interface/AddOns/MoonMarker/"
+          cp report/BUILD-REPORT.txt "$PACKAGE/BUILD-REPORT.txt"
+          cp build_input/SYSTEM-ICONS-CHANGE-2026-08-06.md "$PACKAGE/CHANGE-NOTES.md"
+          cat > "$PACKAGE/INSTALL.txt" <<'TXT'
+          1. Back up the currently installed UnitXP_SP3.dll and MoonMarker addon.
+          2. Copy UnitXP_SP3.dll to the same location as the existing UnitXP_SP3 DLL.
+          3. Copy Interface/AddOns/MoonMarker into the game Interface/AddOns folder.
+          4. The DLL and addon in this package are a matching pair; replace both together.
+          5. This build passed compilation/static checks only and still requires in-game testing.
+          TXT
+          (cd "$PACKAGE" && find UnitXP_SP3.dll Interface/AddOns/MoonMarker -type f -print0 | sort -z | xargs -0 sha256sum > SHA256.txt)
+          mkdir -p dist
+          (cd package && zip -qr "$GITHUB_WORKSPACE/dist/MoonMarker-System-Icons-0.6.1-x86.zip" MoonMarker-System-Icons-0.6.1)
+          sha256sum dist/MoonMarker-System-Icons-0.6.1-x86.zip > dist/SHA256.txt
+          ls -lh dist
+
+      - name: Upload compiled release
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonMarker-System-Icons-0.6.1-x86
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
