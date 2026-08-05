@@ -1,0 +1,120 @@
++
++    IDirect3DTexture9* created = nullptr;
++    if (FAILED(device->CreateTexture(width, height, 1, 0, D3DFMT_A8R8G8B8,
++            D3DPOOL_MANAGED, &created, nullptr)) || created == nullptr) return false;
++
++    D3DLOCKED_RECT locked = {};
++    if (FAILED(created->LockRect(0, &locked, nullptr, 0))) {
++        created->Release();
++        return false;
++    }
++    const std::uint8_t* palette = bytes.data() + paletteOffset;
++    const std::uint8_t* indices = bytes.data() + mipOffset;
++    const std::uint8_t* alpha = indices + pixelCount;
++    for (UINT y = 0; y < height; ++y) {
++        auto* output = reinterpret_cast<std::uint32_t*>(
++            static_cast<std::uint8_t*>(locked.pBits) + static_cast<std::size_t>(y) * locked.Pitch);
++        for (UINT x = 0; x < width; ++x) {
++            const std::size_t index = static_cast<std::size_t>(y) * width + x;
++            const std::uint8_t paletteIndex = indices[index];
++            const std::uint8_t* color = palette + static_cast<std::size_t>(paletteIndex) * 4u;
++            const std::uint8_t a = raw1Alpha(alpha, index, alphaBits);
++            output[x] = (static_cast<std::uint32_t>(a) << 24u)
++                | (static_cast<std::uint32_t>(color[2]) << 16u)
++                | (static_cast<std::uint32_t>(color[1]) << 8u)
++                | static_cast<std::uint32_t>(color[0]);
++        }
++    }
++    created->UnlockRect(0);
++    *texture = created;
++    return true;
++}
++
++bool createRaw3Texture(IDirect3DDevice9* device,
++                       const std::vector<std::uint8_t>& bytes,
++                       UINT width, UINT height, std::uint32_t mipOffset,
++                       std::uint32_t mipSize, IDirect3DTexture9** texture) {
++    const std::size_t sourcePitch = static_cast<std::size_t>(width) * 4u;
++    const std::size_t required = sourcePitch * height;
++    if (mipSize < required || mipOffset > bytes.size()
++        || required > bytes.size() - mipOffset) return false;
++
++    IDirect3DTexture9* created = nullptr;
++    if (FAILED(device->CreateTexture(width, height, 1, 0, D3DFMT_A8R8G8B8,
++            D3DPOOL_MANAGED, &created, nullptr)) || created == nullptr) return false;
++    D3DLOCKED_RECT locked = {};
++    if (FAILED(created->LockRect(0, &locked, nullptr, 0))) {
++        created->Release();
++        return false;
++    }
++    const std::uint8_t* source = bytes.data() + mipOffset;
++    for (UINT y = 0; y < height; ++y) {
++        std::memcpy(static_cast<std::uint8_t*>(locked.pBits)
++                + static_cast<std::size_t>(y) * locked.Pitch,
++            source + static_cast<std::size_t>(y) * sourcePitch,
++            sourcePitch);
++    }
++    created->UnlockRect(0);
++    *texture = created;
++    return true;
++}
++
++bool createRaidIconTexture(IDirect3DDevice9* device,
++                           const std::vector<std::uint8_t>& bytes,
++                           IDirect3DTexture9** texture,
++                           UINT& width, UINT& height) {
++    if (device == nullptr || bytes.size() < 0x94u
++        || std::memcmp(bytes.data(), "BLP2", 4) != 0
++        || readLe32(bytes.data() + 4u) != 1u) return false;
++
++    const std::uint8_t compression = bytes[8];
++    const std::uint8_t alphaBits = bytes[9];
++    const std::uint8_t alphaType = bytes[10];
++    width = readLe32(bytes.data() + 0x0Cu);
++    height = readLe32(bytes.data() + 0x10u);
++    const std::uint32_t mipOffset = readLe32(bytes.data() + 0x14u);
++    const std::uint32_t mipSize = readLe32(bytes.data() + 0x54u);
++    if (width == 0 || height == 0 || width > 4096u || height > 4096u
++        || mipOffset == 0 || mipSize == 0) return false;
++
++    if (compression == 1) {
++        return createRaw1Texture(device, bytes, width, height, alphaBits,
++            mipOffset, mipSize, texture);
++    }
++    if (compression == 2) {
++        return createDxtTexture(device, bytes, width, height, alphaBits,
++            alphaType, mipOffset, mipSize, texture);
++    }
++    if (compression == 3) {
++        return createRaw3Texture(device, bytes, width, height,
++            mipOffset, mipSize, texture);
++    }
++    return false;
++}
++
++void releaseRaidIconTexture() {
++    if (gRaidIconTexture != nullptr) gRaidIconTexture->Release();
++    gRaidIconTexture = nullptr;
++    gRaidIconTextureDevice = nullptr;
++    gRaidIconTextureWidth = 0;
++    gRaidIconTextureHeight = 0;
++    gRaidIconUCell = 0.25f;
++    gRaidIconVCell = 0.5f;
++}
++
++bool ensureRaidIconTexture(IDirect3DDevice9* device) {
++    if (device == nullptr) return false;
++    if (gRaidIconTextureDevice != nullptr && gRaidIconTextureDevice != device) {
++        releaseRaidIconTexture();
++        gRaidIconTextureLoadAttempted = false;
++    }
++    if (gRaidIconTexture != nullptr) return true;
++    if (gRaidIconTextureLoadAttempted) return false;
++    gRaidIconTextureLoadAttempted = true;
++
++    std::vector<std::uint8_t> bytes;
++    UINT width = 0;
++    UINT height = 0;
++    IDirect3DTexture9* texture = nullptr;
++    if (!loadRaidTextureBytes(bytes)
++        || !createRaidIconTexture(device, bytes, &texture, width, height)
