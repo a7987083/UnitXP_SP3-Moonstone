@@ -1,13 +1,23 @@
 DreamAvatar v0.1 Diagnostic
-Base branch: agent/moonmarker-hook-safety-stable-20260804
-Base commit: 78aba13fb005a52b82b437f8153bde6f9c1f213a
+Base: MoonMarker Hook Safety Stable Hotkeys10
+
+Hook Safety Stable -> Hotkeys10 patch SHA-256:
+24a862d9634a1c8612ae944f540ff05b11dd58c6a714039a783b4548b5206a59  hotkeys10.patch
+15d53e04dfc3a41fdec0f2b17ed8930d4e7d9409ee9f7827aa102b0237d7b0e9  hotkeys10.patch.gz
+d691ce6b5c7d3a0f2d4f0859548b25118028da150249eb93d70903bd5382c581  hotkeys10.patch.gz.b64
 
 DreamAvatar patch SHA-256:
-a84790e9761ace49da3e0db64e1e513770b91dadfc3f8448bfd7a48105fbfed6  dreamavatar-v0.1-diagnostic.patch
-c421c5b5b75971040520eae5a5e4aea793cd49b0f630fa6669087749483f2997  dreamavatar-v0.1-diagnostic.patch.gz
-9d0f87f78347473b803152bc307ff77eb4b081c2ca377d24fbcab5ecc0e79329  dreamavatar-v0.1-diagnostic.patch.gz.b64
+e5255d82e9830cc94b7fa743387a9f1e483c9777aa2389e1d1c91f6755938c04  dreamavatar-v0.1-diagnostic.patch
+3c6c10d45a5b0018cd727d8452b743dd91a19829990eb50810e2d398b8ba921a  dreamavatar-v0.1-diagnostic.patch.gz
+14c8486e075435ce34193ea6e6eebe160dd83201c290f5c4d9fa42e4ab2578d6  dreamavatar-v0.1-diagnostic.patch.gz.b64
 
-Expected changed files after applying the DreamAvatar patch:
+Expected Hotkeys10 patch files:
+plugin/Bindings.xml
+plugin/MoonMarker.lua
+plugin/MoonMarker.toc
+plugin/QuickPresets.lua
+
+Expected DreamAvatar patch files:
 DREAMAVATAR-V0.1-TEST-NOTES.md
 native/Makefile
 native/MoonMarkerDreamAvatar.cpp

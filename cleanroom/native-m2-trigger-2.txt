@@ -1,1 +1,0 @@
-Trigger native Model2 world build after restoring the proven workflow registration.

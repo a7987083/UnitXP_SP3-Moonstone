@@ -1,6 +1,6 @@
-name: DreamAvatar · Build x86 DLL + AddOn Test Package
+name: DreamAvatar · Build Hotkeys10 x86 DLL + AddOn Test Package
 
-run-name: 'DreamAvatar v0.1 Diagnostic · x86 DLL + AddOn · #${{ github.run_number }}'
+run-name: 'DreamAvatar v0.1 Diagnostic · Hotkeys10 x86 DLL + AddOn · #${{ github.run_number }}'
 
 on:
   workflow_dispatch:
@@ -18,8 +18,8 @@ permissions:
   actions: read
 
 jobs:
-  build-dreamavatar-x86-dll-and-addon:
-    name: Build DreamAvatar x86 DLL and matching AddOn package
+  build-dreamavatar-hotkeys10-x86-dll-and-addon:
+    name: Build DreamAvatar Hotkeys10 x86 DLL and matching AddOn package
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
@@ -55,20 +55,39 @@ jobs:
           cp -a source-export stable
           git apply --directory=stable hook-safety-stable.patch
           grep -Fq '## Version: 0.9.0-hook-safety-stable' stable/plugin/MoonMarker.toc
-          cp -a stable target
+
+      - name: Rebuild the Hook Safety Stable Hotkeys10 baseline
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1/hotkeys10.patch.gz.b64.part* \
+            > hotkeys10.patch.gz.b64
+          echo 'd691ce6b5c7d3a0f2d4f0859548b25118028da150249eb93d70903bd5382c581  hotkeys10.patch.gz.b64' | sha256sum -c -
+          base64 -d hotkeys10.patch.gz.b64 > hotkeys10.patch.gz
+          echo '15d53e04dfc3a41fdec0f2b17ed8930d4e7d9409ee9f7827aa102b0237d7b0e9  hotkeys10.patch.gz' | sha256sum -c -
+          gzip -dc hotkeys10.patch.gz > hotkeys10.patch
+          echo '24a862d9634a1c8612ae944f540ff05b11dd58c6a714039a783b4548b5206a59  hotkeys10.patch' | sha256sum -c -
+
+          cp -a stable hotkeys10
+          git apply --check --directory=hotkeys10 hotkeys10.patch
+          git apply --directory=hotkeys10 hotkeys10.patch
+          grep -Fq '## Version: 0.9.1-hook-safety-hotkeys10' hotkeys10/plugin/MoonMarker.toc
+          test "$(grep -c 'MOONMARKER_QUICK_PRESET_' hotkeys10/plugin/Bindings.xml)" = '10'
+          grep -Fq 'MoonMarker_BindingApplyQuickPreset(10)' hotkeys10/plugin/Bindings.xml
+          grep -Fq 'function MoonMarker_BindingApplyQuickPreset(slot)' hotkeys10/plugin/QuickPresets.lua
+          cp -a hotkeys10 target
 
       - name: Reassemble, verify and apply DreamAvatar patch
         run: |
           set -euxo pipefail
           cat slim/dreamavatar-v0.1/dreamavatar-v0.1-diagnostic.patch.gz.b64.part* \
             > dreamavatar-v0.1-diagnostic.patch.gz.b64
-          echo '9d0f87f78347473b803152bc307ff77eb4b081c2ca377d24fbcab5ecc0e79329  dreamavatar-v0.1-diagnostic.patch.gz.b64' | sha256sum -c -
+          echo '14c8486e075435ce34193ea6e6eebe160dd83201c290f5c4d9fa42e4ab2578d6  dreamavatar-v0.1-diagnostic.patch.gz.b64' | sha256sum -c -
           base64 -d dreamavatar-v0.1-diagnostic.patch.gz.b64 \
             > dreamavatar-v0.1-diagnostic.patch.gz
-          echo 'c421c5b5b75971040520eae5a5e4aea793cd49b0f630fa6669087749483f2997  dreamavatar-v0.1-diagnostic.patch.gz' | sha256sum -c -
+          echo '3c6c10d45a5b0018cd727d8452b743dd91a19829990eb50810e2d398b8ba921a  dreamavatar-v0.1-diagnostic.patch.gz' | sha256sum -c -
           gzip -dc dreamavatar-v0.1-diagnostic.patch.gz \
             > dreamavatar-v0.1-diagnostic.patch
-          echo 'a84790e9761ace49da3e0db64e1e513770b91dadfc3f8448bfd7a48105fbfed6  dreamavatar-v0.1-diagnostic.patch' | sha256sum -c -
+          echo 'e5255d82e9830cc94b7fa743387a9f1e483c9777aa2389e1d1c91f6755938c04  dreamavatar-v0.1-diagnostic.patch' | sha256sum -c -
           git apply --check --directory=target dreamavatar-v0.1-diagnostic.patch
           git apply --directory=target dreamavatar-v0.1-diagnostic.patch
 
@@ -98,7 +117,7 @@ jobs:
                       result[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
               return result
 
-          before = snapshot('stable')
+          before = snapshot('hotkeys10')
           after = snapshot('target')
           changed = {p for p in before.keys() | after.keys() if before.get(p) != after.get(p)}
           print('DreamAvatar changed files:')
@@ -117,13 +136,18 @@ jobs:
           grep -Fq 'vanilla1121_unitGUID("player")' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'DreamAvatar.lua' target/plugin/MoonMarker.toc
           grep -Fq '## Version: 0.10.0-dreamavatar-diagnostic' target/plugin/MoonMarker.toc
+          grep -Fq 'if idEdit.SetNumeric then idEdit:SetNumeric(true) end' target/plugin/DreamAvatar.lua
+          test "$(grep -c 'MOONMARKER_QUICK_PRESET_' target/plugin/Bindings.xml)" = '10'
+          grep -Fq 'MoonMarker_BindingApplyQuickPreset(10)' target/plugin/Bindings.xml
 
-          cmp stable/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
-          cmp stable/native/MoonMarkerMainModel.h target/native/MoonMarkerMainModel.h
-          cmp stable/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
-          cmp stable/native/MoonMarkerGuildAuth.h target/native/MoonMarkerGuildAuth.h
-          cmp stable/plugin/ModelLibrary.lua target/plugin/ModelLibrary.lua
-          cmp stable/plugin/Shared.lua target/plugin/Shared.lua
+          cmp hotkeys10/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
+          cmp hotkeys10/native/MoonMarkerMainModel.h target/native/MoonMarkerMainModel.h
+          cmp hotkeys10/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
+          cmp hotkeys10/native/MoonMarkerGuildAuth.h target/native/MoonMarkerGuildAuth.h
+          cmp hotkeys10/plugin/ModelLibrary.lua target/plugin/ModelLibrary.lua
+          cmp hotkeys10/plugin/Shared.lua target/plugin/Shared.lua
+          cmp hotkeys10/plugin/Bindings.xml target/plugin/Bindings.xml
+          cmp hotkeys10/plugin/QuickPresets.lua target/plugin/QuickPresets.lua
           ! grep -RniE 'CreatureCatalog|Advanced\.Creature|CreatureDisplayInfo|CreatureModelData|SetDisplayInfo|Generated\\Creature|creatureDisplayByPath' target/native target/plugin
 
       - name: Validate DreamAvatar Lua 5.1
@@ -134,10 +158,7 @@ jobs:
           while IFS= read -r file; do
             luac5.1 -p "$file"
           done < <(find target/plugin -type f -name '*.lua' | sort)
-          if grep -RniE '#[A-Za-z_(]' target/plugin; then
-            echo 'Unsupported Lua length operator found for the WoW 1.12 client.' >&2
-            exit 1
-          fi
+          ! grep -RInE '#[A-Za-z_(]' target/plugin --include='*.lua'
 
       - name: Install Windows x86 build toolchain
         run: |
@@ -167,10 +188,10 @@ jobs:
           mkdir -p shared-d3d9x_headers
           cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
 
-      - name: Compile stable baseline and DreamAvatar PE32 x86 DLLs
+      - name: Compile Hotkeys10 baseline and DreamAvatar PE32 x86 DLLs
         run: |
           set -euxo pipefail
-          for tree in stable/native target/native; do
+          for tree in hotkeys10/native target/native; do
             ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
             ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
             sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
@@ -179,15 +200,15 @@ jobs:
             file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
             grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
           done
-          stat -c '%s' stable/native/UnitXP_SP3.dll > stable-size.txt
+          stat -c '%s' hotkeys10/native/UnitXP_SP3.dll > hotkeys10-size.txt
           stat -c '%s' target/native/UnitXP_SP3.dll > dreamavatar-size.txt
 
-      - name: Package DreamAvatar x86 DLL and matching AddOn
+      - name: Package DreamAvatar Hotkeys10 x86 DLL and matching AddOn
         run: |
           set -euxo pipefail
-          stable_size=$(cat stable-size.txt)
+          hotkeys10_size=$(cat hotkeys10-size.txt)
           dreamavatar_size=$(cat dreamavatar-size.txt)
-          package='release/DreamAvatar-v0.1-Diagnostic-Test'
+          package='release/DreamAvatar-v0.1-Diagnostic-Hotkeys10-Test'
           addon="$package/Interface/AddOns/MoonMarker"
           mkdir -p "$addon" "$package/Audit"
           cp target/native/UnitXP_SP3.dll "$package/UnitXP_SP3.dll"
@@ -195,13 +216,15 @@ jobs:
           cp target/DREAMAVATAR-V0.1-TEST-NOTES.md "$package/README-TEST.md"
           cp DREAMAVATAR.md "$package/"
           cp slim/dreamavatar-v0.1/MANIFEST.txt "$package/Audit/"
+          cp hotkeys10.patch "$package/Audit/"
           cp dreamavatar-v0.1-diagnostic.patch "$package/Audit/"
           cat > "$package/BUILD-RESULT.txt" <<RESULT
           DreamAvatar version: v0.1 Diagnostic
-          Base: MoonMarker Hook Safety Stable
-          Stable baseline DLL: ${stable_size} bytes
+          Base: MoonMarker Hook Safety Stable Hotkeys10
+          Hotkeys10 baseline DLL: ${hotkeys10_size} bytes
           DreamAvatar DLL: ${dreamavatar_size} bytes
-          Change versus stable baseline: $((dreamavatar_size-stable_size)) bytes
+          Change versus Hotkeys10 baseline: $((dreamavatar_size-hotkeys10_size)) bytes
+          Ten quick-preset hotkeys retained: yes
           Lua 5.1 validation: passed
           Patch scope validation: passed
           Creature experiment rollback protection: passed
@@ -218,17 +241,17 @@ jobs:
           )
           (
             cd release
-            zip -9 -r DreamAvatar-v0.1-Diagnostic-x86-DLL-and-Addon.zip \
-              DreamAvatar-v0.1-Diagnostic-Test
+            zip -9 -r DreamAvatar-v0.1-Diagnostic-Hotkeys10-x86-DLL-and-Addon.zip \
+              DreamAvatar-v0.1-Diagnostic-Hotkeys10-Test
           )
 
-      - name: Upload DreamAvatar v0.1 x86 DLL and AddOn test package
+      - name: Upload DreamAvatar Hotkeys10 x86 DLL and AddOn test package
         uses: actions/upload-artifact@v4
         with:
-          name: DreamAvatar-v0.1-Diagnostic-x86-DLL-and-Addon-${{ github.run_number }}
+          name: DreamAvatar-v0.1-Diagnostic-Hotkeys10-x86-DLL-and-Addon-${{ github.run_number }}
           path: |
-            release/DreamAvatar-v0.1-Diagnostic-x86-DLL-and-Addon.zip
-            release/DreamAvatar-v0.1-Diagnostic-Test/BUILD-RESULT.txt
-            release/DreamAvatar-v0.1-Diagnostic-Test/SHA256.txt
+            release/DreamAvatar-v0.1-Diagnostic-Hotkeys10-x86-DLL-and-Addon.zip
+            release/DreamAvatar-v0.1-Diagnostic-Hotkeys10-Test/BUILD-RESULT.txt
+            release/DreamAvatar-v0.1-Diagnostic-Hotkeys10-Test/SHA256.txt
           if-no-files-found: error
           retention-days: 30

@@ -1,9 +1,10 @@
 # DreamAvatar · 梦境化身
 
-DreamAvatar 是基于 `MoonMarker Hook Safety Stable` 的本地角色模型替换诊断模块。
+DreamAvatar 是基于 `MoonMarker Hook Safety Stable Hotkeys10` 的本地角色模型替换诊断模块。
 
 ## v0.1 Diagnostic 范围
 
+- 保留现有 10 个团队预设快捷键和 MoonMarker 同步逻辑；
 - 只解析并修改 `UnitGUID("player")` 对应的本地玩家对象；
 - 读取当前、原生和已保存的 Display ID；
 - 应用数值 Display ID；
@@ -38,19 +39,19 @@ MoonMarker.DreamAvatar.SetAutoMaintain
 工作流：
 
 ```text
-DreamAvatar · Build x86 DLL + AddOn Test Package
+DreamAvatar · Build Hotkeys10 x86 DLL + AddOn Test Package
 ```
 
 单次运行：
 
 ```text
-DreamAvatar v0.1 Diagnostic · x86 DLL + AddOn · #运行编号
+DreamAvatar v0.1 Diagnostic · Hotkeys10 x86 DLL + AddOn · #运行编号
 ```
 
 构建产物：
 
 ```text
-DreamAvatar-v0.1-Diagnostic-x86-DLL-and-Addon-运行编号
+DreamAvatar-v0.1-Diagnostic-Hotkeys10-x86-DLL-and-Addon-运行编号
 ```
 
-这是诊断测试版，GitHub Actions 通过只能证明源码、Lua 5.1 与 PE32 x86 构建检查通过，仍需在 WoW 1.12.1.5875 / 乌龟服客户端实机验证。替换 DLL 前必须保留旧 DLL。
+这是诊断测试版。GitHub Actions 通过只能证明补丁链、Lua 5.1 与 PE32 x86 构建检查通过，仍需在 WoW 1.12 x86 / 乌龟服客户端实机验证。替换 DLL 前必须保留旧 DLL。
