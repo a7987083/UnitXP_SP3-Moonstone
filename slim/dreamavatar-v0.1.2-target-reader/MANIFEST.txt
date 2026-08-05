@@ -1,0 +1,12 @@
+DreamAvatar v0.1.2 Target Reader incremental patch
+Base branch: agent/dreamavatar-v0.1.1-safe-hotfix
+Patch SHA256: a44635eb9e4b0a1129a0a6a797ad2c66ab6cafd3b66ff7fd711d7d5237df3f57
+Gzip SHA256: bd37ef402847175c2d52a24ceabff7faf30d79f0840e446114bb0b26c8861e23
+Base64 SHA256: 8e7c1e9c566edee4ac2810188b1f764e24896681b617af2413ef2a532e02f0e1
+Safety scope:
+- read-only current target lookup
+- accepts no target GUID argument
+- reads DISPLAYID and NATIVEDISPLAYID only
+- no target memory writes
+- no unitDisable/unitEnable
+- no force refresh
