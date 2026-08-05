@@ -1,0 +1,295 @@
+name: DreamAvatar · v0.1.2 · Read Target Display ID
+
+run-name: 'DreamAvatar v0.1.2 · Read Target Display ID Safely · Preserve MoonMarker Beams · #${{ github.run_number }}'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/dreamavatar-v0.1.2-target-reader
+    paths:
+      - '.github/workflows/build-dreamavatar-v0.1.2-target-reader.yml'
+      - 'slim/dreamavatar-v0.1.1-safe-hotfix/**'
+      - 'slim/dreamavatar-v0.1.2-target-reader/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-target-reader-preserve-beams:
+    name: Build read-only target Display ID reader while preserving MoonMarker beams
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out DreamAvatar target-reader branch
+        uses: actions/checkout@v4
+
+      - name: Restore exact MoonMarker source and Hook Safety baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8886817364/zip" \
+            -o exact-source.zip
+          unzip -q exact-source.zip -d exact-source
+          echo '89488a13ca54c6ab6e709a2dba7492bdbbdb422913cd5eb871d878dc6fba3f7e  exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz' | sha256sum -c -
+          tar -xJf exact-source/MoonMarker-Compat-Cleanup-Exact-Source.tar.xz
+          rm -rf source-export/native/.git source-export/plugin/.git
+          grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
+
+          mkdir -p stable-patch-parts
+          for part in 00 01 02 03 04; do
+            curl -L --fail --retry 3 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github.raw' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part${part}?ref=78aba13fb005a52b82b437f8153bde6f9c1f213a" \
+              -o "stable-patch-parts/part${part}"
+          done
+          cat stable-patch-parts/part* > hook-safety-stable.patch.gz.b64
+          echo '632f019def405e2115bfae757e906ceef0a33a1d3156435e69d2529ccf397774  hook-safety-stable.patch.gz.b64' | sha256sum -c -
+          base64 -d hook-safety-stable.patch.gz.b64 > hook-safety-stable.patch.gz
+          echo '72ca2a83a4bf32804337f318388febc3b6b49bdafc9c0a958c32ddfa4806c60f  hook-safety-stable.patch.gz' | sha256sum -c -
+          gzip -dc hook-safety-stable.patch.gz > hook-safety-stable.patch
+          echo 'cd9b8b5249302a8b298033c24306366e548370ad73361b3e08a21cd017cd67df  hook-safety-stable.patch' | sha256sum -c -
+
+          cp -a source-export stable
+          git apply --directory=stable hook-safety-stable.patch
+          grep -Fq '## Version: 0.9.0-hook-safety-stable' stable/plugin/MoonMarker.toc
+
+      - name: Rebuild exact working Hook Safety Hotkeys10 baseline
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1/hotkeys10.patch.gz.b64.part* > hotkeys10.patch.gz.b64
+          echo 'd691ce6b5c7d3a0f2d4f0859548b25118028da150249eb93d70903bd5382c581  hotkeys10.patch.gz.b64' | sha256sum -c -
+          base64 -d hotkeys10.patch.gz.b64 > hotkeys10.patch.gz
+          echo '15d53e04dfc3a41fdec0f2b17ed8930d4e7d9409ee9f7827aa102b0237d7b0e9  hotkeys10.patch.gz' | sha256sum -c -
+          gzip -dc hotkeys10.patch.gz > hotkeys10.patch
+          echo '24a862d9634a1c8612ae944f540ff05b11dd58c6a714039a783b4548b5206a59  hotkeys10.patch' | sha256sum -c -
+
+          cp -a stable hotkeys10
+          git apply --check --directory=hotkeys10 hotkeys10.patch
+          git apply --directory=hotkeys10 hotkeys10.patch
+          grep -Fq '## Version: 0.9.1-hook-safety-hotkeys10' hotkeys10/plugin/MoonMarker.toc
+          test "$(grep -c 'MOONMARKER_QUICK_PRESET_' hotkeys10/plugin/Bindings.xml)" = '10'
+          grep -Fq 'MoonMarker_BindingApplyQuickPreset(10)' hotkeys10/plugin/Bindings.xml
+          cp -a hotkeys10 target
+
+      - name: Reassemble and apply DreamAvatar v0.1.1 safe hotfix
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1.1-safe-hotfix/dreamavatar-v0.1.1-safe-hotfix.patch.gz.b64.part* \
+            > dreamavatar-v0.1.1-safe-hotfix.patch.gz.b64
+          echo '78cc2c410f1dafc6ef22412145a44c68ac079551696457a3ff939d3e308acf66  dreamavatar-v0.1.1-safe-hotfix.patch.gz.b64' | sha256sum -c -
+          base64 -d dreamavatar-v0.1.1-safe-hotfix.patch.gz.b64 \
+            > dreamavatar-v0.1.1-safe-hotfix.patch.gz
+          echo '0f9dea0df3e441b6c3ae3be15f8413948318f7388444f96eefd74a21b2530241  dreamavatar-v0.1.1-safe-hotfix.patch.gz' | sha256sum -c -
+          gzip -dc dreamavatar-v0.1.1-safe-hotfix.patch.gz \
+            > dreamavatar-v0.1.1-safe-hotfix.patch
+          echo '67d4f3b866c0438c7ea7cace601a890cf0f99e9ef39091c7bc28b5f63bb12f6b  dreamavatar-v0.1.1-safe-hotfix.patch' | sha256sum -c -
+          git apply --check --directory=target dreamavatar-v0.1.1-safe-hotfix.patch
+          git apply --directory=target dreamavatar-v0.1.1-safe-hotfix.patch
+          cp -a target safe-target-baseline
+
+      - name: Reassemble and apply DreamAvatar v0.1.2 target reader
+        run: |
+          set -euxo pipefail
+          cat slim/dreamavatar-v0.1.2-target-reader/target-reader.patch.gz.b64.part* \
+            > target-reader.patch.gz.b64
+          echo '8e7c1e9c566edee4ac2810188b1f764e24896681b617af2413ef2a532e02f0e1  target-reader.patch.gz.b64' | sha256sum -c -
+          base64 -d target-reader.patch.gz.b64 > target-reader.patch.gz
+          echo 'bd37ef402847175c2d52a24ceabff7faf30d79f0840e446114bb0b26c8861e23  target-reader.patch.gz' | sha256sum -c -
+          gzip -dc target-reader.patch.gz > target-reader.patch
+          echo 'a44635eb9e4b0a1129a0a6a797ad2c66ab6cafd3b66ff7fd711d7d5237df3f57  target-reader.patch' | sha256sum -c -
+          git apply --check --directory=target target-reader.patch
+          git apply --directory=target target-reader.patch
+
+      - name: Prove target reader is read-only and MoonMarker beams are unchanged
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          baseline = Path('safe-target-baseline')
+          target = Path('target')
+          allowed = {
+              'DREAMAVATAR-V0.1.1-SAFE-HOTFIX-NOTES.md',
+              'DreamAvatar/DreamAvatar.lua',
+              'DreamAvatar/DreamAvatar.toc',
+              'native/MoonMarkerDreamAvatar.cpp',
+          }
+          paths = {
+              str(p.relative_to(baseline)) for p in baseline.rglob('*') if p.is_file()
+          } | {
+              str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()
+          }
+          changed = set()
+          for rel in paths:
+              a = baseline / rel
+              b = target / rel
+              if not a.exists() or not b.exists() or a.read_bytes() != b.read_bytes():
+                  changed.add(rel)
+          if changed != allowed:
+              raise SystemExit(f'unexpected changed files: {sorted(changed)}')
+
+          source = (target / 'native/MoonMarkerDreamAvatar.cpp').read_text()
+          begin = source.index('bool getTarget(')
+          finish = source.index('\n}\n\nstd::uint32_t readDisplayId', begin) + 2
+          block = source[begin:finish]
+          required = [
+              'vanilla1121_unitGUID("target")',
+              'vanilla1121_getVisiableObject(guid)',
+              'OBJECT_TYPE_Unit',
+              'OBJECT_TYPE_Player',
+              'kDisplayIdOffset',
+              'kNativeDisplayIdOffset',
+              'TARGET_MODEL_READ',
+          ]
+          for token in required:
+              if token not in block:
+                  raise SystemExit(f'missing target-reader token: {token}')
+          forbidden = [
+              'writeDisplayId', 'MemoryBarrier', 'unitDisable', 'unitEnable',
+              'rebuildPlayerModel', '0x005FBB60', '0x005FBD60', '0x005FBE00',
+              'lua_tonumber', 'lua_tostring',
+          ]
+          for token in forbidden:
+              if token in block:
+                  raise SystemExit(f'unsafe target-reader token: {token}')
+          PY
+
+          diff -qr safe-target-baseline/plugin target/plugin
+          cmp safe-target-baseline/native/MoonMarkerRuntimeGuard.cpp target/native/MoonMarkerRuntimeGuard.cpp
+          cmp safe-target-baseline/native/moonMarker.cpp target/native/moonMarker.cpp
+          cmp safe-target-baseline/native/moonMarker.h target/native/moonMarker.h
+          cmp safe-target-baseline/native/nativeM2Test.cpp target/native/nativeM2Test.cpp
+          cmp safe-target-baseline/native/nativeM2Test.h target/native/nativeM2Test.h
+          cmp safe-target-baseline/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
+          cmp safe-target-baseline/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
+          grep -Fq '## Version: 0.1.2-target-reader' target/DreamAvatar/DreamAvatar.toc
+          grep -Fq 'GetTargetModel' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq '读取目标模型' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq '/da target' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'bool autoMaintain = false' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'UNSAFE_FORCE_REFRESH_REMOVED' target/native/MoonMarkerDreamAvatar.cpp
+          ! grep -RniE 'vanilla1121_unitDisable|vanilla1121_unitEnable|rebuildPlayerModel|0x005FBB60|0x005FBD60|0x005FBE00' \
+            target/native/MoonMarkerDreamAvatar.cpp target/native/MoonMarkerRuntimeGuard.cpp
+          ! grep -RniE 'DreamAvatarRefreshButton|CMD_REFRESH' target/DreamAvatar
+
+      - name: Validate MoonMarker and standalone DreamAvatar Lua 5.1
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r file; do luac5.1 -p "$file"; done \
+            < <(find target/plugin target/DreamAvatar -type f -name '*.lua' | sort)
+          ! grep -RInE '#[A-Za-z_(]' target/plugin target/DreamAvatar --include='*.lua'
+
+      - name: Install Windows x86 build toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 \
+            "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+
+          curl -L --fail --retry 3 \
+            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile v0.1.1 safe baseline and v0.1.2 target-reader PE32 x86 DLLs
+        run: |
+          set -euxo pipefail
+          for tree in safe-target-baseline/native target/native; do
+            ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" "$tree/xwinSDK"
+            ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" "$tree/d3d9x_headers"
+            sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' "$tree/Makefile"
+            make -C "$tree" clean
+            make -C "$tree" -j2
+            file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
+            grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
+          done
+          sha256sum safe-target-baseline/native/UnitXP_SP3.dll > baseline-rebuilt-sha256.txt
+          sha256sum target/native/UnitXP_SP3.dll > target-reader-sha256.txt
+          stat -c '%s' safe-target-baseline/native/UnitXP_SP3.dll > baseline-size.txt
+          stat -c '%s' target/native/UnitXP_SP3.dll > target-reader-size.txt
+
+      - name: Package target-reader DLL and standalone DreamAvatar AddOn
+        run: |
+          set -euxo pipefail
+          baseline_size=$(cat baseline-size.txt)
+          target_reader_size=$(cat target-reader-size.txt)
+          baseline_sha=$(cut -d' ' -f1 baseline-rebuilt-sha256.txt)
+          target_reader_sha=$(cut -d' ' -f1 target-reader-sha256.txt)
+          package='release/DreamAvatar-v0.1.2-Target-Reader'
+          mkdir -p "$package/Interface/AddOns/DreamAvatar" "$package/Audit"
+          cp target/native/UnitXP_SP3.dll "$package/UnitXP_SP3.dll"
+          cp -a target/DreamAvatar/. "$package/Interface/AddOns/DreamAvatar/"
+          cp target/DREAMAVATAR-V0.1.1-SAFE-HOTFIX-NOTES.md "$package/README-TARGET-READER.md"
+          cp dreamavatar-v0.1.1-safe-hotfix.patch "$package/Audit/"
+          cp target-reader.patch "$package/Audit/"
+          cp hotkeys10.patch "$package/Audit/"
+          cat > "$package/BUILD-RESULT.txt" <<RESULT
+          DreamAvatar version: v0.1.2 Target Reader
+          Base DLL: DreamAvatar v0.1.1 Safe Hotfix on Hook Safety Stable Hotkeys10
+          Rebuilt v0.1.1 safe baseline SHA256: ${baseline_sha}
+          Target-reader DLL SHA256: ${target_reader_sha}
+          v0.1.1 safe baseline DLL size: ${baseline_size} bytes
+          v0.1.2 target-reader DLL size: ${target_reader_size} bytes
+          Existing MoonMarker AddOn packaged/replaced: no
+          MoonMarker beam native code changed: no
+          MoonMarker runtime guard changed: no
+          Current target GUID accepted as command argument: no
+          Target memory writes: none
+          Target DISPLAYID read: yes
+          Target NATIVEDISPLAYID read: yes
+          UI button: 读取目标模型
+          Slash command: /da target
+          Player unitDisable/unitEnable calls in DreamAvatar: none
+          Forced model refresh: removed
+          Auto-maintain default: off
+          Lua 5.1 validation: passed
+          PE32 Intel 80386 compilation: passed
+          In-game runtime test: not performed
+          RESULT
+          (
+            cd "$package"
+            sha256sum UnitXP_SP3.dll Interface/AddOns/DreamAvatar/DreamAvatar.lua \
+              Interface/AddOns/DreamAvatar/DreamAvatar.toc > SHA256.txt
+          )
+          (
+            cd release
+            zip -9 -r DreamAvatar-v0.1.2-Target-Reader-Preserve-MoonMarker-Beams-x86.zip \
+              DreamAvatar-v0.1.2-Target-Reader
+          )
+
+      - name: Upload target-reader DLL and standalone AddOn package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamAvatar-v0.1.2-Target-Reader-Preserve-MoonMarker-Beams-x86-${{ github.run_number }}
+          path: |
+            release/DreamAvatar-v0.1.2-Target-Reader-Preserve-MoonMarker-Beams-x86.zip
+            release/DreamAvatar-v0.1.2-Target-Reader/BUILD-RESULT.txt
+            release/DreamAvatar-v0.1.2-Target-Reader/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
