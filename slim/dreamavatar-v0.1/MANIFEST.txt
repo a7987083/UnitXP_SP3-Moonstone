@@ -1,0 +1,20 @@
+DreamAvatar v0.1 Diagnostic
+Base branch: agent/moonmarker-hook-safety-stable-20260804
+Base commit: 78aba13fb005a52b82b437f8153bde6f9c1f213a
+
+DreamAvatar patch SHA-256:
+a84790e9761ace49da3e0db64e1e513770b91dadfc3f8448bfd7a48105fbfed6  dreamavatar-v0.1-diagnostic.patch
+c421c5b5b75971040520eae5a5e4aea793cd49b0f630fa6669087749483f2997  dreamavatar-v0.1-diagnostic.patch.gz
+9d0f87f78347473b803152bc307ff77eb4b081c2ca377d24fbcab5ecc0e79329  dreamavatar-v0.1-diagnostic.patch.gz.b64
+
+Expected changed files after applying the DreamAvatar patch:
+DREAMAVATAR-V0.1-TEST-NOTES.md
+native/Makefile
+native/MoonMarkerDreamAvatar.cpp
+native/MoonMarkerDreamAvatar.h
+native/MoonMarkerRuntimeGuard.cpp
+native/dllmain.cpp
+plugin/DreamAvatar.lua
+plugin/MoonMarker.toc
+
+In-game runtime test: not performed
