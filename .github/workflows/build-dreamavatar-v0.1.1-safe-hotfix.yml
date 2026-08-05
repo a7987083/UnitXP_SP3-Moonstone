@@ -170,7 +170,9 @@ jobs:
             file "$tree/UnitXP_SP3.dll" | tee "$tree/DLL-FILE-TYPE.txt"
             grep -q 'PE32 executable.*Intel 80386' "$tree/DLL-FILE-TYPE.txt"
           done
-          echo 'eadd2182821e4c98fd0bd5f9331d458a174daceed645eb65c98099e5dea103ce  hotkeys10/native/UnitXP_SP3.dll' | sha256sum -c -
+          test "$(stat -c '%s' hotkeys10/native/UnitXP_SP3.dll)" = '613376'
+          sha256sum hotkeys10/native/UnitXP_SP3.dll > baseline-rebuilt-sha256.txt
+          sha256sum target/native/UnitXP_SP3.dll > hotfix-sha256.txt
           stat -c '%s' hotkeys10/native/UnitXP_SP3.dll > baseline-size.txt
           stat -c '%s' target/native/UnitXP_SP3.dll > hotfix-size.txt
 
@@ -179,6 +181,8 @@ jobs:
           set -euxo pipefail
           baseline_size=$(cat baseline-size.txt)
           hotfix_size=$(cat hotfix-size.txt)
+          baseline_sha=$(cut -d' ' -f1 baseline-rebuilt-sha256.txt)
+          hotfix_sha=$(cut -d' ' -f1 hotfix-sha256.txt)
           package='release/DreamAvatar-v0.1.1-Safe-Hotfix'
           mkdir -p "$package/Interface/AddOns/DreamAvatar" "$package/Audit"
           cp target/native/UnitXP_SP3.dll "$package/UnitXP_SP3.dll"
@@ -189,9 +193,12 @@ jobs:
           cat > "$package/BUILD-RESULT.txt" <<RESULT
           DreamAvatar version: v0.1.1 Safe Hotfix
           Base DLL: exact MoonMarker Hook Safety Stable Hotkeys10
-          Exact baseline SHA256 verified: eadd2182821e4c98fd0bd5f9331d458a174daceed645eb65c98099e5dea103ce
-          Baseline DLL size: ${baseline_size} bytes
+          Reference delivered baseline SHA256: eadd2182821e4c98fd0bd5f9331d458a174daceed645eb65c98099e5dea103ce
+          Rebuilt exact-source baseline SHA256: ${baseline_sha}
+          Safe-hotfix SHA256: ${hotfix_sha}
+          Baseline DLL size verified: ${baseline_size} bytes
           Safe-hotfix DLL size: ${hotfix_size} bytes
+          Note: debug-linked PE hashes are not reproducible across separate link runs.
           Existing MoonMarker AddOn packaged/replaced: no
           MoonMarker beam native code changed: no
           MoonMarker runtime guard changed: no
