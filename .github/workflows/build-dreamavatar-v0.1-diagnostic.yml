@@ -140,7 +140,7 @@ jobs:
           grep -Fq 'std::string("MoonMarker.DreamAvatar.") + suffix' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'commandEquals(command, "Apply")' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'commandEquals(command, "Restore")' target/native/MoonMarkerDreamAvatar.cpp
-          grep -Fq 'kDisplayIdOffset = 0x1F4u' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Eq 'kDisplayIdOffset = 0x0?1F4u;' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'vanilla1121_unitGUID("player")' target/native/MoonMarkerDreamAvatar.cpp
           grep -Fq 'DreamAvatar.lua' target/plugin/MoonMarker.toc
           grep -Fq '## Version: 0.10.0-dreamavatar-diagnostic' target/plugin/MoonMarker.toc
