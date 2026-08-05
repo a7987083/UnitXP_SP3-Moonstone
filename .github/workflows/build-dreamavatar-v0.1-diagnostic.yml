@@ -10,7 +10,6 @@ on:
     paths:
       - '.github/workflows/build-dreamavatar-v0.1-diagnostic.yml'
       - 'slim/dreamavatar-v0.1/**'
-      - 'slim/hook-safety-stable/**'
       - 'DREAMAVATAR.md'
 
 permissions:
@@ -44,8 +43,16 @@ jobs:
           rm -rf source-export/native/.git source-export/plugin/.git
           grep -Fq '## Version: 0.8.1-compat-cleanup' source-export/plugin/MoonMarker.toc
 
-          cat slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part* \
-            > hook-safety-stable.patch.gz.b64
+          mkdir -p stable-patch-parts
+          for part in 00 01 02 03 04; do
+            curl -L --fail --retry 3 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github.raw' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/slim/hook-safety-stable/hook-safety-stable.patch.gz.b64.part${part}?ref=78aba13fb005a52b82b437f8153bde6f9c1f213a" \
+              -o "stable-patch-parts/part${part}"
+          done
+          cat stable-patch-parts/part* > hook-safety-stable.patch.gz.b64
           echo '632f019def405e2115bfae757e906ceef0a33a1d3156435e69d2529ccf397774  hook-safety-stable.patch.gz.b64' | sha256sum -c -
           base64 -d hook-safety-stable.patch.gz.b64 > hook-safety-stable.patch.gz
           echo '72ca2a83a4bf32804337f318388febc3b6b49bdafc9c0a958c32ddfa4806c60f  hook-safety-stable.patch.gz' | sha256sum -c -
