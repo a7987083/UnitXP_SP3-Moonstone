@@ -1,0 +1,120 @@
++
++    void* archive = nullptr;
++    if (!openArchive(archivePath.c_str(), 0, 0, &archive) || archive == nullptr) return false;
++
++    void* file = nullptr;
++    if (!openFile(archive, kRaidIconTexturePath, 0, &file) || file == nullptr) {
++        closeArchive(archive);
++        return false;
++    }
++
++    DWORD high = 0;
++    const DWORD size = getFileSize(file, &high);
++    if (size == kInvalidFileSize || high != 0 || size < 148u
++        || size > kMaximumRaidTextureBytes) {
++        closeFile(file);
++        closeArchive(archive);
++        return false;
++    }
++
++    bytes.resize(size);
++    DWORD read = 0;
++    const BOOL ok = readFile(file, bytes.data(), size, &read, nullptr, 0);
++    closeFile(file);
++    closeArchive(archive);
++    if (!ok || read != size) {
++        bytes.clear();
++        return false;
++    }
++    return true;
++}
++
++bool loadRaidTextureBytes(std::vector<std::uint8_t>& bytes) {
++    char exePath[MAX_PATH] = {};
++    const DWORD length = GetModuleFileNameA(nullptr, exePath, MAX_PATH);
++    if (length == 0 || length >= MAX_PATH) return false;
++
++    std::vector<std::string> archives;
++    collectMpqArchives(parentDirectory(std::string(exePath, length)) + "\\Data", 2, archives);
++    std::sort(archives.begin(), archives.end(), [](const std::string& a, const std::string& b) {
++        return lowerAscii(a) > lowerAscii(b);
++    });
++    archives.erase(std::unique(archives.begin(), archives.end(),
++        [](const std::string& a, const std::string& b) {
++            return lowerAscii(a) == lowerAscii(b);
++        }), archives.end());
++
++    for (const std::string& archive : archives) {
++        if (readRaidTextureFromArchive(archive, bytes)) return true;
++    }
++    return false;
++}
++
++bool createDxtTexture(IDirect3DDevice9* device,
++                      const std::vector<std::uint8_t>& bytes,
++                      UINT width, UINT height, std::uint8_t alphaBits,
++                      std::uint8_t alphaType, std::uint32_t mipOffset,
++                      std::uint32_t mipSize, IDirect3DTexture9** texture) {
++    D3DFORMAT format = D3DFMT_DXT1;
++    UINT blockBytes = 8;
++    if (alphaBits > 1) {
++        if (alphaType == 1) format = D3DFMT_DXT3;
++        else format = D3DFMT_DXT5;
++        blockBytes = 16;
++    }
++
++    const UINT blockColumns = (width + 3u) / 4u;
++    const UINT blockRows = (height + 3u) / 4u;
++    const UINT sourcePitch = blockColumns * blockBytes;
++    const std::size_t required = static_cast<std::size_t>(sourcePitch) * blockRows;
++    if (mipSize < required || mipOffset > bytes.size()
++        || required > bytes.size() - mipOffset) return false;
++
++    IDirect3DTexture9* created = nullptr;
++    if (FAILED(device->CreateTexture(width, height, 1, 0, format,
++            D3DPOOL_MANAGED, &created, nullptr)) || created == nullptr) return false;
++
++    D3DLOCKED_RECT locked = {};
++    if (FAILED(created->LockRect(0, &locked, nullptr, 0))) {
++        created->Release();
++        return false;
++    }
++    const std::uint8_t* source = bytes.data() + mipOffset;
++    for (UINT row = 0; row < blockRows; ++row) {
++        std::memcpy(static_cast<std::uint8_t*>(locked.pBits)
++                + static_cast<std::size_t>(row) * locked.Pitch,
++            source + static_cast<std::size_t>(row) * sourcePitch,
++            sourcePitch);
++    }
++    created->UnlockRect(0);
++    *texture = created;
++    return true;
++}
++
++std::uint8_t raw1Alpha(const std::uint8_t* alpha, std::size_t index,
++                       std::uint8_t alphaBits) {
++    if (alphaBits == 0) return 255;
++    if (alphaBits == 1) return ((alpha[index / 8u] >> (index % 8u)) & 1u) ? 255 : 0;
++    if (alphaBits == 4) {
++        const std::uint8_t packed = alpha[index / 2u];
++        const std::uint8_t nibble = (index & 1u) == 0 ? (packed & 0x0Fu) : (packed >> 4u);
++        return static_cast<std::uint8_t>(nibble * 17u);
++    }
++    return alpha[index];
++}
++
++bool createRaw1Texture(IDirect3DDevice9* device,
++                       const std::vector<std::uint8_t>& bytes,
++                       UINT width, UINT height, std::uint8_t alphaBits,
++                       std::uint32_t mipOffset, std::uint32_t mipSize,
++                       IDirect3DTexture9** texture) {
++    constexpr std::size_t paletteOffset = 0x94u;
++    constexpr std::size_t paletteBytes = 256u * 4u;
++    if (bytes.size() < paletteOffset + paletteBytes) return false;
++    const std::size_t pixelCount = static_cast<std::size_t>(width) * height;
++    std::size_t alphaBytes = 0;
++    if (alphaBits == 1) alphaBytes = (pixelCount + 7u) / 8u;
++    else if (alphaBits == 4) alphaBytes = (pixelCount + 1u) / 2u;
++    else if (alphaBits == 8) alphaBytes = pixelCount;
++    if (mipSize < pixelCount + alphaBytes || mipOffset > bytes.size()
++        || pixelCount + alphaBytes > bytes.size() - mipOffset) return false;
