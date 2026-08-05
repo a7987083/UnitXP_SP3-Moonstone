@@ -1,0 +1,119 @@
++        || texture == nullptr) {
++        if (texture != nullptr) texture->Release();
++        return false;
++    }
++
++    gRaidIconTexture = texture;
++    gRaidIconTextureDevice = device;
++    gRaidIconTextureWidth = width;
++    gRaidIconTextureHeight = height;
++    gRaidIconUCell = 0.25f;
++    const float squareCellPixels = static_cast<float>(width) * gRaidIconUCell;
++    gRaidIconVCell = squareCellPixels / static_cast<float>(height);
++    if (!std::isfinite(gRaidIconVCell) || gRaidIconVCell <= 0.0f
++        || gRaidIconVCell * 2.0f > 1.001f) {
++        releaseRaidIconTexture();
++        return false;
++    }
++    return true;
++}
++
++void appendTexturedIcon(std::vector<TexturedIconVertex>& output,
++                        const ProjectedIcon& icon) {
++    if (icon.iconIndex < 0 || icon.iconIndex >= static_cast<int>(kIconCount)) return;
++    const float half = icon.size * 0.5f;
++    const float left = icon.x - half;
++    const float right = icon.x + half;
++    const float top = icon.y - half;
++    const float bottom = icon.y + half;
++    const int column = icon.iconIndex % 4;
++    const int row = icon.iconIndex / 4;
++    const float insetU = 0.5f / static_cast<float>(gRaidIconTextureWidth);
++    const float insetV = 0.5f / static_cast<float>(gRaidIconTextureHeight);
++    const float u0 = column * gRaidIconUCell + insetU;
++    const float u1 = (column + 1) * gRaidIconUCell - insetU;
++    const float v0 = row * gRaidIconVCell + insetV;
++    const float v1 = (row + 1) * gRaidIconVCell - insetV;
++    const D3DCOLOR white = D3DCOLOR_ARGB(255, 255, 255, 255);
++    output.push_back({left, top, 0.0f, 1.0f, white, u0, v0});
++    output.push_back({right, top, 0.0f, 1.0f, white, u1, v0});
++    output.push_back({left, bottom, 0.0f, 1.0f, white, u0, v1});
++    output.push_back({left, bottom, 0.0f, 1.0f, white, u0, v1});
++    output.push_back({right, top, 0.0f, 1.0f, white, u1, v0});
++    output.push_back({right, bottom, 0.0f, 1.0f, white, u1, v1});
++}
++
++bool renderSystemRaidIcons(IDirect3DDevice9* device) {
++    if (!ensureRaidIconTexture(device)) return false;
++    std::vector<TexturedIconVertex> vertices;
++    vertices.reserve(kSlotCount * 6u);
++    for (const ProjectedIcon& icon : gProjected) {
++        if (icon.visible) appendTexturedIcon(vertices, icon);
++    }
++    if (vertices.empty()) return true;
++
++    IDirect3DStateBlock9* state = nullptr;
++    if (FAILED(device->CreateStateBlock(D3DSBT_ALL, &state)) || state == nullptr) return false;
++    state->Capture();
++
++    device->SetTexture(0, gRaidIconTexture);
++    device->SetVertexShader(nullptr);
++    device->SetPixelShader(nullptr);
++    device->SetRenderState(D3DRS_ZENABLE, FALSE);
++    device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
++    device->SetRenderState(D3DRS_LIGHTING, FALSE);
++    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
++    device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
++    device->SetRenderState(D3DRS_ALPHAREF, 1);
++    device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
++    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
++    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
++    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
++    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
++    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
++    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
++    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
++    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
++    device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
++    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
++    device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
++    device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
++    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
++    device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
++    device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
++    device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
++    device->SetFVF(kTexturedIconFVF);
++    device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,
++        static_cast<UINT>(vertices.size() / 3u), vertices.data(), sizeof(TexturedIconVertex));
++
++    state->Apply();
++    state->Release();
++    return true;
++}
++
+ void resetProjected() {
+     for (ProjectedIcon& icon : gProjected) icon.visible = false;
+ }
+@@ -907,6 +1321,11 @@
+     if (!moonMarkerRuntimeGuard::enabled()) return;
+     if (device == nullptr) return;
+ 
++    // Keep the original Hotkeys10 world anchor, height and projection. Only the
++    // final drawing primitive changes: use Blizzard's raid-target atlas loaded
++    // from the game's MPQ archives. The legacy vectors remain as a safe fallback.
++    if (renderSystemRaidIcons(device)) return;
++
+     std::vector<IconVertex> vertices;
+     vertices.reserve(2400);
+     const D3DCOLOR outline = D3DCOLOR_ARGB(210, 8, 8, 12);
+--- a/plugin/MoonMarker.toc
++++ b/plugin/MoonMarker.toc
+@@ -2,7 +2,7 @@
+ ## Title: 光柱测试板-由太阳神殿-yanz
+ ## Notes: Independent UnitXP_SP3 world marker addon for Turtle WoW 1.12
+ ## Author: a7987083
+-## Version: 0.9.2-universal-layout-hotkeys10
++## Version: 0.9.5-hotkeys10-direct-system-texture-test1
+ ## Dependencies: !Libs
+ ## OptionalDeps: FuBar
+ ## SavedVariables: MoonMarkerDB
