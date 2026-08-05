@@ -1,0 +1,209 @@
+name: DreamAvatar v0.3.2 NPC Weapons Mount History
+
+run-name: 'DreamAvatar v0.3.2 · NPC weapons · Mount · Paged history · #${{ github.run_number }}'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/dreamavatar-v0.3.2-npc-weapons-mount-history
+    paths:
+      - '.github/workflows/build-dreamavatar-v0.3.2-npc-weapons-mount-history.yml'
+      - 'slim/dreamavatar-v0.3.2-npc-weapons-mount-history/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build four-page local appearance tool with NPC reads and persistent history
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out v0.3.2 branch
+        uses: actions/checkout@v4
+
+      - name: Restore exact successful v0.3.1 source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8948082944/zip" \
+            -o v031-artifact.zip
+          unzip -q v031-artifact.zip -d v031-artifact
+          echo '755d6937a2c4285df2f77bc1c8700f0a37744e0b24f44d900f0c04122d417c42  v031-artifact/DreamAvatar-v0.3.1-Slot-Alignment-Standalone-Source.tar.xz' | sha256sum -c -
+          tar -xJf v031-artifact/DreamAvatar-v0.3.1-Slot-Alignment-Standalone-Source.tar.xz
+          mv target-source target
+          cp -a target v031-baseline
+          grep -Fq '## Version: 0.3.1-slot-alignment-standalone-experimental' target/DreamAvatar/DreamAvatar.toc
+          ! grep -Eq '^## (RequiredDeps|OptionalDeps):' target/DreamAvatar/DreamAvatar.toc
+
+      - name: Apply v0.3.2 NPC weapons mount history patch
+        run: |
+          set -euxo pipefail
+          cp slim/dreamavatar-v0.3.2-npc-weapons-mount-history/v032.patch.gz.b64 v032.patch.gz.b64
+          echo '404a220ba9c7595bb4bf436c483c4791b56f43b6a22ad4be2cbbbe049a3af1ae  v032.patch.gz.b64' | sha256sum -c -
+          base64 -d v032.patch.gz.b64 > v032.patch.gz
+          echo '1c2dd595c9269e5ae354706c36933cad07047914d9910b0a92e461791b8e8f0a  v032.patch.gz' | sha256sum -c -
+          gzip -dc v032.patch.gz > v032.patch
+          echo '8ee12cac9867c04fe5afe5e70904dbee82e1b9df09bdf8e3ee0067307e267b9d  v032.patch' | sha256sum -c -
+          git apply --check --directory=target v032.patch
+          git apply --directory=target v032.patch
+
+      - name: Audit scope features authorization and isolation
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          before = Path('v031-baseline')
+          after = Path('target')
+          allowed = {
+              'DREAMAVATAR-V0.3.2-NPC-WEAPONS-MOUNT-HISTORY-NOTES.md',
+              'DreamAvatar/DreamAvatar.lua',
+              'DreamAvatar/DreamAvatar.toc',
+              'native/MoonMarkerDreamAvatar.cpp',
+          }
+          paths = {str(p.relative_to(before)) for p in before.rglob('*') if p.is_file()}
+          paths |= {str(p.relative_to(after)) for p in after.rglob('*') if p.is_file()}
+          changed = set()
+          for rel in paths:
+              a, b = before / rel, after / rel
+              if not a.exists() or not b.exists() or a.read_bytes() != b.read_bytes():
+                  changed.add(rel)
+          if changed != allowed:
+              raise SystemExit(f'unexpected changed files: {sorted(changed)}')
+          PY
+
+          grep -Fq 'kPlayerVisibleItem1DataOffset = 0x03F8u' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'kWeaponVisibleSlots = {{16, 17, 18}}' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'kGlowVisibleSlots = {{16, 17}}' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'kUnitVirtualItemSlotDisplayOffset = 0x007Cu' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'GetTargetNpcWeapons' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'virtualItemDisplayData(descriptor, data)' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'DreamAvatarReadTargetNpcWeaponsButton' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'kMountDisplayIdOffset = 0x01FCu' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'kRefreshMountAddress = 0x005FFA50u' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'GetTargetPlayerMount' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'GetTargetNpcMount' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'CreateMountPage' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'HISTORY_PAGE_SIZE = 4' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'HISTORY_MAX = 100' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'db.history.character' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'db.history.weapon' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'db.history.glow' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'db.history.mount' target/DreamAvatar/DreamAvatar.lua
+          test "$(grep -c 'CreateHistoryPanel(page,' target/DreamAvatar/DreamAvatar.lua)" = '4'
+          grep -Fq '保存备注' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'applyRecord(record)' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq '## Version: 0.3.2-npc-weapons-mount-history-experimental' target/DreamAvatar/DreamAvatar.toc
+          ! grep -Eq '^## (RequiredDeps|OptionalDeps):' target/DreamAvatar/DreamAvatar.toc
+          grep -Fq 'local AUTH_COMMAND = "MMAuth"' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'if (!moonMarkerGuildAuth::isAuthorized(L))' target/native/dllmain.cpp
+          grep -Fq 'return moonMarkerGuildAuth::denyAdvanced(L);' target/native/dllmain.cpp
+          cmp v031-baseline/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
+          cmp v031-baseline/native/MoonMarkerGuildAuth.h target/native/MoonMarkerGuildAuth.h
+          cmp v031-baseline/native/MoonMarkerRuntimeGuard.cpp target/native/MoonMarkerRuntimeGuard.cpp
+          cmp v031-baseline/native/moonMarker.cpp target/native/moonMarker.cpp
+          cmp v031-baseline/native/moonMarker.h target/native/moonMarker.h
+          cmp v031-baseline/native/nativeM2Test.cpp target/native/nativeM2Test.cpp
+          cmp v031-baseline/native/nativeM2Test.h target/native/nativeM2Test.h
+          cmp v031-baseline/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
+          cmp v031-baseline/native/dllmain.cpp target/native/dllmain.cpp
+          ! grep -RniE 'vanilla1121_unitDisable|vanilla1121_unitEnable|0x005FBB60|0x005FBD60|0x005FBE00' target/native/MoonMarkerDreamAvatar.cpp
+          ! grep -RniE 'MH_CreateHook|MH_EnableHook|MH_DisableHook' target/native/MoonMarkerDreamAvatar.cpp
+
+      - name: Validate Lua 5.1
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r file; do luac5.1 -p "$file"; done < <(find target/plugin target/DreamAvatar -type f -name '*.lua' | sort)
+          ! grep -RInE '#[A-Za-z_(]' target/plugin target/DreamAvatar --include='*.lua'
+
+      - name: Prepare clean source snapshot
+        run: |
+          set -euxo pipefail
+          cp -a target target-source
+          find target-source/native -maxdepth 1 -type f \( -name '*.obj' -o -name '*.dll' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' \) -delete
+          rm -rf target-source/native/xwinSDK target-source/native/d3d9x_headers target-source/native/.git
+          tar --sort=name --mtime='UTC 2026-08-06' --owner=0 --group=0 --numeric-owner \
+            -cJf DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Source.tar.xz target-source
+
+      - name: Install Windows x86 build toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+          curl -L --fail --retry 3 \
+            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile PE32 x86 DLL
+        run: |
+          set -euxo pipefail
+          rm -rf target/native/xwinSDK target/native/d3d9x_headers
+          ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" target/native/xwinSDK
+          ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" target/native/d3d9x_headers
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' target/native/Makefile
+          make -C target/native clean
+          make -C target/native -j2
+          file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
+
+      - name: Package build
+        run: |
+          set -euxo pipefail
+          root='release/DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Experimental'
+          mkdir -p "$root/Interface/AddOns/DreamAvatar" "$root/Audit"
+          cp target/native/UnitXP_SP3.dll "$root/UnitXP_SP3.dll"
+          cp target/DreamAvatar/DreamAvatar.lua "$root/Interface/AddOns/DreamAvatar/DreamAvatar.lua"
+          cp target/DreamAvatar/DreamAvatar.toc "$root/Interface/AddOns/DreamAvatar/DreamAvatar.toc"
+          cp target/DREAMAVATAR-V0.3.2-NPC-WEAPONS-MOUNT-HISTORY-NOTES.md "$root/README.md"
+          cp v032.patch "$root/Audit/DreamAvatar-v0.3.2-npc-weapons-mount-history.patch"
+          cp DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Source.tar.xz "$root/Audit/"
+          (cd "$root" && sha256sum UnitXP_SP3.dll Interface/AddOns/DreamAvatar/DreamAvatar.lua Interface/AddOns/DreamAvatar/DreamAvatar.toc > SHA256.txt)
+          {
+            echo 'DreamAvatar v0.3.2 NPC Weapons + Mount + Paged History'
+            cat DLL-FILE-TYPE.txt
+            stat -c 'DLL bytes: %s' target/native/UnitXP_SP3.dll
+            sha256sum target/native/UnitXP_SP3.dll
+            echo 'NPC weapons: UNIT_VIRTUAL_ITEM_SLOT_DISPLAY[0..2].'
+            echo 'Mount: UNIT_FIELD_MOUNTDISPLAYID + CGUnit_C::RefreshMount.'
+            echo 'Histories: four independent lists, 4 rows/page, 100 max, notes and one-click apply.'
+            echo 'No MoonMarker AddOn dependency; guild authorization remains native-enforced.'
+            echo 'Build/static audit do not replace in-game testing.'
+          } > "$root/BUILD-RESULT.txt"
+          mkdir -p artifact
+          (cd release && zip -9 -r ../artifact/DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Experimental-x86.zip DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Experimental)
+          cp DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Source.tar.xz artifact/
+          cp v032.patch artifact/
+          sha256sum artifact/* > artifact/ARTIFACT-SHA256.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Experimental-x86-${{ github.run_number }}
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 30
