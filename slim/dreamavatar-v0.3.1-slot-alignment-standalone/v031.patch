@@ -1,0 +1,164 @@
+diff --git a/DREAMAVATAR-V0.3.1-SLOT-ALIGNMENT-STANDALONE-NOTES.md b/DREAMAVATAR-V0.3.1-SLOT-ALIGNMENT-STANDALONE-NOTES.md
+new file mode 100644
+index 0000000..d04c3e1
+--- /dev/null
++++ b/DREAMAVATAR-V0.3.1-SLOT-ALIGNMENT-STANDALONE-NOTES.md
+@@ -0,0 +1,29 @@
++# DreamAvatar v0.3.1 · Slot Alignment + Standalone AddOn
++
++## Fixed
++
++- Corrects Turtle WoW player visible-item base from `0x03C8` to `0x03F8`.
++- The previous base was exactly one 0x30-byte visible-item block early:
++  - the UI main-hand row read the previous equipment block;
++  - the UI off-hand row followed the real main hand;
++  - the UI ranged row followed the real off hand;
++  - enchant glow main/off writes were shifted by the same amount.
++- Keeps logical inventory slot mapping 16/17/18 for main/off/ranged.
++- Clears stale v0.3 weapon/glow saved inputs once through layout version 2.
++- Renames weapon inputs to weapon display ID / ItemDisplayInfo ID.
++
++## Standalone AddOn loading
++
++- Removes `## RequiredDeps: MoonMarker` from DreamAvatar.toc.
++- DreamAvatar can load without the MoonMarker AddOn folder.
++- Guild authorization remains mandatory and is still enforced twice:
++  - Lua calls `MMAuth` before every operation;
++  - the DLL calls `moonMarkerGuildAuth::isAuthorized()` for every DreamAvatar native command.
++- The authorization implementation remains compiled into `UnitXP_SP3.dll`; no fallback that bypasses authorization was added.
++
++## Preserved
++
++- Character model native rebuild path at `0x0060ABE0`.
++- MoonMarker beam/main-model/runtime/auth source files unchanged.
++- No unit Disable/Enable sequence.
++- No new hook.
+diff --git a/DreamAvatar/DreamAvatar.lua b/DreamAvatar/DreamAvatar.lua
+index 4db7d1a..98d92a2 100644
+--- a/DreamAvatar/DreamAvatar.lua
++++ b/DreamAvatar/DreamAvatar.lua
+@@ -1,6 +1,7 @@
+--- DreamAvatar · 梦境化身 v0.3
+--- Three local-only appearance pages: character model, weapon model and enchant glow.
+--- Every UI operation and every native command uses MoonMarker's trusted guild authorization.
++-- DreamAvatar · 梦境化身 v0.3.1
++-- Three local-only appearance pages: character model, weapon display and enchant glow.
++-- The addon has no MoonMarker TOC dependency. Every operation still uses the
++-- trusted guild authorization compiled into UnitXP_SP3.dll.
+ 
+ DreamAvatarDB = DreamAvatarDB or {}
+ 
+@@ -36,6 +37,18 @@ if db.glowMain == nil then db.glowMain = "" end
+ if db.glowOff == nil then db.glowOff = "" end
+ if db.page == nil then db.page = 1 end
+ 
++-- v0.3 used the stock 1.12 visible-item base against Turtle WoW and therefore
++-- saved values one equipment block early. Clear only those stale appearance
++-- inputs once; character-model settings remain untouched.
++if db.visibleItemLayoutVersion ~= 2 then
++    db.weaponMain = ""
++    db.weaponOff = ""
++    db.weaponRanged = ""
++    db.glowMain = ""
++    db.glowOff = ""
++    db.visibleItemLayoutVersion = 2
++end
++
+ local frame
+ local pages = {}
+ local tabButtons = {}
+@@ -394,7 +407,7 @@ local function QueryWeapons(fillInputs, silent)
+         db.weaponMain = weaponUI.mainEdit:GetText()
+         db.weaponOff = weaponUI.offEdit:GetText()
+         db.weaponRanged = weaponUI.rangedEdit:GetText()
+-        if not silent then Chat("已读取自身主手、副手和远程武器 Item ID。") end
++        if not silent then Chat("已读取自身主手、副手和远程武器显示 ID。") end
+     end
+     return true
+ end
+@@ -428,13 +441,13 @@ end
+ 
+ local function ApplyWeapon(index, edit, label)
+     local value = NumericText(edit)
+-    if value == nil then Chat("请输入有效的 " .. label .. " Item ID；0 表示隐藏。", true) return false end
++    if value == nil then Chat("请输入有效的 " .. label .. "武器显示 ID；0 表示隐藏。", true) return false end
+     local success, code = Native2(CMD_APPLY_WEAPON, index, value)
+     if not success then Chat(label .. "武器模型应用失败：" .. tostring(code), true) return false end
+     if index == 1 then db.weaponMain = tostring(value)
+     elseif index == 2 then db.weaponOff = tostring(value)
+     else db.weaponRanged = tostring(value) end
+-    Chat(label .. "武器模型已应用，Item ID " .. value .. "（" .. tostring(code) .. "）")
++    Chat(label .. "武器模型已应用，显示 ID " .. value .. "（" .. tostring(code) .. "）")
+     QueryWeapons(false, true)
+     return true
+ end
+@@ -598,9 +611,9 @@ local function CreateWeaponPage(parent)
+     page:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -92)
+     page:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -10, 10)
+ 
+-    weaponUI.currentMain = MakeValueRow(page, -12, "当前主手 Item ID")
+-    weaponUI.currentOff = MakeValueRow(page, -32, "当前副手 Item ID")
+-    weaponUI.currentRanged = MakeValueRow(page, -52, "当前远程 Item ID")
++    weaponUI.currentMain = MakeValueRow(page, -12, "当前主手武器显示 ID")
++    weaponUI.currentOff = MakeValueRow(page, -32, "当前副手武器显示 ID")
++    weaponUI.currentRanged = MakeValueRow(page, -52, "当前远程武器显示 ID")
+     weaponUI.originalMain = MakeValueRow(page, -72, "保存的原主手")
+     weaponUI.originalOff = MakeValueRow(page, -92, "保存的原副手")
+     weaponUI.originalRanged = MakeValueRow(page, -112, "保存的原远程")
+@@ -650,6 +663,13 @@ local function CreateWeaponPage(parent)
+     weaponUI.targetMain = MakeValueRow(page, -322, "目标玩家主手")
+     weaponUI.targetOff = MakeValueRow(page, -342, "目标玩家副手")
+     weaponUI.targetRanged = MakeValueRow(page, -362, "目标玩家远程")
++
++    local note = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
++    note:SetPoint("TOPLEFT", page, "TOPLEFT", 18, -374)
++    note:SetPoint("RIGHT", page, "RIGHT", -18, 0)
++    note:SetJustifyH("LEFT")
++    note:SetText("这里使用客户端武器显示 ID（ItemDisplayInfo），不是背包物品 Item ID。读取自身或目标玩家得到的数值可直接应用。")
++    note:SetTextColor(0.58, 0.76, 0.86)
+     return page
+ end
+ 
+diff --git a/DreamAvatar/DreamAvatar.toc b/DreamAvatar/DreamAvatar.toc
+index 29c3aec..e9ab8ce 100644
+--- a/DreamAvatar/DreamAvatar.toc
++++ b/DreamAvatar/DreamAvatar.toc
+@@ -1,8 +1,7 @@
+ ## Interface: 11200
+ ## Title: DreamAvatar · 梦境化身
+-## Notes: Three-page local appearance editor: character, weapon and enchant glow; MoonMarker guild authorization required
++## Notes: Standalone three-page local appearance editor: character, weapon display and enchant glow; protected by DLL guild authorization
+ ## Author: a7987083
+-## Version: 0.3.0-three-tabs-guild-auth-experimental
+-## RequiredDeps: MoonMarker
++## Version: 0.3.1-slot-alignment-standalone-experimental
+ ## SavedVariables: DreamAvatarDB
+ DreamAvatar.lua
+diff --git a/native/MoonMarkerDreamAvatar.cpp b/native/MoonMarkerDreamAvatar.cpp
+index 96523df..7eba1b5 100644
+--- a/native/MoonMarkerDreamAvatar.cpp
++++ b/native/MoonMarkerDreamAvatar.cpp
+@@ -17,7 +17,12 @@ namespace {
+ // (global update-field index 0x006). Offsets below are relative to that view.
+ constexpr std::uint32_t kDisplayIdOffset = 0x01F4u;          // (0x083 - 0x006) * 4
+ constexpr std::uint32_t kNativeDisplayIdOffset = 0x01F8u;    // (0x084 - 0x006) * 4
+-constexpr std::uint32_t kPlayerVisibleItem1DataOffset = 0x03C8u; // (0x0F8 - 0x006) * 4
++// Turtle WoW's player descriptor used by this project inserts one extra
++// 0x30-byte player-visible block before PLAYER_VISIBLE_ITEM_1_0 compared with
++// the stock 5875 field map. Runtime equip/unequip tracing confirmed that the
++// stock 0x03C8 base reads the previous slot (cloak as main, main as off, off as
++// ranged). The live client base is therefore 0x03F8.
++constexpr std::uint32_t kPlayerVisibleItem1DataOffset = 0x03F8u;
+ constexpr std::uint32_t kVisibleItemStrideBytes = 0x0030u;   // 0x0C fields * 4
+ constexpr std::uint32_t kVisibleItemWordCount = 8u;          // item + 7 inspected enchants
+ constexpr std::uint32_t kVisibleEnchantCount = 7u;
+@@ -31,7 +36,8 @@ constexpr std::uint32_t kUnitDisplayCacheOffset = 0x0B34u;
+ constexpr std::uint32_t kEquipmentRefreshDisplayId = 15435u;
+ constexpr std::uint32_t kEquipmentRefreshFallbackDisplayId = 49u;
+ 
+-// PLAYER_VISIBLE_ITEM slot numbers, 1-based, matching the vanilla update fields.
++// PLAYER_VISIBLE_ITEM block numbers, 1-based after the Turtle WoW-adjusted
++// base above. Inventory slot IDs remain 16/17/18 for main/off/ranged.
+ constexpr std::array<int, 3> kWeaponVisibleSlots = {{16, 17, 18}}; // main/off/ranged
+ constexpr std::array<int, 2> kGlowVisibleSlots = {{16, 17}};       // main/off
+ 
