@@ -1,0 +1,14 @@
+Local validation:
+- Baseline: MoonMarker-Universal-Hotkeys10-Source.zip
+- Base directory kept immutable: 01-base
+- Modified only: native/dllmain.cpp, native/nativeM2Test.cpp, native/nativeM2Test.h, plugin/MoonMarker.toc
+- Added only: plugin/SystemRaidIcons.lua
+- Original MoonBeam model path retained
+- Original SetColor beam tint path retained
+- Original safeWorldToScreen and projectSlot retained
+- Original PLACE / REMOTE / CLEAR, slots and sync entry points retained
+- Old hand-drawn D3D icon renderer disabled only
+- Blizzard UI-RaidTargetingIcons atlas used through SetRaidTargetIconTexture
+- Lua syntax parsed successfully with local liblua 5.4 parser (syntax-only compatibility check)
+- Windows PE32 x86 compile pending GitHub manual workflow
+- In-game test not performed
