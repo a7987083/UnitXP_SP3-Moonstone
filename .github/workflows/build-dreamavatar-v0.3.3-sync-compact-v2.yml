@@ -1,0 +1,154 @@
+name: DreamAvatar v0.3.3 Sync Compact v2
+
+run-name: 'DreamAvatar v0.3.3 · Verified sync compact · #${{ github.run_number }}'
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/dreamavatar-v0.3.3-sync-compact]
+    paths:
+      - '.github/workflows/build-dreamavatar-v0.3.3-sync-compact-v2.yml'
+      - 'slim/dreamavatar-v0.3.3-sync-compact/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore v0.3.2 and apply verified patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8949439680/zip" -o base.zip
+          unzip -q base.zip -d base
+          echo '1896de5a0f84559b7a86aced8e4d0eb351420d9554630f080743a399db68b1b0  base/DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Source.tar.xz' | sha256sum -c -
+          tar -xJf base/DreamAvatar-v0.3.2-NPC-Weapons-Mount-History-Source.tar.xz
+          mv target-source target
+          cp -a target baseline
+          cat slim/dreamavatar-v0.3.3-sync-compact/v033.patch.gz.b64.part* > v033.patch.gz.b64
+          echo '12ca9884c7516c09507a80aaa417a5028917da7400e1c970a9e2a61b0ec35c36  v033.patch.gz.b64' | sha256sum -c -
+          base64 -d v033.patch.gz.b64 > v033.patch.gz
+          echo '8f7cf4f6656f3c9cf152e6f6f72f925544952310952ade3d840dea4de26ee4c9  v033.patch.gz' | sha256sum -c -
+          gzip -dc v033.patch.gz > v033.patch
+          echo '8fca39d9aad162ecf4d99b57c801731bb7688f0c2a4323d8c4d97b73f48c97d2  v033.patch' | sha256sum -c -
+          git apply --check --directory=target v033.patch
+          git apply --directory=target v033.patch
+
+      - name: Audit exact scope and requested behavior
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          before, after = Path('baseline'), Path('target')
+          allowed = {
+            'DreamAvatar/DreamAvatar.lua', 'DreamAvatar/DreamAvatar.toc',
+            'native/MoonMarkerDreamAvatar.cpp', 'native/MoonMarkerDreamAvatar.h',
+            'native/MoonMarkerMainModel.cpp', 'native/MoonMarkerMainModel.h',
+            'native/dllmain.cpp',
+          }
+          paths = {str(p.relative_to(before)) for p in before.rglob('*') if p.is_file()}
+          paths |= {str(p.relative_to(after)) for p in after.rglob('*') if p.is_file()}
+          changed = {r for r in paths if not (before/r).exists() or not (after/r).exists() or (before/r).read_bytes() != (after/r).read_bytes()}
+          if changed != allowed:
+            raise SystemExit(f'unexpected changed files: {sorted(changed)}')
+          PY
+          diff -qr baseline/plugin target/plugin
+          cmp baseline/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
+          cmp baseline/native/MoonMarkerRuntimeGuard.cpp target/native/MoonMarkerRuntimeGuard.cpp
+          cmp baseline/native/moonMarker.cpp target/native/moonMarker.cpp
+          grep -Fq 'DBFilesClient\\Item.dbc' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'resolveItemEntryForDisplay' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'SetAutoMaintainWeapons' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'SetAutoMaintainGlows' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'SetAutoMaintainMount' target/native/MoonMarkerDreamAvatar.cpp
+          grep -Fq 'buildDreamAvatarPacket' target/native/MoonMarkerMainModel.cpp
+          grep -Fq 'openDreamAvatarPacket' target/native/MoonMarkerMainModel.cpp
+          grep -Fq 'isSyncCommand' target/native/dllmain.cpp
+          grep -Fq '&& !moonMarkerGuildAuth::isAuthorized(L)' target/native/dllmain.cpp
+          grep -Fq 'local SYNC_PREFIX = "DAS1"' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'frame:SetWidth(720)' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'frame:SetHeight(620)' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'local HISTORY_PAGE_SIZE = 3' target/DreamAvatar/DreamAvatar.lua
+          ! grep -Fq '最近读取目标类型' target/DreamAvatar/DreamAvatar.lua
+          ! grep -Fq 'AddHistory("weapon"' target/DreamAvatar/DreamAvatar.lua
+          ! grep -Eq '^## (RequiredDeps|OptionalDeps):' target/DreamAvatar/DreamAvatar.toc
+          ! grep -RniE 'vanilla1121_unitDisable|vanilla1121_unitEnable|0x005FBB60|0x005FBD60|0x005FBE00' target/native/MoonMarkerDreamAvatar.cpp
+
+      - name: Validate Lua 5.1
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          while IFS= read -r f; do luac5.1 -p "$f"; done < <(find target/plugin target/DreamAvatar -name '*.lua' -type f | sort)
+
+      - name: Snapshot source
+        run: |
+          set -euxo pipefail
+          cp -a target target-source
+          rm -rf target-source/native/.git target-source/plugin/.git target-source/native/xwinSDK target-source/native/d3d9x_headers
+          find target-source/native -maxdepth 1 -type f \( -name '*.obj' -o -name '*.dll' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' \) -delete
+          cp slim/dreamavatar-v0.3.3-sync-compact/DREAMAVATAR-V0.3.3-SYNC-COMPACT-NOTES.md target-source/
+          tar --sort=name --mtime='UTC 2026-08-06' --owner=0 --group=0 --numeric-owner -cJf DreamAvatar-v0.3.3-Sync-Compact-Source.tar.xz target-source
+
+      - name: Install x86 Windows toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+          curl -L --fail --retry 3 'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile PE32 x86 DLL
+        run: |
+          set -euxo pipefail
+          ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" target/native/xwinSDK
+          ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" target/native/d3d9x_headers
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' target/native/Makefile
+          make -C target/native clean
+          make -C target/native -j2
+          file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
+
+      - name: Package and upload
+        run: |
+          set -euxo pipefail
+          root='release/DreamAvatar-v0.3.3-Sync-Compact-Experimental'
+          mkdir -p "$root/Interface/AddOns/DreamAvatar" "$root/Audit" artifact
+          cp target/native/UnitXP_SP3.dll "$root/"
+          cp target/DreamAvatar/DreamAvatar.lua target/DreamAvatar/DreamAvatar.toc "$root/Interface/AddOns/DreamAvatar/"
+          cp slim/dreamavatar-v0.3.3-sync-compact/DREAMAVATAR-V0.3.3-SYNC-COMPACT-NOTES.md "$root/README.md"
+          cp v033.patch "$root/Audit/DreamAvatar-v0.3.3-Sync-Compact.patch"
+          cp DreamAvatar-v0.3.3-Sync-Compact-Source.tar.xz "$root/Audit/"
+          (cd "$root" && sha256sum UnitXP_SP3.dll Interface/AddOns/DreamAvatar/DreamAvatar.lua Interface/AddOns/DreamAvatar/DreamAvatar.toc > SHA256.txt)
+          (cd release && zip -9 -r ../artifact/DreamAvatar-v0.3.3-Sync-Compact-Experimental-x86.zip DreamAvatar-v0.3.3-Sync-Compact-Experimental)
+          cp DreamAvatar-v0.3.3-Sync-Compact-Source.tar.xz artifact/
+          cp v033.patch artifact/DreamAvatar-v0.3.3-Sync-Compact.patch
+          sha256sum artifact/* > artifact/ARTIFACT-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DreamAvatar-v0.3.3-Sync-Compact-Experimental-x86-v2-${{ github.run_number }}
+          path: artifact/*
+          retention-days: 30
