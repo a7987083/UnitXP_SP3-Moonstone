@@ -55,6 +55,15 @@ jobs:
         run: |
           set -euxo pipefail
           find upstream -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.h' -o -name 'Makefile' \) -print0 | xargs -0 sed -i 's/\r$//'
+          wc -c patches/true8x8.patch.gz.b64.part*
+          sha256sum patches/true8x8.patch.gz.b64.part*
+          echo '56129deb1bc2bd107e3259c208dd64ff3752a8318de6a53df5597cc4807d95f5  patches/true8x8.patch.gz.b64.part00' | sha256sum -c -
+          echo '817da4c402c956cb79b43ed8866892718e9c45b616ccde750eb4fb5a90ef5e2a  patches/true8x8.patch.gz.b64.part01' | sha256sum -c -
+          echo 'd10f3a33e7e3cd68e1327c16646c9dee028d6ba99f2801eaa097ad877f1494d7  patches/true8x8.patch.gz.b64.part02' | sha256sum -c -
+          echo 'f5aabc8eee03a1c88784932d9c9747dc61ef5f7074ed9d186f99097886be1d57  patches/true8x8.patch.gz.b64.part03' | sha256sum -c -
+          echo '40f6d57b5698860978cb24d95b5098edc7217bdf540db1de3f9572b8cf0aba8a  patches/true8x8.patch.gz.b64.part04' | sha256sum -c -
+          echo 'c0717e82b5e29082411894c758a668881cf437886eca788d99eed6ffd409183b  patches/true8x8.patch.gz.b64.part05' | sha256sum -c -
+          echo 'c635adf59d12941f59ef9601a8a02f36fc0dc8ec2e5a734619a67e18e47665d1  patches/true8x8.patch.gz.b64.part06' | sha256sum -c -
           cat patches/true8x8.patch.gz.b64.part* > true8x8.patch.gz.b64
           echo 'a932b4a1b9786c10e23755ee344fb285fd2ceca25333825c6e99cbc105d8c320  true8x8.patch.gz.b64' | sha256sum -c -
           base64 -d true8x8.patch.gz.b64 > true8x8.patch.gz
