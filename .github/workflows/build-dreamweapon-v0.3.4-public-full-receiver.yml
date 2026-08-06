@@ -97,7 +97,15 @@ jobs:
           grep -Fq 'suffix == "Sync.Receive"' target/native/dllmain.cpp
           grep -Fq 'suffix == "Sync.RestoreAll"' target/native/dllmain.cpp
           grep -Fq 'DREAMWEAPON_COMMAND_DISABLED' target/native/dllmain.cpp
-          ! grep -Fq 'moonMarkerGuildAuth::isAuthorized(L)) {' target/native/dllmain.cpp
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('target/native/dllmain.cpp').read_text()
+          start = text.index('int __fastcall detoured_UnitXP')
+          end = text.index('const int guildAuthArgumentCount', start)
+          branch = text[start:end]
+          assert 'dreamWeaponCommandAllowed' in branch
+          assert 'moonMarkerGuildAuth::isAuthorized' not in branch
+          PY
 
       - name: Validate Lua 5.1 and create source package
         run: |
