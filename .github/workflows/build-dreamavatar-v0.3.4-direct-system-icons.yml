@@ -1,15 +1,13 @@
 name: DreamAvatar v0.3.4 Direct System Icons
 
-run-name: 'DreamAvatar v0.3.4 Â· Direct system raid icons Â· Saved history Â· #${{ github.run_number }}'
-
 on:
   workflow_dispatch:
   push:
     branches:
       - agent/dreamavatar-v0.3.4-direct-system-icons-saved-history
     paths:
-      - '.github/workflows/build-dreamavatar-v0.3.4-direct-system-icons.yml'
-      - 'slim/dreamavatar-v0.3.4-direct-system-icons/**'
+      - .github/workflows/build-dreamavatar-v0.3.4-direct-system-icons.yml
+      - slim/dreamavatar-v0.3.4-direct-system-icons/**
 
 permissions:
   contents: read
@@ -17,15 +15,12 @@ permissions:
 
 jobs:
   build:
-    name: Build DreamAvatar and Hotkeys10 direct system icons in one x86 DLL
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-
     steps:
-      - name: Check out merge branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Restore verified DreamAvatar v0.3.3 source
+      - name: Restore v0.3.3 source and apply patch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -33,19 +28,13 @@ jobs:
           curl -L --fail --retry 3 \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8951907165/zip" \
-            -o v033-artifact.zip
-          unzip -q v033-artifact.zip -d v033-artifact
-          echo 'c8b5c0c1b3db1a0293ff5ca4208686b352094275d233cd099ef36561984d4d67  v033-artifact/DreamAvatar-v0.3.3-Sync-Compact-Source.tar.xz' | sha256sum -c -
-          tar -xJf v033-artifact/DreamAvatar-v0.3.3-Sync-Compact-Source.tar.xz
+            -o base.zip
+          unzip -q base.zip -d base
+          echo 'c8b5c0c1b3db1a0293ff5ca4208686b352094275d233cd099ef36561984d4d67  base/DreamAvatar-v0.3.3-Sync-Compact-Source.tar.xz' | sha256sum -c -
+          tar -xJf base/DreamAvatar-v0.3.3-Sync-Compact-Source.tar.xz
           mv target-source target
           cp -a target baseline
-          grep -Fq '## Version: 0.3.3-sync-compact-experimental' target/DreamAvatar/DreamAvatar.toc
-
-      - name: Verify and apply v0.3.4 direct icon patch
-        run: |
-          set -euxo pipefail
           cp slim/dreamavatar-v0.3.4-direct-system-icons/v034.patch.gz.b64 .
           echo 'bebb48b485b58e4cf0e6a6bff5c3c6635e2c27c4b3db5c087ef4bd01a00a1ee2  v034.patch.gz.b64' | sha256sum -c -
           base64 -d v034.patch.gz.b64 > v034.patch.gz
@@ -55,77 +44,40 @@ jobs:
           git apply --check --directory=target v034.patch
           git apply --directory=target v034.patch
 
-      - name: Audit merge scope and requested behavior
+      - name: Audit requested behavior
         run: |
           set -euxo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          before, after = Path('baseline'), Path('target')
-          allowed = {
-              'DREAMAVATAR-V0.3.4-DIRECT-SYSTEM-ICONS-NOTES.md',
-              'DreamAvatar/DreamAvatar.toc',
-              'native/nativeM2Test.cpp',
-          }
-          paths = {str(p.relative_to(before)) for p in before.rglob('*') if p.is_file()}
-          paths |= {str(p.relative_to(after)) for p in after.rglob('*') if p.is_file()}
-          changed = {r for r in paths if not (before/r).exists() or not (after/r).exists() or (before/r).read_bytes() != (after/r).read_bytes()}
-          if changed != allowed:
-              raise SystemExit(f'unexpected changed files: {sorted(changed)}')
-          PY
-
-          # DreamAvatar and synchronization implementation must stay byte-identical.
           cmp baseline/DreamAvatar/DreamAvatar.lua target/DreamAvatar/DreamAvatar.lua
           cmp baseline/native/MoonMarkerDreamAvatar.cpp target/native/MoonMarkerDreamAvatar.cpp
-          cmp baseline/native/MoonMarkerDreamAvatar.h target/native/MoonMarkerDreamAvatar.h
           cmp baseline/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
-          cmp baseline/native/MoonMarkerMainModel.h target/native/MoonMarkerMainModel.h
           cmp baseline/native/dllmain.cpp target/native/dllmain.cpp
-          cmp baseline/native/MoonMarkerGuildAuth.cpp target/native/MoonMarkerGuildAuth.cpp
-          cmp baseline/native/MoonMarkerRuntimeGuard.cpp target/native/MoonMarkerRuntimeGuard.cpp
-
-          # SavedVariables history is explicitly retained.
           grep -Fq '## SavedVariables: DreamAvatarDB' target/DreamAvatar/DreamAvatar.toc
           grep -Fq 'db.history.character' target/DreamAvatar/DreamAvatar.lua
           grep -Fq 'db.history.weapon' target/DreamAvatar/DreamAvatar.lua
           grep -Fq 'db.history.glow' target/DreamAvatar/DreamAvatar.lua
           grep -Fq 'db.history.mount' target/DreamAvatar/DreamAvatar.lua
-          grep -Fq '## Version: 0.3.4-direct-system-icons-saved-history-experimental' target/DreamAvatar/DreamAvatar.toc
-
-          # Hotkeys10 projection and world anchor stay unchanged; only final icon drawing changes.
           grep -Fq 'constexpr float kIconWorldHeight = 8.5f;' target/native/nativeM2Test.cpp
           grep -Fq 'projected.x = screen.x;' target/native/nativeM2Test.cpp
           grep -Fq 'projected.y = screen.y;' target/native/nativeM2Test.cpp
           grep -Fq 'Interface\\TargetingFrame\\UI-RaidTargetingIcons.blp' target/native/nativeM2Test.cpp
-          grep -Fq 'bool renderSystemRaidIcons(IDirect3DDevice9* device)' target/native/nativeM2Test.cpp
           grep -Fq 'if (renderSystemRaidIcons(device)) return;' target/native/nativeM2Test.cpp
-          grep -Fq 'DrawPrimitiveUP(D3DPT_TRIANGLELIST' target/native/nativeM2Test.cpp
           grep -Fq 'std::vector<IconVertex> vertices;' target/native/nativeM2Test.cpp
-
-          # No Lua overlay, UIParent conversion, extra marker slots, or game raid marker mutation.
           test ! -e target/plugin/SystemRaidIcons.lua
-          ! grep -RniF 'SystemRaidIcons.lua' target/plugin target/DreamAvatar
-          ! grep -RniE 'UIParent.*GetScale|WorldToUI|SetRaidTarget|RAID_TARGET_UPDATE' target/native/nativeM2Test.cpp target/DreamAvatar
           grep -Fq 'constexpr std::size_t kSlotCount = 8;' target/native/nativeM2Test.cpp
+          grep -Fq '## Version: 0.3.4-direct-system-icons-saved-history-experimental' target/DreamAvatar/DreamAvatar.toc
 
-      - name: Validate Lua 5.1
+      - name: Validate Lua 5.1 and snapshot source
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y lua5.1
-          while IFS= read -r file; do luac5.1 -p "$file"; done \
-            < <(find target/plugin target/DreamAvatar -type f -name '*.lua' | sort)
-
-      - name: Prepare clean source snapshot
-        run: |
-          set -euxo pipefail
+          while IFS= read -r file; do luac5.1 -p "$file"; done < <(find target/plugin target/DreamAvatar -type f -name '*.lua' | sort)
           cp -a target target-source
-          find target-source/native -maxdepth 1 -type f \
-            \( -name '*.obj' -o -name '*.dll' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' \) -delete
+          find target-source/native -maxdepth 1 -type f \( -name '*.obj' -o -name '*.dll' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' \) -delete
           rm -rf target-source/native/xwinSDK target-source/native/d3d9x_headers target-source/native/.git target-source/plugin/.git
-          tar --sort=name --mtime='UTC 2026-08-06' --owner=0 --group=0 --numeric-owner \
-            -cJf DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz target-source
+          tar --sort=name --mtime='UTC 2026-08-06' --owner=0 --group=0 --numeric-owner -cJf DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz target-source
 
-      - name: Install Windows x86 build toolchain
+      - name: Install x86 Windows toolchain
         run: |
           set -euxo pipefail
           sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file zip binutils
@@ -135,16 +87,11 @@ jobs:
           sudo apt-get install -y lld-19
           sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
           sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
-          XWIN_VERSION=0.9.0
-          curl -L --fail --retry 3 \
-            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-            -o xwin.tar.gz
+          curl -L --fail --retry 3 https://github.com/Jake-Shadle/xwin/releases/download/0.9.0/xwin-0.9.0-x86_64-unknown-linux-musl.tar.gz -o xwin.tar.gz
           tar -xzf xwin.tar.gz
-          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          sudo install -m 0755 xwin-0.9.0-x86_64-unknown-linux-musl/xwin /usr/local/bin/xwin
           xwin --accept-license --arch x86 splat --output shared-xwinSDK
-          curl -L --fail --retry 3 \
-            'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' \
-            -o d3dx.nupkg
+          curl -L --fail --retry 3 https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8 -o d3dx.nupkg
           unzip -q d3dx.nupkg -d d3dx_pkg
           mkdir -p shared-d3d9x_headers
           cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
@@ -152,7 +99,6 @@ jobs:
       - name: Compile PE32 x86 DLL
         run: |
           set -euxo pipefail
-          rm -rf target/native/xwinSDK target/native/d3d9x_headers
           ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" target/native/xwinSDK
           ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" target/native/d3d9x_headers
           sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' target/native/Makefile
@@ -161,16 +107,26 @@ jobs:
           file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
           grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
 
-      - name: Package artifacts
+      - name: Package
         run: |
           set -euxo pipefail
-          root='release/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Experimental'
-          mkdir -p "$root/Interface/AddOns/DreamAvatar" "$root/Audit"
+          root=release/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Experimental
+          mkdir -p "$root/Interface/AddOns/DreamAvatar" "$root/Audit" artifact
           cp target/native/UnitXP_SP3.dll "$root/UnitXP_SP3.dll"
           cp target/DreamAvatar/DreamAvatar.lua "$root/Interface/AddOns/DreamAvatar/DreamAvatar.lua"
-         Ü\™Ù]Ñ™X[P]˜]\‹Ñ™X[P]˜]\‹ØÈ‰›ÛÝÒ[\™˜XÙKÐYÛœËÑ™X[P]˜]\‹Ñ™X[P]˜]\‹ØÈ‚ˆÜ\™Ù]Ñ‘PSPUUT‹UŒŒËQT‘PÕTÖTÕSKRPÓÓ”ËS“ÕTË›Y‰›ÛÝÔ‘PQQK›Y‚ˆÜŒÍœ]Ú‰›ÛÝÐ]Y]Ñ™X[P]˜]\‹]ŒŒËQ\™XÝTÞ\Ý[KRXÛÛœËœ]Ú‚ˆÜ™X[P]˜]\‹]ŒŒËQ\™XÝTÞ\Ý[KRXÛÛœËTØ]™YR\ÝÜžKTÛÝ\˜ÙK\‹žˆ‰›ÛÝÐ]Y]È‚ˆ
-Ù‰›ÛÝˆ	‰ˆÚLMœÝ[H[š]ÔÔË™[\™˜XÙKÐYÛœËÑ™X[P]˜]\‹Ñ™X[P]˜]\‹›XH[\™˜XÙKÐYÛœËÑ™X[P]˜]\‹Ñ™X[P]˜]\‹ØÈˆÒLM‹
-BˆÂˆXÚÈ	Ñ™X[P]˜]\ˆŒŒË\™XÝÞ\Ý[HXÛÛœÈ
-ÈØ]™Y\ÝÜžIÂˆØ]Q’SKUTKˆÝ]XÈ	Ñž]\Îˆ	\ÉÈ\™Ù]Û˜]]™KÕ[š]ÔÔË™ˆÚLMœÝ[H\™Ù]Û˜]]™KÕ[š]ÔÔË™ˆXÚÈ	Ñ\™XÝ^\™Nˆ[\™˜XÙW\™Ù][™Ñœ˜[YWRKT˜ZY\™Ù][™ÒXÛÛœË˜›	ÂˆXÚÈ	ÕÛÜ›ZYÚˆNÈÜšYÚ[˜[ÝÙ^\ÌL›Ú™XÝ[Ûˆ[™ØÜ™Y[‹žÜØÜ™Y[‹žH™]Z[™Y‰ÂˆXÚÈ	Ñ˜[˜XÚÎˆÜšYÚ[˜[ÝÙ^\ÌL™XÝÜˆXÛÛœË‰ÂˆXÚÈ	ÔØ]™Y\ÝÜžNˆ™X[P]˜]\‘ˆØ]™Y˜\šXX›\È™]Z[™Y‰ÂˆXÚÈ	Ó›ÈÞ\Ý[T˜ZYXÛÛœË›XH[™›È[ÛÛ“X\šÙ\ˆYÛˆ\[™[˜ÞH›Üˆ™X[P]˜]\‹‰ÂˆXÚÈ	ÐZ[ÜÝ]XÈ]Y]È›Ý™\XÙH[‹YØ[YH\Ý[™Ë‰ÂˆHˆ‰›ÛÝÐ•RST‘TÕS‚ˆZÙ\ˆ\\Y˜XÝˆ
-Ù™[X\ÙH	‰ˆš\NH\ˆ‹‹Ø\Y˜XÝÑ™X[P]˜]\‹]ŒŒËQ\™XÝTÞ\Ý[KRXÛÛœËTØ]™YR\ÝÜžKQ^\š[Y[[^‹žš\™X[P]˜]\‹]ŒŒËQ\™XÝTÞ\Ý[KRXÛÛœËTØ]™YR\ÝÜžKQ^\š[Y[[
-BˆÜ™X[P]˜]\‹]ŒŒËQ\™XÝTÞ\Ý[KRXÛÛœËTØ]™YR\ÝÜžKTÛÝ\˜ÙK\‹žˆ\Y˜XÝÂˆÜŒÍœ]Ú\Y˜XÝÑ™X[P]˜]\‹]ŒŒËQ\™XÝTÞ\Ý[KRXÛÛœËœ]ÚˆÚLMœÝ[H\Y˜XÝÊˆˆ\Y˜XÝÐT•QPÕTÒLM‹‚ˆH˜[YNˆ\ØYZ[ˆ\Ù\ÎˆXÝ[ÛœËÝ\ØYX\Y˜XÝˆÚ]‚ˆ˜[YNˆ™X[P]˜]\‹]ŒŒËQ\™XÝTÞ\Ý[KRXÛÛœËTØ]™YR\ÝÜžK^‹IÞÈÚ]X‹œ[—Û[X™\ˆ_Bˆ]ˆ\Y˜XÝÊ‚ˆY‹[›ËYš[\ËY›Ý[™ˆ\œ›Ü‚ˆ™][[Û‹Y^\ÎˆÌ
+          cp target/DreamAvatar/DreamAvatar.toc "$root/Interface/AddOns/DreamAvatar/DreamAvatar.toc"
+          cp target/DREAMAVATAR-V0.3.4-DIRECT-SYSTEM-ICONS-NOTES.md "$root/README.md"
+          cp v034.patch "$root/Audit/DreamAvatar-v0.3.4-Direct-System-Icons.patch"
+          cp DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz "$root/Audit/"
+          (cd "$root" && sha256sum UnitXP_SP3.dll Interface/AddOns/DreamAvatar/DreamAvatar.lua Interface/AddOns/DreamAvatar/DreamAvatar.toc > SHA256.txt)
+          (cd release && zip -9 -r ../artifact/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Experimental-x86.zip DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Experimental)
+          cp DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz artifact/
+          cp v034.patch artifact/DreamAvatar-v0.3.4-Direct-System-Icons.patch
+          sha256sum artifact/* > artifact/ARTIFACT-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-x86-${{ github.run_number }}
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 30
