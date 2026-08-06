@@ -1,0 +1,120 @@
+name: DreamAvatar v0.3.4 FuBar DATY validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/dreamavatar-v0.3.4-fubar-daty
+    paths:
+      - .github/workflows/validate-dreamavatar-v0.3.4-fubar-daty.yml
+      - slim/dreamavatar-v0.3.4-fubar-daty/**
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore verified DreamAvatar v0.3.4 source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8952638460/zip" \
+            -o base.zip
+          unzip -q base.zip -d base
+          echo '0adcf2630da415b33ab14eb5e92fc2bc9c41c0d5977981f598d0c4c06cc64e6a  base/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz' | sha256sum -c -
+          tar -xJf base/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz
+          mv target-source target
+          cp -a target baseline
+
+      - name: Verify and apply FuBar DATY patch
+        run: |
+          set -euxo pipefail
+          cp slim/dreamavatar-v0.3.4-fubar-daty/patch.gz.b64 .
+          echo '905fb7dd6143fffc3b1353bf060c86e84174c0e2c63498c593a0337eda53de5a  patch.gz.b64' | sha256sum -c -
+          base64 -d patch.gz.b64 > patch.gz
+          echo '353c24d9af304be24b5a540a6b339a0444ccecd25ff4a59a1480c1363159dbf6  patch.gz' | sha256sum -c -
+          gzip -dc patch.gz > patch.diff
+          echo '2169fc8d2244dc0119e3a0e26364407d46e851752baa64c0fef5cfea940aa82a  patch.diff' | sha256sum -c -
+          git apply --check --directory=target patch.diff
+          git apply --directory=target patch.diff
+
+      - name: Audit update boundaries
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          before, after = Path('baseline'), Path('target')
+          allowed = {
+              'DreamAvatar/DreamAvatar.lua',
+              'DreamAvatar/DreamAvatar.toc',
+              'DreamAvatar/FuBar.lua',
+          }
+          paths = {str(p.relative_to(before)) for p in before.rglob('*') if p.is_file()}
+          paths |= {str(p.relative_to(after)) for p in after.rglob('*') if p.is_file()}
+          changed = {r for r in paths if not (before/r).exists() or not (after/r).exists() or (before/r).read_bytes() != (after/r).read_bytes()}
+          if changed != allowed:
+              raise SystemExit(f'unexpected changed files: {sorted(changed)}')
+          PY
+          cmp baseline/native/nativeM2Test.cpp target/native/nativeM2Test.cpp
+          cmp baseline/native/MoonMarkerDreamAvatar.cpp target/native/MoonMarkerDreamAvatar.cpp
+          cmp baseline/native/dllmain.cpp target/native/dllmain.cpp
+          grep -Fq 'SLASH_DREAMAVATAR1 = "/daty"' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq 'SLASH_DREAMAVATAR2 = "/dreamavatar"' target/DreamAvatar/DreamAvatar.lua
+          ! grep -Fq 'SLASH_DREAMAVATAR2 = "/da"' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq '用法：/daty' target/DreamAvatar/DreamAvatar.lua
+          grep -Fq '## OptionalDeps: !Libs, FuBar' target/DreamAvatar/DreamAvatar.toc
+          grep -Fq '## SavedVariables: DreamAvatarDB' target/DreamAvatar/DreamAvatar.toc
+          grep -Fq 'FuBar.lua' target/DreamAvatar/DreamAvatar.toc
+          grep -Fq 'DreamAvatar.Toggle()' target/DreamAvatar/FuBar.lua
+          grep -Fq 'DreamAvatar.Show(2)' target/DreamAvatar/FuBar.lua
+          ! grep -Eq 'MoonMarker_[A-Za-z]|MoonMarker\.DreamAvatar' target/DreamAvatar/FuBar.lua
+
+      - name: Validate Lua 5.1 and FuBar registration
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          luac5.1 -p target/DreamAvatar/DreamAvatar.lua
+          luac5.1 -p target/DreamAvatar/FuBar.lua
+          lua5.1 target/DreamAvatar/FuBar.lua
+          cat > mock.lua <<'LUA'
+          DreamAvatar = {
+              Toggle = function() toggled = true end,
+              Show = function(pageValue) openedPage = pageValue end,
+          }
+          GameTooltip = { AddLine = function() end }
+          local addon = {}
+          function addon:new(name)
+              local result = { embedded = name }
+              function result:SetText(text) self.text = text end
+              return result
+          end
+          AceLibrary = setmetatable({}, {
+              __call = function(_, name)
+                  if name == 'AceAddon-2.0' then return addon end
+                  error('missing library')
+              end,
+          })
+          dofile('target/DreamAvatar/FuBar.lua')
+          assert(DreamAvatar_FuBarEntry)
+          DreamAvatar_FuBarEntry:OnTextUpdate()
+          assert(DreamAvatar_FuBarEntry.text == '梦境化身')
+          arg1 = 'LeftButton'
+          DreamAvatar_FuBarEntry:OnClick()
+          assert(toggled == true)
+          arg1 = 'RightButton'
+          DreamAvatar_FuBarEntry:OnClick()
+          assert(openedPage == 2)
+          print('DreamAvatar FuBar mock runtime OK')
+          LUA
+          lua5.1 mock.lua
