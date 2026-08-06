@@ -1,0 +1,178 @@
+name: DreamWeapon v0.3.4 Public Full Receiver
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/dreamweapon-v0.3.4-public-full-receiver
+    paths:
+      - .github/workflows/build-dreamweapon-v0.3.4-public-full-receiver.yml
+      - slim/dreamweapon-v0.3.4-public-full-receiver/**
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore DreamAvatar v0.3.4 merged source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8952638460/zip" \
+            -o base.zip
+          unzip -q base.zip -d base
+          echo '0adcf2630da415b33ab14eb5e92fc2bc9c41c0d5977981f598d0c4c06cc64e6a  base/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz' | sha256sum -c -
+          tar -xJf base/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz
+          mv target-source target
+          cp -a target baseline
+          grep -Fq '## Version: 0.3.4-direct-system-icons-saved-history-experimental' target/DreamAvatar/DreamAvatar.toc
+
+      - name: Verify and apply DreamWeapon patch
+        run: |
+          set -euxo pipefail
+          cp slim/dreamweapon-v0.3.4-public-full-receiver/dw-v034.patch.gz.b64 .
+          echo 'b730f4e85281c137513160740fad0bc19e02d19b6364c60c3f7b9c65c1141ffd  dw-v034.patch.gz.b64' | sha256sum -c -
+          base64 -d dw-v034.patch.gz.b64 > dw-v034.patch.gz
+          echo '3aa0db61db1121df0212b35d053011f11e51ac5e4b24e1b4b37174334081a2a8  dw-v034.patch.gz' | sha256sum -c -
+          gzip -dc dw-v034.patch.gz > dw-v034.patch
+          echo 'c097f8a759c28cc45bb11d12a366b8e1b8f8ce2c4ec8cee910009e4cdf1ef0e0  dw-v034.patch' | sha256sum -c -
+          git apply --check --directory=target dw-v034.patch
+          git apply --directory=target dw-v034.patch
+
+      - name: Audit independent edition boundaries
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          before, after = Path('baseline'), Path('target')
+          allowed = {
+              'DREAMWEAPON-V0.3.4-WEAPON-ONLY-PUBLIC-RECEIVER-NOTES.md',
+              'DreamWeapon/DreamWeapon.lua',
+              'DreamWeapon/DreamWeapon.toc',
+              'native/dllmain.cpp',
+          }
+          paths = {str(p.relative_to(before)) for p in before.rglob('*') if p.is_file()}
+          paths |= {str(p.relative_to(after)) for p in after.rglob('*') if p.is_file()}
+          changed = {r for r in paths if not (before/r).exists() or not (after/r).exists() or (before/r).read_bytes() != (after/r).read_bytes()}
+          if changed != allowed:
+              raise SystemExit(f'unexpected changed files: {sorted(changed)}')
+          PY
+
+          cmp baseline/native/nativeM2Test.cpp target/native/nativeM2Test.cpp
+          cmp baseline/native/MoonMarkerDreamAvatar.cpp target/native/MoonMarkerDreamAvatar.cpp
+          cmp baseline/native/MoonMarkerDreamAvatar.h target/native/MoonMarkerDreamAvatar.h
+          cmp baseline/native/MoonMarkerMainModel.cpp target/native/MoonMarkerMainModel.cpp
+          cmp baseline/native/MoonMarkerMainModel.h target/native/MoonMarkerMainModel.h
+          cmp baseline/native/MoonMarkerRuntimeGuard.cpp target/native/MoonMarkerRuntimeGuard.cpp
+          grep -Fq 'constexpr float kIconWorldHeight = 8.5f;' target/native/nativeM2Test.cpp
+          grep -Fq 'projected.x = screen.x;' target/native/nativeM2Test.cpp
+          grep -Fq 'projected.y = screen.y;' target/native/nativeM2Test.cpp
+          grep -Fq 'Interface\\TargetingFrame\\UI-RaidTargetingIcons.blp' target/native/nativeM2Test.cpp
+          grep -Fq 'if (renderSystemRaidIcons(device)) return;' target/native/nativeM2Test.cpp
+
+          grep -Fq '## SavedVariables: DreamWeaponDB' target/DreamWeapon/DreamWeapon.toc
+          grep -Fq 'DreamWeaponDB = DreamWeaponDB or {}' target/DreamWeapon/DreamWeapon.lua
+          grep -Fq 'local CMD_SYNC_RECEIVE' target/DreamWeapon/DreamWeapon.lua
+          grep -Fq 'local CMD_SYNC_REAPPLY' target/DreamWeapon/DreamWeapon.lua
+          grep -Fq 'local CMD_SYNC_RESTORE_ALL' target/DreamWeapon/DreamWeapon.lua
+          grep -Fq 'local SYNC_PREFIX = "DAS1"' target/DreamWeapon/DreamWeapon.lua
+          grep -Fq 'eventFrame:RegisterEvent("CHAT_MSG_ADDON")' target/DreamWeapon/DreamWeapon.lua
+          grep -Fq '小队/团队完整外观同步：始终接收' target/DreamWeapon/DreamWeapon.lua
+          ! grep -Eq 'MMAuth|RequireAuth|CheckAuth|SendAddonMessage|CMD_SYNC_BUILD|CMD_SYNC_BUILD_CLEAR|发送同步' target/DreamWeapon/DreamWeapon.lua
+          ! grep -Fq 'DreamAvatarDB' target/DreamWeapon/DreamWeapon.lua
+
+          grep -Fq 'static bool dreamWeaponCommandAllowed' target/native/dllmain.cpp
+          grep -Fq 'suffix == "WeaponStatus"' target/native/dllmain.cpp
+          grep -Fq 'suffix == "ApplyWeapon"' target/native/dllmain.cpp
+          grep -Fq 'suffix == "Sync.Receive"' target/native/dllmain.cpp
+          grep -Fq 'suffix == "Sync.RestoreAll"' target/native/dllmain.cpp
+          grep -Fq 'DREAMWEAPON_COMMAND_DISABLED' target/native/dllmain.cpp
+          ! grep -Fq 'moonMarkerGuildAuth::isAuthorized(L)) {' target/native/dllmain.cpp
+
+      - name: Validate Lua 5.1 and create source package
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 zip
+          luac5.1 -p target/DreamWeapon/DreamWeapon.lua
+          cp -a target target-source
+          rm -rf target-source/DreamAvatar
+          find target-source/native -maxdepth 1 -type f \( -name '*.obj' -o -name '*.dll' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' \) -delete
+          rm -rf target-source/native/xwinSDK target-source/native/d3d9x_headers target-source/native/.git target-source/plugin/.git
+          zip -9 -q -r DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver-Source.zip target-source
+
+      - name: Install Windows x86 build toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          curl -L --fail --retry 3 https://github.com/Jake-Shadle/xwin/releases/download/0.9.0/xwin-0.9.0-x86_64-unknown-linux-musl.tar.gz -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 xwin-0.9.0-x86_64-unknown-linux-musl/xwin /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+          curl -L --fail --retry 3 https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8 -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile PE32 x86 DLL
+        run: |
+          set -euxo pipefail
+          rm -rf target/native/xwinSDK target/native/d3d9x_headers
+          ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" target/native/xwinSDK
+          ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" target/native/d3d9x_headers
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' target/native/Makefile
+          make -C target/native clean
+          make -C target/native -j2
+          file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
+
+      - name: Package independent edition
+        run: |
+          set -euxo pipefail
+          root=release/DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver-Experimental
+          mkdir -p "$root/Interface/AddOns/DreamWeapon" "$root/Audit" artifact
+          cp target/native/UnitXP_SP3.dll "$root/UnitXP_SP3.dll"
+          cp target/DreamWeapon/DreamWeapon.lua "$root/Interface/AddOns/DreamWeapon/DreamWeapon.lua"
+          cp target/DreamWeapon/DreamWeapon.toc "$root/Interface/AddOns/DreamWeapon/DreamWeapon.toc"
+          cp target/DREAMWEAPON-V0.3.4-WEAPON-ONLY-PUBLIC-RECEIVER-NOTES.md "$root/README.md"
+          cp dw-v034.patch "$root/Audit/DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver.patch"
+          cp DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver-Source.zip "$root/Audit/"
+          (cd "$root" && sha256sum UnitXP_SP3.dll Interface/AddOns/DreamWeapon/DreamWeapon.lua Interface/AddOns/DreamWeapon/DreamWeapon.toc > SHA256.txt)
+          {
+            echo 'DreamWeapon v0.3.4 Weapon-Only Public Full Receiver'
+            cat DLL-FILE-TYPE.txt
+            stat -c 'DLL bytes: %s' target/native/UnitXP_SP3.dll
+            sha256sum target/native/UnitXP_SP3.dll
+            echo 'Local UI: weapon only; no guild restriction.'
+            echo 'Synchronization: full DAS1 receive/reapply/restore; sending disabled in Lua and DLL.'
+            echo 'SavedVariables: DreamWeaponDB.'
+            echo 'Hotkeys10 direct system icons inherited unchanged from DreamAvatar v0.3.4.'
+            echo 'Build/static audit does not replace in-game testing.'
+          } > "$root/BUILD-RESULT.txt"
+          (cd release && zip -9 -q -r ../artifact/DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver-Experimental-x86.zip DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver-Experimental)
+          cp DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver-Source.zip artifact/
+          cp dw-v034.patch artifact/DreamWeapon-v0.3.4-Weapon-Only-Public-Full-Receiver.patch
+          sha256sum artifact/* > artifact/ARTIFACT-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DreamWeapon-v0.3.4-Public-Full-Receiver-x86-${{ github.run_number }}
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 30
