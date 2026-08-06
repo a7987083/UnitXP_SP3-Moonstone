@@ -1,0 +1,39 @@
+--- a/native/MoonMarkerDreamAvatar.cpp
++++ b/native/MoonMarkerDreamAvatar.cpp
+@@ -1342,7 +1342,7 @@
+     }
+     const std::string packet = lua_tostring(L, 2);
+     const std::string sender = lua_tostring(L, 3);
+-    const char* token = lua_tostring(L, 4);
++    const std::string token = lua_tostring(L, 4);
+     moonMarkerMainModel::DreamAvatarSnapshot snapshot;
+     std::string reason;
+     if (!moonMarkerMainModel::openDreamAvatarPacket(packet, sender, snapshot, reason)) {
+@@ -1350,7 +1350,7 @@
+         lua_pushboolean(L, 0); lua_pushstring(L, reason.c_str()); return 2;
+     }
+     gRemoteSnapshots[normalizeSender(sender)] = snapshot;
+-    const bool applied = applyRemoteSnapshot(token, snapshot);
++    const bool applied = applyRemoteSnapshot(token.c_str(), snapshot);
+     lua_pushboolean(L, applied ? 1 : 0);
+     lua_pushstring(L, gState.lastCode.c_str());
+     return 2;
+@@ -1364,7 +1364,8 @@
+         lua_pushboolean(L, 0); lua_pushstring(L, "SYNC_SNAPSHOT_NOT_FOUND"); return 2;
+     }
+-    const bool ok = applyRemoteSnapshot(lua_tostring(L, 3), it->second);
++    const std::string token = lua_tostring(L, 3);
++    const bool ok = applyRemoteSnapshot(token.c_str(), it->second);
+     lua_pushboolean(L, ok ? 1 : 0); lua_pushstring(L, gState.lastCode.c_str()); return 2;
+ }
+ 
+@@ -1373,7 +1374,8 @@
+         lua_pushboolean(L, 0); lua_pushstring(L, "SYNC_RESTORE_ARGUMENTS_REQUIRED"); return 2;
+     }
+     const std::string sender = normalizeSender(lua_tostring(L, 2));
+-    const std::uint64_t guid = vanilla1121_unitGUID(lua_tostring(L, 3));
++    const std::string token = lua_tostring(L, 3);
++    const std::uint64_t guid = vanilla1121_unitGUID(token.c_str());
+     const bool ok = guid == 0 ? true : restoreRemoteGuid(guid);
+     gRemoteSnapshots.erase(sender);
+     lua_pushboolean(L, ok ? 1 : 0); lua_pushstring(L, ok ? "SYNC_REMOTE_RESTORED" : "SYNC_REMOTE_RESTORE_FAILED");
