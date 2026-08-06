@@ -59,7 +59,10 @@ jobs:
             patches/true8x8.patch.gz.b64.part00 \
             patches/true8x8.patch.gz.b64.part01 \
             patches/true8x8.patch.gz.b64.part02.00 \
-            patches/true8x8.patch.gz.b64.part02.01 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
             patches/true8x8.patch.gz.b64.part02.02 \
             patches/true8x8.patch.gz.b64.part02.03 \
             patches/true8x8.patch.gz.b64.part03 \
@@ -67,14 +70,20 @@ jobs:
             patches/true8x8.patch.gz.b64.part05 \
             patches/true8x8.patch.gz.b64.part06
           echo 'c280f48edd63f31cf43049fd0a207e1ff56ebf7b62f6889522c3dc51e86dd2ec  patches/true8x8.patch.gz.b64.part02.00' | sha256sum -c -
-          echo '57af033d914a5a7fa9e4eab59420da2a50ec39f3f603d8cf5c1e079e09668c26  patches/true8x8.patch.gz.b64.part02.01' | sha256sum -c -
+          echo 'f7287d6a9494b43709994e8545df6ba653b38755149166a5533802d999518901  patches/true8x8.patch.gz.b64.part02.01.00' | sha256sum -c -
+          echo '1ef46a7c911432f14a467a5cf4836dccc931cf0c56d3c13cefef3c71401562f3  patches/true8x8.patch.gz.b64.part02.01.01' | sha256sum -c -
+          echo '22cb31e73749b9c6cc89a6f6a7a44c1b5fa84067357d717e480cf76797096ee4  patches/true8x8.patch.gz.b64.part02.01.02' | sha256sum -c -
+          echo 'dfbe6ff74c3904a74eb436f6ca1e96469e3ec21395540c2f8faec4faa2fd84d3  patches/true8x8.patch.gz.b64.part02.01.03' | sha256sum -c -
           echo 'e3a3900e5a736d30e08d28f57af9e42f546d5be329ca0608da7a6366f1c95d42  patches/true8x8.patch.gz.b64.part02.02' | sha256sum -c -
           echo '4f276a20d1f0b82bf2ff563942a50a3d8cc88cd5f336aa6dd89c44d5fde69c33  patches/true8x8.patch.gz.b64.part02.03' | sha256sum -c -
           cat \
             patches/true8x8.patch.gz.b64.part00 \
             patches/true8x8.patch.gz.b64.part01 \
             patches/true8x8.patch.gz.b64.part02.00 \
-            patches/true8x8.patch.gz.b64.part02.01 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
             patches/true8x8.patch.gz.b64.part02.02 \
             patches/true8x8.patch.gz.b64.part02.03 \
             patches/true8x8.patch.gz.b64.part03 \
