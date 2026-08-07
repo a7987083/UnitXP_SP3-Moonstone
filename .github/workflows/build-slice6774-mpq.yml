@@ -1,4 +1,4 @@
-name: Inspect Turtle Shaman Earthquake Candidates
+name: Build Shaman Earthquake Exact 8018 Test
 
 on:
   push:
@@ -7,78 +7,68 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
-      - name: Scan Spell.dbc for Earthquake and Persistent Area Aura candidates
+      - name: Create Earthquake test patch
         working-directory: raid-visuals
         shell: bash
         run: |
-          python3 - <<'PY'
-          import struct
-          from pathlib import Path
-
-          def fields(path):
-              out=[]; started=False
-              for raw in Path(path).read_text(encoding='utf-8').splitlines():
-                  if raw.strip()=='fields:': started=True; continue
-                  if started and raw.startswith('  - '):
-                      out.append(raw.split('- ',1)[1].split('#',1)[0].strip())
-                  elif started and raw.strip() and not raw.strip().startswith('#') and not raw.startswith('  '):
-                      break
-              return out
-
-          def cstr(block, off):
-              if not off or off >= len(block): return ''
-              end=block.find(b'\0',off)
-              if end < 0: end=len(block)
-              return block[off:end].decode('utf-8','replace')
-
-          p=Path('dbc/Spell.dbc'); d=p.read_bytes()
-          magic,n,fc,rs,ss=struct.unpack_from('<4s4I',d,0); assert magic==b'WDBC'
-          fs=fields('schema/Spell.dbc.yaml'); idx={x:i for i,x in enumerate(fs)}
-          rows=[]
-          for i in range(n):
-              off=20+i*rs
-              rows.append(list(struct.unpack_from('<%dI'%(rs//4),d,off)))
-          strings=d[20+n*rs:20+n*rs+ss]
-
-          def name(r): return cstr(strings,r[idx['Name_lang_0']])
-          keys=['ID','SpellVisualID_1','DurationIndex','RangeIndex','Effect_1','Effect_2','Effect_3',
-                'EffectRadiusIndex_1','EffectRadiusIndex_2','EffectRadiusIndex_3',
-                'EffectAura_1','EffectAura_2','EffectAura_3',
-                'ImplicitTargetA_1','ImplicitTargetA_2','ImplicitTargetA_3',
-                'ImplicitTargetB_1','ImplicitTargetB_2','ImplicitTargetB_3',
-                'SpellClassSet','BaseLevel','SpellLevel']
-
-          print('=== Name contains Earthquake ===')
-          found=[]
-          for r in rows:
-              nm=name(r)
-              if 'earthquake' in nm.lower():
-                  found.append(r)
-                  print('NAME',nm)
-                  print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
-                  print()
-          print('Earthquake candidate count:',len(found))
-
-          print('=== Earthquake candidates having Effect 27 (PERSISTENT_AREA_AURA) ===')
-          for r in found:
-              eff=[r[idx[f'Effect_{i}']] for i in (1,2,3)]
-              if 27 in eff:
-                  print('NAME',name(r))
-                  print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
-                  print()
-
-          print('=== Reference boss 36834 ===')
-          r=next(r for r in rows if r[0]==36834)
-          print('NAME',name(r))
-          print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
-          print('=== Reference Far Sight 6196 ===')
-          r=next(r for r in rows if r[0]==6196)
-          print('NAME',name(r))
-          print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
-          PY
+          cat > earthquake-8018.yaml <<'EOF'
+          Spell.dbc:
+            - type: update
+              key: 48306
+              values:
+                SpellVisualID_1: 8018
+            - type: update
+              key: 48307
+              values:
+                SpellVisualID_1: 8018
+            - type: update
+              key: 48308
+              values:
+                SpellVisualID_1: 8018
+          EOF
+          cat > BUILD-INFO.txt <<'EOF'
+          Shaman Earthquake visual test
+          Patched spell IDs: 48306, 48307, 48308
+          Original visual: 7976
+          Test visual: 8018
+          8018: HasArea=1 AreaModel=4501 AreaKit=7027
+          4501: Spells\DirkOfTheBeast_Area_PreCast.mdx
+          These Earthquake ranks use Effect_2=27 (SPELL_EFFECT_PERSISTENT_AREA_AURA).
+          EOF
+      - name: Build MPQ
+        working-directory: raid-visuals
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p empty-includes
+          cargo build --release
+          ./target/release/wow_dbc_patcher build \
+            --patches earthquake-8018.yaml \
+            --includes-dir empty-includes \
+            --out-dir build-earthquake \
+            --mpq patch-P-Shaman-Earthquake-Exact8018.mpq
+          test -s patch-P-Shaman-Earthquake-Exact8018.mpq
+          file patch-P-Shaman-Earthquake-Exact8018.mpq
+          stat -c 'MPQ bytes: %s' patch-P-Shaman-Earthquake-Exact8018.mpq | tee -a BUILD-INFO.txt
+          sha256sum patch-P-Shaman-Earthquake-Exact8018.mpq | tee SHA256.txt
+      - name: Package artifact
+        working-directory: raid-visuals
+        shell: bash
+        run: |
+          mkdir -p artifact
+          cp patch-P-Shaman-Earthquake-Exact8018.mpq artifact/
+          cp earthquake-8018.yaml artifact/
+          cp BUILD-INFO.txt artifact/
+          cp SHA256.txt artifact/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Shaman-Earthquake-Exact8018-${{ github.run_number }}
+          path: raid-visuals/artifact/*
+          if-no-files-found: error
+          retention-days: 14
