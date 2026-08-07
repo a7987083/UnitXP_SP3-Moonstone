@@ -1,4 +1,4 @@
-name: Build Shaman Earthquake Exact 8018 Test
+name: Inspect DreamWeapon Native Client Calls
 
 on:
   push:
@@ -7,68 +7,51 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  inspect:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone twow-raid-visuals 1.4.18
-        run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
-      - name: Create Earthquake test patch
-        working-directory: raid-visuals
+      - name: Decode DreamWeapon v0.3.4 patch and inspect native calls
         shell: bash
         run: |
-          cat > earthquake-8018.yaml <<'EOF'
-          Spell.dbc:
-            - type: update
-              key: 48306
-              values:
-                SpellVisualID_1: 8018
-            - type: update
-              key: 48307
-              values:
-                SpellVisualID_1: 8018
-            - type: update
-              key: 48308
-              values:
-                SpellVisualID_1: 8018
-          EOF
-          cat > BUILD-INFO.txt <<'EOF'
-          Shaman Earthquake visual test
-          Patched spell IDs: 48306, 48307, 48308
-          Original visual: 7976
-          Test visual: 8018
-          8018: HasArea=1 AreaModel=4501 AreaKit=7027
-          4501: Spells\DirkOfTheBeast_Area_PreCast.mdx
-          These Earthquake ranks use Effect_2=27 (SPELL_EFFECT_PERSISTENT_AREA_AURA).
-          EOF
-      - name: Build MPQ
-        working-directory: raid-visuals
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p empty-includes
-          cargo build --release
-          ./target/release/wow_dbc_patcher build \
-            --patches earthquake-8018.yaml \
-            --includes-dir empty-includes \
-            --out-dir build-earthquake \
-            --mpq patch-P-Shaman-Earthquake-Exact8018.mpq
-          test -s patch-P-Shaman-Earthquake-Exact8018.mpq
-          file patch-P-Shaman-Earthquake-Exact8018.mpq
-          stat -c 'MPQ bytes: %s' patch-P-Shaman-Earthquake-Exact8018.mpq | tee -a BUILD-INFO.txt
-          sha256sum patch-P-Shaman-Earthquake-Exact8018.mpq | tee SHA256.txt
-      - name: Package artifact
-        working-directory: raid-visuals
-        shell: bash
-        run: |
-          mkdir -p artifact
-          cp patch-P-Shaman-Earthquake-Exact8018.mpq artifact/
-          cp earthquake-8018.yaml artifact/
-          cp BUILD-INFO.txt artifact/
-          cp SHA256.txt artifact/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Shaman-Earthquake-Exact8018-${{ github.run_number }}
-          path: raid-visuals/artifact/*
-          if-no-files-found: error
-          retention-days: 14
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, gzip, pathlib
+          src=pathlib.Path('slim/dreamweapon-v0.3.4-public-full-receiver/dw-v034.patch.gz.b64').read_text().strip()
+          raw=gzip.decompress(base64.b64decode(src))
+          pathlib.Path('/tmp/dreamweapon.patch').write_bytes(raw)
+          print('decoded bytes', len(raw))
+          PY
+          echo '=== Files touched ==='
+          grep '^diff --git ' /tmp/dreamweapon.patch || true
+          echo
+          echo '=== VanillaHelpers references ==='
+          grep -niE 'VanillaHelpers|VanillaHelper' /tmp/dreamweapon.patch || true
+          echo
+          echo '=== WoW addresses / native function typedefs ==='
+          grep -niE '0x[0-9A-Fa-f]{5,8}|reinterpret_cast|__thiscall|__cdecl|__stdcall|typedef.*\(.*\*' /tmp/dreamweapon.patch | head -n 300 || true
+          echo
+          echo '=== Model / display / attachment / weapon / mount / enchant symbols ==='
+          grep -niE 'Display|Model|Attachment|Weapon|Mount|Enchant|Native|Refresh|Disable|Enable|ItemVisual|Visual|CM2|M2|Scene' /tmp/dreamweapon.patch | head -n 500 || true
+          echo
+          echo '=== Added C/C++ function declarations and definitions ==='
+          grep -nE '^\+.*(bool|void|int|uint32_t|uintptr_t|DWORD|float|double|static|auto)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' /tmp/dreamweapon.patch | head -n 400 || true
+          echo
+          echo '=== Context around client-address lines ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines=Path('/tmp/dreamweapon.patch').read_text(errors='replace').splitlines()
+          hits=[]
+          for i,l in enumerate(lines):
+              if re.search(r'0x[0-9A-Fa-f]{5,8}|DisplayID|DisplayId|Attachment|Enchant|Mount|Weapon|Disable|Enable|nativeM2|CM2', l, re.I):
+                  hits.append(i)
+          shown=set()
+          for i in hits:
+              a=max(0,i-4); b=min(len(lines),i+5)
+              key=(a,b)
+              if key in shown: continue
+              shown.add(key)
+              print(f'--- lines {a+1}-{b} ---')
+              for j in range(a,b): print(f'{j+1}: {lines[j]}')
+          PY
