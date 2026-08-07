@@ -82,6 +82,10 @@ jobs:
           ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/SpellVisual.dbc --path 'DBFilesClient\SpellVisual.dbc' --overwrite
           ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/SpellVisualKit.dbc --path 'DBFilesClient\SpellVisualKit.dbc' --overwrite
 
+      - name: Compact updated MPQ
+        shell: bash
+        run: ./mpqcli compact patch-O-6774-test.mpq
+
       - name: Verify final MPQ
         shell: bash
         run: |
@@ -92,7 +96,7 @@ jobs:
       - name: Upload MPQ artifact
         uses: actions/upload-artifact@v4
         with:
-          name: patch-O-6774-test-exact-base
+          name: patch-O-6774-test-final
           path: patch-O-6774-test.mpq
           if-no-files-found: error
           retention-days: 3
