@@ -1,0 +1,237 @@
+name: Perotharn Area Visual Test v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/perotharn-area-visual-test-v1
+    paths:
+      - .github/workflows/build-perotharn-area-visual-test-v1.yml
+      - experiments/perotharn-area-visual-test-v1/**
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore DreamAvatar v0.3.4 merged source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8952638460/zip" \
+            -o base.zip
+          unzip -q base.zip -d base
+          echo '0adcf2630da415b33ab14eb5e92fc2bc9c41c0d5977981f598d0c4c06cc64e6a  base/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz' | sha256sum -c -
+          tar -xJf base/DreamAvatar-v0.3.4-Direct-System-Icons-Saved-History-Source.tar.xz
+          mv target-source target
+          grep -Fq '## Version: 0.3.4-direct-system-icons-saved-history-experimental' target/DreamAvatar/DreamAvatar.toc
+
+      - name: Apply current DreamWeapon v0.3.4 patch
+        run: |
+          set -euxo pipefail
+          cp slim/dreamweapon-v0.3.4-public-full-receiver/dw-v034.patch.gz.b64 .
+          echo 'b730f4e85281c137513160740fad0bc19e02d19b6364c60c3f7b9c65c1141ffd  dw-v034.patch.gz.b64' | sha256sum -c -
+          base64 -d dw-v034.patch.gz.b64 > dw-v034.patch.gz
+          gzip -dc dw-v034.patch.gz > dw-v034.patch
+          echo 'c097f8a759c28cc45bb11d12a366b8e1b8f8ce2c4ec8cee910009e4cdf1ef0e0  dw-v034.patch' | sha256sum -c -
+          git apply --check --directory=target dw-v034.patch
+          git apply --directory=target dw-v034.patch
+
+      - name: Inject Perotharn native AreaModel-equivalent test
+        run: |
+          set -euxo pipefail
+          cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp target/native/
+          cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h target/native/
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # dllmain: expose a deliberately explicit test API first. Once the
+          # visual is confirmed in-game, 6774 can be wired as an automatic trigger.
+          p = Path('target/native/dllmain.cpp')
+          s = p.read_text(encoding='utf-8-sig')
+          if '#include "dirkAreaTest.h"' not in s:
+              anchors = ['#include "nativeM2Test.h"', '#include "Vanilla1121_functions.h"']
+              for a in anchors:
+                  if a in s:
+                      s = s.replace(a, a + '\n#include "dirkAreaTest.h"', 1)
+                      break
+              else:
+                  raise SystemExit('could not find dllmain include anchor')
+
+          signature = 'int __fastcall detoured_UnitXP(void* L) {'
+          if signature not in s:
+              raise SystemExit('detoured_UnitXP signature not found')
+          if 'cmd == "dirkTest"' not in s:
+              block = r'''
+    // Peroth'arn Dirk of the Beast local visual test.
+    // This does not send packets or create a server DynamicObject.
+    if (lua_gettop(L) >= 2) {
+        std::string dirkCmd = lua_tostring(L, 1);
+        if (dirkCmd == "dirkTest") {
+            std::string subcmd = lua_tostring(L, 2);
+            bool ok = false;
+            if (subcmd == "pre") {
+                ok = dirkAreaTest::showPre();
+            }
+            else if (subcmd == "cast") {
+                ok = dirkAreaTest::showCast();
+            }
+            else if (subcmd == "full") {
+                float preDelay = 2.0f;
+                float castHold = 2.0f;
+                if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) {
+                    preDelay = static_cast<float>(lua_tonumber(L, 3));
+                }
+                if (lua_gettop(L) >= 4 && lua_isnumber(L, 4)) {
+                    castHold = static_cast<float>(lua_tonumber(L, 4));
+                }
+                ok = dirkAreaTest::showFull(preDelay, castHold);
+            }
+            else if (subcmd == "clear") {
+                dirkAreaTest::clear();
+                ok = true;
+            }
+            else if (subcmd == "status") {
+                ok = true;
+            }
+            lua_pushboolean(L, ok);
+            lua_pushstring(L, dirkAreaTest::statusText());
+            return 2;
+        }
+    }
+'''
+              s = s.replace(signature, signature + block, 1)
+          p.write_text(s, encoding='utf-8')
+
+          # scene callback: keep native CM2 instances alive on the game's main
+          # render thread; never call engine model methods from a worker thread.
+          p = Path('target/native/sceneBegin_sceneEnd.cpp')
+          s = p.read_text(encoding='utf-8-sig')
+          if '#include "dirkAreaTest.h"' not in s:
+              anchor = '#include "FPScap.h"'
+              if anchor not in s:
+                  raise SystemExit('scene include anchor not found')
+              s = s.replace(anchor, anchor + '\n#include "dirkAreaTest.h"', 1)
+          sig = 'void __fastcall detoured_sceneEnd(uint32_t CGxDevice, void* ignored) {'
+          if 'dirkAreaTest::update();' not in s:
+              if sig not in s:
+                  raise SystemExit('sceneEnd signature not found')
+              s = s.replace(sig, sig + '\n    dirkAreaTest::update();', 1)
+          leave = 'void scene_onPlayerLeavingWorld() {'
+          if 'dirkAreaTest::clear();\n    scene_inWorld = 0;' not in s:
+              if leave not in s:
+                  raise SystemExit('leave-world function not found')
+              s = s.replace(leave, leave + '\n    dirkAreaTest::clear();', 1)
+          p.write_text(s, encoding='utf-8')
+
+          # Makefile: final DreamAvatar/DreamWeapon source already builds
+          # nativeM2Test.cpp. Add this sibling module to the same generic rule.
+          p = Path('target/native/Makefile')
+          s = p.read_text(encoding='utf-8-sig')
+          if 'dirkAreaTest.cpp' not in s:
+              lines = s.splitlines(True)
+              insert_at = None
+              for i, line in enumerate(lines):
+                  if 'nativeM2Test.cpp' in line:
+                      insert_at = i + 1
+                      indent = line[:len(line)-len(line.lstrip())]
+                      break
+              if insert_at is None:
+                  for i, line in enumerate(lines):
+                      if 'dllmain.cpp' in line:
+                          insert_at = i + 1
+                          indent = line[:len(line)-len(line.lstrip())]
+                          break
+              if insert_at is None:
+                  raise SystemExit('Makefile source-list anchor not found')
+              lines.insert(insert_at, indent + 'dirkAreaTest.cpp \\\n')
+              s = ''.join(lines)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          grep -Fq '#include "dirkAreaTest.h"' target/native/dllmain.cpp
+          grep -Fq 'dirkCmd == "dirkTest"' target/native/dllmain.cpp
+          grep -Fq 'dirkAreaTest::update();' target/native/sceneBegin_sceneEnd.cpp
+          grep -Fq 'dirkAreaTest.cpp' target/native/Makefile
+          grep -Fq 'Spells\\DirkOfTheBeast_Area_PreCast.mdx' target/native/dirkAreaTest.cpp
+          grep -Fq 'Spells\\DirkOfTheBeast_Area_Cast.mdx' target/native/dirkAreaTest.cpp
+          grep -Fq 'kLineLengthYards = 100.0f' target/native/dirkAreaTest.cpp
+          grep -Fq 'kSetTransformAddress = 0x00710650' target/native/dirkAreaTest.cpp
+
+      - name: Install Windows x86 build toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          curl -L --fail --retry 3 https://github.com/Jake-Shadle/xwin/releases/download/0.9.0/xwin-0.9.0-x86_64-unknown-linux-musl.tar.gz -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 xwin-0.9.0-x86_64-unknown-linux-musl/xwin /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output shared-xwinSDK
+          curl -L --fail --retry 3 https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8 -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p shared-d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. shared-d3d9x_headers/
+
+      - name: Compile PE32 x86 DLL
+        run: |
+          set -euxo pipefail
+          rm -rf target/native/xwinSDK target/native/d3d9x_headers
+          ln -s "$GITHUB_WORKSPACE/shared-xwinSDK" target/native/xwinSDK
+          ln -s "$GITHUB_WORKSPACE/shared-d3d9x_headers" target/native/d3d9x_headers
+          sed -i 's|/DWIN32_LEAN_AND_MEAN|/DWIN32_LEAN_AND_MEAN /DNOMINMAX|' target/native/Makefile
+          make -C target/native clean
+          make -C target/native -j2
+          file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
+
+      - name: Package test build
+        run: |
+          set -euxo pipefail
+          mkdir -p artifact/source
+          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll
+          cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp artifact/source/
+          cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h artifact/source/
+          cat > artifact/README.txt <<'EOF'
+          Peroth'arn Area Visual Test v1
+
+          Base: DreamWeapon v0.3.4 Public Full Receiver / DreamAvatar v0.3.4 native model stack.
+          This is visual-only and local. It sends no packets and creates no server DynamicObject.
+
+          Test macros:
+          /run local ok,s=UnitXP("dirkTest","pre"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
+          /run local ok,s=UnitXP("dirkTest","cast"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
+          /run local ok,s=UnitXP("dirkTest","full",2.0,2.0); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
+          /run local ok,s=UnitXP("dirkTest","clear"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
+
+          pre  = DirkOfTheBeast_Area_PreCast.mdx at player position/facing.
+          cast = DirkOfTheBeast_Area_Cast.mdx at 100 yards forward, same facing.
+          full = pre, wait N seconds, cast at the saved 100-yard endpoint, hold M seconds, clear.
+
+          First verify pre direction, complete 100-yard shape, and cast endpoint. Automatic 6774 trigger is intentionally not enabled until visual placement is confirmed.
+          EOF
+          sha256sum artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll > artifact/SHA256.txt
+          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll >> artifact/SHA256.txt
+          cat DLL-FILE-TYPE.txt >> artifact/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UnitXP_SP3-Perotharn-Area-Test-v1-${{ github.run_number }}
+          path: artifact/**
+          if-no-files-found: error
+          retention-days: 14
