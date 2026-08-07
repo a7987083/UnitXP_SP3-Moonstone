@@ -1,4 +1,4 @@
-name: Build Far Sight 6196 AreaModel 4501 Test
+name: Build Far Sight Perotharn AreaVisual Comparison
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
 
-      - name: Inspect Far Sight and generate patch
+      - name: Inspect visuals and generate A/B patches
         working-directory: raid-visuals
         shell: bash
         run: |
@@ -28,8 +28,7 @@ jobs:
               out=[]; started=False
               for raw in Path(path).read_text(encoding='utf-8').splitlines():
                   if raw.strip() == 'fields:':
-                      started=True
-                      continue
+                      started=True; continue
                   if started and raw.startswith('  - '):
                       out.append(raw.split('- ',1)[1].split('#',1)[0].strip())
                   elif started and raw.strip() and not raw.strip().startswith('#') and not raw.startswith('  '):
@@ -41,7 +40,6 @@ jobs:
               data=Path(path).read_bytes()
               magic,n,fc,rs,ss=struct.unpack_from('<4s4I', data, 0)
               assert magic == b'WDBC'
-              assert rs % 4 == 0
               rows=[]
               for i in range(n):
                   off=20+i*rs
@@ -53,42 +51,38 @@ jobs:
           sidx={n:i for i,n in enumerate(sf)}
           vidx={n:i for i,n in enumerate(vf)}
 
-          spell_id=6196
-          if spell_id not in smap:
-              raise SystemExit('Spell 6196 not found in source DBC')
-          sr=smap[spell_id]
-          visual=sr[sidx['SpellVisualID_1']]
-          print('=== Far Sight Spell 6196 ===')
-          for name in ('SpellVisualID_1','SpellVisualID_2','DurationIndex','RangeIndex','Speed'):
-              if name in sidx:
-                  raw=sr[sidx[name]]
-                  flt=struct.unpack('<f',struct.pack('<I',raw))[0]
-                  print(f'{name}={raw} raw=0x{raw:08X} float={flt!r}')
-          print(f'Original SpellVisualID_1={visual}')
-          if visual == 0 or visual not in vmap:
-              raise SystemExit(f'Far Sight visual {visual} missing')
-          vr=vmap[visual]
-          print(f'=== SpellVisual {visual} ===')
-          for name in vf:
-              i=vidx[name]
-              if vr[i] != 0:
-                  print(f'{name}={vr[i]}')
+          farsight=smap[6196]
+          orig=farsight[sidx['SpellVisualID_1']]
+          boss=8018
+          assert orig in vmap and boss in vmap
+          print('Far Sight original visual:', orig)
+          print('Boss 36834 visual:', boss)
+          print('Far Sight area block:', {k:vmap[orig][vidx[k]] for k in ('HasArea','AreaModel','AreaKit')})
+          print('Boss area block:', {k:vmap[boss][vidx[k]] for k in ('HasArea','AreaModel','AreaKit')})
 
-          # Pick a guaranteed-unused ID above the current table maximum.
           new_visual=max(vmap)+1
           while new_visual in vmap:
               new_visual += 1
-          print(f'New test SpellVisual ID={new_visual}')
 
-          patch=f'''SpellVisual.dbc:\n  - type: copy\n    key: {visual}\n    values:\n      ID: {new_visual}\n      HasArea: 1\n      AreaModel: 4501\n\nSpell.dbc:\n  - type: update\n    key: 6196\n    values:\n      SpellVisualID_1: {new_visual}\n'''
-          Path('far-sight-6196-area4501.yaml').write_text(patch, encoding='utf-8')
-          Path('BUILD-INFO.txt').write_text(
-              f'Far Sight SpellID: 6196\nOriginal SpellVisualID_1: {visual}\nNew SpellVisualID_1: {new_visual}\nHasArea: 1\nAreaModel: 4501\nArea model path (from original DBC): Spells\\DirkOfTheBeast_Area_PreCast.mdx\n',
-              encoding='utf-8')
-          print(patch)
+          patch_a='''Spell.dbc:\n  - type: update\n    key: 6196\n    values:\n      SpellVisualID_1: 8018\n'''
+          Path('far-sight-A-exact-8018.yaml').write_text(patch_a, encoding='utf-8')
+
+          patch_b=f'''SpellVisual.dbc:\n  - type: copy\n    key: {orig}\n    values:\n      ID: {new_visual}\n      HasArea: 1\n      AreaModel: 4501\n      AreaKit: 7027\n\nSpell.dbc:\n  - type: update\n    key: 6196\n    values:\n      SpellVisualID_1: {new_visual}\n'''
+          Path('far-sight-B-area4501-kit7027.yaml').write_text(patch_b, encoding='utf-8')
+
+          info=(
+              f'Far Sight SpellID: 6196\n'
+              f'Original Visual: {orig}\n'
+              f'A: exact Boss SpellVisual 8018\n'
+              f'B: Far Sight visual copy {new_visual}, AreaModel 4501, AreaKit 7027\n'
+              f'Boss model: Spells\\DirkOfTheBeast_Area_PreCast.mdx\n'
+          )
+          Path('BUILD-INFO.txt').write_text(info, encoding='utf-8')
+          print(patch_a)
+          print(patch_b)
           PY
 
-      - name: Build patch-P MPQ with only Far Sight DBC patch
+      - name: Build A and B MPQs
         working-directory: raid-visuals
         shell: bash
         run: |
@@ -96,14 +90,21 @@ jobs:
           mkdir -p empty-includes
           cargo build --release
           ./target/release/wow_dbc_patcher build \
-            --patches far-sight-6196-area4501.yaml \
+            --patches far-sight-A-exact-8018.yaml \
             --includes-dir empty-includes \
-            --out-dir build-farsight \
-            --mpq patch-P-FarSight-6196-Area4501.mpq
-          test -s patch-P-FarSight-6196-Area4501.mpq
-          file patch-P-FarSight-6196-Area4501.mpq || true
-          stat -c 'MPQ bytes: %s' patch-P-FarSight-6196-Area4501.mpq | tee -a BUILD-INFO.txt
-          sha256sum patch-P-FarSight-6196-Area4501.mpq | tee SHA256.txt
+            --out-dir build-A \
+            --mpq patch-P-FarSight-A-Exact8018.mpq
+          ./target/release/wow_dbc_patcher build \
+            --patches far-sight-B-area4501-kit7027.yaml \
+            --includes-dir empty-includes \
+            --out-dir build-B \
+            --mpq patch-P-FarSight-B-Area4501-Kit7027.mpq
+          test -s patch-P-FarSight-A-Exact8018.mpq
+          test -s patch-P-FarSight-B-Area4501-Kit7027.mpq
+          file patch-P-FarSight-A-Exact8018.mpq || true
+          file patch-P-FarSight-B-Area4501-Kit7027.mpq || true
+          sha256sum patch-P-FarSight-A-Exact8018.mpq patch-P-FarSight-B-Area4501-Kit7027.mpq | tee SHA256.txt
+          stat -c '%n %s bytes' patch-P-FarSight-A-Exact8018.mpq patch-P-FarSight-B-Area4501-Kit7027.mpq | tee -a BUILD-INFO.txt
 
       - name: Package artifact
         working-directory: raid-visuals
@@ -111,14 +112,16 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p artifact
-          cp patch-P-FarSight-6196-Area4501.mpq artifact/
-          cp far-sight-6196-area4501.yaml artifact/
+          cp patch-P-FarSight-A-Exact8018.mpq artifact/
+          cp patch-P-FarSight-B-Area4501-Kit7027.mpq artifact/
+          cp far-sight-A-exact-8018.yaml artifact/
+          cp far-sight-B-area4501-kit7027.yaml artifact/
           cp BUILD-INFO.txt artifact/
           cp SHA256.txt artifact/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FarSight-6196-Area4501-Test-${{ github.run_number }}
+          name: FarSight-Perotharn-AreaVisual-AB-${{ github.run_number }}
           path: raid-visuals/artifact/*
           if-no-files-found: error
           retention-days: 14
