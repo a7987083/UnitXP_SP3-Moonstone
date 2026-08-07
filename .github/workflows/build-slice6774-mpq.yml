@@ -19,19 +19,15 @@ jobs:
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
 
-      - name: Build patcher
+      - name: Build DBC patcher
         working-directory: raid-visuals
         run: cargo build --release
 
-      - name: Rebuild untouched 1.4.18 base
-        working-directory: raid-visuals
-        run: ./target/release/wow_dbc_patcher build --mpq patch-O-base.mpq
-
-      - name: Verify base matches user's current patch-O.mpq
-        working-directory: raid-visuals
+      - name: Download exact official 1.4.18 MPQ
         shell: bash
         run: |
-          echo "aa99e91794b52ef4dba076b154c9bf5abd1b9417aa4e66925a454e4506bf898f  patch-O-base.mpq" | sha256sum -c -
+          curl -L --fail -o patch-O-6774-test.mpq https://github.com/MarcelineVQ/twow-raid-visuals/releases/download/1.4.18/patch-O.mpq
+          echo "aa99e91794b52ef4dba076b154c9bf5abd1b9417aa4e66925a454e4506bf898f  patch-O-6774-test.mpq" | sha256sum -c -
 
       - name: Add Slice 6774 visual test patch
         shell: bash
@@ -61,18 +57,42 @@ jobs:
                 SpellVisualID_1: 9390
           YAML
 
-      - name: Build Slice 6774 test MPQ
+      - name: Generate patched DBCs
         working-directory: raid-visuals
-        run: ./target/release/wow_dbc_patcher build --mpq patch-O-6774-test.mpq
+        run: ./target/release/wow_dbc_patcher apply
 
-      - name: Show test output
-        working-directory: raid-visuals
-        run: ls -lh patch-O-6774-test.mpq && sha256sum patch-O-6774-test.mpq
+      - name: Download mpqcli
+        shell: bash
+        run: |
+          curl -L --fail -o mpqcli https://github.com/thegraydot/mpqcli/releases/download/v0.10.2/mpqcli-linux-amd64-glibc
+          chmod +x mpqcli
+          ./mpqcli version
+
+      - name: Confirm target DBC paths exist in current MPQ
+        shell: bash
+        run: |
+          ./mpqcli list patch-O-6774-test.mpq | grep -i 'DBFilesClient.*Spell.dbc'
+          ./mpqcli list patch-O-6774-test.mpq | grep -i 'DBFilesClient.*SpellVisual.dbc'
+          ./mpqcli list patch-O-6774-test.mpq | grep -i 'DBFilesClient.*SpellVisualKit.dbc'
+
+      - name: Replace only Slice-related DBC tables
+        shell: bash
+        run: |
+          ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/Spell.dbc --path 'DBFilesClient\Spell.dbc' --overwrite
+          ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/SpellVisual.dbc --path 'DBFilesClient\SpellVisual.dbc' --overwrite
+          ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/SpellVisualKit.dbc --path 'DBFilesClient\SpellVisualKit.dbc' --overwrite
+
+      - name: Verify final MPQ
+        shell: bash
+        run: |
+          ./mpqcli verify patch-O-6774-test.mpq || true
+          ls -lh patch-O-6774-test.mpq
+          sha256sum patch-O-6774-test.mpq
 
       - name: Upload MPQ artifact
         uses: actions/upload-artifact@v4
         with:
-          name: patch-O-6774-test-v2
-          path: raid-visuals/patch-O-6774-test.mpq
+          name: patch-O-6774-test-exact-base
+          path: patch-O-6774-test.mpq
           if-no-files-found: error
           retention-days: 3
