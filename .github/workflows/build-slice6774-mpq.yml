@@ -1,4 +1,4 @@
-name: Inspect DreamWeapon Native Client Calls
+name: Inspect DreamAvatar Native Model Layers
 
 on:
   push:
@@ -11,51 +11,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Decode DreamWeapon v0.3.4 patch and inspect native calls
+      - name: Decode native model patches
         shell: bash
         run: |
           set -euo pipefail
           git fetch --depth=1 origin agent/dreamweapon-v0.3.4-public-full-receiver
-          git show FETCH_HEAD:slim/dreamweapon-v0.3.4-public-full-receiver/dw-v034.patch.gz.b64 > /tmp/dw-v034.patch.gz.b64
+          git show FETCH_HEAD:slim/dreamavatar-v0.2-native-model-rebuild/native-model-rebuild.patch.gz.b64 > /tmp/v02.b64
+          git show FETCH_HEAD:slim/dreamavatar-v0.3.2-npc-weapons-mount-history/v032.patch.gz.b64 > /tmp/v032.b64
           python3 - <<'PY'
-          import base64, gzip, pathlib
-          src=pathlib.Path('/tmp/dw-v034.patch.gz.b64').read_text().strip()
-          raw=gzip.decompress(base64.b64decode(src))
-          pathlib.Path('/tmp/dreamweapon.patch').write_bytes(raw)
-          print('decoded bytes', len(raw))
+          import base64,gzip,pathlib
+          for src,dst in [('/tmp/v02.b64','/tmp/v02.patch'),('/tmp/v032.b64','/tmp/v032.patch')]:
+              raw=gzip.decompress(base64.b64decode(pathlib.Path(src).read_text().strip()))
+              pathlib.Path(dst).write_bytes(raw)
+              print(dst, len(raw), 'bytes')
           PY
-          echo '=== Files touched ==='
-          grep '^diff --git ' /tmp/dreamweapon.patch || true
-          echo
-          echo '=== VanillaHelpers references ==='
-          grep -niE 'VanillaHelpers|VanillaHelper' /tmp/dreamweapon.patch || true
-          echo
-          echo '=== WoW addresses / native function typedefs ==='
-          grep -niE '0x[0-9A-Fa-f]{5,8}|reinterpret_cast|__thiscall|__cdecl|__stdcall|typedef.*\(.*\*' /tmp/dreamweapon.patch | head -n 400 || true
-          echo
-          echo '=== Model / display / attachment / weapon / mount / enchant symbols ==='
-          grep -niE 'Display|Model|Attachment|Weapon|Mount|Enchant|Native|Refresh|Disable|Enable|ItemVisual|Visual|CM2|M2|Scene' /tmp/dreamweapon.patch | head -n 700 || true
-          echo
-          echo '=== Added C/C++ function declarations and definitions ==='
-          grep -nE '^\+.*(bool|void|int|uint32_t|uintptr_t|DWORD|float|double|static|auto)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' /tmp/dreamweapon.patch | head -n 500 || true
-          echo
-          echo '=== Context around relevant lines ==='
           python3 - <<'PY'
           from pathlib import Path
           import re
-          lines=Path('/tmp/dreamweapon.patch').read_text(errors='replace').splitlines()
-          hits=[]
-          pat=re.compile(r'0x[0-9A-Fa-f]{5,8}|DisplayID|DisplayId|Attachment|Enchant|Mount|Weapon|Disable|Enable|nativeM2|CM2|SetDisplay|Rebuild|Refresh', re.I)
-          for i,l in enumerate(lines):
-              if pat.search(l): hits.append(i)
-          merged=[]
-          for i in hits:
-              a=max(0,i-5); b=min(len(lines),i+6)
-              if merged and a <= merged[-1][1]+2:
-                  merged[-1]=(merged[-1][0],max(merged[-1][1],b))
-              else:
-                  merged.append((a,b))
-          for a,b in merged:
-              print(f'--- lines {a+1}-{b} ---')
-              for j in range(a,b): print(f'{j+1}: {lines[j]}')
+          for path in ['/tmp/v02.patch','/tmp/v032.patch']:
+              lines=Path(path).read_text(errors='replace').splitlines()
+              print('\n================',path,'================')
+              for l in lines:
+                  if l.startswith('diff --git '): print(l)
+              print('\n=== Native/C++ added code matching model internals ===')
+              pat=re.compile(r'0x[0-9A-Fa-f]{5,8}|Display|Model|Weapon|Mount|Enchant|Glow|Attachment|Disable|Enable|Rebuild|Refresh|Item|Object|Guid|Native|CM2|M2|Scene|Update|Set',re.I)
+              # Print merged context windows only for added/native lines.
+              hits=[]
+              in_native=False
+              for i,l in enumerate(lines):
+                  if l.startswith('diff --git '): in_native=('native/' in l or 'dllmain.cpp' in l or '.h ' in l)
+                  if in_native and l.startswith('+') and not l.startswith('+++') and pat.search(l): hits.append(i)
+              merged=[]
+              for i in hits:
+                  a=max(0,i-8); b=min(len(lines),i+12)
+                  if merged and a <= merged[-1][1]+3: merged[-1]=(merged[-1][0],max(merged[-1][1],b))
+                  else: merged.append((a,b))
+              for a,b in merged:
+                  print(f'--- {a+1}-{b} ---')
+                  for j in range(a,b): print(f'{j+1}: {lines[j]}')
+              print('\n=== All added native function signatures ===')
+              in_native=False
+              for i,l in enumerate(lines):
+                  if l.startswith('diff --git '): in_native=('native/' in l or 'dllmain.cpp' in l or '.h ' in l)
+                  if in_native and l.startswith('+') and re.search(r'\b(bool|void|int|uint32_t|uintptr_t|DWORD|float|double|std::|static|inline|auto)\b.*\(',l):
+                      print(f'{i+1}: {l}')
           PY
