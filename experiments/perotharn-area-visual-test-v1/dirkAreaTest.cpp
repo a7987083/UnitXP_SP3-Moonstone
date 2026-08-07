@@ -1,23 +1,16 @@
 #define _USE_MATH_DEFINES
-
 #include "dirkAreaTest.h"
-
 #include <Windows.h>
-
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <sstream>
 #include <string>
-
 #include "Vanilla1121_functions.h"
 
 namespace dirkAreaTest {
 namespace {
 
-// WoW 1.12.1 (5875) CM2/M2Scene entry points already exercised by the
-// repository's native M2 work. This module intentionally stays in the native
-// client world-model lane: it does not create a network DynamicObject.
 constexpr std::uintptr_t kWorldM2ContextPointerAddress = 0x00C7B298;
 constexpr std::uintptr_t kCreateModelAddress = 0x00707350;
 constexpr std::uintptr_t kReleaseModelAddress = 0x007103A0;
@@ -28,7 +21,6 @@ constexpr std::uintptr_t kSetActiveTimestampAddress = 0x00710C50;
 constexpr std::uintptr_t kSetAlphaAddress = 0x00710CB0;
 constexpr std::uintptr_t kSetColorAddress = 0x00710CF0;
 constexpr std::uintptr_t kSetSequenceAddress = 0x007121A0;
-
 constexpr const char* kPreModelPath = "Spells\\DirkOfTheBeast_Area_PreCast.mdx";
 constexpr const char* kCastModelPath = "Spells\\DirkOfTheBeast_Area_Cast.mdx";
 constexpr float kLineLengthYards = 100.0f;
@@ -51,12 +43,7 @@ struct AreaSlot {
     bool renderReady = false;
 };
 
-enum class FullPhase {
-    idle,
-    pre,
-    cast,
-};
-
+enum class FullPhase { idle, pre, cast };
 AreaSlot gPre = {};
 AreaSlot gCast = {};
 void* gContext = nullptr;
@@ -67,11 +54,8 @@ DWORD gCastHoldMs = 2000;
 C3Vector gOrigin = {};
 float gFacing = 0.0f;
 std::string gLastStage = "not_started";
-unsigned long gCreateCalls = 0;
-unsigned long gCreateSuccesses = 0;
-unsigned long gReleaseCalls = 0;
-unsigned long gReattachCalls = 0;
-unsigned long gContextDrops = 0;
+unsigned long gCreateCalls = 0, gCreateSuccesses = 0, gReleaseCalls = 0;
+unsigned long gReattachCalls = 0, gContextDrops = 0;
 
 template <typename T>
 T readField(void* object, std::size_t offset) {
@@ -79,11 +63,9 @@ T readField(void* object, std::size_t offset) {
 }
 
 void* currentContext() {
-    void* context = *reinterpret_cast<void**>(kWorldM2ContextPointerAddress);
-    if (context == nullptr || (reinterpret_cast<std::uintptr_t>(context) & 1u) != 0u) {
-        return nullptr;
-    }
-    return context;
+    void* p = *reinterpret_cast<void**>(kWorldM2ContextPointerAddress);
+    if (p == nullptr || (reinterpret_cast<std::uintptr_t>(p) & 1u) != 0u) return nullptr;
+    return p;
 }
 
 void dropStaleSlots() {
@@ -96,20 +78,20 @@ void dropStaleSlots() {
 }
 
 void releaseSlot(AreaSlot& slot) {
-    if (slot.model == nullptr) {
+    if (slot.model == nullptr) { slot = {}; return; }
+    void* live = currentContext();
+    // Never dereference a model owned by an old scene. Loading screens can free
+    // the whole scene before our next callback.
+    if (live == nullptr || live != gContext) {
         slot = {};
+        ++gContextDrops;
         return;
     }
-
-    void* live = currentContext();
     void* owner = readField<void*>(slot.model, 0x2C);
-    if (live != nullptr && live == gContext && owner == gContext) {
+    if (owner == gContext) {
         reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot.model, 0);
         reinterpret_cast<ReleaseModelProc>(kReleaseModelAddress)(slot.model);
         ++gReleaseCalls;
-    }
-    else {
-        ++gContextDrops;
     }
     slot = {};
 }
@@ -120,84 +102,54 @@ void releaseAll() {
     gFullPhase = FullPhase::idle;
 }
 
-bool validPose(const C3Vector& p, float facing) {
-    return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)
-        && std::isfinite(facing);
+bool validPose(const C3Vector& p, float f) {
+    return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && std::isfinite(f);
 }
 
-bool playerPose(C3Vector& position, float& facing) {
-    const std::uint64_t playerGuid = vanilla1121_unitGUID("player");
-    const std::uint32_t player = vanilla1121_getVisiableObject(playerGuid);
-    if (player == 0 || (player & 1u) != 0u) {
-        gLastStage = "player_not_visible";
-        return false;
-    }
-
-    position = vanilla1121_unitPosition(player);
-    facing = vanilla1121_unitFacing(player);
-    if (!validPose(position, facing)) {
-        gLastStage = "invalid_player_pose";
-        return false;
-    }
+bool playerPose(C3Vector& p, float& f) {
+    const std::uint64_t guid = vanilla1121_unitGUID("player");
+    const std::uint32_t player = vanilla1121_getVisiableObject(guid);
+    if (player == 0 || (player & 1u) != 0u) { gLastStage = "player_not_visible"; return false; }
+    p = vanilla1121_unitPosition(player);
+    f = vanilla1121_unitFacing(player);
+    if (!validPose(p, f)) { gLastStage = "invalid_player_pose"; return false; }
     return true;
 }
 
-C3Vector endpoint(const C3Vector& origin, float facing) {
-    C3Vector out = origin;
-    out.x += std::cos(facing) * kLineLengthYards;
-    out.y += std::sin(facing) * kLineLengthYards;
+C3Vector endpoint(const C3Vector& p, float f) {
+    C3Vector out = p;
+    out.x += std::cos(f) * kLineLengthYards;
+    out.y += std::sin(f) * kLineLengthYards;
     return out;
 }
 
 void applyTransform(AreaSlot& slot) {
-    if (slot.model == nullptr) {
-        return;
-    }
+    if (!slot.model) return;
     const C3Vector up = {0.0f, 0.0f, 1.0f};
     const C3Vector scale = {1.0f, 1.0f, 1.0f};
-    reinterpret_cast<SetTransformProc>(kSetTransformAddress)(
-        slot.model, &slot.position, slot.facing, &up, &scale);
+    reinterpret_cast<SetTransformProc>(kSetTransformAddress)(slot.model, &slot.position, slot.facing, &up, &scale);
 }
 
 void armSequence(AreaSlot& slot) {
-    if (slot.model == nullptr) {
-        return;
-    }
-    reinterpret_cast<SetSequenceProc>(kSetSequenceAddress)(
-        slot.model, -1, 0, -1, 0, 1.0f, 1, 1);
+    if (!slot.model) return;
+    reinterpret_cast<SetSequenceProc>(kSetSequenceAddress)(slot.model, -1, 0, -1, 0, 1.0f, 1, 1);
 }
 
-bool createSlot(AreaSlot& slot, const char* path, const C3Vector& position, float facing) {
-    if (path == nullptr || !validPose(position, facing)) {
-        gLastStage = "invalid_spawn_request";
-        return false;
-    }
-
+bool createSlot(AreaSlot& slot, const char* path, const C3Vector& p, float f) {
+    if (!path || !validPose(p, f)) { gLastStage = "invalid_spawn_request"; return false; }
     void* live = currentContext();
-    if (live == nullptr) {
-        gLastStage = "no_world_m2_context";
-        return false;
-    }
-
-    if (gContext != nullptr && gContext != live) {
-        dropStaleSlots();
-    }
+    if (!live) { gLastStage = "no_world_m2_context"; return false; }
+    if (gContext && gContext != live) dropStaleSlots();
     gContext = live;
-
     releaseSlot(slot);
-    slot.position = position;
-    slot.facing = facing;
+    slot.position = p;
+    slot.facing = f;
     slot.path = path;
 
     ++gCreateCalls;
     slot.model = reinterpret_cast<CreateModelProc>(kCreateModelAddress)(gContext, path, 0);
-    if (slot.model == nullptr) {
-        slot = {};
-        gLastStage = "create_model_failed";
-        return false;
-    }
+    if (!slot.model) { slot = {}; gLastStage = "create_model_failed"; return false; }
     ++gCreateSuccesses;
-
     if (readField<void*>(slot.model, 0x2C) != gContext) {
         gLastStage = "model_context_mismatch";
         releaseSlot(slot);
@@ -209,52 +161,35 @@ bool createSlot(AreaSlot& slot, const char* path, const C3Vector& position, floa
     reinterpret_cast<SetAlphaProc>(kSetAlphaAddress)(slot.model, 1.0f);
     reinterpret_cast<SetColorProc>(kSetColorAddress)(slot.model, &white);
     armSequence(slot);
-
     reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot.model, 1);
     reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot.model, 1);
     slot.active = true;
-
     if (readField<void*>(slot.model, 0x44) == nullptr) {
         gLastStage = "render_list_link_missing";
         releaseSlot(slot);
         return false;
     }
-
-    slot.renderReady = reinterpret_cast<EnsureRenderReadyProc>(kEnsureRenderReadyAddress)(
-        slot.model, 1, 1) != 0;
+    slot.renderReady = reinterpret_cast<EnsureRenderReadyProc>(kEnsureRenderReadyAddress)(slot.model, 1, 1) != 0;
     gLastStage = slot.renderReady ? "active_ready" : "active_waiting_resources";
     return true;
 }
 
 void updateSlot(AreaSlot& slot) {
-    if (!slot.active || slot.model == nullptr) {
-        return;
-    }
-
+    if (!slot.active || !slot.model) return;
     applyTransform(slot);
     reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot.model, 1);
-
-    // AreaModel visuals are persistent while their DynamicObject exists. If the
-    // authored sequence unlinks itself, reattach and restart the same sequence.
     if (readField<void*>(slot.model, 0x44) == nullptr) {
         ++gReattachCalls;
         reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot.model, 1);
         armSequence(slot);
     }
-
-    if (!slot.renderReady) {
-        slot.renderReady = reinterpret_cast<EnsureRenderReadyProc>(kEnsureRenderReadyAddress)(
-            slot.model, 0, 1) != 0;
-    }
+    if (!slot.renderReady)
+        slot.renderReady = reinterpret_cast<EnsureRenderReadyProc>(kEnsureRenderReadyAddress)(slot.model, 0, 1) != 0;
 }
 
 DWORD secondsToMs(float seconds, DWORD fallback) {
-    if (!std::isfinite(seconds) || seconds <= 0.0f) {
-        return fallback;
-    }
-    if (seconds > 30.0f) {
-        seconds = 30.0f;
-    }
+    if (!std::isfinite(seconds) || seconds <= 0.0f) return fallback;
+    if (seconds > 30.0f) seconds = 30.0f;
     return static_cast<DWORD>(seconds * 1000.0f + 0.5f);
 }
 
@@ -262,70 +197,42 @@ DWORD secondsToMs(float seconds, DWORD fallback) {
 
 bool showPre() {
     releaseAll();
-    C3Vector p = {};
-    float facing = 0.0f;
-    if (!playerPose(p, facing)) {
-        return false;
-    }
-    gOrigin = p;
-    gFacing = facing;
-    gFullPhase = FullPhase::idle;
-    return createSlot(gPre, kPreModelPath, p, facing);
+    C3Vector p = {}; float f = 0.0f;
+    if (!playerPose(p, f)) return false;
+    gOrigin = p; gFacing = f; gFullPhase = FullPhase::idle;
+    return createSlot(gPre, kPreModelPath, p, f);
 }
 
 bool showCast() {
     releaseAll();
-    C3Vector p = {};
-    float facing = 0.0f;
-    if (!playerPose(p, facing)) {
-        return false;
-    }
-    gOrigin = p;
-    gFacing = facing;
-    gFullPhase = FullPhase::idle;
-    return createSlot(gCast, kCastModelPath, endpoint(p, facing), facing);
+    C3Vector p = {}; float f = 0.0f;
+    if (!playerPose(p, f)) return false;
+    gOrigin = p; gFacing = f; gFullPhase = FullPhase::idle;
+    return createSlot(gCast, kCastModelPath, endpoint(p, f), f);
 }
 
 bool showFull(float preDelaySeconds, float castHoldSeconds) {
     releaseAll();
-    C3Vector p = {};
-    float facing = 0.0f;
-    if (!playerPose(p, facing)) {
-        return false;
-    }
-
-    gOrigin = p;
-    gFacing = facing;
+    C3Vector p = {}; float f = 0.0f;
+    if (!playerPose(p, f)) return false;
+    gOrigin = p; gFacing = f;
     gPreDelayMs = secondsToMs(preDelaySeconds, 2000);
     gCastHoldMs = secondsToMs(castHoldSeconds, 2000);
-    if (!createSlot(gPre, kPreModelPath, gOrigin, gFacing)) {
-        gFullPhase = FullPhase::idle;
-        return false;
-    }
+    if (!createSlot(gPre, kPreModelPath, gOrigin, gFacing)) return false;
     gFullPhase = FullPhase::pre;
     gPhaseStartMs = GetTickCount();
     gLastStage = "full_pre";
     return true;
 }
 
-void clear() {
-    releaseAll();
-    gLastStage = "cleared";
-}
+void clear() { releaseAll(); gLastStage = "cleared"; }
 
 void update() {
     void* live = currentContext();
-    if (gContext != nullptr && live != gContext) {
-        dropStaleSlots();
-        return;
-    }
-
+    if (gContext && live != gContext) { dropStaleSlots(); return; }
     updateSlot(gPre);
     updateSlot(gCast);
-
-    if (gFullPhase == FullPhase::idle) {
-        return;
-    }
+    if (gFullPhase == FullPhase::idle) return;
 
     const DWORD now = GetTickCount();
     const DWORD elapsed = now - gPhaseStartMs;
@@ -335,12 +242,8 @@ void update() {
             gFullPhase = FullPhase::cast;
             gPhaseStartMs = now;
             gLastStage = "full_cast";
-        }
-        else {
-            gFullPhase = FullPhase::idle;
-        }
-    }
-    else if (gFullPhase == FullPhase::cast && elapsed >= gCastHoldMs) {
+        } else gFullPhase = FullPhase::idle;
+    } else if (gFullPhase == FullPhase::cast && elapsed >= gCastHoldMs) {
         releaseSlot(gCast);
         gFullPhase = FullPhase::idle;
         gLastStage = "full_complete";
@@ -352,17 +255,14 @@ std::string statusText() {
     ss << "stage=" << gLastStage
        << " context=0x" << std::hex << reinterpret_cast<std::uintptr_t>(currentContext())
        << " pre=0x" << reinterpret_cast<std::uintptr_t>(gPre.model)
-       << " cast=0x" << reinterpret_cast<std::uintptr_t>(gCast.model)
-       << std::dec
+       << " cast=0x" << reinterpret_cast<std::uintptr_t>(gCast.model) << std::dec
        << " preReady=" << (gPre.renderReady ? 1 : 0)
        << " castReady=" << (gCast.renderReady ? 1 : 0)
        << " creates=" << gCreateSuccesses << "/" << gCreateCalls
-       << " releases=" << gReleaseCalls
-       << " reattach=" << gReattachCalls
+       << " releases=" << gReleaseCalls << " reattach=" << gReattachCalls
        << " staleDrops=" << gContextDrops
        << " origin=(" << gOrigin.x << "," << gOrigin.y << "," << gOrigin.z << ")"
-       << " facing=" << gFacing
-       << " length=" << kLineLengthYards;
+       << " facing=" << gFacing << " length=" << kLineLengthYards;
     return ss.str();
 }
 
