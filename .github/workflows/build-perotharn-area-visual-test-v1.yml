@@ -1,10 +1,10 @@
-name: Perotharn Native Reverse Dump v1
+name: Perotharn Native Reverse Dump v2
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - agent/perotharn-native-reverse-dump-v1
+      - agent/perotharn-native-reverse-dump-v2
     paths:
       - .github/workflows/build-perotharn-area-visual-test-v1.yml
       - experiments/perotharn-area-visual-test-v1/**
@@ -92,33 +92,28 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p artifact/source
-          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-Dump-v1.dll
-          cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp artifact/source/
-          cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h artifact/source/
+          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-Dump-v2.dll
           cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.cpp artifact/source/
           cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.h artifact/source/
           cp experiments/perotharn-area-visual-test-v1/integrate.py artifact/source/
           printf '%s\n' \
-            'Perotharn Native Reverse Dump v1' \
+            'Perotharn Native Reverse Dump v2' \
             '' \
-            'Base: DreamWeapon v0.3.4 Public Full Receiver / DreamAvatar v0.3.4 native model stack.' \
-            'The dump command is READ ONLY: no function hook, no patch, no call into the inspected visual functions.' \
+            'READ ONLY diagnostic. It follows existing rel32 JMP detours at 0x5D55C0 and 0x5D57C0.' \
             '' \
             'Run in game:' \
             '/run local ok,s,p=UnitXP("dirkDump"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s).." "..tostring(p))' \
             '' \
-            'Expected output file beside WoW.exe:' \
-            'DirkNativeDump.txt' \
-            '' \
-            'Upload DirkNativeDump.txt for exact x86 disassembly of the DynamicObject / AreaModel / CEffect path.' \
+            'Expected output beside WoW.exe:' \
+            'DirkNativeDump-v2.txt' \
             > artifact/README.txt
-          sha256sum artifact/UnitXP_SP3-Perotharn-Native-Dump-v1.dll > artifact/SHA256.txt
-          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-Dump-v1.dll >> artifact/SHA256.txt
+          sha256sum artifact/UnitXP_SP3-Perotharn-Native-Dump-v2.dll > artifact/SHA256.txt
+          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-Dump-v2.dll >> artifact/SHA256.txt
           cat DLL-FILE-TYPE.txt >> artifact/SHA256.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP_SP3-Perotharn-Native-Dump-v1-${{ github.run_number }}
+          name: UnitXP_SP3-Perotharn-Native-Dump-v2-${{ github.run_number }}
           path: artifact/**
           if-no-files-found: error
           retention-days: 14
