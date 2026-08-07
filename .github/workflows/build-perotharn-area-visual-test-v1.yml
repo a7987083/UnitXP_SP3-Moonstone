@@ -47,94 +47,12 @@ jobs:
           git apply --check --directory=target dw-v034.patch
           git apply --directory=target dw-v034.patch
 
-      - name: Inject Perotharn native AreaModel-equivalent test
+      - name: Inject Perotharn test module
         run: |
           set -euxo pipefail
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp target/native/
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h target/native/
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('target/native/dllmain.cpp')
-          s = p.read_text(encoding='utf-8-sig')
-          if '#include "dirkAreaTest.h"' not in s:
-              for a in ('#include "nativeM2Test.h"', '#include "Vanilla1121_functions.h"'):
-                  if a in s:
-                      s = s.replace(a, a + '\n#include "dirkAreaTest.h"', 1)
-                      break
-              else:
-                  raise SystemExit('could not find dllmain include anchor')
-          signature = 'int __fastcall detoured_UnitXP(void* L) {'
-          if signature not in s:
-              raise SystemExit('detoured_UnitXP signature not found')
-          if 'dirkCmd == "dirkTest"' not in s:
-              block = r'''
-    // Peroth'arn Dirk of the Beast local visual test.
-    if (lua_gettop(L) >= 2) {
-        std::string dirkCmd = lua_tostring(L, 1);
-        if (dirkCmd == "dirkTest") {
-            std::string subcmd = lua_tostring(L, 2);
-            bool ok = false;
-            if (subcmd == "pre") ok = dirkAreaTest::showPre();
-            else if (subcmd == "cast") ok = dirkAreaTest::showCast();
-            else if (subcmd == "full") {
-                float preDelay = 2.0f;
-                float castHold = 2.0f;
-                if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) preDelay = static_cast<float>(lua_tonumber(L, 3));
-                if (lua_gettop(L) >= 4 && lua_isnumber(L, 4)) castHold = static_cast<float>(lua_tonumber(L, 4));
-                ok = dirkAreaTest::showFull(preDelay, castHold);
-            }
-            else if (subcmd == "clear") { dirkAreaTest::clear(); ok = true; }
-            else if (subcmd == "status") ok = true;
-            lua_pushboolean(L, ok);
-            lua_pushstring(L, dirkAreaTest::statusText());
-            return 2;
-        }
-    }
-'''
-              s = s.replace(signature, signature + block, 1)
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('target/native/sceneBegin_sceneEnd.cpp')
-          s = p.read_text(encoding='utf-8-sig')
-          if '#include "dirkAreaTest.h"' not in s:
-              anchor = '#include "FPScap.h"'
-              if anchor not in s: raise SystemExit('scene include anchor not found')
-              s = s.replace(anchor, anchor + '\n#include "dirkAreaTest.h"', 1)
-          sig = 'void __fastcall detoured_sceneEnd(uint32_t CGxDevice, void* ignored) {'
-          if 'dirkAreaTest::update();' not in s:
-              if sig not in s: raise SystemExit('sceneEnd signature not found')
-              s = s.replace(sig, sig + '\n    dirkAreaTest::update();', 1)
-          leave = 'void scene_onPlayerLeavingWorld() {'
-          if 'dirkAreaTest::clear();\n    scene_inWorld = 0;' not in s:
-              if leave not in s: raise SystemExit('leave-world function not found')
-              s = s.replace(leave, leave + '\n    dirkAreaTest::clear();', 1)
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('target/native/Makefile')
-          s = p.read_text(encoding='utf-8-sig')
-          if 'dirkAreaTest.cpp' not in s:
-              slash_n = chr(92) + chr(10)
-              candidates = ['            nativeM2Test.cpp ' + slash_n,
-                            '            dllmain.cpp ' + slash_n]
-              for needle in candidates:
-                  if needle in s:
-                      replacement = needle + '            dirkAreaTest.cpp ' + slash_n
-                      s = s.replace(needle, replacement, 1)
-                      break
-              else:
-                  raise SystemExit('Makefile source-list anchor not found')
-          p.write_text(s, encoding='utf-8')
-          PY
-
-          grep -Fq '#include "dirkAreaTest.h"' target/native/dllmain.cpp
-          grep -Fq 'dirkCmd == "dirkTest"' target/native/dllmain.cpp
-          grep -Fq 'dirkAreaTest::update();' target/native/sceneBegin_sceneEnd.cpp
-          grep -Fq 'dirkAreaTest.cpp' target/native/Makefile
-          grep -Fq 'DirkOfTheBeast_Area_PreCast.mdx' target/native/dirkAreaTest.cpp
-          grep -Fq 'DirkOfTheBeast_Area_Cast.mdx' target/native/dirkAreaTest.cpp
-          grep -Fq 'kLineLengthYards = 100.0f' target/native/dirkAreaTest.cpp
-          grep -Fq 'kSetTransformAddress = 0x00710650' target/native/dirkAreaTest.cpp
+          python3 experiments/perotharn-area-visual-test-v1/integrate.py target
 
       - name: Install Windows x86 build toolchain
         run: |
@@ -175,22 +93,27 @@ jobs:
           cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp artifact/source/
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h artifact/source/
-          cat > artifact/README.txt <<'EOF'
-          Peroth'arn Area Visual Test v1
-
-          Base: DreamWeapon v0.3.4 Public Full Receiver / DreamAvatar v0.3.4 native model stack.
-          Visual only; no packets and no server DynamicObject.
-
-          /run local ok,s=UnitXP("dirkTest","pre"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
-          /run local ok,s=UnitXP("dirkTest","cast"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
-          /run local ok,s=UnitXP("dirkTest","full",2.0,2.0); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
-          /run local ok,s=UnitXP("dirkTest","clear"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))
-
-          pre: Area_PreCast at player position/facing.
-          cast: Area_Cast at 100 yards forward, same facing.
-          full: pre -> wait -> cast at the saved 100-yard endpoint -> clear.
-          Automatic 6774 trigger is intentionally deferred until placement is confirmed.
-          EOF
+          cp experiments/perotharn-area-visual-test-v1/integrate.py artifact/source/
+          printf '%s\n' \
+            'Perotharn Area Visual Test v1' \
+            '' \
+            'Base: DreamWeapon v0.3.4 Public Full Receiver / DreamAvatar v0.3.4 native model stack.' \
+            'Visual only; no packets and no server DynamicObject.' \
+            '' \
+            'PRE:' \
+            '/run local ok,s=UnitXP("dirkTest","pre"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            '' \
+            'CAST at 100-yard endpoint:' \
+            '/run local ok,s=UnitXP("dirkTest","cast"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            '' \
+            'FULL (2 sec pre, 2 sec cast):' \
+            '/run local ok,s=UnitXP("dirkTest","full",2.0,2.0); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            '' \
+            'CLEAR:' \
+            '/run local ok,s=UnitXP("dirkTest","clear"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            '' \
+            'Automatic 6774 trigger is intentionally deferred until placement is confirmed.' \
+            > artifact/README.txt
           sha256sum artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll > artifact/SHA256.txt
           stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll >> artifact/SHA256.txt
           cat DLL-FILE-TYPE.txt >> artifact/SHA256.txt
