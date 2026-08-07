@@ -1,4 +1,4 @@
-name: Inspect Boss Spell Visual Chains
+name: Build Slice 6774 Boss Visual Carrier
 
 on:
   push:
@@ -7,114 +7,54 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout build host repo
         uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
 
-      - name: Inspect Spell / SpellVisual / SpellVisualKit chains
+      - name: Add Slice 6774 boss visual carrier patch
+        shell: bash
+        run: |
+          cat > raid-visuals/patches/z-test-slice-6774-boss-visuals.yaml <<'YAML'
+          # Test only: make player spell 6774 (Slice and Dice) use
+          # Peroth'arn Savage Blade visual slots.
+          # 36834 -> SpellVisual 8018 -> AreaModel 4501 (precast location)
+          # 36835 -> SpellVisual 8019 -> AreaModel 4502 (impact/charm location)
+          Spell.dbc:
+            - type: update
+              key: 6774
+              values:
+                SpellVisualID_1: 8018
+                SpellVisualID_2: 8019
+          YAML
+
+      - name: Build DBC patcher
+        working-directory: raid-visuals
+        run: cargo build --release
+
+      - name: Build standalone patch-P overlay
         working-directory: raid-visuals
         shell: bash
         run: |
-          python3 - <<'PY'
-          import struct
-          from pathlib import Path
+          mkdir -p empty-includes
+          ./target/release/wow_dbc_patcher build \
+            -d dbc/Spell.dbc \
+            --includes-dir empty-includes \
+            --mpq patch-P.mpq
+          ls -lh patch-P.mpq
+          sha256sum patch-P.mpq
 
-          def schema_fields(path):
-              out=[]
-              started=False
-              for raw in Path(path).read_text(encoding='utf-8').splitlines():
-                  line=raw.strip()
-                  if line=='fields:':
-                      started=True; continue
-                  if started and raw.startswith('  - '):
-                      out.append(raw.split('- ',1)[1].split('#',1)[0].strip())
-                  elif started and line and not line.startswith('#') and not raw.startswith('  '):
-                      break
-              return out
-
-          class DBC:
-              def __init__(self,path,schema):
-                  self.path=path
-                  self.fields=schema_fields(schema)
-                  data=Path(path).read_bytes()
-                  magic, nrec, nfields, recsize, strsize=struct.unpack_from('<4s4I',data,0)
-                  assert magic==b'WDBC', (path,magic)
-                  self.nrec=nrec; self.nfields=nfields; self.recsize=recsize
-                  self.records=[]
-                  off=20
-                  for i in range(nrec):
-                      r=data[off+i*recsize:off+(i+1)*recsize]
-                      vals=list(struct.unpack('<%dI'%(recsize//4),r))
-                      self.records.append(vals)
-                  self.strings=data[20+nrec*recsize:20+nrec*recsize+strsize]
-                  self.idx={n:i for i,n in enumerate(self.fields)}
-                  self.byid={r[0]:r for r in self.records}
-              def get(self,id): return self.byid.get(id)
-              def val(self,r,name):
-                  i=self.idx.get(name)
-                  return r[i] if i is not None and i<len(r) else None
-              def string(self,off):
-                  if off is None or off==0: return ''
-                  end=self.strings.find(b'\0',off)
-                  if end<0: end=len(self.strings)
-                  return self.strings[off:end].decode('utf-8','replace')
-
-          spell=DBC('dbc/Spell.dbc','schema/Spell.dbc.yaml')
-          sv=DBC('dbc/SpellVisual.dbc','schema/SpellVisual.dbc.yaml')
-          kit=DBC('dbc/SpellVisualKit.dbc','schema/SpellVisualKit.dbc.yaml')
-          eff=DBC('dbc/SpellVisualEffectName.dbc','schema/SpellVisualEffectName.dbc.yaml')
-
-          spell_ids=[6774,36834,36835]
-          visual_ids=[]
-          print('=== SPELL ROWS ===')
-          for sid in spell_ids:
-              r=spell.get(sid)
-              print('\nSpell',sid)
-              if not r:
-                  print('NOT FOUND'); continue
-              for f in ['SpellVisualID_1','SpellVisualID_2','DurationIndex','Effect_1','Effect_2','Effect_3','EffectAura_1','EffectAura_2','EffectAura_3','EffectTriggerSpell_1','EffectTriggerSpell_2','EffectTriggerSpell_3']:
-                  print(f,'=',spell.val(r,f))
-              for f in ['SpellVisualID_1','SpellVisualID_2']:
-                  v=spell.val(r,f)
-                  if v: visual_ids.append(v)
-
-          kit_ids=[]
-          print('\n=== SPELLVISUAL ROWS ===')
-          for vid in sorted(set(visual_ids)):
-              r=sv.get(vid)
-              print('\nSpellVisual',vid)
-              if not r:
-                  print('NOT FOUND'); continue
-              for f in sv.fields:
-                  v=sv.val(r,f)
-                  print(f,'=',v)
-                  if f in ['PrecastKit','CastKit','ImpactKit','StateKit','ChannelKit','AreaKit'] and v:
-                      kit_ids.append(v)
-
-          effect_ids=[]
-          print('\n=== SPELLVISUALKIT ROWS ===')
-          for kid in sorted(set(kit_ids)):
-              r=kit.get(kid)
-              print('\nSpellVisualKit',kid)
-              if not r:
-                  print('NOT FOUND'); continue
-              for f in kit.fields:
-                  v=kit.val(r,f)
-                  if v:
-                      print(f,'=',v)
-                      if 'Effect' in f and isinstance(v,int): effect_ids.append(v)
-
-          print('\n=== SPELLVISUALEFFECTNAME ROWS ===')
-          for eid in sorted(set(effect_ids)):
-              r=eff.get(eid)
-              if not r: continue
-              name=eff.string(eff.val(r,'Name'))
-              file=eff.string(eff.val(r,'FileName'))
-              scale=eff.val(r,'Scale')
-              print(eid,'Name=',name,'FileName=',file,'ScaleRaw=',scale)
-          PY
+      - name: Upload patch-P.mpq
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-P-slice6774-perotharn-visuals
+          path: raid-visuals/patch-P.mpq
+          if-no-files-found: error
+          retention-days: 3
