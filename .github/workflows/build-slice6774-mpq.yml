@@ -1,4 +1,4 @@
-name: Inspect DirkOfTheBeast Visual Chain
+name: Inspect Perotharn AreaKits
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
-      - name: Reverse map all DirkOfTheBeast effects
+      - name: Dump AreaKit 7027 and 7028
         working-directory: raid-visuals
         shell: bash
         run: |
@@ -31,73 +31,27 @@ jobs:
                       break
               return out
 
-          class DBC:
-              def __init__(self,p,s):
-                  self.fields=fields(s); self.idx={n:i for i,n in enumerate(self.fields)}
-                  d=Path(p).read_bytes(); magic,n,fc,rs,ss=struct.unpack_from('<4s4I',d,0); assert magic==b'WDBC'
-                  self.str=d[20+n*rs:20+n*rs+ss]
-                  self.rows=[]
-                  for i in range(n):
-                      r=list(struct.unpack('<%dI'%(rs//4),d[20+i*rs:20+(i+1)*rs])); self.rows.append(r)
-                  self.byid={r[0]:r for r in self.rows}
-              def get(self,i): return self.byid.get(i)
-              def val(self,r,n):
-                  j=self.idx.get(n); return r[j] if j is not None and j<len(r) else None
-              def text(self,o):
-                  if not o:return ''
-                  e=self.str.find(b'\0',o); e=len(self.str) if e<0 else e
-                  return self.str[o:e].decode('utf-8','replace')
+          def load(path,schema):
+              fs=fields(schema); d=Path(path).read_bytes()
+              magic,n,fc,rs,ss=struct.unpack_from('<4s4I',d,0); assert magic==b'WDBC'
+              rows=[]
+              for i in range(n): rows.append(list(struct.unpack('<%dI'%(rs//4),d[20+i*rs:20+(i+1)*rs])))
+              return fs,{r[0]:r for r in rows}
 
-          eff=DBC('dbc/SpellVisualEffectName.dbc','schema/SpellVisualEffectName.dbc.yaml')
-          kit=DBC('dbc/SpellVisualKit.dbc','schema/SpellVisualKit.dbc.yaml')
-          sv=DBC('dbc/SpellVisual.dbc','schema/SpellVisual.dbc.yaml')
-          sp=DBC('dbc/Spell.dbc','schema/Spell.dbc.yaml')
-
-          dirk={}
-          print('=== DIRK EFFECTS ===')
-          for r in eff.rows:
-              fn=eff.text(eff.val(r,'FileName'))
-              nm=eff.text(eff.val(r,'Name'))
-              if 'dirkofthebeast' in fn.lower() or 'dirk of the beast' in nm.lower():
-                  eid=r[0]; dirk[eid]=(nm,fn)
-                  print(eid, '|', nm, '|', fn)
-
-          effect_fields=[f for f in kit.fields if 'Effect' in f]
-          kit_refs={}
-          print('\n=== KITS REFERENCING DIRK EFFECTS ===')
-          for r in kit.rows:
-              hits=[]
-              for f in effect_fields:
-                  v=kit.val(r,f)
-                  if v in dirk:
-                      hits.append((f,v,dirk[v][1]))
-              if hits:
-                  kit_refs[r[0]]=hits
-                  print('KIT',r[0],'KitType',kit.val(r,'KitType'),'AnimID',kit.val(r,'AnimID'))
-                  for h in hits: print(' ',h[0],'=',h[1],h[2])
-
-          print('\n=== SPELLVISUALS REFERENCING THOSE KITS OR DIRK AREA MODELS ===')
-          kit_fields=['PrecastKit','CastKit','ImpactKit','StateKit','ChannelKit','AreaKit']
-          visual_refs={}
-          for r in sv.rows:
-              hits=[]
-              for f in kit_fields:
-                  v=sv.val(r,f)
-                  if v in kit_refs:
-                      hits.append((f,v))
-              am=sv.val(r,'AreaModel')
-              if am in dirk:
-                  hits.append(('AreaModel',am))
-              if hits:
-                  visual_refs[r[0]]=hits
-                  print('VISUAL',r[0],'HasArea',sv.val(r,'HasArea'))
-                  for h in hits: print(' ',h[0],'=',h[1])
-
-          print('\n=== SPELLS REFERENCING THOSE VISUALS ===')
-          for r in sp.rows:
-              v1=sp.val(r,'SpellVisualID_1'); v2=sp.val(r,'SpellVisualID_2')
-              if v1 in visual_refs or v2 in visual_refs:
-                  print('SPELL',r[0],'Visual1',v1,'Visual2',v2,
-                        'Effect1',sp.val(r,'Effect_1'),'Effect2',sp.val(r,'Effect_2'),'Effect3',sp.val(r,'Effect_3'),
-                        'Trigger1',sp.val(r,'EffectTriggerSpell_1'),'Trigger2',sp.val(r,'EffectTriggerSpell_2'),'Trigger3',sp.val(r,'EffectTriggerSpell_3'))
+          kf,krows=load('dbc/SpellVisualKit.dbc','schema/SpellVisualKit.dbc.yaml')
+          sf,srows=load('dbc/SpellVisual.dbc','schema/SpellVisual.dbc.yaml')
+          for kid in (7027,7028,7030,7031):
+              r=krows[kid]
+              print(f'=== SpellVisualKit {kid} ===')
+              for i,name in enumerate(kf):
+                  v=r[i]
+                  if v != 0:
+                      f=struct.unpack('<f',struct.pack('<I',v))[0]
+                      print(f'{i:02d} {name} = {v} (0x{v:08X}) float={f!r}')
+          for vid in (8018,8019,8020):
+              r=srows[vid]
+              print(f'=== SpellVisual {vid} ===')
+              for i,name in enumerate(sf):
+                  v=r[i]
+                  if v != 0: print(f'{i:02d} {name} = {v}')
           PY
