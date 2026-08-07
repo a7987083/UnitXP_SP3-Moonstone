@@ -1,4 +1,4 @@
-name: Build Far Sight Perotharn AreaVisual Comparison
+name: Inspect Turtle Shaman Earthquake Candidates
 
 on:
   push:
@@ -7,121 +7,78 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  inspect:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
-
-      - name: Inspect visuals and generate A/B patches
+      - name: Scan Spell.dbc for Earthquake and Persistent Area Aura candidates
         working-directory: raid-visuals
         shell: bash
         run: |
-          set -euxo pipefail
           python3 - <<'PY'
           import struct
           from pathlib import Path
 
-          def schema_fields(path):
+          def fields(path):
               out=[]; started=False
               for raw in Path(path).read_text(encoding='utf-8').splitlines():
-                  if raw.strip() == 'fields:':
-                      started=True; continue
+                  if raw.strip()=='fields:': started=True; continue
                   if started and raw.startswith('  - '):
                       out.append(raw.split('- ',1)[1].split('#',1)[0].strip())
                   elif started and raw.strip() and not raw.strip().startswith('#') and not raw.startswith('  '):
                       break
               return out
 
-          def load(path, schema):
-              fs=schema_fields(schema)
-              data=Path(path).read_bytes()
-              magic,n,fc,rs,ss=struct.unpack_from('<4s4I', data, 0)
-              assert magic == b'WDBC'
-              rows=[]
-              for i in range(n):
-                  off=20+i*rs
-                  rows.append(list(struct.unpack_from('<%dI'%(rs//4), data, off)))
-              return fs, rows, {r[0]:r for r in rows}
+          def cstr(block, off):
+              if not off or off >= len(block): return ''
+              end=block.find(b'\0',off)
+              if end < 0: end=len(block)
+              return block[off:end].decode('utf-8','replace')
 
-          sf,srows,smap=load('dbc/Spell.dbc','schema/Spell.dbc.yaml')
-          vf,vrows,vmap=load('dbc/SpellVisual.dbc','schema/SpellVisual.dbc.yaml')
-          sidx={n:i for i,n in enumerate(sf)}
-          vidx={n:i for i,n in enumerate(vf)}
+          p=Path('dbc/Spell.dbc'); d=p.read_bytes()
+          magic,n,fc,rs,ss=struct.unpack_from('<4s4I',d,0); assert magic==b'WDBC'
+          fs=fields('schema/Spell.dbc.yaml'); idx={x:i for i,x in enumerate(fs)}
+          rows=[]
+          for i in range(n):
+              off=20+i*rs
+              rows.append(list(struct.unpack_from('<%dI'%(rs//4),d,off)))
+          strings=d[20+n*rs:20+n*rs+ss]
 
-          farsight=smap[6196]
-          orig=farsight[sidx['SpellVisualID_1']]
-          boss=8018
-          assert orig in vmap and boss in vmap
-          print('Far Sight original visual:', orig)
-          print('Boss 36834 visual:', boss)
-          print('Far Sight area block:', {k:vmap[orig][vidx[k]] for k in ('HasArea','AreaModel','AreaKit')})
-          print('Boss area block:', {k:vmap[boss][vidx[k]] for k in ('HasArea','AreaModel','AreaKit')})
+          def name(r): return cstr(strings,r[idx['Name_lang_0']])
+          keys=['ID','SpellVisualID_1','DurationIndex','RangeIndex','Effect_1','Effect_2','Effect_3',
+                'EffectRadiusIndex_1','EffectRadiusIndex_2','EffectRadiusIndex_3',
+                'EffectAura_1','EffectAura_2','EffectAura_3',
+                'ImplicitTargetA_1','ImplicitTargetA_2','ImplicitTargetA_3',
+                'ImplicitTargetB_1','ImplicitTargetB_2','ImplicitTargetB_3',
+                'SpellClassSet','BaseLevel','SpellLevel']
 
-          new_visual=max(vmap)+1
-          while new_visual in vmap:
-              new_visual += 1
+          print('=== Name contains Earthquake ===')
+          found=[]
+          for r in rows:
+              nm=name(r)
+              if 'earthquake' in nm.lower():
+                  found.append(r)
+                  print('NAME',nm)
+                  print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
+                  print()
+          print('Earthquake candidate count:',len(found))
 
-          patch_a='''Spell.dbc:\n  - type: update\n    key: 6196\n    values:\n      SpellVisualID_1: 8018\n'''
-          Path('far-sight-A-exact-8018.yaml').write_text(patch_a, encoding='utf-8')
+          print('=== Earthquake candidates having Effect 27 (PERSISTENT_AREA_AURA) ===')
+          for r in found:
+              eff=[r[idx[f'Effect_{i}']] for i in (1,2,3)]
+              if 27 in eff:
+                  print('NAME',name(r))
+                  print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
+                  print()
 
-          patch_b=f'''SpellVisual.dbc:\n  - type: copy\n    key: {orig}\n    values:\n      ID: {new_visual}\n      HasArea: 1\n      AreaModel: 4501\n      AreaKit: 7027\n\nSpell.dbc:\n  - type: update\n    key: 6196\n    values:\n      SpellVisualID_1: {new_visual}\n'''
-          Path('far-sight-B-area4501-kit7027.yaml').write_text(patch_b, encoding='utf-8')
-
-          info=(
-              f'Far Sight SpellID: 6196\n'
-              f'Original Visual: {orig}\n'
-              f'A: exact Boss SpellVisual 8018\n'
-              f'B: Far Sight visual copy {new_visual}, AreaModel 4501, AreaKit 7027\n'
-              f'Boss model: Spells\\DirkOfTheBeast_Area_PreCast.mdx\n'
-          )
-          Path('BUILD-INFO.txt').write_text(info, encoding='utf-8')
-          print(patch_a)
-          print(patch_b)
+          print('=== Reference boss 36834 ===')
+          r=next(r for r in rows if r[0]==36834)
+          print('NAME',name(r))
+          print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
+          print('=== Reference Far Sight 6196 ===')
+          r=next(r for r in rows if r[0]==6196)
+          print('NAME',name(r))
+          print(' '.join(f'{k}={r[idx[k]]}' for k in keys if k in idx))
           PY
-
-      - name: Build A and B MPQs
-        working-directory: raid-visuals
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p empty-includes
-          cargo build --release
-          ./target/release/wow_dbc_patcher build \
-            --patches far-sight-A-exact-8018.yaml \
-            --includes-dir empty-includes \
-            --out-dir build-A \
-            --mpq patch-P-FarSight-A-Exact8018.mpq
-          ./target/release/wow_dbc_patcher build \
-            --patches far-sight-B-area4501-kit7027.yaml \
-            --includes-dir empty-includes \
-            --out-dir build-B \
-            --mpq patch-P-FarSight-B-Area4501-Kit7027.mpq
-          test -s patch-P-FarSight-A-Exact8018.mpq
-          test -s patch-P-FarSight-B-Area4501-Kit7027.mpq
-          file patch-P-FarSight-A-Exact8018.mpq || true
-          file patch-P-FarSight-B-Area4501-Kit7027.mpq || true
-          sha256sum patch-P-FarSight-A-Exact8018.mpq patch-P-FarSight-B-Area4501-Kit7027.mpq | tee SHA256.txt
-          stat -c '%n %s bytes' patch-P-FarSight-A-Exact8018.mpq patch-P-FarSight-B-Area4501-Kit7027.mpq | tee -a BUILD-INFO.txt
-
-      - name: Package artifact
-        working-directory: raid-visuals
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p artifact
-          cp patch-P-FarSight-A-Exact8018.mpq artifact/
-          cp patch-P-FarSight-B-Area4501-Kit7027.mpq artifact/
-          cp far-sight-A-exact-8018.yaml artifact/
-          cp far-sight-B-area4501-kit7027.yaml artifact/
-          cp BUILD-INFO.txt artifact/
-          cp SHA256.txt artifact/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: FarSight-Perotharn-AreaVisual-AB-${{ github.run_number }}
-          path: raid-visuals/artifact/*
-          if-no-files-found: error
-          retention-days: 14
