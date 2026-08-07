@@ -1,0 +1,1 @@
+Native Dump v2 follows existing JMP detours from 0x5D57C0 and 0x5D55C0 and records their target executable regions. Read-only diagnostic only.
