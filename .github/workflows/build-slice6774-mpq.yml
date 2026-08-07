@@ -1,57 +1,124 @@
-name: Inspect Perotharn AreaKits
+name: Build Far Sight 6196 AreaModel 4501 Test
 
 on:
   push:
     branches:
-      - tmp-build-slice6774-mpq
+      - tmp-build-farsight6196-area4501
   workflow_dispatch:
 
 jobs:
-  inspect:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
-      - name: Dump AreaKit 7027 and 7028
+
+      - name: Inspect Far Sight and generate patch
         working-directory: raid-visuals
         shell: bash
         run: |
+          set -euxo pipefail
           python3 - <<'PY'
           import struct
           from pathlib import Path
 
-          def fields(path):
+          def schema_fields(path):
               out=[]; started=False
               for raw in Path(path).read_text(encoding='utf-8').splitlines():
-                  if raw.strip()=='fields:': started=True; continue
+                  if raw.strip() == 'fields:':
+                      started=True
+                      continue
                   if started and raw.startswith('  - '):
                       out.append(raw.split('- ',1)[1].split('#',1)[0].strip())
                   elif started and raw.strip() and not raw.strip().startswith('#') and not raw.startswith('  '):
                       break
               return out
 
-          def load(path,schema):
-              fs=fields(schema); d=Path(path).read_bytes()
-              magic,n,fc,rs,ss=struct.unpack_from('<4s4I',d,0); assert magic==b'WDBC'
+          def load(path, schema):
+              fs=schema_fields(schema)
+              data=Path(path).read_bytes()
+              magic,n,fc,rs,ss=struct.unpack_from('<4s4I', data, 0)
+              assert magic == b'WDBC'
+              assert rs % 4 == 0
               rows=[]
-              for i in range(n): rows.append(list(struct.unpack('<%dI'%(rs//4),d[20+i*rs:20+(i+1)*rs])))
-              return fs,{r[0]:r for r in rows}
+              for i in range(n):
+                  off=20+i*rs
+                  rows.append(list(struct.unpack_from('<%dI'%(rs//4), data, off)))
+              return fs, rows, {r[0]:r for r in rows}
 
-          kf,krows=load('dbc/SpellVisualKit.dbc','schema/SpellVisualKit.dbc.yaml')
-          sf,srows=load('dbc/SpellVisual.dbc','schema/SpellVisual.dbc.yaml')
-          for kid in (7027,7028,7030,7031):
-              r=krows[kid]
-              print(f'=== SpellVisualKit {kid} ===')
-              for i,name in enumerate(kf):
-                  v=r[i]
-                  if v != 0:
-                      f=struct.unpack('<f',struct.pack('<I',v))[0]
-                      print(f'{i:02d} {name} = {v} (0x{v:08X}) float={f!r}')
-          for vid in (8018,8019,8020):
-              r=srows[vid]
-              print(f'=== SpellVisual {vid} ===')
-              for i,name in enumerate(sf):
-                  v=r[i]
-                  if v != 0: print(f'{i:02d} {name} = {v}')
+          sf,srows,smap=load('dbc/Spell.dbc','schema/Spell.dbc.yaml')
+          vf,vrows,vmap=load('dbc/SpellVisual.dbc','schema/SpellVisual.dbc.yaml')
+          sidx={n:i for i,n in enumerate(sf)}
+          vidx={n:i for i,n in enumerate(vf)}
+
+          spell_id=6196
+          if spell_id not in smap:
+              raise SystemExit('Spell 6196 not found in source DBC')
+          sr=smap[spell_id]
+          visual=sr[sidx['SpellVisualID_1']]
+          print('=== Far Sight Spell 6196 ===')
+          for name in ('SpellVisualID_1','SpellVisualID_2','DurationIndex','RangeIndex','Speed'):
+              if name in sidx:
+                  raw=sr[sidx[name]]
+                  flt=struct.unpack('<f',struct.pack('<I',raw))[0]
+                  print(f'{name}={raw} raw=0x{raw:08X} float={flt!r}')
+          print(f'Original SpellVisualID_1={visual}')
+          if visual == 0 or visual not in vmap:
+              raise SystemExit(f'Far Sight visual {visual} missing')
+          vr=vmap[visual]
+          print(f'=== SpellVisual {visual} ===')
+          for name in vf:
+              i=vidx[name]
+              if vr[i] != 0:
+                  print(f'{name}={vr[i]}')
+
+          # Pick a guaranteed-unused ID above the current table maximum.
+          new_visual=max(vmap)+1
+          while new_visual in vmap:
+              new_visual += 1
+          print(f'New test SpellVisual ID={new_visual}')
+
+          patch=f'''SpellVisual.dbc:\n  - type: copy\n    key: {visual}\n    values:\n      ID: {new_visual}\n      HasArea: 1\n      AreaModel: 4501\n\nSpell.dbc:\n  - type: update\n    key: 6196\n    values:\n      SpellVisualID_1: {new_visual}\n'''
+          Path('far-sight-6196-area4501.yaml').write_text(patch, encoding='utf-8')
+          Path('BUILD-INFO.txt').write_text(
+              f'Far Sight SpellID: 6196\nOriginal SpellVisualID_1: {visual}\nNew SpellVisualID_1: {new_visual}\nHasArea: 1\nAreaModel: 4501\nArea model path (from original DBC): Spells\\DirkOfTheBeast_Area_PreCast.mdx\n',
+              encoding='utf-8')
+          print(patch)
           PY
+
+      - name: Build patch-P MPQ with only Far Sight DBC patch
+        working-directory: raid-visuals
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p empty-includes
+          cargo build --release
+          ./target/release/wow_dbc_patcher build \
+            --patches far-sight-6196-area4501.yaml \
+            --includes-dir empty-includes \
+            --out-dir build-farsight \
+            --mpq patch-P-FarSight-6196-Area4501.mpq
+          test -s patch-P-FarSight-6196-Area4501.mpq
+          file patch-P-FarSight-6196-Area4501.mpq || true
+          stat -c 'MPQ bytes: %s' patch-P-FarSight-6196-Area4501.mpq | tee -a BUILD-INFO.txt
+          sha256sum patch-P-FarSight-6196-Area4501.mpq | tee SHA256.txt
+
+      - name: Package artifact
+        working-directory: raid-visuals
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p artifact
+          cp patch-P-FarSight-6196-Area4501.mpq artifact/
+          cp far-sight-6196-area4501.yaml artifact/
+          cp BUILD-INFO.txt artifact/
+          cp SHA256.txt artifact/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FarSight-6196-Area4501-Test-${{ github.run_number }}
+          path: raid-visuals/artifact/*
+          if-no-files-found: error
+          retention-days: 14
