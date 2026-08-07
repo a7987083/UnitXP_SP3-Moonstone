@@ -1,10 +1,10 @@
-name: Perotharn Area Visual Test v1
+name: Perotharn Native Reverse Dump v1
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - agent/perotharn-area-visual-test-v1
+      - agent/perotharn-native-reverse-dump-v1
     paths:
       - .github/workflows/build-perotharn-area-visual-test-v1.yml
       - experiments/perotharn-area-visual-test-v1/**
@@ -47,11 +47,13 @@ jobs:
           git apply --check --directory=target dw-v034.patch
           git apply --directory=target dw-v034.patch
 
-      - name: Inject Perotharn test module
+      - name: Inject Perotharn visual test and read-only reverse dump modules
         run: |
           set -euxo pipefail
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp target/native/
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h target/native/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.cpp target/native/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.h target/native/
           python3 experiments/perotharn-area-visual-test-v1/integrate.py target
 
       - name: Install Windows x86 build toolchain
@@ -86,41 +88,37 @@ jobs:
           file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
           grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
 
-      - name: Package test build
+      - name: Package diagnostic build
         run: |
           set -euxo pipefail
           mkdir -p artifact/source
-          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll
+          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-Dump-v1.dll
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp artifact/source/
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h artifact/source/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.cpp artifact/source/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.h artifact/source/
           cp experiments/perotharn-area-visual-test-v1/integrate.py artifact/source/
           printf '%s\n' \
-            'Perotharn Area Visual Test v1' \
+            'Perotharn Native Reverse Dump v1' \
             '' \
             'Base: DreamWeapon v0.3.4 Public Full Receiver / DreamAvatar v0.3.4 native model stack.' \
-            'Visual only; no packets and no server DynamicObject.' \
+            'The dump command is READ ONLY: no function hook, no patch, no call into the inspected visual functions.' \
             '' \
-            'PRE:' \
-            '/run local ok,s=UnitXP("dirkTest","pre"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            'Run in game:' \
+            '/run local ok,s,p=UnitXP("dirkDump"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s).." "..tostring(p))' \
             '' \
-            'CAST at 100-yard endpoint:' \
-            '/run local ok,s=UnitXP("dirkTest","cast"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            'Expected output file beside WoW.exe:' \
+            'DirkNativeDump.txt' \
             '' \
-            'FULL (2 sec pre, 2 sec cast):' \
-            '/run local ok,s=UnitXP("dirkTest","full",2.0,2.0); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
-            '' \
-            'CLEAR:' \
-            '/run local ok,s=UnitXP("dirkTest","clear"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
-            '' \
-            'Automatic 6774 trigger is intentionally deferred until placement is confirmed.' \
+            'Upload DirkNativeDump.txt for exact x86 disassembly of the DynamicObject / AreaModel / CEffect path.' \
             > artifact/README.txt
-          sha256sum artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll > artifact/SHA256.txt
-          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Area-Test-v1.dll >> artifact/SHA256.txt
+          sha256sum artifact/UnitXP_SP3-Perotharn-Native-Dump-v1.dll > artifact/SHA256.txt
+          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-Dump-v1.dll >> artifact/SHA256.txt
           cat DLL-FILE-TYPE.txt >> artifact/SHA256.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP_SP3-Perotharn-Area-Test-v1-${{ github.run_number }}
+          name: UnitXP_SP3-Perotharn-Native-Dump-v1-${{ github.run_number }}
           path: artifact/**
           if-no-files-found: error
           retention-days: 14
