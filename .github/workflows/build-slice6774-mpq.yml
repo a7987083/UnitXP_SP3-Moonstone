@@ -1,0 +1,68 @@
+name: Build Slice 6774 MPQ Test
+
+on:
+  push:
+    branches:
+      - tmp-build-slice6774-mpq
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build host repo
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clone twow-raid-visuals
+        run: git clone --depth 1 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
+
+      - name: Add Slice 6774 visual test patch
+        shell: bash
+        run: |
+          cat > raid-visuals/patches/z-test-slice-6774.yaml <<'YAML'
+          # Slice and Dice (6774) visual test
+          # Preserve original SpellVisual 254 and add a 10y flame ring as StateKit.
+          SpellVisualKit.dbc:
+            - type: insert
+              key: 9390
+              values:
+                ID: 9390
+                KitType: 2
+                BaseEffect: 4903
+
+          SpellVisual.dbc:
+            - type: copy
+              key: 254
+              values:
+                ID: 9390
+                StateKit: 9390
+
+          Spell.dbc:
+            - type: update
+              key: 6774
+              values:
+                SpellVisualID_1: 9390
+          YAML
+
+      - name: Build patcher
+        working-directory: raid-visuals
+        run: cargo build --release
+
+      - name: Build patch-O.mpq
+        working-directory: raid-visuals
+        run: ./target/release/wow_dbc_patcher build --mpq patch-O.mpq
+
+      - name: Show output
+        working-directory: raid-visuals
+        run: ls -lh patch-O.mpq && sha256sum patch-O.mpq
+
+      - name: Upload MPQ artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-O-slice6774-test
+          path: raid-visuals/patch-O.mpq
+          if-no-files-found: error
+          retention-days: 3
