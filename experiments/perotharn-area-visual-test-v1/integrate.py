@@ -25,7 +25,6 @@ if signature not in s:
 if 'dumpCmd == "dirkDump"' not in s:
     dump_block = r'''
     // Read-only reverse-engineering dump for the DynamicObject / AreaModel client path.
-    // It only reads WoW.exe code bytes and writes DirkNativeDump.txt beside WoW.exe.
     if (lua_gettop(L) >= 1) {
         std::string dumpCmd = lua_tostring(L, 1);
         if (dumpCmd == "dirkDump") {
@@ -134,7 +133,7 @@ checks = {
     ],
     native / "dirkNativeDump.cpp": [
         "0x005D5000u", "0x00613C00u", "0x006E7E00u", "0x007BDB00u",
-        "ReadProcessMemory", "DirkNativeDump.txt"
+        "ReadProcessMemory", "DirkNativeDump-v2.txt", "kDetourSources", "appendDetourTarget"
     ],
 }
 for file, needles in checks.items():
@@ -143,4 +142,4 @@ for file, needles in checks.items():
         if needle not in text:
             raise SystemExit(f"integration assertion failed: {file}: {needle}")
 
-print("Perotharn native reverse dump integration OK")
+print("Perotharn native reverse dump v2 integration OK")
