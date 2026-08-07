@@ -1,4 +1,4 @@
-name: Inspect Envenom 52531 Visual
+name: Build Dual Skill Perotharn Visual Test
 
 on:
   push:
@@ -7,72 +7,85 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
-      - name: Inspect 52531 and models 4501/4502
+
+      - name: Add dual skill boss-model test patch
+        shell: bash
+        run: |
+          cat > raid-visuals/patches/z-test-perotharn-dual-skill.yaml <<'YAML'
+          # Peroth'arn Savage Blade local visual test
+          # 6774 Slice and Dice keeps original visual and additionally plays:
+          #   Effect 4501 = DirkOfTheBeast_Area_PreCast.mdx
+          # 52531 Envenom keeps original visual and additionally plays:
+          #   Effect 4502 = DirkOfTheBeast_Area_Cast.mdx
+
+          SpellVisualKit.dbc:
+            - type: copy
+              key: 416
+              values:
+                ID: 9401
+                BaseEffect: 4501
+
+            - type: copy
+              key: 37
+              values:
+                ID: 9402
+                BaseEffect: 4502
+
+          SpellVisual.dbc:
+            - type: copy
+              key: 254
+              values:
+                ID: 9411
+                CastKit: 9401
+
+            - type: copy
+              key: 19
+              values:
+                ID: 9412
+                CastKit: 9402
+
+          Spell.dbc:
+            - type: update
+              key: 6774
+              values:
+                SpellVisualID_1: 9411
+
+            - type: update
+              key: 52531
+              values:
+                SpellVisualID_1: 9412
+          YAML
+
+      - name: Build DBC patcher
+        working-directory: raid-visuals
+        run: cargo build --release
+
+      - name: Build standalone patch-P overlay
         working-directory: raid-visuals
         shell: bash
         run: |
-          python3 - <<'PY'
-          import struct
-          from pathlib import Path
+          mkdir -p empty-includes
+          ./target/release/wow_dbc_patcher build \
+            -d dbc/Spell.dbc \
+            -d dbc/SpellVisual.dbc \
+            -d dbc/SpellVisualKit.dbc \
+            --includes-dir empty-includes \
+            --mpq patch-P.mpq
+          ls -lh patch-P.mpq
+          sha256sum patch-P.mpq
 
-          def fields(path):
-              out=[]; started=False
-              for raw in Path(path).read_text(encoding='utf-8').splitlines():
-                  if raw.strip()=='fields:': started=True; continue
-                  if started and raw.startswith('  - '): out.append(raw.split('- ',1)[1].split('#',1)[0].strip())
-                  elif started and raw.strip() and not raw.strip().startswith('#') and not raw.startswith('  '): break
-              return out
-
-          class DBC:
-              def __init__(self,p,s):
-                  self.fields=fields(s); self.idx={n:i for i,n in enumerate(self.fields)}
-                  d=Path(p).read_bytes(); magic,n,fc,rs,ss=struct.unpack_from('<4s4I',d,0); assert magic==b'WDBC'
-                  self.str=d[20+n*rs:20+n*rs+ss]
-                  self.rows={}
-                  for i in range(n):
-                      r=list(struct.unpack('<%dI'%(rs//4),d[20+i*rs:20+(i+1)*rs])); self.rows[r[0]]=r
-              def get(self,i): return self.rows.get(i)
-              def val(self,r,n):
-                  j=self.idx.get(n); return r[j] if j is not None and j<len(r) else None
-              def text(self,o):
-                  if not o:return ''
-                  e=self.str.find(b'\0',o); e=len(self.str) if e<0 else e
-                  return self.str[o:e].decode('utf-8','replace')
-
-          sp=DBC('dbc/Spell.dbc','schema/Spell.dbc.yaml')
-          sv=DBC('dbc/SpellVisual.dbc','schema/SpellVisual.dbc.yaml')
-          kit=DBC('dbc/SpellVisualKit.dbc','schema/SpellVisualKit.dbc.yaml')
-          eff=DBC('dbc/SpellVisualEffectName.dbc','schema/SpellVisualEffectName.dbc.yaml')
-
-          for sid in (6774,52531):
-              r=sp.get(sid); print(f'=== SPELL {sid} ===')
-              for f in ('SpellVisualID_1','SpellVisualID_2','DurationIndex','Effect_1','Effect_2','Effect_3','EffectAura_1','EffectAura_2','EffectAura_3'):
-                  print(f,sp.val(r,f) if r else None)
-              if r:
-                  for vf in ('SpellVisualID_1','SpellVisualID_2'):
-                      vid=sp.val(r,vf)
-                      if vid:
-                          vr=sv.get(vid); print(f'--- VISUAL {vid} ---')
-                          for f in sv.fields: print(f,sv.val(vr,f))
-                          for kf in ('PrecastKit','CastKit','ImpactKit','StateKit','ChannelKit','AreaKit'):
-                              kid=sv.val(vr,kf)
-                              if kid:
-                                  kr=kit.get(kid); print(f'--- KIT {kid} ({kf}) ---')
-                                  for f in kit.fields:
-                                      v=kit.val(kr,f)
-                                      if v not in (0,4294967295,None): print(f,v)
-
-          for eid in (4501,4502):
-              r=eff.get(eid); print(f'=== EFFECT {eid} ===')
-              if r:
-                  print('Name',eff.text(eff.val(r,'Name')))
-                  print('FileName',eff.text(eff.val(r,'FileName')))
-                  print('ScaleRaw',eff.val(r,'Scale'))
-              else: print('NOT FOUND')
-          PY
+      - name: Upload patch-P.mpq
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-P-perotharn-dual-skill-test
+          path: raid-visuals/patch-P.mpq
+          if-no-files-found: error
+          retention-days: 3
