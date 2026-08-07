@@ -15,9 +15,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch --depth=1 origin agent/dreamweapon-v0.3.4-public-full-receiver
+          git show FETCH_HEAD:slim/dreamweapon-v0.3.4-public-full-receiver/dw-v034.patch.gz.b64 > /tmp/dw-v034.patch.gz.b64
           python3 - <<'PY'
           import base64, gzip, pathlib
-          src=pathlib.Path('slim/dreamweapon-v0.3.4-public-full-receiver/dw-v034.patch.gz.b64').read_text().strip()
+          src=pathlib.Path('/tmp/dw-v034.patch.gz.b64').read_text().strip()
           raw=gzip.decompress(base64.b64decode(src))
           pathlib.Path('/tmp/dreamweapon.patch').write_bytes(raw)
           print('decoded bytes', len(raw))
@@ -29,29 +31,31 @@ jobs:
           grep -niE 'VanillaHelpers|VanillaHelper' /tmp/dreamweapon.patch || true
           echo
           echo '=== WoW addresses / native function typedefs ==='
-          grep -niE '0x[0-9A-Fa-f]{5,8}|reinterpret_cast|__thiscall|__cdecl|__stdcall|typedef.*\(.*\*' /tmp/dreamweapon.patch | head -n 300 || true
+          grep -niE '0x[0-9A-Fa-f]{5,8}|reinterpret_cast|__thiscall|__cdecl|__stdcall|typedef.*\(.*\*' /tmp/dreamweapon.patch | head -n 400 || true
           echo
           echo '=== Model / display / attachment / weapon / mount / enchant symbols ==='
-          grep -niE 'Display|Model|Attachment|Weapon|Mount|Enchant|Native|Refresh|Disable|Enable|ItemVisual|Visual|CM2|M2|Scene' /tmp/dreamweapon.patch | head -n 500 || true
+          grep -niE 'Display|Model|Attachment|Weapon|Mount|Enchant|Native|Refresh|Disable|Enable|ItemVisual|Visual|CM2|M2|Scene' /tmp/dreamweapon.patch | head -n 700 || true
           echo
           echo '=== Added C/C++ function declarations and definitions ==='
-          grep -nE '^\+.*(bool|void|int|uint32_t|uintptr_t|DWORD|float|double|static|auto)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' /tmp/dreamweapon.patch | head -n 400 || true
+          grep -nE '^\+.*(bool|void|int|uint32_t|uintptr_t|DWORD|float|double|static|auto)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' /tmp/dreamweapon.patch | head -n 500 || true
           echo
-          echo '=== Context around client-address lines ==='
+          echo '=== Context around relevant lines ==='
           python3 - <<'PY'
           from pathlib import Path
           import re
           lines=Path('/tmp/dreamweapon.patch').read_text(errors='replace').splitlines()
           hits=[]
+          pat=re.compile(r'0x[0-9A-Fa-f]{5,8}|DisplayID|DisplayId|Attachment|Enchant|Mount|Weapon|Disable|Enable|nativeM2|CM2|SetDisplay|Rebuild|Refresh', re.I)
           for i,l in enumerate(lines):
-              if re.search(r'0x[0-9A-Fa-f]{5,8}|DisplayID|DisplayId|Attachment|Enchant|Mount|Weapon|Disable|Enable|nativeM2|CM2', l, re.I):
-                  hits.append(i)
-          shown=set()
+              if pat.search(l): hits.append(i)
+          merged=[]
           for i in hits:
-              a=max(0,i-4); b=min(len(lines),i+5)
-              key=(a,b)
-              if key in shown: continue
-              shown.add(key)
+              a=max(0,i-5); b=min(len(lines),i+6)
+              if merged and a <= merged[-1][1]+2:
+                  merged[-1]=(merged[-1][0],max(merged[-1][1],b))
+              else:
+                  merged.append((a,b))
+          for a,b in merged:
               print(f'--- lines {a+1}-{b} ---')
               for j in range(a,b): print(f'{j+1}: {lines[j]}')
           PY
