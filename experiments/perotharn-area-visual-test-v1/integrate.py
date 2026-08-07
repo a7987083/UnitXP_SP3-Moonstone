@@ -27,14 +27,24 @@ if 'dirkCmd == "dirkTest"' not in s:
         if (dirkCmd == "dirkTest") {
             std::string subcmd = lua_tostring(L, 2);
             bool ok = false;
-            if (subcmd == "pre") ok = dirkAreaTest::showPre();
-            else if (subcmd == "cast") ok = dirkAreaTest::showCast();
+            if (subcmd == "pre") {
+                float scale = 1.0f;
+                if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) scale = static_cast<float>(lua_tonumber(L, 3));
+                ok = dirkAreaTest::showPre(scale);
+            }
+            else if (subcmd == "cast") {
+                float scale = 1.0f;
+                if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) scale = static_cast<float>(lua_tonumber(L, 3));
+                ok = dirkAreaTest::showCast(scale);
+            }
             else if (subcmd == "full") {
                 float preDelay = 2.0f;
                 float castHold = 2.0f;
+                float scale = 1.0f;
                 if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) preDelay = static_cast<float>(lua_tonumber(L, 3));
                 if (lua_gettop(L) >= 4 && lua_isnumber(L, 4)) castHold = static_cast<float>(lua_tonumber(L, 4));
-                ok = dirkAreaTest::showFull(preDelay, castHold);
+                if (lua_gettop(L) >= 5 && lua_isnumber(L, 5)) scale = static_cast<float>(lua_tonumber(L, 5));
+                ok = dirkAreaTest::showFull(preDelay, castHold, scale);
             }
             else if (subcmd == "clear") { dirkAreaTest::clear(); ok = true; }
             else if (subcmd == "status") ok = true;
@@ -84,15 +94,15 @@ if "dirkAreaTest.cpp" not in s:
         raise SystemExit("Makefile source-list anchor not found")
 p.write_text(s, encoding="utf-8")
 
-# Build-time integration assertions.
 checks = {
-    native / "dllmain.cpp": ['#include "dirkAreaTest.h"', 'dirkCmd == "dirkTest"'],
+    native / "dllmain.cpp": ['#include "dirkAreaTest.h"', 'dirkCmd == "dirkTest"', 'showPre(scale)', 'showCast(scale)', 'showFull(preDelay, castHold, scale)'],
     native / "sceneBegin_sceneEnd.cpp": ['#include "dirkAreaTest.h"', 'dirkAreaTest::update();'],
     native / "Makefile": ["dirkAreaTest.cpp"],
     native / "dirkAreaTest.cpp": [
         "DirkOfTheBeast_Area_PreCast.mdx",
         "DirkOfTheBeast_Area_Cast.mdx",
         "kLineLengthYards = 100.0f",
+        "kDynamicObjectLoopSequence = 0x9E",
         "kSetTransformAddress = 0x00710650",
     ],
 }
@@ -102,4 +112,4 @@ for file, needles in checks.items():
         if needle not in text:
             raise SystemExit(f"integration assertion failed: {file}: {needle}")
 
-print("Perotharn Area Visual Test integration OK")
+print("Perotharn Area Visual Test v2 integration OK")
