@@ -19,22 +19,10 @@ jobs:
       - name: Clone twow-raid-visuals 1.4.18
         run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
 
-      - name: Build DBC patcher
-        working-directory: raid-visuals
-        run: cargo build --release
-
-      - name: Download exact official 1.4.18 MPQ
-        shell: bash
-        run: |
-          curl -L --fail -o patch-O-6774-test.mpq https://github.com/MarcelineVQ/twow-raid-visuals/releases/download/1.4.18/patch-O.mpq
-          echo "aa99e91794b52ef4dba076b154c9bf5abd1b9417aa4e66925a454e4506bf898f  patch-O-6774-test.mpq" | sha256sum -c -
-
       - name: Add Slice 6774 visual test patch
         shell: bash
         run: |
           cat > raid-visuals/patches/z-test-slice-6774.yaml <<'YAML'
-          # Slice and Dice (6774) visual test
-          # Preserve original SpellVisual 254 and add a 10y flame ring as StateKit.
           SpellVisualKit.dbc:
             - type: insert
               key: 9390
@@ -57,46 +45,28 @@ jobs:
                 SpellVisualID_1: 9390
           YAML
 
-      - name: Generate patched DBCs
+      - name: Build DBC patcher
         working-directory: raid-visuals
-        run: ./target/release/wow_dbc_patcher apply
+        run: cargo build --release
 
-      - name: Download mpqcli
+      - name: Build standalone patch-P overlay
+        working-directory: raid-visuals
         shell: bash
         run: |
-          curl -L --fail -o mpqcli https://github.com/thegraydot/mpqcli/releases/download/v0.10.2/mpqcli-linux-amd64-glibc
-          chmod +x mpqcli
-          ./mpqcli version
+          mkdir -p empty-includes
+          ./target/release/wow_dbc_patcher build \
+            -d dbc/Spell.dbc \
+            -d dbc/SpellVisual.dbc \
+            -d dbc/SpellVisualKit.dbc \
+            --includes-dir empty-includes \
+            --mpq patch-P.mpq
+          ls -lh patch-P.mpq
+          sha256sum patch-P.mpq
 
-      - name: Confirm target DBC paths exist in current MPQ
-        shell: bash
-        run: |
-          ./mpqcli list patch-O-6774-test.mpq | grep -i 'DBFilesClient.*Spell.dbc'
-          ./mpqcli list patch-O-6774-test.mpq | grep -i 'DBFilesClient.*SpellVisual.dbc'
-          ./mpqcli list patch-O-6774-test.mpq | grep -i 'DBFilesClient.*SpellVisualKit.dbc'
-
-      - name: Replace only Slice-related DBC tables
-        shell: bash
-        run: |
-          ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/Spell.dbc --path 'DBFilesClient\Spell.dbc' --overwrite
-          ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/SpellVisual.dbc --path 'DBFilesClient\SpellVisual.dbc' --overwrite
-          ./mpqcli add patch-O-6774-test.mpq raid-visuals/build/SpellVisualKit.dbc --path 'DBFilesClient\SpellVisualKit.dbc' --overwrite
-
-      - name: Compact updated MPQ
-        shell: bash
-        run: ./mpqcli compact patch-O-6774-test.mpq
-
-      - name: Verify final MPQ
-        shell: bash
-        run: |
-          ./mpqcli verify patch-O-6774-test.mpq || true
-          ls -lh patch-O-6774-test.mpq
-          sha256sum patch-O-6774-test.mpq
-
-      - name: Upload MPQ artifact
+      - name: Upload patch-P.mpq
         uses: actions/upload-artifact@v4
         with:
-          name: patch-O-6774-test-final
-          path: patch-O-6774-test.mpq
+          name: patch-P-slice6774-overlay
+          path: raid-visuals/patch-P.mpq
           if-no-files-found: error
           retention-days: 3
