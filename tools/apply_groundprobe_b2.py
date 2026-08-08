@@ -196,8 +196,8 @@ if 'GroundProbe.UnitByGuid' not in d:
         '        }\n'
     )
     d = replace_once(d, snapshot_tail, snapshot_tail + bridge, "dllmain.cpp Snapshot handler")
-d ll_placeholder = None
-# Keep the file write separate from the sentinel checks above.
+d ll_removed = None
+# Write the updated Lua bridge.
 dll_path.write_text(d, encoding="utf-8", newline="\n")
 
 # Postconditions: fail the workflow before compilation if injection did not land exactly.
