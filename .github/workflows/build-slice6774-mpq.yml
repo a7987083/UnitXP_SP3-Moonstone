@@ -1,4 +1,4 @@
-name: Inspect DreamAvatar Native Model Layers
+name: Build Slice 6774 WorldEffect 4501 Test
 
 on:
   push:
@@ -7,52 +7,83 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Decode native model patches
+
+      - name: Clone twow-raid-visuals 1.4.18
+        run: git clone --depth 1 --branch 1.4.18 https://github.com/MarcelineVQ/twow-raid-visuals.git raid-visuals
+
+      - name: Create Slice WorldEffect test patch
+        working-directory: raid-visuals
         shell: bash
         run: |
-          set -euo pipefail
-          git fetch --depth=1 origin agent/dreamweapon-v0.3.4-public-full-receiver
-          git show FETCH_HEAD:slim/dreamavatar-v0.2-native-model-rebuild/native-model-rebuild.patch.gz.b64 > /tmp/v02.b64
-          git show FETCH_HEAD:slim/dreamavatar-v0.3.2-npc-weapons-mount-history/v032.patch.gz.b64 > /tmp/v032.b64
-          python3 - <<'PY'
-          import base64,gzip,pathlib
-          for src,dst in [('/tmp/v02.b64','/tmp/v02.patch'),('/tmp/v032.b64','/tmp/v032.patch')]:
-              raw=gzip.decompress(base64.b64decode(pathlib.Path(src).read_text().strip()))
-              pathlib.Path(dst).write_bytes(raw)
-              print(dst, len(raw), 'bytes')
-          PY
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          for path in ['/tmp/v02.patch','/tmp/v032.patch']:
-              lines=Path(path).read_text(errors='replace').splitlines()
-              print('\n================',path,'================')
-              for l in lines:
-                  if l.startswith('diff --git '): print(l)
-              print('\n=== Native/C++ added code matching model internals ===')
-              pat=re.compile(r'0x[0-9A-Fa-f]{5,8}|Display|Model|Weapon|Mount|Enchant|Glow|Attachment|Disable|Enable|Rebuild|Refresh|Item|Object|Guid|Native|CM2|M2|Scene|Update|Set',re.I)
-              # Print merged context windows only for added/native lines.
-              hits=[]
-              in_native=False
-              for i,l in enumerate(lines):
-                  if l.startswith('diff --git '): in_native=('native/' in l or 'dllmain.cpp' in l or '.h ' in l)
-                  if in_native and l.startswith('+') and not l.startswith('+++') and pat.search(l): hits.append(i)
-              merged=[]
-              for i in hits:
-                  a=max(0,i-8); b=min(len(lines),i+12)
-                  if merged and a <= merged[-1][1]+3: merged[-1]=(merged[-1][0],max(merged[-1][1],b))
-                  else: merged.append((a,b))
-              for a,b in merged:
-                  print(f'--- {a+1}-{b} ---')
-                  for j in range(a,b): print(f'{j+1}: {lines[j]}')
-              print('\n=== All added native function signatures ===')
-              in_native=False
-              for i,l in enumerate(lines):
-                  if l.startswith('diff --git '): in_native=('native/' in l or 'dllmain.cpp' in l or '.h ' in l)
-                  if in_native and l.startswith('+') and re.search(r'\b(bool|void|int|uint32_t|uintptr_t|DWORD|float|double|std::|static|inline|auto)\b.*\(',l):
-                      print(f'{i+1}: {l}')
-          PY
+          set -euxo pipefail
+          cat > slice-6774-worldeffect-4501.yaml <<'EOF'
+          SpellVisualKit.dbc:
+            - type: copy
+              key: 416
+              values:
+                ID: 9395
+                WorldEffect: 4501
+
+          SpellVisual.dbc:
+            - type: copy
+              key: 254
+              values:
+                ID: 9395
+                CastKit: 9395
+
+          Spell.dbc:
+            - type: update
+              key: 6774
+              values:
+                SpellVisualID_1: 9395
+          EOF
+
+          cat > BUILD-INFO.txt <<'EOF'
+          Slice and Dice 6774 WorldEffect test
+          Original visual: 254
+          Original CastKit: 416
+          New visual: 9395 (copy of 254)
+          New CastKit: 9395 (copy of 416)
+          Only added field: SpellVisualKit.WorldEffect = 4501
+          Effect 4501: Spells\DirkOfTheBeast_Area_PreCast.mdx
+          Goal: test the native CEffect world-plant slot instead of BaseEffect/AreaModel.
+          Expected placement if this path matches client reverse engineering: caster world position + caster facing.
+          EOF
+
+      - name: Build MPQ
+        working-directory: raid-visuals
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p empty-includes
+          cargo build --release
+          ./target/release/wow_dbc_patcher build \
+            --patches slice-6774-worldeffect-4501.yaml \
+            --includes-dir empty-includes \
+            --out-dir build-slice-worldeffect \
+            --mpq patch-P-Slice6774-WorldEffect4501.mpq
+          test -s patch-P-Slice6774-WorldEffect4501.mpq
+          file patch-P-Slice6774-WorldEffect4501.mpq
+          stat -c 'MPQ bytes: %s' patch-P-Slice6774-WorldEffect4501.mpq | tee -a BUILD-INFO.txt
+          sha256sum patch-P-Slice6774-WorldEffect4501.mpq | tee SHA256.txt
+
+      - name: Package artifact
+        working-directory: raid-visuals
+        shell: bash
+        run: |
+          mkdir -p artifact
+          cp patch-P-Slice6774-WorldEffect4501.mpq artifact/
+          cp slice-6774-worldeffect-4501.yaml artifact/
+          cp BUILD-INFO.txt artifact/
+          cp SHA256.txt artifact/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Slice6774-WorldEffect4501-${{ github.run_number }}
+          path: raid-visuals/artifact/*
+          if-no-files-found: error
+          retention-days: 14
