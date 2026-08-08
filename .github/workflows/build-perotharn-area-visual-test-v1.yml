@@ -1,4 +1,4 @@
-name: Perotharn Native Reverse Dump v4
+name: Perotharn Native CEffect Spawn v1
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
           gzip -dc dw-v034.patch.gz > dw-v034.patch
           git apply --check --directory=target dw-v034.patch
           git apply --directory=target dw-v034.patch
-      - name: Inject Perotharn diagnostics v4
+      - name: Inject Perotharn native CEffect test
         run: |
           set -euxo pipefail
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp target/native/
@@ -48,9 +48,12 @@ jobs:
           cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV3.h target/native/
           cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV4.cpp target/native/
           cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV4.h target/native/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeCreate.cpp target/native/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeCreate.h target/native/
           python3 experiments/perotharn-area-visual-test-v1/integrate.py target
           python3 experiments/perotharn-area-visual-test-v1/integrate_v3.py target
           python3 experiments/perotharn-area-visual-test-v1/integrate_v4.py target
+          python3 experiments/perotharn-area-visual-test-v1/integrate_native_create.py target
       - name: Install Windows x86 build toolchain
         run: |
           set -euxo pipefail
@@ -81,21 +84,35 @@ jobs:
           make -C target/native -j2
           file target/native/UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
           grep -q 'PE32 executable.*Intel 80386' DLL-FILE-TYPE.txt
-      - name: Package diagnostic build
+      - name: Package build
         run: |
           set -euxo pipefail
           mkdir -p artifact/source
-          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-Dump-v4.dll
-          cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV4.cpp artifact/source/
-          cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV4.h artifact/source/
-          cp experiments/perotharn-area-visual-test-v1/integrate_v4.py artifact/source/
-          printf '%s\n' 'Perotharn Native Reverse Dump v4' '' 'READ ONLY. Dumps 0x5D57C0, 0x61FCF0, 0x620BE0, 0x620C86 and 0x6E8088.' '' 'Run:' '/run local ok,s,p=UnitXP("dirkDump4"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s).." "..tostring(p))' '' 'Output: DirkNativeDump-v4.txt' > artifact/README.txt
-          sha256sum artifact/UnitXP_SP3-Perotharn-Native-Dump-v4.dll > artifact/SHA256.txt
-          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-Dump-v4.dll >> artifact/SHA256.txt
+          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-CEffect-v1.dll
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeCreate.cpp artifact/source/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeCreate.h artifact/source/
+          cp experiments/perotharn-area-visual-test-v1/integrate_native_create.py artifact/source/
+          printf '%s\n' \
+            'Perotharn Native CEffect Spawn v1' \
+            '' \
+            'Directly uses the client CEffect destination/world-plant path reconstructed from the user client dump.' \
+            'No DBC patch is required for the command itself; the client still needs the Dirk effect rows/assets available from the normal MPQs.' \
+            '' \
+            'Commands:' \
+            '/run local ok,s=UnitXP("dirkNative","pre"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            '/run local ok,s=UnitXP("dirkNative","cast"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
+            '' \
+            'pre  = SpellVisualEffectName 4501 / spell metadata 36834' \
+            'cast = SpellVisualEffectName 4502 / spell metadata 36835' \
+            '' \
+            'This is the first native CEffect test. Test pre first.' \
+            > artifact/README.txt
+          sha256sum artifact/UnitXP_SP3-Perotharn-Native-CEffect-v1.dll > artifact/SHA256.txt
+          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-CEffect-v1.dll >> artifact/SHA256.txt
           cat DLL-FILE-TYPE.txt >> artifact/SHA256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP_SP3-Perotharn-Native-Dump-v4-${{ github.run_number }}
+          name: UnitXP_SP3-Perotharn-Native-CEffect-v1-${{ github.run_number }}
           path: artifact/**
           if-no-files-found: error
           retention-days: 14
