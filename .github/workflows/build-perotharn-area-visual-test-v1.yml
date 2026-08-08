@@ -1,4 +1,4 @@
-name: Perotharn Native CEffect Spawn v1
+name: Perotharn Native CEffect Spawn v2
 
 on:
   workflow_dispatch:
@@ -88,31 +88,28 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p artifact/source
-          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-CEffect-v1.dll
+          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-CEffect-v2.dll
           cp experiments/perotharn-area-visual-test-v1/dirkNativeCreate.cpp artifact/source/
           cp experiments/perotharn-area-visual-test-v1/dirkNativeCreate.h artifact/source/
           cp experiments/perotharn-area-visual-test-v1/integrate_native_create.py artifact/source/
           printf '%s\n' \
-            'Perotharn Native CEffect Spawn v1' \
+            'Perotharn Native CEffect Spawn v2' \
             '' \
-            'Directly uses the client CEffect destination/world-plant path reconstructed from the user client dump.' \
-            'No DBC patch is required for the command itself; the client still needs the Dirk effect rows/assets available from the normal MPQs.' \
+            'v1 proved SpellVisualEffectName 4501 can render through native CEffect ground/world placement.' \
+            'v2 additionally applies player facing and DynamicObject Hold sequence 0x9E/158 to the CEffect-created CM2.' \
             '' \
-            'Commands:' \
+            'Test:' \
             '/run local ok,s=UnitXP("dirkNative","pre"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
-            '/run local ok,s=UnitXP("dirkNative","cast"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s))' \
             '' \
-            'pre  = SpellVisualEffectName 4501 / spell metadata 36834' \
-            'cast = SpellVisualEffectName 4502 / spell metadata 36835' \
-            '' \
-            'This is the first native CEffect test. Test pre first.' \
+            'Expected status starts with native_ceffect_dynpose and includes model pointer, facing, seq=158.' \
+            'Test pre only first.' \
             > artifact/README.txt
-          sha256sum artifact/UnitXP_SP3-Perotharn-Native-CEffect-v1.dll > artifact/SHA256.txt
-          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-CEffect-v1.dll >> artifact/SHA256.txt
+          sha256sum artifact/UnitXP_SP3-Perotharn-Native-CEffect-v2.dll > artifact/SHA256.txt
+          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-CEffect-v2.dll >> artifact/SHA256.txt
           cat DLL-FILE-TYPE.txt >> artifact/SHA256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP_SP3-Perotharn-Native-CEffect-v1-${{ github.run_number }}
+          name: UnitXP_SP3-Perotharn-Native-CEffect-v2-${{ github.run_number }}
           path: artifact/**
           if-no-files-found: error
           retention-days: 14
