@@ -1,0 +1,145 @@
+--- a/GroundProbe.h
++++ b/GroundProbe.h
+@@ -7,5 +7,9 @@ namespace groundProbe {
+ // GameObjects. This module is diagnostic-only: it never changes world state.
+ std::string snapshot(float maxRangeYards = 120.0f, bool includeGameObjects = true);
+ 
++// Resolves a SuperWoW caster GUID to a visible hostile/friendly Unit/Player and
++// returns a compact U|... record containing its live world position and distance.
++std::string unitByGuid(const std::string& guidText);
++
+ } // namespace groundProbe
+--- a/GroundProbe.cpp
++++ b/GroundProbe.cpp
+@@ -7,6 +7,7 @@
+ #include <cstdint>
+ #include <iomanip>
++#include <limits>
+ #include <sstream>
+ #include <string>
+ 
+@@ -82,6 +83,54 @@ std::string hex32(const std::uint32_t value) {
+     return s.str();
+ }
+ 
++bool parseGuidText(const std::string& input, std::uint64_t& value) {
++    std::string text;
++    for (const char c : input) {
++        if (c != ' ' && c != '\t' && c != '\r' && c != '\n') text.push_back(c);
++    }
++    if (text.empty()) return false;
++
++    std::size_t p = 0;
++    bool explicitHex = false;
++    if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
++        explicitHex = true;
++        p = 2;
++    }
++    if (p >= text.size()) return false;
++
++    bool hasHexAlpha = false;
++    for (std::size_t i = p; i < text.size(); ++i) {
++        const char c = text[i];
++        if ((c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')) hasHexAlpha = true;
++        else if (c < '0' || c > '9') return false;
++    }
++
++    // SuperWoW normally exposes GUIDs as hexadecimal strings. Decimal is also
++    // accepted for diagnostics when it is clearly not a 16-digit hex GUID.
++    const unsigned base = (explicitHex || hasHexAlpha || (text.size() - p) == 16u) ? 16u : 10u;
++    std::uint64_t parsed = 0;
++    for (; p < text.size(); ++p) {
++        const char c = text[p];
++        unsigned digit = 0;
++        if (c >= '0' && c <= '9') digit = static_cast<unsigned>(c - '0');
++        else if (c >= 'A' && c <= 'F') digit = 10u + static_cast<unsigned>(c - 'A');
++        else if (c >= 'a' && c <= 'f') digit = 10u + static_cast<unsigned>(c - 'a');
++        else return false;
++        if (digit >= base) return false;
++        if (parsed > (std::numeric_limits<std::uint64_t>::max() - digit) / base) return false;
++        parsed = parsed * base + digit;
++    }
++    if (parsed == 0u) return false;
++    value = parsed;
++    return true;
++}
++
+ bool descriptorPtr(const std::uint32_t object, std::uint32_t& descriptor) {
+     descriptor = 0;
+     if (!safeRead<std::uint32_t>(static_cast<std::uintptr_t>(object) + kObjectDescriptorOffset,
+@@ -231,5 +280,66 @@ std::string snapshot(const float maxRangeYards, const bool includeGameObjects) {
+     return out.str();
+ }
+ 
++std::string unitByGuid(const std::string& guidText) {
++    if (!moonMarkerRuntimeGuard::enabled()) {
++        return std::string("E|") + moonMarkerRuntimeGuard::statusCode() + "|"
++            + moonMarkerRuntimeGuard::userMessage();
++    }
++
++    std::uint64_t guid = 0;
++    if (!parseGuidText(guidText, guid)) {
++        return "E|GUID_INVALID|caster GUID could not be parsed";
++    }
++
++    const std::uint32_t object = vanilla1121_getVisiableObject(guid);
++    if (object == 0u || (object & 1u) != 0u) {
++        return std::string("E|GUID_NOT_VISIBLE|") + hex64(guid);
++    }
++
++    std::uint32_t type = 0;
++    if (!safeRead<std::uint32_t>(static_cast<std::uintptr_t>(object) + kObjectTypeOffset, type)) {
++        return "E|UNIT_TYPE_UNREADABLE|object type is not readable";
++    }
++    if (type != OBJECT_TYPE_Unit && type != OBJECT_TYPE_Player) {
++        return std::string("E|GUID_NOT_UNIT|") + hex64(guid);
++    }
++
++    const C3Vector pos = vanilla1121_unitPosition(object);
++    if (!validPosition(pos)) {
++        return "E|UNIT_POSITION_INVALID|unit position is not readable";
++    }
++
++    const std::uint64_t playerGuid = vanilla1121_unitGUID("player");
++    const std::uint32_t playerObject = vanilla1121_getVisiableObject(playerGuid);
++    if (playerObject == 0u || (playerObject & 1u) != 0u) {
++        return "E|PLAYER_OBJECT_UNAVAILABLE|player object is not available";
++    }
++    const C3Vector playerPos = vanilla1121_unitPosition(playerObject);
++    if (!validPosition(playerPos)) {
++        return "E|PLAYER_POSITION_INVALID|player position is not readable";
++    }
++
++    std::uint32_t entry = 0;
++    std::uint32_t descriptor = 0;
++    if (descriptorPtr(object, descriptor)) {
++        descriptorU32(descriptor, kObjectFieldEntry, entry);
++    }
++
++    const float xy = distanceXY(playerPos, pos);
++    const float zdiff = std::fabs(playerPos.z - pos.z);
++    std::ostringstream out;
++    out.setf(std::ios::fixed);
++    out << std::setprecision(3);
++    out << "U|" << hex64(guid) << '|' << entry << '|' << type << '|'
++        << pos.x << '|' << pos.y << '|' << pos.z << '|'
++        << xy << '|' << zdiff << '|' << hex32(object);
++    return out.str();
++}
++
+ } // namespace groundProbe
+--- a/dllmain.cpp
++++ b/dllmain.cpp
+@@ -129,6 +129,12 @@ int __fastcall detoured_UnitXP(void* L) {
+             lua_pushstring(L, groundProbe::snapshot(range, includeGameObjects));
+             return 1;
+         }
++        if (groundProbeCommand == "GroundProbe.UnitByGuid" && argumentCount >= 2
++            && lua_isstring(L, 2)) {
++            const std::string record = groundProbe::unitByGuid(lua_tostring(L, 2));
++            lua_pushstring(L, record.c_str());
++            return 1;
++        }
+     }
+ 
+     // MoonMarker runtime commands are handled before the legacy >=2 argument gate.
