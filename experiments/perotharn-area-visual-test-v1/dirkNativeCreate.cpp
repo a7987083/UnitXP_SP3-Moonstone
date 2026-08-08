@@ -25,20 +25,30 @@ constexpr std::uintptr_t kClientAllocFileString = 0x0086FA64;
 constexpr int kClientAllocLine = 0x0D82;
 constexpr std::size_t kCEffectSize = 0x90;
 
+// CM2 methods already validated by the earlier local M2 experiment.
+constexpr std::uintptr_t kSetTransformAddress = 0x00710650;
+constexpr std::uintptr_t kSetSequenceAddress = 0x007121A0;
+constexpr std::uintptr_t kSetActiveTimestampAddress = 0x00710C50;
+constexpr std::uintptr_t kAttachToRenderListAddress = 0x00710B90;
+constexpr std::uintptr_t kEnsureRenderReadyAddress = 0x00710450;
+constexpr int kDynamicObjectLoopSequence = 0x9E;
+
 constexpr std::uint32_t kPreEffectId = 4501;
 constexpr std::uint32_t kCastEffectId = 4502;
-constexpr std::uint32_t kPreSpellId = 36834;
-constexpr std::uint32_t kCastSpellId = 36835;
+constexpr std::uint32_t kPreMetadata5 = 36834;
+constexpr std::uint32_t kCastMetadata5 = 36835;
 
 using SMemAllocProc = void* (__cdecl*)(std::size_t, const char*, int, int);
 using CEffectCtorProc = void* (__thiscall*)(void*);
 using ClientTickProc = std::uint32_t (__cdecl*)();
+using SetTransformProc = void (__thiscall*)(void*, const C3Vector*, float, const C3Vector*, const C3Vector*);
+using SetSequenceProc = void (__thiscall*)(void*, int, int, int, int, float, int, int);
+using SetBooleanProc = void (__thiscall*)(void*, int);
+using EnsureRenderReadyProc = int (__thiscall*)(void*, int, int);
 
 // Recovered from the GO-destination call site at 0x6E80F0..0x6E8143 and
 // CEffect initializer at 0x61FCF0 (RET 0x28 => ten 32-bit stack args).
-// The first three arguments are copied verbatim to node+0x48/4C/50.
-// arg7 is a SpellVisualEffectName row; arg8 is an 8-byte owner GUID pair;
-// arg9 is the flag word (the initializer ORs bit 1); arg10 is completion callback.
+// Only the fields proven by the v4 disassembly are named here. arg5 remains opaque.
 using CEffectInitProc = void (__thiscall*)(
     void*,
     float, float, float,
@@ -109,7 +119,38 @@ bool playerPose(std::uint64_t& guid, C3Vector& pos, float& facing, std::string& 
     return true;
 }
 
-bool spawnEffect(std::uint32_t effectId, std::uint32_t spellId, std::string& status) {
+bool applyDynamicObjectPose(void* node, const C3Vector& pos, float facing, std::string& why, void*& modelOut) {
+    modelOut = nullptr;
+    if (!node || !readable(reinterpret_cast<std::uintptr_t>(node), sizeof(void*))) {
+        why = "ceffect_node_unreadable";
+        return false;
+    }
+
+    // 0x61FCF0 stores the created CM2 pointer at CEffect+0x00.
+    void* model = *reinterpret_cast<void**>(node);
+    modelOut = model;
+    if (!model || !readable(reinterpret_cast<std::uintptr_t>(model), 0x48)) {
+        why = "ceffect_model_unavailable";
+        return false;
+    }
+
+    const C3Vector up = {0.0f, 0.0f, 1.0f};
+    const C3Vector scale = {1.0f, 1.0f, 1.0f};
+    reinterpret_cast<SetTransformProc>(kSetTransformAddress)(model, &pos, facing, &up, &scale);
+
+    // DynamicObject Visual A uses Hold/loop sequence 0x9E. Earlier CM2-only tests had
+    // this sequence but lacked the ground/decal CEffect path; v2 deliberately combines both.
+    reinterpret_cast<SetSequenceProc>(kSetSequenceAddress)(
+        model, -1, kDynamicObjectLoopSequence, -1, 0, 1.0f, 1, 1);
+
+    // Keep the CEffect-created model on the live world render list after changing its pose/sequence.
+    reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(model, 1);
+    reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(model, 1);
+    reinterpret_cast<EnsureRenderReadyProc>(kEnsureRenderReadyAddress)(model, 1, 1);
+    return true;
+}
+
+bool spawnEffect(std::uint32_t effectId, std::uint32_t opaque5, std::string& status) {
     status.clear();
     std::string why;
     void* row = effectRow(effectId, why);
@@ -125,8 +166,6 @@ bool spawnEffect(std::uint32_t effectId, std::uint32_t spellId, std::string& sta
     auto tick = reinterpret_cast<ClientTickProc>(kClientTickAddress);
     auto init = reinterpret_cast<CEffectInitProc>(kCEffectInitAddress);
 
-    // Exact allocation shape used by the client's GO destination one-shot path:
-    // SMemAlloc(0x90, client_file_string, 0xD82, 0) -> CEffect::CEffect().
     void* mem = smemAlloc(kCEffectSize, reinterpret_cast<const char*>(kClientAllocFileString), kClientAllocLine, 0);
     if (!mem) { status = "smemalloc_failed"; return false; }
     void* node = ctor(mem);
@@ -134,40 +173,45 @@ bool spawnEffect(std::uint32_t effectId, std::uint32_t spellId, std::string& sta
 
     const std::uint32_t now = tick();
 
-    // Free-standing destination effect. The spell id and player GUID give the node the same
-    // ownership metadata a real cast carries, but the position is explicitly our current
-    // world position. 0x61FCF0 itself installs attachment=-1 through 0x6208E0, which is the
-    // client path that later reaches the world-plant branch at 0x620C86.
+    // First create through the proven destination/world-ground CEffect path. v1 proved this
+    // renders the authored ground/decal pieces. We no longer describe arg5 as a spell id;
+    // its exact semantic is still unpinned, so the known working value is retained as opaque metadata.
     init(node,
          pos.x, pos.y, pos.z,
          now,
-         spellId,
+         opaque5,
          0,
          row,
          &guid,
          0,
          reinterpret_cast<void*>(kOneShotCompleteCallback));
 
+    void* model = nullptr;
+    const bool posed = applyDynamicObjectPose(node, pos, facing, why, model);
+
     std::ostringstream ss;
-    ss << "native_ceffect_spawned effect=" << effectId
-       << " spell=" << spellId
+    ss << (posed ? "native_ceffect_dynpose" : "native_ceffect_created_pose_failed")
+       << " effect=" << effectId
        << " row=0x" << std::hex << reinterpret_cast<std::uintptr_t>(row)
-       << " node=0x" << reinterpret_cast<std::uintptr_t>(node) << std::dec
+       << " node=0x" << reinterpret_cast<std::uintptr_t>(node)
+       << " model=0x" << reinterpret_cast<std::uintptr_t>(model) << std::dec
        << " pos=(" << pos.x << ',' << pos.y << ',' << pos.z << ')'
        << " facing=" << facing
+       << " seq=" << kDynamicObjectLoopSequence
        << " tick=" << now;
+    if (!posed) ss << " reason=" << why;
     status = ss.str();
-    return true;
+    return posed;
 }
 
 } // namespace
 
 bool spawnPre(std::string& status) {
-    return spawnEffect(kPreEffectId, kPreSpellId, status);
+    return spawnEffect(kPreEffectId, kPreMetadata5, status);
 }
 
 bool spawnCast(std::string& status) {
-    return spawnEffect(kCastEffectId, kCastSpellId, status);
+    return spawnEffect(kCastEffectId, kCastMetadata5, status);
 }
 
 } // namespace dirkNativeCreate
