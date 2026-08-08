@@ -1,0 +1,22 @@
+#include "dirkNativeDumpV4.h"
+#include <Windows.h>
+#include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace dirkNativeDumpV4 {
+namespace {
+std::string exeDir(){char p[MAX_PATH]={};DWORD n=GetModuleFileNameA(nullptr,p,MAX_PATH);if(!n||n>=MAX_PATH)return{};std::string s(p,p+n);auto k=s.find_last_of("\\/");return k==std::string::npos?std::string(".\\"):s.substr(0,k+1);} 
+bool readable(std::uintptr_t a,std::size_t n){std::uintptr_t c=a,e=a+n;while(c<e){MEMORY_BASIC_INFORMATION m={};if(VirtualQuery((LPCVOID)c,&m,sizeof(m))!=sizeof(m))return false;if(m.State!=MEM_COMMIT||(m.Protect&PAGE_GUARD)||(m.Protect&PAGE_NOACCESS))return false;DWORD p=m.Protect&0xff;bool ok=p==PAGE_READONLY||p==PAGE_READWRITE||p==PAGE_WRITECOPY||p==PAGE_EXECUTE_READ||p==PAGE_EXECUTE_READWRITE||p==PAGE_EXECUTE_WRITECOPY;if(!ok)return false;auto r=(std::uintptr_t)m.BaseAddress+m.RegionSize;if(r<=c)return false;c=r<e?r:e;}return true;}
+std::string moduleAt(std::uintptr_t a,std::uintptr_t* base=nullptr){HMODULE h=nullptr;if(!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,(LPCSTR)a,&h)||!h){if(base)*base=0;return"<none>";}if(base)*base=(std::uintptr_t)h;char p[MAX_PATH]={};DWORD n=GetModuleFileNameA(h,p,MAX_PATH);return n?std::string(p,p+n):"<module-path-unavailable>";}
+void region(std::ostringstream& ss,std::uintptr_t a){MEMORY_BASIC_INFORMATION m={};if(VirtualQuery((LPCVOID)a,&m,sizeof(m))!=sizeof(m)){ss<<"VirtualQuery=0\r\n";return;}std::uintptr_t b=0;ss<<std::hex<<std::uppercase<<"Address=0x"<<a<<" RegionBase=0x"<<(std::uintptr_t)m.BaseAddress<<" AllocationBase=0x"<<(std::uintptr_t)m.AllocationBase<<" RegionSize=0x"<<m.RegionSize<<" State=0x"<<m.State<<" Protect=0x"<<m.Protect<<" Type=0x"<<m.Type<<"\r\n";auto mod=moduleAt(a,&b);ss<<"ContainingModule="<<mod;if(b)ss<<" ModuleBase=0x"<<b<<" RVA=0x"<<(a-b);ss<<"\r\n"<<std::dec;}
+void hexDump(std::ostringstream& ss,std::uintptr_t a,std::size_t n){if(!readable(a,n)){ss<<"READABLE=0\r\n";return;}std::vector<unsigned char>b(n);SIZE_T got=0;if(!ReadProcessMemory(GetCurrentProcess(),(LPCVOID)a,b.data(),n,&got)){ss<<"ReadProcessMemory=0\r\n";return;}b.resize(got);for(std::size_t i=0;i<b.size();i+=16){ss<<std::hex<<std::uppercase<<std::setfill('0')<<std::setw(8)<<(unsigned long)(a+i)<<"  ";for(std::size_t j=0;j<16;j++){if(i+j<b.size())ss<<std::setw(2)<<(unsigned)b[i+j]<<' ';else ss<<"   ";}ss<<" |";for(std::size_t j=0;j<16&&i+j<b.size();j++){unsigned char c=b[i+j];ss<<((c>=32&&c<=126)?(char)c:'.');}ss<<"|\r\n";}ss<<std::dec;}
+std::uintptr_t rel32(std::uintptr_t p){if(!readable(p,5))return 0;unsigned char op=*(unsigned char*)p;if(op!=0xE8&&op!=0xE9)return 0;std::int32_t r=0;std::memcpy(&r,(void*)(p+1),4);return p+5+(std::intptr_t)r;}
+void inspect(std::ostringstream& ss,const char* name,std::uintptr_t a){ss<<"\r\n==============================\r\n"<<name<<"\r\n";region(ss,a);hexDump(ss,a,0x180);if(readable(a,0x180)){const unsigned char*p=(const unsigned char*)a;for(int i=0;i<0x170;i++){if((p[i]==0xE8||p[i]==0xE9)&&i+5<=0x180){auto t=rel32(a+i);ss<<(p[i]==0xE8?"CALL":"JMP")<<" @+0x"<<std::hex<<std::uppercase<<i<<" -> 0x"<<t<<std::dec<<" ";std::uintptr_t b=0;ss<<moduleAt(t,&b);if(b)ss<<" RVA=0x"<<std::hex<<std::uppercase<<(t-b)<<std::dec;ss<<"\r\n";}}}}
+}
+bool dump(std::string& outputPath,std::string& status){outputPath.clear();status.clear();std::ostringstream ss;ss<<"DirkNativeDump v4 - READ ONLY\r\n";ss<<"Focus: CEffect/world-plant and AreaModel downstream code. No hooks, no writes, no calls.\r\n";std::uintptr_t sb=0;ss<<"SelfModule="<<moduleAt((std::uintptr_t)&dump,&sb)<<" SelfBase=0x"<<std::hex<<std::uppercase<<sb<<std::dec<<"\r\n";inspect(ss,"AREA MODEL ENTRY 0x5D57C0",0x005D57C0u);inspect(ss,"CEFFECT/WORLD EFFECT 0x61FCF0",0x0061FCF0u);inspect(ss,"WORLD PLACEMENT WALK 0x620BE0",0x00620BE0u);inspect(ss,"WORLD PLANT BRANCH 0x620C86",0x00620C86u);inspect(ss,"GO DEST ONE-SHOT 0x6E8088",0x006E8088u);std::string d=exeDir();if(d.empty()){status="EXE_DIRECTORY_UNAVAILABLE";return false;}outputPath=d+"DirkNativeDump-v4.txt";std::ofstream f(outputPath.c_str(),std::ios::binary|std::ios::trunc);if(!f){status="OPEN_OUTPUT_FAILED";return false;}auto t=ss.str();f.write(t.data(),(std::streamsize)t.size());f.flush();if(!f.good()){status="WRITE_OUTPUT_FAILED";return false;}status="DUMP4_OK";return true;}
+}
