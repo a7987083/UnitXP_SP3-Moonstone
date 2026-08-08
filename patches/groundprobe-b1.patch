@@ -1,0 +1,301 @@
+--- a/Makefile
++++ b/Makefile
+@@ -26,6 +26,7 @@
+             gameEvent.cpp \
+             gameQuit.cpp \
+             gameSocket.cpp \
++            GroundProbe.cpp \
+             inSight.cpp \
+             LuaDebug.cpp \
+             MoonMarkerGuildAuth.cpp \
+--- a/dllmain.cpp
++++ b/dllmain.cpp
+@@ -32,6 +32,7 @@
+ #include "polyfill.h"
+ #include "sceneBegin_sceneEnd.h"
+ #include "gameEvent.h"
++#include "GroundProbe.h"
+ #include "MoonMarkerGuildAuth.h"
+ #include "MoonMarkerRuntimeGuard.h"
+ #include "MoonMarkerDreamAvatar.h"
+@@ -110,6 +111,28 @@
+     }
+     const int argumentCount = lua_gettop(L);
+ 
++    // GroundProbe is a diagnostic-only scanner. It is deliberately handled
++    // before the legacy >=2 argument gate and never mutates world state.
++    if (argumentCount >= 1 && lua_isstring(L, 1)) {
++        const string groundProbeCommand{ lua_tostring(L, 1) };
++        if (groundProbeCommand == "GroundProbe.Status") {
++            lua_pushboolean(L, moonMarkerRuntimeGuard::enabled() ? 1 : 0);
++            lua_pushstring(L, moonMarkerRuntimeGuard::statusCode());
++            lua_pushstring(L, moonMarkerRuntimeGuard::userMessage());
++            return 3;
++        }
++        if (groundProbeCommand == "GroundProbe.Snapshot") {
++            float range = 120.0f;
++            bool includeGameObjects = true;
++            if (argumentCount >= 2 && lua_isnumber(L, 2))
++                range = static_cast<float>(lua_tonumber(L, 2));
++            if (argumentCount >= 3)
++                includeGameObjects = lua_toboolean(L, 3) != 0;
++            lua_pushstring(L, groundProbe::snapshot(range, includeGameObjects));
++            return 1;
++        }
++    }
++
+     // MoonMarker runtime commands are handled before the legacy >=2 argument gate.
+     if (argumentCount >= 1) {
+         const string markerCommand{ lua_tostring(L, 1) };
+--- a/GroundProbe.h
++++ b/GroundProbe.h
+@@ -0,0 +1,11 @@
++#pragma once
++
++#include <string>
++
++namespace groundProbe {
++
++// Returns a compact, newline-delimited snapshot of nearby DynamicObjects and
++// GameObjects. This module is diagnostic-only: it never changes world state.
++std::string snapshot(float maxRangeYards = 120.0f, bool includeGameObjects = true);
++
++} // namespace groundProbe
+--- a/GroundProbe.cpp
++++ b/GroundProbe.cpp
+@@ -0,0 +1,235 @@
++#include "GroundProbe.h"
++
++#include <Windows.h>
++
++#include <cmath>
++#include <cstdint>
++#include <iomanip>
++#include <sstream>
++#include <string>
++
++#include "MoonMarkerRuntimeGuard.h"
++#include "Vanilla1121_functions.h"
++
++namespace groundProbe {
++namespace {
++
++constexpr std::uintptr_t kObjectManagerPtr = 0x00B41414u;
++constexpr std::uint32_t kObjectDescriptorOffset = 0x08u;
++constexpr std::uint32_t kObjectTypeOffset = 0x14u;
++constexpr std::uint32_t kObjectGuidOffset = 0x30u;
++
++// WoW 1.12.1 build 5875 UpdateFields. OBJECT_END == 0x6.
++constexpr std::size_t kObjectFieldEntry = 0x03u;
++constexpr std::size_t kDynamicCaster = 0x06u;
++constexpr std::size_t kDynamicSpellId = 0x09u;
++constexpr std::size_t kDynamicRadius = 0x0Au;
++constexpr std::size_t kDynamicPosX = 0x0Bu;
++constexpr std::size_t kDynamicPosY = 0x0Cu;
++constexpr std::size_t kDynamicPosZ = 0x0Du;
++constexpr std::size_t kGameObjectPosX = 0x0Fu;
++constexpr std::size_t kGameObjectPosY = 0x10u;
++constexpr std::size_t kGameObjectPosZ = 0x11u;
++
++bool readableProtection(const DWORD protection) {
++    const DWORD base = protection & 0xFFu;
++    return base == PAGE_READONLY || base == PAGE_READWRITE
++        || base == PAGE_WRITECOPY || base == PAGE_EXECUTE_READ
++        || base == PAGE_EXECUTE_READWRITE || base == PAGE_EXECUTE_WRITECOPY;
++}
++
++bool canRead(const std::uintptr_t address, const std::size_t bytes) {
++    if (address == 0u || bytes == 0u) return false;
++    MEMORY_BASIC_INFORMATION info = {};
++    if (VirtualQuery(reinterpret_cast<const void*>(address), &info, sizeof(info)) == 0)
++        return false;
++    if (info.State != MEM_COMMIT || (info.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0)
++        return false;
++    if (!readableProtection(info.Protect)) return false;
++    const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(info.BaseAddress);
++    const std::uintptr_t end = begin + info.RegionSize;
++    return address >= begin && address <= end && bytes <= end - address;
++}
++
++template <typename T>
++bool safeRead(const std::uintptr_t address, T& out) {
++    if (!canRead(address, sizeof(T))) return false;
++    out = *reinterpret_cast<const T*>(address);
++    return true;
++}
++
++bool validWorldFloat(const float value) {
++    return std::isfinite(value) && std::fabs(value) < 1000000.0f;
++}
++
++bool validPosition(const C3Vector& pos) {
++    return validWorldFloat(pos.x) && validWorldFloat(pos.y) && validWorldFloat(pos.z);
++}
++
++float distanceXY(const C3Vector& a, const C3Vector& b) {
++    const float dx = a.x - b.x;
++    const float dy = a.y - b.y;
++    return std::sqrt(dx * dx + dy * dy);
++}
++
++std::string hex64(const std::uint64_t value) {
++    std::ostringstream s;
++    s << std::uppercase << std::hex << std::setw(16) << std::setfill('0') << value;
++    return s.str();
++}
++
++std::string hex32(const std::uint32_t value) {
++    std::ostringstream s;
++    s << std::uppercase << std::hex << std::setw(8) << std::setfill('0') << value;
++    return s.str();
++}
++
++bool descriptorPtr(const std::uint32_t object, std::uint32_t& descriptor) {
++    descriptor = 0;
++    if (!safeRead<std::uint32_t>(static_cast<std::uintptr_t>(object) + kObjectDescriptorOffset,
++                                 descriptor))
++        return false;
++    return descriptor != 0u && (descriptor & 0x3u) == 0u
++        && canRead(descriptor, sizeof(std::uint32_t) * 0x12u);
++}
++
++bool descriptorU32(const std::uint32_t descriptor, const std::size_t index,
++                   std::uint32_t& value) {
++    return safeRead<std::uint32_t>(
++        static_cast<std::uintptr_t>(descriptor) + index * sizeof(std::uint32_t), value);
++}
++
++bool descriptorU64(const std::uint32_t descriptor, const std::size_t index,
++                   std::uint64_t& value) {
++    return safeRead<std::uint64_t>(
++        static_cast<std::uintptr_t>(descriptor) + index * sizeof(std::uint32_t), value);
++}
++
++bool descriptorFloat(const std::uint32_t descriptor, const std::size_t index,
++                     float& value) {
++    return safeRead<float>(
++        static_cast<std::uintptr_t>(descriptor) + index * sizeof(std::uint32_t), value);
++}
++
++bool nextObject(const std::uint32_t objects, const std::uint32_t current,
++                std::uint32_t& next) {
++    std::uint32_t linkBase = 0;
++    if (!safeRead<std::uint32_t>(static_cast<std::uintptr_t>(objects) + 0xA4u, linkBase))
++        return false;
++    if (linkBase == 0u) return false;
++    return safeRead<std::uint32_t>(static_cast<std::uintptr_t>(linkBase) + current + 4u, next);
++}
++
++} // namespace
++
++std::string snapshot(const float maxRangeYards, const bool includeGameObjects) {
++    if (!moonMarkerRuntimeGuard::enabled()) {
++        return std::string("E|") + moonMarkerRuntimeGuard::statusCode() + "|"
++            + moonMarkerRuntimeGuard::userMessage();
++    }
++
++    const std::uint64_t playerGuid = vanilla1121_unitGUID("player");
++    const std::uint32_t playerObject = vanilla1121_getVisiableObject(playerGuid);
++    if (playerObject == 0u || (playerObject & 1u) != 0u) {
++        return "E|PLAYER_OBJECT_UNAVAILABLE|player object is not available";
++    }
++
++    const C3Vector playerPos = vanilla1121_unitPosition(playerObject);
++    if (!validPosition(playerPos)) {
++        return "E|PLAYER_POSITION_INVALID|player position is not readable";
++    }
++
++    std::ostringstream out;
++    out.setf(std::ios::fixed);
++    out << std::setprecision(3);
++    out << "P|" << playerPos.x << '|' << playerPos.y << '|' << playerPos.z << '\n';
++
++    std::uint32_t objects = 0;
++    if (!safeRead<std::uint32_t>(kObjectManagerPtr, objects) || objects == 0u) {
++        out << "E|OBJECT_MANAGER_UNAVAILABLE|object manager is not available";
++        return out.str();
++    }
++
++    std::uint32_t current = 0;
++    if (!safeRead<std::uint32_t>(static_cast<std::uintptr_t>(objects) + 0xACu, current)) {
++        out << "E|OBJECT_HEAD_UNAVAILABLE|object list head is not readable";
++        return out.str();
++    }
++
++    const float range = (std::isfinite(maxRangeYards) && maxRangeYards > 0.0f)
++        ? maxRangeYards : 120.0f;
++    std::size_t visited = 0;
++    std::size_t dynamicCount = 0;
++    std::size_t gameObjectCount = 0;
++
++    while (current != 0u && (current & 1u) == 0u && visited < 8192u) {
++        ++visited;
++
++        std::uint32_t type = 0;
++        if (!safeRead<std::uint32_t>(static_cast<std::uintptr_t>(current) + kObjectTypeOffset,
++                                     type)) {
++            break;
++        }
++
++        if (type == OBJECT_TYPE_DynamicObject
++            || (includeGameObjects && type == OBJECT_TYPE_GameObject)) {
++            std::uint32_t descriptor = 0;
++            std::uint64_t guid = 0;
++            if (descriptorPtr(current, descriptor)
++                && safeRead<std::uint64_t>(static_cast<std::uintptr_t>(current) + kObjectGuidOffset,
++                                           guid)) {
++                C3Vector pos = {};
++                if (type == OBJECT_TYPE_DynamicObject) {
++                    std::uint64_t caster = 0;
++                    std::uint32_t spellId = 0;
++                    float radius = 0.0f;
++                    if (descriptorU64(descriptor, kDynamicCaster, caster)
++                        && descriptorU32(descriptor, kDynamicSpellId, spellId)
++                        && descriptorFloat(descriptor, kDynamicRadius, radius)
++                        && descriptorFloat(descriptor, kDynamicPosX, pos.x)
++                        && descriptorFloat(descriptor, kDynamicPosY, pos.y)
++                        && descriptorFloat(descriptor, kDynamicPosZ, pos.z)
++                        && validPosition(pos) && validWorldFloat(radius)) {
++                        const float xy = distanceXY(playerPos, pos);
++                        const float zdiff = std::fabs(playerPos.z - pos.z);
++                        if (xy <= range) {
++                            ++dynamicCount;
++                            out << "D|" << hex64(guid) << '|' << hex64(caster) << '|'
++                                << spellId << '|' << radius << '|'
++                                << pos.x << '|' << pos.y << '|' << pos.z << '|'
++                                << xy << '|' << zdiff << '|'
++                                << hex32(current) << '|' << hex32(descriptor) << '\n';
++                        }
++                    }
++                }
++                else {
++                    std::uint32_t entry = 0;
++                    if (descriptorU32(descriptor, kObjectFieldEntry, entry)
++                        && descriptorFloat(descriptor, kGameObjectPosX, pos.x)
++                        && descriptorFloat(descriptor, kGameObjectPosY, pos.y)
++                        && descriptorFloat(descriptor, kGameObjectPosZ, pos.z)
++                        && validPosition(pos)) {
++                        const float xy = distanceXY(playerPos, pos);
++                        const float zdiff = std::fabs(playerPos.z - pos.z);
++                        if (xy <= range) {
++                            ++gameObjectCount;
++                            out << "G|" << hex64(guid) << '|' << entry << '|'
++                                << pos.x << '|' << pos.y << '|' << pos.z << '|'
++                                << xy << '|' << zdiff << '|'
++                                << hex32(current) << '|' << hex32(descriptor) << '\n';
++                        }
++                    }
++                }
++            }
++        }
++
++        std::uint32_t next = 0;
++        if (!nextObject(objects, current, next) || next == current) break;
++        current = next;
++    }
++
++    out << "S|" << dynamicCount << '|' << gameObjectCount << '|' << visited;
++    return out.str();
++}
++
++} // namespace groundProbe

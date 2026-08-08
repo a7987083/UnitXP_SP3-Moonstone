@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: GroundProbe · 地面对象探针
+## Notes: Diagnostic probe for DynamicObject/GameObject coordinates using UnitXP_SP3; optional SuperWoW cast correlation
+## Author: a7987083 / OpenAI test build
+## Version: B1-true8x8-diagnostic
+## OptionalDeps: SuperAPI
+## SavedVariables: GroundProbeDB
+GroundProbe.lua

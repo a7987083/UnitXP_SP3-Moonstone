@@ -1,0 +1,168 @@
+name: Build GroundProbe B1 True 8x8 DLL
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/groundprobe-b1-20260809
+    paths:
+      - 'patches/groundprobe-b1.patch'
+      - 'groundprobe-addon/**'
+      - 'GROUNDPROBE-B1-TEST.md'
+      - '.github/workflows/build-groundprobe-b1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Install Clang and build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
+          test -f upstream/Makefile
+          test -f upstream/dllmain.cpp
+
+      - name: Rebuild exact TRUE 8x8 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find upstream -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.h' -o -name 'Makefile' \) -print0 | xargs -0 sed -i 's/\r$//'
+          cat \
+            patches/true8x8.patch.gz.b64.part00 \
+            patches/true8x8.patch.gz.b64.part01 \
+            patches/true8x8.patch.gz.b64.part02.00 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
+            patches/true8x8.patch.gz.b64.part02.02 \
+            patches/true8x8.patch.gz.b64.part02.03 \
+            patches/true8x8.patch.gz.b64.part03 \
+            patches/true8x8.patch.gz.b64.part04 \
+            patches/true8x8.patch.gz.b64.part05 \
+            patches/true8x8.patch.gz.b64.part06 \
+            > true8x8.patch.gz.b64
+          echo 'a932b4a1b9786c10e23755ee344fb285fd2ceca25333825c6e99cbc105d8c320  true8x8.patch.gz.b64' | sha256sum -c -
+          base64 -d true8x8.patch.gz.b64 > true8x8.patch.gz
+          echo '19ca05bd7d6943c60b9d4372723c01e77a3ba551afcf300172f914e0c23b844b  true8x8.patch.gz' | sha256sum -c -
+          gzip -dc true8x8.patch.gz > true8x8.patch
+          echo 'f5d7506b85955661d322b00b6b2aa3bbfae8601cd7c05e672a8338a8ddc875e4  true8x8.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < true8x8.patch
+          patch --batch --forward -p1 -d upstream < true8x8.patch
+          grep -Fq 'kSlotCount = kColorCount * kIconCount' upstream/nativeM2Test.cpp
+          grep -Fq 'slotIndex(selectedColor, selectedIcon)' upstream/nativeM2Test.cpp
+
+      - name: Apply GroundProbe B1 diagnostic patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo '27f87c231bf5c174201c7e26ddc298e827435363e8d5135dece510f40795be7c  patches/groundprobe-b1.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < patches/groundprobe-b1.patch
+          patch --batch --forward -p1 -d upstream < patches/groundprobe-b1.patch
+          test -f upstream/GroundProbe.cpp
+          test -f upstream/GroundProbe.h
+          grep -Fq 'GroundProbe.Snapshot' upstream/dllmain.cpp
+          grep -Fq 'DYNAMICOBJECT' upstream/GroundProbe.cpp || true
+          grep -Fq 'kDynamicSpellId = 0x09u' upstream/GroundProbe.cpp
+          grep -Fq 'kDynamicRadius = 0x0Au' upstream/GroundProbe.cpp
+          grep -Fq 'kDynamicPosX = 0x0Bu' upstream/GroundProbe.cpp
+
+      - name: Install xwin
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --version
+
+      - name: Download Microsoft CRT and Windows SDK x86
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download Microsoft D3DX headers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+          test -f upstream/d3d9x_headers/d3dx9.h
+
+      - name: Build PE32 x86 DLL
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          test -f UnitXP_SP3.dll
+          file UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' DLL-FILE-TYPE.txt
+
+      - name: Package GroundProbe B1 test artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release/Interface/AddOns/GroundProbe
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp upstream/DLL-FILE-TYPE.txt release/
+          cp groundprobe-addon/GroundProbe.lua release/Interface/AddOns/GroundProbe/
+          cp groundprobe-addon/GroundProbe.toc release/Interface/AddOns/GroundProbe/
+          cp GROUNDPROBE-B1-TEST.md release/README-测试步骤.md
+          sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
+          cat > release/BUILD-SCOPE.txt <<'TXT'
+          Project: GroundProbe B1 diagnostic
+          Base: TRUE 8x8 MoonMarker UnitXP_SP3
+          Native change: read-only DynamicObject/GameObject snapshot API
+          Existing MoonMarker 8x8 behavior: intended unchanged
+          SuperWoW: optional UNIT_CASTEVENT correlation in Lua, tested against 2.2 API contract
+          Architecture: PE32 x86
+          In-game validation: required by user; build success is not gameplay validation
+          TXT
+
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GroundProbe-B1-True88-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
