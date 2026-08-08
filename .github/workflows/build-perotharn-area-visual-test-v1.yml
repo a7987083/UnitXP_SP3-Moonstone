@@ -1,4 +1,4 @@
-name: Perotharn Native Reverse Dump v2
+name: Perotharn Native Reverse Dump v3
 
 on:
   workflow_dispatch:
@@ -47,14 +47,17 @@ jobs:
           git apply --check --directory=target dw-v034.patch
           git apply --directory=target dw-v034.patch
 
-      - name: Inject Perotharn visual test and read-only reverse dump modules
+      - name: Inject Perotharn diagnostics v3
         run: |
           set -euxo pipefail
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.cpp target/native/
           cp experiments/perotharn-area-visual-test-v1/dirkAreaTest.h target/native/
           cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.cpp target/native/
           cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.h target/native/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV3.cpp target/native/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV3.h target/native/
           python3 experiments/perotharn-area-visual-test-v1/integrate.py target
+          python3 experiments/perotharn-area-visual-test-v1/integrate_v3.py target
 
       - name: Install Windows x86 build toolchain
         run: |
@@ -92,28 +95,28 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p artifact/source
-          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-Dump-v2.dll
-          cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.cpp artifact/source/
-          cp experiments/perotharn-area-visual-test-v1/dirkNativeDump.h artifact/source/
-          cp experiments/perotharn-area-visual-test-v1/integrate.py artifact/source/
+          cp target/native/UnitXP_SP3.dll artifact/UnitXP_SP3-Perotharn-Native-Dump-v3.dll
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV3.cpp artifact/source/
+          cp experiments/perotharn-area-visual-test-v1/dirkNativeDumpV3.h artifact/source/
+          cp experiments/perotharn-area-visual-test-v1/integrate_v3.py artifact/source/
           printf '%s\n' \
-            'Perotharn Native Reverse Dump v2' \
+            'Perotharn Native Reverse Dump v3' \
             '' \
-            'READ ONLY diagnostic. It follows existing rel32 JMP detours at 0x5D55C0 and 0x5D57C0.' \
+            'READ ONLY. Recursively identifies modules and bytes referenced by the existing 0x5D55C0 / 0x5D57C0 trampolines.' \
             '' \
             'Run in game:' \
-            '/run local ok,s,p=UnitXP("dirkDump"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s).." "..tostring(p))' \
+            '/run local ok,s,p=UnitXP("dirkDump3"); DEFAULT_CHAT_FRAME:AddMessage(tostring(ok).." "..tostring(s).." "..tostring(p))' \
             '' \
             'Expected output beside WoW.exe:' \
-            'DirkNativeDump-v2.txt' \
+            'DirkNativeDump-v3.txt' \
             > artifact/README.txt
-          sha256sum artifact/UnitXP_SP3-Perotharn-Native-Dump-v2.dll > artifact/SHA256.txt
-          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-Dump-v2.dll >> artifact/SHA256.txt
+          sha256sum artifact/UnitXP_SP3-Perotharn-Native-Dump-v3.dll > artifact/SHA256.txt
+          stat -c 'DLL bytes: %s' artifact/UnitXP_SP3-Perotharn-Native-Dump-v3.dll >> artifact/SHA256.txt
           cat DLL-FILE-TYPE.txt >> artifact/SHA256.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP_SP3-Perotharn-Native-Dump-v2-${{ github.run_number }}
+          name: UnitXP_SP3-Perotharn-Native-Dump-v3-${{ github.run_number }}
           path: artifact/**
           if-no-files-found: error
           retention-days: 14
