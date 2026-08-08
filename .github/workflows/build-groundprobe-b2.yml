@@ -7,7 +7,7 @@ on:
       - agent/groundprobe-b2-hybrid-20260809
     paths:
       - 'patches/groundprobe-b1.patch'
-      - 'patches/groundprobe-b2-hybrid.patch'
+      - 'tools/apply_groundprobe_b2_fixed.py'
       - 'groundprobe-addon/**'
       - 'GROUNDPROBE-B2-TEST.md'
       - '.github/workflows/build-groundprobe-b2.yml'
@@ -97,11 +97,10 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          sha256sum patches/groundprobe-b2-hybrid.patch
-          patch --dry-run -p1 -d upstream < patches/groundprobe-b2-hybrid.patch
-          patch --batch --forward -p1 -d upstream < patches/groundprobe-b2-hybrid.patch
+          python3 -m py_compile tools/apply_groundprobe_b2_fixed.py
+          python3 tools/apply_groundprobe_b2_fixed.py upstream
           grep -Fq 'GroundProbe.UnitByGuid' upstream/dllmain.cpp
-          grep -Fq 'unitByGuid' upstream/GroundProbe.cpp
+          grep -Fq 'std::string unitByGuid' upstream/GroundProbe.cpp
           grep -Fq 'GUID_NOT_VISIBLE' upstream/GroundProbe.cpp
 
       - name: Install xwin
