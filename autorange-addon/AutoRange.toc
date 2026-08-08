@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: AutoRange · 自动技能范围
+## Notes: Auto-resolves enemy AoE radius from client DBCs and renders random patch-O danger visuals
+## Author: a7987083 / OpenAI test build
+## Version: B3-auto-dbc-visual
+## OptionalDeps: SuperAPI
+## SavedVariables: AutoRangeDB
+AutoRange.lua
