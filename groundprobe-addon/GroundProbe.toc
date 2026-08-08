@@ -1,8 +1,8 @@
 ## Interface: 11200
-## Title: GroundProbe · 地面对象探针
-## Notes: Diagnostic probe for DynamicObject/GameObject coordinates using UnitXP_SP3; optional SuperWoW cast correlation
+## Title: GroundProbe B2 Hybrid · 双模式危险区探针
+## Notes: Hybrid DynamicObject + caster-centered hazard diagnostic using UnitXP_SP3 and SuperWoW UNIT_CASTEVENT
 ## Author: a7987083 / OpenAI test build
-## Version: B1-true8x8-diagnostic
+## Version: B2-hybrid-true8x8-diagnostic
 ## OptionalDeps: SuperAPI
 ## SavedVariables: GroundProbeDB
 GroundProbe.lua
