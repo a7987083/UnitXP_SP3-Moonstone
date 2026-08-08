@@ -1,0 +1,206 @@
+name: Build AutoRange B3.1 True 8x8 DLL
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/autorange-b3-20260809
+    paths:
+      - 'tools/apply_groundprobe_b2_fixed.py'
+      - 'tools/apply_autorange_b3.py'
+      - 'tools/apply_autorange_b31_fix.py'
+      - 'tools/apply_autorange_b31_lua_fix.py'
+      - 'autorange-addon/**'
+      - '.github/workflows/build-autorange-b31.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Install Clang and build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file python3
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
+
+      - name: Rebuild exact TRUE 8x8 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find upstream -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.h' -o -name 'Makefile' \) -print0 | xargs -0 sed -i 's/\r$//'
+          cat \
+            patches/true8x8.patch.gz.b64.part00 \
+            patches/true8x8.patch.gz.b64.part01 \
+            patches/true8x8.patch.gz.b64.part02.00 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
+            patches/true8x8.patch.gz.b64.part02.02 \
+            patches/true8x8.patch.gz.b64.part02.03 \
+            patches/true8x8.patch.gz.b64.part03 \
+            patches/true8x8.patch.gz.b64.part04 \
+            patches/true8x8.patch.gz.b64.part05 \
+            patches/true8x8.patch.gz.b64.part06 \
+            > true8x8.patch.gz.b64
+          echo 'a932b4a1b9786c10e23755ee344fb285fd2ceca25333825c6e99cbc105d8c320  true8x8.patch.gz.b64' | sha256sum -c -
+          base64 -d true8x8.patch.gz.b64 > true8x8.patch.gz
+          echo '19ca05bd7d6943c60b9d4372723c01e77a3ba551afcf300172f914e0c23b844b  true8x8.patch.gz' | sha256sum -c -
+          gzip -dc true8x8.patch.gz > true8x8.patch
+          echo 'f5d7506b85955661d322b00b6b2aa3bbfae8601cd7c05e672a8338a8ddc875e4  true8x8.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < true8x8.patch
+          patch --batch --forward -p1 -d upstream < true8x8.patch
+
+      - name: Apply GroundProbe B1 DynamicObject probe
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo '27f87c231bf5c174201c7e26ddc298e827435363e8d5135dece510f40795be7c  patches/groundprobe-b1.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < patches/groundprobe-b1.patch
+          patch --batch --forward -p1 -d upstream < patches/groundprobe-b1.patch
+
+      - name: Apply stable B2 caster resolver
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile tools/apply_groundprobe_b2_fixed.py
+          python3 tools/apply_groundprobe_b2_fixed.py upstream
+          grep -Fq 'GroundProbe.UnitByGuid' upstream/dllmain.cpp
+
+      - name: Apply AutoRange B3 base
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile tools/apply_autorange_b3.py
+          python3 tools/apply_autorange_b3.py upstream
+          test -f upstream/AutoRange.cpp
+          grep -Fq 'AutoRange.Resolve' upstream/dllmain.cpp
+
+      - name: Apply AutoRange B3.1 raw client DBC offset fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile tools/apply_autorange_b31_fix.py
+          python3 tools/apply_autorange_b31_fix.py upstream
+          grep -Fq 'gCache.spell.u32(r, 82u + i)' upstream/AutoRange.cpp
+          grep -Fq 'gCache.spell.u32(r, 88u + i)' upstream/AutoRange.cpp
+          grep -Fq 'gCache.spell.u32(r, 109u + i)' upstream/AutoRange.cpp
+          grep -Fq 'Schema=CLIENT1121' upstream/AutoRange.cpp
+          ! grep -Fq 'gCache.spell.u32(r, 112u + i)' upstream/AutoRange.cpp
+
+      - name: Patch AutoRange Lua B3.1 and visual self-test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile tools/apply_autorange_b31_lua_fix.py
+          python3 tools/apply_autorange_b31_lua_fix.py autorange-addon/AutoRange.lua
+          grep -Fq 'AutoRange B3.1' autorange-addon/AutoRange.lua
+          grep -Fq 'msg=="vtest"' autorange-addon/AutoRange.lua
+
+      - name: Install xwin
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+
+      - name: Download Microsoft CRT and Windows SDK x86
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download Microsoft D3DX headers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+          test -f upstream/d3d9x_headers/d3dx9.h
+
+      - name: Build PE32 x86 DLL
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          test -f UnitXP_SP3.dll
+          file UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' DLL-FILE-TYPE.txt
+
+      - name: Package AutoRange B3.1 artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release/Interface/AddOns/AutoRange
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp upstream/DLL-FILE-TYPE.txt release/
+          cp autorange-addon/AutoRange.lua release/Interface/AddOns/AutoRange/
+          cp autorange-addon/AutoRange.toc release/Interface/AddOns/AutoRange/
+          sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
+          cat > release/README-测试步骤.md <<'TXT'
+          AutoRange B3.1 - 1.12 client Spell.dbc offset correction
+
+          1. Replace UnitXP_SP3.dll and AutoRange addon, fully restart the client.
+          2. Keep patch-O.mpq installed, SuperWoWhook.dll 2.2 + matching SuperAPI.
+          3. /arange status
+             DBC status must contain Schema=CLIENT1121.
+          4. /arange resolve 24018
+             Expected target: no longer DIRECT 40.00. It should follow TriggerSpell and resolve the actual geometry; for the tested Axe Flurry chain the expected dangerous radius is 5 yards.
+          5. Fight Gurubashi Axe Thrower and capture the AutoRange window when 24018 channels.
+          6. If the automatic entry is CASTER and has xyz/dist, a random patch-O visual should be created at the caster feet.
+          7. Independent visual test: point the mouse at ground and run /arange vtest. A 5-yard standard DangerZone test circle should appear at the mouse world position. /arange vclear removes it.
+
+          Important: B3.1 corrects raw client DBC field offsets. Build success is not in-game validation.
+          TXT
+          cat > release/BUILD-SCOPE.txt <<'TXT'
+          Project: AutoRange B3.1
+          Base: TRUE 8x8 + GroundProbe B1 + Caster B2 + AutoRange B3
+          Fix: raw WoW 1.12.1 client Spell.dbc columns after EffectBasePoints are shifted -3 vs the server-side SpellEntry class previously referenced.
+          Correct fields used: TargetA=82..84, TargetB=85..87, Radius=88..90, TriggerSpell=109..111.
+          Adds /arange vtest and /arange vclear to isolate patch-O M2 loading from range detection.
+          patch-O itself is not bundled.
+          Architecture: PE32 x86.
+          TXT
+
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoRange-B3.1-True88-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
