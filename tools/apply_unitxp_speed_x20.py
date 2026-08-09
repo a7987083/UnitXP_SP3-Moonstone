@@ -21,10 +21,10 @@ if marker not in text:
 #   swim speed    = unit object + 0xA3C
 # X2.0 rounds each result to 4 decimal places before returning it to Lua.
 block = r'''        else if (cmd == "speed" && lua_gettop(L) >= 2) {
-            const char* unitId = lua_tostring(L, 2);
+            const std::string unitId = lua_tostring(L, 2);
             uint32_t unitObject = 0;
-            if (unitId != nullptr) {
-                const uint64_t guid = vanilla1121_unitGUID(unitId);
+            if (!unitId.empty()) {
+                const uint64_t guid = vanilla1121_unitGUID(unitId.c_str());
                 if (guid != 0) {
                     unitObject = vanilla1121_getVisiableObject(guid);
                 }
