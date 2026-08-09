@@ -1,0 +1,195 @@
+name: Build UnitXP X2.0 Speed Port
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/unitxp-speed-x20-port-20260810
+    paths:
+      - 'tools/apply_unitxp_speed_x20.py'
+      - '.github/workflows/build-unitxp-speed-x20.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout speed port branch
+        uses: actions/checkout@v4
+
+      - name: Install Clang and build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file python3 binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
+
+      - name: Rebuild exact TRUE 8x8 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find upstream -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.h' -o -name 'Makefile' \) -print0 | xargs -0 sed -i 's/\r$//'
+          cat \
+            patches/true8x8.patch.gz.b64.part00 \
+            patches/true8x8.patch.gz.b64.part01 \
+            patches/true8x8.patch.gz.b64.part02.00 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
+            patches/true8x8.patch.gz.b64.part02.02 \
+            patches/true8x8.patch.gz.b64.part02.03 \
+            patches/true8x8.patch.gz.b64.part03 \
+            patches/true8x8.patch.gz.b64.part04 \
+            patches/true8x8.patch.gz.b64.part05 \
+            patches/true8x8.patch.gz.b64.part06 \
+            > true8x8.patch.gz.b64
+          base64 -d true8x8.patch.gz.b64 > true8x8.patch.gz
+          gzip -dc true8x8.patch.gz > true8x8.patch
+          patch --batch --forward -p1 -d upstream < true8x8.patch
+
+      - name: Apply GroundProbe and AutoRange native stack
+        shell: bash
+        run: |
+          set -euxo pipefail
+          patch --batch --forward -p1 -d upstream < patches/groundprobe-b1.patch
+          python3 tools/apply_groundprobe_b2_fixed.py upstream
+          python3 tools/apply_autorange_b3.py upstream
+          python3 tools/apply_autorange_b31_fix.py upstream
+          python3 tools/apply_autorange_b32_resolver.py upstream
+          grep -Fq 'GroundProbe.UnitByGuid' upstream/dllmain.cpp
+          grep -Fq 'AutoRange.Resolve' upstream/dllmain.cpp
+
+      - name: Apply X2.0 speed API port
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile tools/apply_unitxp_speed_x20.py
+          python3 tools/apply_unitxp_speed_x20.py upstream
+          grep -Fq 'cmd == "speed"' upstream/dllmain.cpp
+          grep -Fq 'unitObject + 0xA2C' upstream/dllmain.cpp
+          grep -Fq 'unitObject + 0xA34' upstream/dllmain.cpp
+          grep -Fq 'unitObject + 0xA3C' upstream/dllmain.cpp
+
+      - name: Install xwin
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+
+      - name: Download Microsoft CRT and Windows SDK x86
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download Microsoft D3DX headers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+          test -f upstream/d3d9x_headers/d3dx9.h
+
+      - name: Build PE32 x86 DLL
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          test -f UnitXP_SP3.dll
+          file UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' DLL-FILE-TYPE.txt
+
+      - name: Verify speed API and restored COFF timestamp
+        shell: bash
+        run: |
+          set -euxo pipefail
+          strings upstream/UnitXP_SP3.dll | grep -Fx 'speed'
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct, datetime
+          p=Path('upstream/UnitXP_SP3.dll')
+          b=p.read_bytes()
+          pe=struct.unpack_from('<I',b,0x3c)[0]
+          assert b[pe:pe+4] == b'PE\0\0'
+          stamp=struct.unpack_from('<I',b,pe+8)[0]
+          print('COFF TimeDateStamp:',stamp,hex(stamp),datetime.datetime.fromtimestamp(stamp,datetime.timezone.utc).isoformat())
+          assert stamp >= 1783143763, 'timestamp must pass CAT speed feature gate'
+          PY
+
+      - name: Package speed test DLL
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          cp upstream/UnitXP_SP3.dll release/
+          cp upstream/DLL-FILE-TYPE.txt release/
+          sha256sum release/UnitXP_SP3.dll > release/SHA256.txt
+          python3 - <<'PY' > release/PE-TIMESTAMP.txt
+          from pathlib import Path
+          import struct, datetime
+          b=Path('release/UnitXP_SP3.dll').read_bytes(); pe=struct.unpack_from('<I',b,0x3c)[0]
+          s=struct.unpack_from('<I',b,pe+8)[0]
+          print(s)
+          print(hex(s))
+          print(datetime.datetime.fromtimestamp(s,datetime.timezone.utc).isoformat())
+          PY
+          cat > release/README-Speed-X2.0-Port.txt <<'TXT'
+          UnitXP_SP3 - X2.0 speed API port test
+
+          Base native stack:
+          - UnitXP_SP3 v89 commit 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          - existing TRUE 8x8 MoonMarker stack
+          - GroundProbe B1/B2
+          - AutoRange B3/B3.1/B3.2 native resolver/render commands
+
+          Added only:
+          - UnitXP("speed", unit)
+          - returns currentSpeed, groundSpeed, swimSpeed
+          - X2.0 field mapping: +0xA2C / +0xA34 / +0xA3C
+          - rounds each result to 4 decimals, matching supplied X2.0 binary
+
+          COFF timestamp:
+          - NOT patched back to v89.
+          - natural linker timestamp is kept, so CAT's >=1783143763 gate enables speed.
+
+          In-game test:
+          /run local a,b,c=UnitXP("speed","player"); DEFAULT_CHAT_FRAME:AddMessage("cur="..tostring(a).." ground="..tostring(b).." swim="..tostring(c))
+
+          Full client restart required after replacing UnitXP_SP3.dll.
+          TXT
+
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UnitXP-SP3-Speed-X20-Port-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
