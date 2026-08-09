@@ -131,7 +131,10 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          strings upstream/UnitXP_SP3.dll | grep -Fx 'speed'
+          grep -Fq 'cmd == "speed"' upstream/dllmain.cpp
+          grep -Fq 'unitObject + 0xA2C' upstream/dllmain.cpp
+          grep -Fq 'unitObject + 0xA34' upstream/dllmain.cpp
+          grep -Fq 'unitObject + 0xA3C' upstream/dllmain.cpp
           python3 - <<'PY'
           from pathlib import Path
           import struct, datetime
@@ -178,7 +181,7 @@ jobs:
 
           COFF timestamp:
           - NOT patched back to v89.
-          - natural linker timestamp is kept, so CAT's >=1783143763 gate enables speed.
+          - normal linker timestamp is kept, so CAT's >=1783143763 gate enables speed.
 
           In-game test:
           /run local a,b,c=UnitXP("speed","player"); DEFAULT_CHAT_FRAME:AddMessage("cur="..tostring(a).." ground="..tostring(b).." swim="..tostring(c))
