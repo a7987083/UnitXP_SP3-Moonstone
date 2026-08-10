@@ -118,4 +118,83 @@ for marker in ('bool setAutoRangeVisual(', 'bool moveAutoRangeVisual('):
     if 'scale > moonMarkerAdvancedState::kMaxScale' in body:
         raise SystemExit(f'postcondition failed: {marker} still uses shared max')
 
-print('AutoRange dedicated M2 scale fix: OK')
+# R6.1 calibration helper: direct local-player world position. This avoids
+# asking UnitByGuid to discover the player and avoids a full object-list scan.
+hp = root / 'GroundProbe.h'
+cp = root / 'GroundProbe.cpp'
+dp = root / 'dllmain.cpp'
+for p in (hp, cp, dp):
+    if not p.is_file():
+        raise SystemExit(f'missing GroundProbe source: {p}')
+
+h = hp.read_text(encoding='utf-8')
+if 'playerPosition()' not in h:
+    ns = '\n} // namespace groundProbe\n'
+    h = replace_once(
+        h, ns,
+        '\n// Returns the local player world position only; no object-list scan.\nstd::string playerPosition();\n' + ns,
+        'GroundProbe.h playerPosition declaration')
+hp.write_text(h, encoding='utf-8', newline='\n')
+
+c = cp.read_text(encoding='utf-8')
+if 'std::string playerPosition()' not in c:
+    snap = '\nstd::string snapshot(const float maxRangeYards, const bool includeGameObjects) {'
+    fn = r'''
+std::string playerPosition() {
+    if (!moonMarkerRuntimeGuard::enabled()) {
+        return std::string("E|") + moonMarkerRuntimeGuard::statusCode() + "|"
+            + moonMarkerRuntimeGuard::userMessage();
+    }
+
+    const std::uint64_t playerGuid = vanilla1121_unitGUID("player");
+    const std::uint32_t playerObject = vanilla1121_getVisiableObject(playerGuid);
+    if (playerObject == 0u || (playerObject & 1u) != 0u) {
+        return "E|PLAYER_OBJECT_UNAVAILABLE|player object is not available";
+    }
+
+    const C3Vector playerPos = vanilla1121_unitPosition(playerObject);
+    if (!validPosition(playerPos)) {
+        return "E|PLAYER_POSITION_INVALID|player position is not readable";
+    }
+
+    std::ostringstream out;
+    out.setf(std::ios::fixed);
+    out << std::setprecision(3);
+    out << "P|" << playerPos.x << '|' << playerPos.y << '|' << playerPos.z;
+    return out.str();
+}
+'''
+    c = replace_once(c, snap, '\n' + fn + snap, 'GroundProbe.cpp playerPosition insertion')
+cp.write_text(c, encoding='utf-8', newline='\n')
+
+d = dp.read_text(encoding='utf-8')
+if 'GroundProbe.PlayerPosition' not in d:
+    status = (
+        '        if (groundProbeCommand == "GroundProbe.Status") {\n'
+        '            lua_pushboolean(L, moonMarkerRuntimeGuard::enabled() ? 1 : 0);\n'
+        '            lua_pushstring(L, moonMarkerRuntimeGuard::statusCode());\n'
+        '            lua_pushstring(L, moonMarkerRuntimeGuard::userMessage());\n'
+        '            return 3;\n'
+        '        }\n'
+    )
+    bridge = (
+        '        if (groundProbeCommand == "GroundProbe.PlayerPosition") {\n'
+        '            const std::string record = groundProbe::playerPosition();\n'
+        '            lua_pushstring(L, record.c_str());\n'
+        '            return 1;\n'
+        '        }\n'
+    )
+    d = replace_once(d, status, status + bridge, 'dllmain GroundProbe.Status handler')
+dp.write_text(d, encoding='utf-8', newline='\n')
+
+for p, needles in {
+    hp: ['std::string playerPosition();'],
+    cp: ['std::string playerPosition()', '"P|" << playerPos.x'],
+    dp: ['GroundProbe.PlayerPosition', 'groundProbe::playerPosition()'],
+}.items():
+    txt = p.read_text(encoding='utf-8')
+    for needle in needles:
+        if needle not in txt:
+            raise SystemExit(f'postcondition failed: {needle} missing from {p}')
+
+print('AutoRange dedicated M2 scale + calibration PlayerPosition fix: OK')
