@@ -5,7 +5,7 @@ XWIN_ROOT       = ./xwinSDK
 MINHOOK_DIR     = ./MinHook_134
 D3DX_INCLUDES   = ./d3d9x_headers
 TARGET   = Astra.dll
-SRCS = AstraMain.cpp AstraCommandRegistry.cpp Vanilla1121_functions.cpp GroundProbe.cpp AutoRange.cpp \
+SRCS = AstraMain.cpp AstraCommandRegistry.cpp ../astra-ci/Vanilla1121_functions.cpp GroundProbe.cpp AutoRange.cpp \
        MoonMarkerGuildAuth.cpp MoonMarkerRuntimeGuard.cpp MoonMarkerMainModel.cpp MoonMarkerDreamAvatar.cpp \
        MoonMarkerM2Scanner.cpp MoonMarkerAdvancedState.cpp moonMarker.cpp nativeM2Test.cpp \
        $(MINHOOK_DIR)/src/buffer.c $(MINHOOK_DIR)/src/hde/hde32.c \
