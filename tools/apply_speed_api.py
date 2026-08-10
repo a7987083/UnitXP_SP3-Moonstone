@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Build trigger: 2026-08-10 speed API compatibility test.
 from pathlib import Path
 import sys
 
