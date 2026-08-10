@@ -175,9 +175,10 @@ jobs:
           from pathlib import Path
           data = Path('UnitXP_SP3.dll').read_bytes()
           assert b'speed\x00' in data, 'speed command string missing from DLL'
-          assert b'AutoRange.RelationByGuid\x00' in data, 'relation command string missing from DLL'
           assert b'UNKNOWN_DEFAULT_SHOW\x00' in data, 'unknown fallback marker missing from DLL'
-          print('B3.3 relation + speed markers present in DLL')
+          assert b'HOSTILE_SIGNAL\x00' in data, 'hostile relation marker missing from DLL'
+          assert b'FRIENDLY_REACTION\x00' in data, 'friendly relation marker missing from DLL'
+          print('B3.3 relation logic markers + speed marker present in DLL')
           PY
 
       - name: Package B3.3 relation test artifact
