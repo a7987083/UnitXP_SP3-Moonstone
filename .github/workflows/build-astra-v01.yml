@@ -1,0 +1,202 @@
+name: Build Astra v0.1 x86 DLL
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/astra-v0.1-build
+    paths:
+      - 'astra-ci/**'
+      - '.github/workflows/build-astra-v01.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout Astra build branch
+        uses: actions/checkout@v4
+
+      - name: Install Clang and build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file python3 binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+          clang-cl --version
+          lld-link --version
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
+          test -f upstream/Makefile
+          test -f upstream/dllmain.cpp
+
+      - name: Rebuild latest MoonMarker DreamAvatar True 8x8 baseline
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find upstream -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.h' -o -name 'Makefile' \) -print0 | xargs -0 sed -i 's/\r$//'
+          cat \
+            patches/true8x8.patch.gz.b64.part00 \
+            patches/true8x8.patch.gz.b64.part01 \
+            patches/true8x8.patch.gz.b64.part02.00 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
+            patches/true8x8.patch.gz.b64.part02.02 \
+            patches/true8x8.patch.gz.b64.part02.03 \
+            patches/true8x8.patch.gz.b64.part03 \
+            patches/true8x8.patch.gz.b64.part04 \
+            patches/true8x8.patch.gz.b64.part05 \
+            patches/true8x8.patch.gz.b64.part06 \
+            > true8x8.patch.gz.b64
+          echo 'a932b4a1b9786c10e23755ee344fb285fd2ceca25333825c6e99cbc105d8c320  true8x8.patch.gz.b64' | sha256sum -c -
+          base64 -d true8x8.patch.gz.b64 > true8x8.patch.gz
+          echo '19ca05bd7d6943c60b9d4372723c01e77a3ba551afcf300172f914e0c23b844b  true8x8.patch.gz' | sha256sum -c -
+          gzip -dc true8x8.patch.gz > true8x8.patch
+          echo 'f5d7506b85955661d322b00b6b2aa3bbfae8601cd7c05e672a8338a8ddc875e4  true8x8.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < true8x8.patch
+          patch --batch --forward -p1 -d upstream < true8x8.patch
+          test -f upstream/MoonMarkerDreamAvatar.cpp
+          test -f upstream/nativeM2Test.cpp
+          grep -Fq 'kSlotCount = kColorCount * kIconCount' upstream/nativeM2Test.cpp
+
+      - name: Add GroundProbe B2 read-only APIs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo '27f87c231bf5c174201c7e26ddc298e827435363e8d5135dece510f40795be7c  patches/groundprobe-b1.patch' | sha256sum -c -
+          patch --dry-run -p1 -d upstream < patches/groundprobe-b1.patch
+          patch --batch --forward -p1 -d upstream < patches/groundprobe-b1.patch
+          python3 -m py_compile tools/apply_groundprobe_b2_fixed.py
+          python3 tools/apply_groundprobe_b2_fixed.py upstream
+          test -f upstream/GroundProbe.cpp
+          grep -Fq 'std::string unitByGuid' upstream/GroundProbe.cpp
+
+      - name: Add AutoRange B3.2 native resolver and 16-slot visuals
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile tools/apply_autorange_b3.py tools/apply_autorange_b31_fix.py tools/apply_autorange_b32_resolver.py
+          python3 tools/apply_autorange_b3.py upstream
+          python3 tools/apply_autorange_b31_fix.py upstream
+          python3 tools/apply_autorange_b32_resolver.py upstream
+          test -f upstream/AutoRange.cpp
+          grep -Fq 'Schema=CLIENT1121-B32' upstream/AutoRange.cpp
+          grep -Fq 'AutoRangePreviewSlot' upstream/nativeM2Test.cpp
+
+      - name: Convert reconstructed source into standalone Astra
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp astra-ci/AstraMain.cpp upstream/AstraMain.cpp
+          cp astra-ci/AstraCommandRegistry.cpp upstream/AstraCommandRegistry.cpp
+          cp astra-ci/AstraCommandRegistry.h upstream/AstraCommandRegistry.h
+          cp astra-ci/Makefile upstream/Makefile
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('upstream/moonMarker.cpp')
+          s = p.read_text(encoding='utf-8')
+          old = '''                             const RGNDATA* dirtyRegion) {\n    nativeM2Test::renderIcons(device);\n'''
+          new = '''                             const RGNDATA* dirtyRegion) {\n    // Astra owns its frame update path and does not rely on UnitXP scene hooks.\n    nativeM2Test::update();\n    nativeM2Test::renderIcons(device);\n'''
+          if old not in s:
+              raise SystemExit('moonMarker Present marker not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='\n')
+          PY
+          grep -Fq 'nativeM2Test::update();' upstream/moonMarker.cpp
+          grep -Fq 'AstraLuaEntry' upstream/AstraMain.cpp
+          grep -Fq 'GroundProbe.UnitByGuid' upstream/AstraCommandRegistry.cpp
+          grep -Fq 'AutoRange.VisualSet' upstream/AstraCommandRegistry.cpp
+          ! grep -Fq 'gCommands.emplace("speed"' upstream/AstraCommandRegistry.cpp
+          ! grep -Fq 'detoured_UnitXP' upstream/AstraMain.cpp
+          ! grep -Fq '0x517350' upstream/AstraMain.cpp
+
+      - name: Install xwin
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 \
+            "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --version
+
+      - name: Download Microsoft CRT and Windows SDK x86
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+
+      - name: Download Microsoft D3DX headers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" \
+            -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+          test -f upstream/d3d9x_headers/d3dx9.h
+
+      - name: Build Astra PE32 x86 DLL
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          test -f Astra.dll
+          file Astra.dll | tee ASTRA-FILE-TYPE.txt
+          grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' ASTRA-FILE-TYPE.txt
+          strings Astra.dll | grep -F 'Astra 0.1.0-migration'
+
+      - name: Package Astra artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release/Astra
+          cp upstream/Astra.dll release/Astra/
+          cp upstream/Astra.pdb release/Astra/ 2>/dev/null || true
+          cp upstream/ASTRA-FILE-TYPE.txt release/Astra/
+          sha256sum release/Astra/Astra.dll > release/Astra/SHA256.txt
+          cat > release/Astra/BUILD-SCOPE.txt <<'TXT'
+          Project: Astra v0.1 standalone migration DLL
+          Architecture: PE32 x86
+          Lua global: Astra(command, ...)
+          Included: MoonMarker, DreamAvatar, GroundProbe B2, AutoRange B3.2 native systems
+          Excluded: speed API
+          UnitXP dispatcher hook: not compiled
+          UnitXP 0x517350 hook: not compiled
+          Render/update: Astra-owned D3D9 Present path
+          Runtime/gameplay validation: still required in Turtle WoW client
+          TXT
+
+      - name: Upload Astra DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astra-v0.1-x86
+          path: release/Astra/
+          if-no-files-found: error
+          retention-days: 14
