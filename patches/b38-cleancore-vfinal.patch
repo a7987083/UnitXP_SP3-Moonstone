@@ -1,0 +1,389 @@
+--- a/nativeM2Test.h
++++ b/nativeM2Test.h
+@@ -67,6 +67,12 @@
+                          const C3Vector& position,
+                          float scale,
+                          float yawDegrees);
++// Non-destructive visibility controls. Hide/show never create or release a model.
++bool hideAutoRangeVisual(const std::string& key);
++bool showAutoRangeVisual(const std::string& key);
++// Restarts the existing model sequence in-place; used for finite S30 assets.
++bool restartAutoRangeVisual(const std::string& key);
++std::string autoRangeVisualStats();
+ void clearAutoRangeVisual(const std::string& key);
+ void clearAllAutoRangeVisuals();
+ 
+--- a/nativeM2Test.cpp
++++ b/nativeM2Test.cpp
+@@ -120,6 +120,7 @@
+ struct AutoRangePreviewSlot {
+     PreviewSlot preview = {};
+     std::string key;
++    bool hidden = false;
+ };
+ 
+ struct ProjectedIcon {
+@@ -153,6 +154,15 @@
+ PreviewSlot gAdvancedPreview = {};
+ PreviewSlot gPlacementPreview = {};
+ std::array<AutoRangePreviewSlot, kAutoRangePreviewCount> gAutoRangePreviews = {};
++std::uint64_t gAutoRangeSetCalls = 0;
++std::uint64_t gAutoRangeSetSuccess = 0;
++std::uint64_t gAutoRangeMoveCalls = 0;
++std::uint64_t gAutoRangeHideCalls = 0;
++std::uint64_t gAutoRangeShowCalls = 0;
++std::uint64_t gAutoRangeRestartCalls = 0;
++std::uint64_t gAutoRangeClearCalls = 0;
++std::uint64_t gAutoRangeClearSafe = 0;
++std::uint64_t gAutoRangeClearStale = 0;
+ std::array<ProjectedIcon, kSlotCount> gProjected = {};
+ std::string gLastErrorStage = "not_started";
+ IDirect3DTexture9* gRaidIconTexture = nullptr;
+@@ -445,6 +455,7 @@
+         if (!slot.preview.active || slot.preview.model == nullptr) {
+             resetPreview(slot.preview);
+             slot.key = key;
++            slot.hidden = false;
+             return &slot;
+         }
+     }
+@@ -454,6 +465,14 @@
+ void resetAutoRangePreview(AutoRangePreviewSlot& slot) {
+     resetPreview(slot.preview);
+     slot.key.clear();
++    slot.hidden = false;
++}
++
++bool autoRangePreviewContextValid(const AutoRangePreviewSlot& slot) {
++    if (slot.preview.model == nullptr || slot.preview.context == nullptr) return false;
++    void* liveContext = currentContext();
++    if (liveContext == nullptr || liveContext != slot.preview.context) return false;
++    return readField<void*>(slot.preview.model, 0x2C) == slot.preview.context;
+ }
+ 
+ void resetSlot(Slot& slot) {
+@@ -1299,6 +1318,7 @@
+                         float scale,
+                         float yawDegrees,
+                         std::string& normalizedPath) {
++    ++gAutoRangeSetCalls;
+     if (!runtimeReady("unsupported_client") || key.empty()) return false;
+     gLastErrorStage = "autorange_validate";
+     if (!moonMarkerAdvancedState::normalizeModelPath(modelPath, normalizedPath)
+@@ -1321,6 +1341,8 @@
+         return false;
+     }
+     slot->key = key;
++    slot->hidden = false;
++    ++gAutoRangeSetSuccess;
+     return true;
+ }
+ 
+@@ -1328,6 +1350,7 @@
+                          const C3Vector& position,
+                          float scale,
+                          float yawDegrees) {
++    ++gAutoRangeMoveCalls;
+     if (!runtimeReady("unsupported_client")) return false;
+     AutoRangePreviewSlot* slot = findAutoRangePreview(key);
+     if (slot == nullptr || !std::isfinite(position.x) || !std::isfinite(position.y)
+@@ -1342,15 +1365,99 @@
+     slot->preview.scale = scale;
+     slot->preview.yawDegrees = yawDegrees;
+     applyPreviewWorldMatrix(slot->preview);
++    reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot->preview.model, 1);
++    if (!slot->hidden && readField<void*>(slot->preview.model, 0x44) == nullptr)
++        reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot->preview.model, 1);
++    if (!slot->preview.renderReady)
++        pollPreviewRenderReady(slot->preview, 0);
+     gLastErrorStage = "autorange_moved";
+     return true;
+ }
+ 
++bool hideAutoRangeVisual(const std::string& key) {
++    ++gAutoRangeHideCalls;
++    if (!runtimeReady("unsupported_client")) return false;
++    AutoRangePreviewSlot* slot = findAutoRangePreview(key);
++    if (slot == nullptr) return false;
++    if (slot->hidden) return true;
++    if (!autoRangePreviewContextValid(*slot)) {
++        gLastErrorStage = "autorange_hide_context_invalid";
++        return false;
++    }
++    reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot->preview.model, 0);
++    slot->hidden = true;
++    gLastErrorStage = "autorange_hidden";
++    return true;
++}
++
++bool showAutoRangeVisual(const std::string& key) {
++    ++gAutoRangeShowCalls;
++    if (!runtimeReady("unsupported_client")) return false;
++    AutoRangePreviewSlot* slot = findAutoRangePreview(key);
++    if (slot == nullptr) return false;
++    if (!autoRangePreviewContextValid(*slot)) {
++        gLastErrorStage = "autorange_show_context_invalid";
++        return false;
++    }
++    slot->hidden = false;
++    applyPreviewWorldMatrix(slot->preview);
++    reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot->preview.model, 1);
++    reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot->preview.model, 1);
++    if (!slot->preview.renderReady)
++        pollPreviewRenderReady(slot->preview, 0);
++    gLastErrorStage = "autorange_shown";
++    return true;
++}
++
++bool restartAutoRangeVisual(const std::string& key) {
++    ++gAutoRangeRestartCalls;
++    if (!runtimeReady("unsupported_client")) return false;
++    AutoRangePreviewSlot* slot = findAutoRangePreview(key);
++    if (slot == nullptr || !autoRangePreviewContextValid(*slot)) {
++        gLastErrorStage = "autorange_restart_invalid";
++        return false;
++    }
++    reinterpret_cast<SetSequenceProc>(kSetSequenceAddress)(
++        slot->preview.model, -1, 0, -1, 0, 1.0f, 1, 1);
++    reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot->preview.model, 1);
++    if (!slot->hidden && readField<void*>(slot->preview.model, 0x44) == nullptr)
++        reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot->preview.model, 1);
++    if (!slot->preview.renderReady)
++        pollPreviewRenderReady(slot->preview, 0);
++    gLastErrorStage = "autorange_restarted";
++    return true;
++}
++
++std::string autoRangeVisualStats() {
++    std::size_t active = 0u, hidden = 0u, models = 0u, keys = 0u;
++    for (const AutoRangePreviewSlot& slot : gAutoRangePreviews) {
++        if (slot.preview.active) ++active;
++        if (slot.hidden) ++hidden;
++        if (slot.preview.model != nullptr) ++models;
++        if (!slot.key.empty()) ++keys;
++    }
++    std::ostringstream out;
++    out << "V|active=" << active << "|hidden=" << hidden
++        << "|models=" << models << "|keys=" << keys
++        << "|set=" << gAutoRangeSetCalls << "|setOK=" << gAutoRangeSetSuccess
++        << "|move=" << gAutoRangeMoveCalls << "|hide=" << gAutoRangeHideCalls
++        << "|show=" << gAutoRangeShowCalls << "|restart=" << gAutoRangeRestartCalls
++        << "|clear=" << gAutoRangeClearCalls << "|clearSafe=" << gAutoRangeClearSafe
++        << "|clearStale=" << gAutoRangeClearStale;
++    return out.str();
++}
++
+ void clearAutoRangeVisual(const std::string& key) {
++    ++gAutoRangeClearCalls;
+     for (AutoRangePreviewSlot& slot : gAutoRangePreviews) {
+         if (slot.key != key) continue;
++        if (slot.preview.model == nullptr || autoRangePreviewContextValid(slot))
++            ++gAutoRangeClearSafe;
++        else
++            ++gAutoRangeClearStale;
+         releasePreview(slot.preview, false, "", "", "");
+         slot.key.clear();
++        slot.hidden = false;
+         gLastErrorStage = "autorange_cleared";
+         return;
+     }
+@@ -1358,8 +1465,16 @@
+ 
+ void clearAllAutoRangeVisuals() {
+     for (AutoRangePreviewSlot& slot : gAutoRangePreviews) {
++        if (!slot.key.empty() || slot.preview.model != nullptr) {
++            ++gAutoRangeClearCalls;
++            if (slot.preview.model == nullptr || autoRangePreviewContextValid(slot))
++                ++gAutoRangeClearSafe;
++            else
++                ++gAutoRangeClearStale;
++        }
+         releasePreview(slot.preview, false, "", "", "");
+         slot.key.clear();
++        slot.hidden = false;
+     }
+     gLastErrorStage = "autorange_cleared_all";
+ }
+@@ -1446,11 +1561,29 @@
+         "advanced_world_context_changed", "advanced_ready",
+         "advanced_waiting_resources");
+     for (AutoRangePreviewSlot& autoRangeSlot : gAutoRangePreviews) {
+-        updatePreview(autoRangeSlot.preview, liveContext,
+-            "autorange_world_context_changed", "autorange_ready",
+-            "autorange_waiting_resources");
+-        if (!autoRangeSlot.preview.active || autoRangeSlot.preview.model == nullptr)
+-            autoRangeSlot.key.clear();
++        PreviewSlot& preview = autoRangeSlot.preview;
++        if (!preview.active || preview.model == nullptr) {
++            if (preview.model == nullptr) {
++                autoRangeSlot.key.clear();
++                autoRangeSlot.hidden = false;
++            }
++            continue;
++        }
++        if (liveContext == nullptr || liveContext != preview.context) {
++            resetAutoRangePreview(autoRangeSlot);
++            gLastErrorStage = "autorange_world_context_changed";
++            continue;
++        }
++        if (autoRangeSlot.hidden) {
++            // Hide detached the model once. Do zero native model work while hidden;
++            // repeated per-frame detach calls are intentionally forbidden.
++            continue;
++        }
++        reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(preview.model, 1);
++        if (readField<void*>(preview.model, 0x44) == nullptr)
++            reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(preview.model, 1);
++        if (!preview.renderReady)
++            pollPreviewRenderReady(preview, 0);
+     }
+ }
+ 
+--- a/GroundProbe.h
++++ b/GroundProbe.h
+@@ -11,6 +11,8 @@
+ // Resolves a SuperWoW caster GUID to a visible Unit/Player and returns
+ // live world position plus player distance. Read-only diagnostic API.
+ std::string unitByGuid(const std::string& guidText);
++// Resolves one already-bound DynamicObject by exact GUID; no object-list scan.
++std::string dynamicByGuid(const std::string& guidText);
+ 
+ // Native group-scope lookup for a SuperWoW caster GUID.
+ std::string scopeByGuid(const std::string& guidText);
+--- a/GroundProbe.cpp
++++ b/GroundProbe.cpp
+@@ -273,6 +273,92 @@
+     return out.str();
+ }
+ 
++std::string dynamicByGuid(const std::string& guidText) {
++    if (!moonMarkerRuntimeGuard::enabled()) {
++        return std::string("E|") + moonMarkerRuntimeGuard::statusCode() + "|"
++            + moonMarkerRuntimeGuard::userMessage();
++    }
++
++    std::string normalized;
++    bool explicitHex = false;
++    bool hasHexAlpha = false;
++    if (!normalizeGuidText(guidText, normalized, explicitHex, hasHexAlpha))
++        return "E|GUID_INVALID|dynamic GUID could not be parsed";
++
++    const std::size_t start = explicitHex ? 2u : 0u;
++    std::uint64_t first = 0u, second = 0u;
++    bool haveFirst = false, haveSecond = false;
++    if (explicitHex || hasHexAlpha) {
++        haveFirst = parseGuidBase(normalized, start, 16u, first);
++    } else {
++        haveFirst = parseGuidBase(normalized, start, 10u, first);
++        haveSecond = parseGuidBase(normalized, start, 16u, second) && second != first;
++    }
++    if (!haveFirst && !haveSecond)
++        return "E|GUID_INVALID|dynamic GUID could not be parsed";
++
++    std::uint64_t guid = 0u;
++    std::uint32_t object = 0u;
++    if (haveFirst) {
++        object = vanilla1121_getVisiableObject(first);
++        if (object != 0u && (object & 1u) == 0u) guid = first;
++        else object = 0u;
++    }
++    if (object == 0u && haveSecond) {
++        object = vanilla1121_getVisiableObject(second);
++        if (object != 0u && (object & 1u) == 0u) guid = second;
++        else object = 0u;
++    }
++    if (object == 0u) {
++        const std::uint64_t reportGuid = haveFirst ? first : second;
++        return std::string("E|GUID_NOT_VISIBLE|") + hex64(reportGuid);
++    }
++
++    std::uint32_t type = 0u;
++    if (!safeRead<std::uint32_t>(static_cast<std::uintptr_t>(object) + kObjectTypeOffset, type))
++        return "E|OBJECT_TYPE_UNREADABLE|dynamic object type is not readable";
++    if (type != OBJECT_TYPE_DynamicObject)
++        return std::string("E|GUID_NOT_DYNAMIC|") + hex64(guid);
++
++    std::uint32_t descriptor = 0u;
++    if (!descriptorPtr(object, descriptor))
++        return "E|DYNAMIC_DESCRIPTOR_INVALID|dynamic descriptor is not readable";
++
++    std::uint64_t caster = 0u;
++    std::uint32_t spellId = 0u;
++    float radius = 0.0f;
++    C3Vector pos = {};
++    if (!descriptorU64(descriptor, kDynamicCaster, caster)
++        || !descriptorU32(descriptor, kDynamicSpellId, spellId)
++        || !descriptorFloat(descriptor, kDynamicRadius, radius)
++        || !descriptorFloat(descriptor, kDynamicPosX, pos.x)
++        || !descriptorFloat(descriptor, kDynamicPosY, pos.y)
++        || !descriptorFloat(descriptor, kDynamicPosZ, pos.z)
++        || !validPosition(pos) || !validWorldFloat(radius))
++        return "E|DYNAMIC_FIELDS_INVALID|dynamic fields are not readable";
++
++    float xy = 0.0f, zdiff = 0.0f;
++    const std::uint64_t playerGuid = vanilla1121_unitGUID("player");
++    const std::uint32_t playerObject = vanilla1121_getVisiableObject(playerGuid);
++    if (playerObject != 0u && (playerObject & 1u) == 0u) {
++        const C3Vector playerPos = vanilla1121_unitPosition(playerObject);
++        if (validPosition(playerPos)) {
++            xy = distanceXY(playerPos, pos);
++            zdiff = std::fabs(playerPos.z - pos.z);
++        }
++    }
++
++    std::ostringstream out;
++    out.setf(std::ios::fixed);
++    out << std::setprecision(3);
++    out << "D|" << hex64(guid) << '|' << hex64(caster) << '|'
++        << spellId << '|' << radius << '|'
++        << pos.x << '|' << pos.y << '|' << pos.z << '|'
++        << xy << '|' << zdiff << '|'
++        << hex32(object) << '|' << hex32(descriptor);
++    return out.str();
++}
++
+ std::string unitByGuid(const std::string& guidText) {
+     if (!moonMarkerRuntimeGuard::enabled()) {
+         return std::string("E|") + moonMarkerRuntimeGuard::statusCode() + "|"
+--- a/dllmain.cpp
++++ b/dllmain.cpp
+@@ -138,6 +138,12 @@
+             lua_pushstring(L, record.c_str());
+             return 1;
+         }
++        if (groundProbeCommand == "GroundProbe.DynamicByGuid" && argumentCount >= 2
++            && lua_isstring(L, 2)) {
++            const std::string record = groundProbe::dynamicByGuid(lua_tostring(L, 2));
++            lua_pushstring(L, record.c_str());
++            return 1;
++        }
+         if (groundProbeCommand == "GroundProbe.ScopeByGuid" && argumentCount >= 2
+             && lua_isstring(L, 2)) {
+             const std::string record = groundProbe::scopeByGuid(lua_tostring(L, 2));
+@@ -223,6 +229,26 @@
+                 lua_tostring(L, 2), pos, scale, yaw) ? 1 : 0);
+             return 1;
+         }
++        if (autoRangeCommand == "AutoRange.VisualHide" && argumentCount >= 2
++            && lua_isstring(L, 2)) {
++            lua_pushboolean(L, nativeM2Test::hideAutoRangeVisual(lua_tostring(L, 2)) ? 1 : 0);
++            return 1;
++        }
++        if (autoRangeCommand == "AutoRange.VisualShow" && argumentCount >= 2
++            && lua_isstring(L, 2)) {
++            lua_pushboolean(L, nativeM2Test::showAutoRangeVisual(lua_tostring(L, 2)) ? 1 : 0);
++            return 1;
++        }
++        if (autoRangeCommand == "AutoRange.VisualRestart" && argumentCount >= 2
++            && lua_isstring(L, 2)) {
++            lua_pushboolean(L, nativeM2Test::restartAutoRangeVisual(lua_tostring(L, 2)) ? 1 : 0);
++            return 1;
++        }
++        if (autoRangeCommand == "AutoRange.VisualStats") {
++            const std::string record = nativeM2Test::autoRangeVisualStats();
++            lua_pushstring(L, record.c_str());
++            return 1;
++        }
+         if (autoRangeCommand == "AutoRange.VisualClear" && argumentCount >= 2
+             && lua_isstring(L, 2)) {
+             nativeM2Test::clearAutoRangeVisual(lua_tostring(L, 2));
