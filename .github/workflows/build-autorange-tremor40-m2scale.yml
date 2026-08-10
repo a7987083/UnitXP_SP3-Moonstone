@@ -104,16 +104,15 @@ jobs:
           grep -Fq 'gSpell.u32(r, 82u + i)' upstream/UnitXPDbc.cpp
           grep -Fq 'gSpell.u32(r, 85u + i)' upstream/UnitXPDbc.cpp
           grep -Fq 'gSpell.u32(r, 88u + i)' upstream/UnitXPDbc.cpp
+          grep -Fq 'gCache.spell.u32(r, 82u + i)' upstream/AutoRange.cpp
+          grep -Fq 'gCache.spell.u32(r, 85u + i)' upstream/AutoRange.cpp
+          grep -Fq 'const std::uint32_t rid = gCache.spell.u32(r, 88u + i);' upstream/AutoRange.cpp
 
-      - name: Apply Tremor 40yd and AutoRange-only M2 scale fix
+      - name: Apply AutoRange-only large M2 scale fix
         shell: bash
         run: |
           set -euxo pipefail
           python3 tools/apply_autorange_tremor40_m2scale.py upstream
-          grep -Fq 'gCache.spell.u32(r, 82u + i)' upstream/AutoRange.cpp
-          grep -Fq 'gCache.spell.u32(r, 85u + i)' upstream/AutoRange.cpp
-          grep -Fq 'const std::uint32_t rid = gCache.spell.u32(r, 88u + i);' upstream/AutoRange.cpp
-          grep -Fq 'int archivePriority(const std::string& path)' upstream/AutoRange.cpp
           grep -Fq 'constexpr float kAutoRangeMaxScale = 20.0f;' upstream/nativeM2Test.cpp
 
       - name: Install xwin and SDK
@@ -160,20 +159,21 @@ jobs:
           - UnitXP_SP3 DBC Fusion B1R1 (user baseline: 775,680 bytes)
           - preserves B3.8R2 CleanCore / VisualResync feature chain
 
-          Fixes in this build:
-          1. Legacy AutoRange.Resolve Spell.dbc offsets aligned with B1R1 schema fix:
-             TargetA 82+i, TargetB 85+i, EffectRadiusIndex 88+i.
-          2. Legacy AutoRange.Resolve MPQ ordering aligned with B1R1 DBC priority,
-             allowing Spell.dbc from patch-9 and SpellRadius.dbc fall-through to patch-8.
-          3. Dedicated AutoRange danger visual max scale raised to 20.0 only for
-             AutoRange.VisualSet / AutoRange.VisualMove. Shared MoonMarker max is unchanged.
+          Native change in this build:
+          - Dedicated AutoRange danger visual max scale raised to 20.0 only for
+            AutoRange.VisualSet / AutoRange.VisualMove.
+          - Shared MoonMarker scale validation remains unchanged.
+
+          The companion B3.8R5 addon uses the B1R1 zero-idle spell/spellradius
+          API to resolve Tremor 8146 from live client DBC data and removes the
+          incorrect hardcoded 30 yd fallback.
 
           Expected Tremor result:
           - 8146 -> RadiusIndex 23 -> 40 yards
           - W10 scale 8.0 accepted
           - W12 scale ~6.667 accepted
 
-          No new thread, timer, OnUpdate or polling is introduced by this patch.
+          No new thread, timer, OnUpdate or polling is introduced by this DLL patch.
           TXT
 
       - uses: actions/upload-artifact@v4
