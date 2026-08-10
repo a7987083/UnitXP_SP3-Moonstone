@@ -13,7 +13,7 @@ SRCS = AstraMain.cpp AstraCommandRegistry.cpp Vanilla1121_functions.cpp GroundPr
 OBJS = $(patsubst %.cpp,%.obj,$(patsubst %.c,%.obj,$(SRCS)))
 LIBS = user32.lib kernel32.lib gdi32.lib libcmt.lib
 CXXFLAGS = --target=$(TRIPLE) /O1 /MT /EHsc /W3 /nologo /hotpatch /arch:SSE2 /fp:precise \
-           /std:c++17 /Zc:__cplusplus /DWIN32_LEAN_AND_MEAN /D_X86_ /D_WIN32 /DNULL=0 \
+           /std:c++17 /Zc:__cplusplus /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_X86_ /D_WIN32 /DNULL=0 \
            /Z7 /GS /Gy -flto=thin \
            -imsvc "$(XWIN_ROOT)/crt/include" -imsvc "$(XWIN_ROOT)/sdk/include/ucrt" \
            -imsvc "$(XWIN_ROOT)/sdk/include/um" -imsvc "$(XWIN_ROOT)/sdk/include/shared" \
