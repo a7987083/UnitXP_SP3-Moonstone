@@ -1,0 +1,100 @@
+         releasePreview(slot.preview, false, "", "", "");
+         slot.key.clear();
++        slot.hidden = false;
+     }
+     gLastErrorStage = "autorange_cleared_all";
+ }
+@@ -1446,11 +1561,29 @@
+         "advanced_world_context_changed", "advanced_ready",
+         "advanced_waiting_resources");
+     for (AutoRangePreviewSlot& autoRangeSlot : gAutoRangePreviews) {
+-        updatePreview(autoRangeSlot.preview, liveContext,
+-            "autorange_world_context_changed", "autorange_ready",
+-            "autorange_waiting_resources");
+-        if (!autoRangeSlot.preview.active || autoRangeSlot.preview.model == nullptr)
+-            autoRangeSlot.key.clear();
++        PreviewSlot& preview = autoRangeSlot.preview;
++        if (!preview.active || preview.model == nullptr) {
++            if (preview.model == nullptr) {
++                autoRangeSlot.key.clear();
++                autoRangeSlot.hidden = false;
++            }
++            continue;
++        }
++        if (liveContext == nullptr || liveContext != preview.context) {
++            resetAutoRangePreview(autoRangeSlot);
++            gLastErrorStage = "autorange_world_context_changed";
++            continue;
++        }
++        if (autoRangeSlot.hidden) {
++            // Hide detached the model once. Do zero native model work while hidden;
++            // repeated per-frame detach calls are intentionally forbidden.
++            continue;
++        }
++        reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(preview.model, 1);
++        if (readField<void*>(preview.model, 0x44) == nullptr)
++            reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(preview.model, 1);
++        if (!preview.renderReady)
++            pollPreviewRenderReady(preview, 0);
+     }
+ }
+ 
+--- a/GroundProbe.h
++++ b/GroundProbe.h
+@@ -11,6 +11,8 @@
+ // Resolves a SuperWoW caster GUID to a visible Unit/Player and returns
+ // live world position plus player distance. Read-only diagnostic API.
+ std::string unitByGuid(const std::string& guidText);
++// Resolves one already-bound DynamicObject by exact GUID; no object-list scan.
++std::string dynamicByGuid(const std::string& guidText);
+ 
+ // Native group-scope lookup for a SuperWoW caster GUID.
+ std::string scopeByGuid(const std::string& guidText);
+--- a/GroundProbe.cpp
++++ b/GroundProbe.cpp
+@@ -273,6 +273,92 @@
+     return out.str();
+ }
+ 
++std::string dynamicByGuid(const std::string& guidText) {
++    if (!moonMarkerRuntimeGuard::enabled()) {
++        return std::string("E|") + moonMarkerRuntimeGuard::statusCode() + "|"
++            + moonMarkerRuntimeGuard::userMessage();
++    }
++
++    std::string normalized;
++    bool explicitHex = false;
++    bool hasHexAlpha = false;
++    if (!normalizeGuidText(guidText, normalized, explicitHex, hasHexAlpha))
++        return "E|GUID_INVALID|dynamic GUID could not be parsed";
++
++    const std::size_t start = explicitHex ? 2u : 0u;
++    std::uint64_t first = 0u, second = 0u;
++    bool haveFirst = false, haveSecond = false;
++    if (explicitHex || hasHexAlpha) {
++        haveFirst = parseGuidBase(normalized, start, 16u, first);
++    } else {
++        haveFirst = parseGuidBase(normalized, start, 10u, first);
++        haveSecond = parseGuidBase(normalized, start, 16u, second) && second != first;
++    }
++    if (!haveFirst && !haveSecond)
++        return "E|GUID_INVALID|dynamic GUID could not be parsed";
++
++    std::uint64_t guid = 0u;
++    std::uint32_t object = 0u;
++    if (haveFirst) {
++        object = vanilla1121_getVisiableObject(first);
++        if (object != 0u && (object & 1u) == 0u) guid = first;
++        else object = 0u;
++    }
++    if (object == 0u && haveSecond) {
++        object = vanilla1121_getVisiableObject(second);
++        if (object != 0u && (object & 1u) == 0u) guid = second;
++        else object = 0u;
++    }
++    if (object == 0u) {
++        const std::uint64_t reportGuid = haveFirst ? first : second;
++        return std::string("E|GUID_NOT_VISIBLE|") + hex64(reportGuid);
++    }
++
++    std::uint32_t type = 0u;
