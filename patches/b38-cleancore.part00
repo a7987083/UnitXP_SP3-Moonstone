@@ -1,0 +1,100 @@
+--- a/nativeM2Test.h
++++ b/nativeM2Test.h
+@@ -67,6 +67,12 @@
+                          const C3Vector& position,
+                          float scale,
+                          float yawDegrees);
++// Non-destructive visibility controls. Hide/show never create or release a model.
++bool hideAutoRangeVisual(const std::string& key);
++bool showAutoRangeVisual(const std::string& key);
++// Restarts the existing model sequence in-place; used for finite S30 assets.
++bool restartAutoRangeVisual(const std::string& key);
++std::string autoRangeVisualStats();
+ void clearAutoRangeVisual(const std::string& key);
+ void clearAllAutoRangeVisuals();
+ 
+--- a/nativeM2Test.cpp
++++ b/nativeM2Test.cpp
+@@ -120,6 +120,7 @@
+ struct AutoRangePreviewSlot {
+     PreviewSlot preview = {};
+     std::string key;
++    bool hidden = false;
+ };
+ 
+ struct ProjectedIcon {
+@@ -153,6 +154,15 @@
+ PreviewSlot gAdvancedPreview = {};
+ PreviewSlot gPlacementPreview = {};
+ std::array<AutoRangePreviewSlot, kAutoRangePreviewCount> gAutoRangePreviews = {};
++std::uint64_t gAutoRangeSetCalls = 0;
++std::uint64_t gAutoRangeSetSuccess = 0;
++std::uint64_t gAutoRangeMoveCalls = 0;
++std::uint64_t gAutoRangeHideCalls = 0;
++std::uint64_t gAutoRangeShowCalls = 0;
++std::uint64_t gAutoRangeRestartCalls = 0;
++std::uint64_t gAutoRangeClearCalls = 0;
++std::uint64_t gAutoRangeClearSafe = 0;
++std::uint64_t gAutoRangeClearStale = 0;
+ std::array<ProjectedIcon, kSlotCount> gProjected = {};
+ std::string gLastErrorStage = "not_started";
+ IDirect3DTexture9* gRaidIconTexture = nullptr;
+@@ -445,6 +455,7 @@
+         if (!slot.preview.active || slot.preview.model == nullptr) {
+             resetPreview(slot.preview);
+             slot.key = key;
++            slot.hidden = false;
+             return &slot;
+         }
+     }
+@@ -454,6 +465,14 @@
+ void resetAutoRangePreview(AutoRangePreviewSlot& slot) {
+     resetPreview(slot.preview);
+     slot.key.clear();
++    slot.hidden = false;
++}
++
++bool autoRangePreviewContextValid(const AutoRangePreviewSlot& slot) {
++    if (slot.preview.model == nullptr || slot.preview.context == nullptr) return false;
++    void* liveContext = currentContext();
++    if (liveContext == nullptr || liveContext != slot.preview.context) return false;
++    return readField<void*>(slot.preview.model, 0x2C) == slot.preview.context;
+ }
+ 
+ void resetSlot(Slot& slot) {
+@@ -1299,6 +1318,7 @@
+                         float scale,
+                         float yawDegrees,
+                         std::string& normalizedPath) {
++    ++gAutoRangeSetCalls;
+     if (!runtimeReady("unsupported_client") || key.empty()) return false;
+     gLastErrorStage = "autorange_validate";
+     if (!moonMarkerAdvancedState::normalizeModelPath(modelPath, normalizedPath)
+@@ -1321,6 +1341,8 @@
+         return false;
+     }
+     slot->key = key;
++    slot->hidden = false;
++    ++gAutoRangeSetSuccess;
+     return true;
+ }
+ 
+@@ -1328,6 +1350,7 @@
+                          const C3Vector& position,
+                          float scale,
+                          float yawDegrees) {
++    ++gAutoRangeMoveCalls;
+     if (!runtimeReady("unsupported_client")) return false;
+     AutoRangePreviewSlot* slot = findAutoRangePreview(key);
+     if (slot == nullptr || !std::isfinite(position.x) || !std::isfinite(position.y)
+@@ -1342,15 +1365,99 @@
+     slot->preview.scale = scale;
+     slot->preview.yawDegrees = yawDegrees;
+     applyPreviewWorldMatrix(slot->preview);
++    reinterpret_cast<SetBooleanProc>(kSetActiveTimestampAddress)(slot->preview.model, 1);
++    if (!slot->hidden && readField<void*>(slot->preview.model, 0x44) == nullptr)
++        reinterpret_cast<SetBooleanProc>(kAttachToRenderListAddress)(slot->preview.model, 1);
++    if (!slot->preview.renderReady)
++        pollPreviewRenderReady(slot->preview, 0);
+     gLastErrorStage = "autorange_moved";
+     return true;
