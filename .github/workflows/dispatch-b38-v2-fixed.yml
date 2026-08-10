@@ -19,3 +19,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run build-autorange-b38-cleancore-v2.yml -R a7987083/UnitXP_SP3-Moonstone --ref agent/autorange-b38-cleancore-20260810
+      - name: Note
+        run: echo 'B3.8 stable patch re-dispatch'
