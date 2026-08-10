@@ -15,15 +15,7 @@
  
 --- a/nativeM2Test.cpp
 +++ b/nativeM2Test.cpp
-@@ -8,6 +8,7 @@
- #include <cstddef>
- #include <cstdint>
- #include <cstring>
-+#include <sstream>
- #include <string>
- #include <vector>
- 
-@@ -120,6 +121,7 @@
+@@ -120,6 +120,7 @@
  struct AutoRangePreviewSlot {
      PreviewSlot preview = {};
      std::string key;
@@ -31,7 +23,7 @@
  };
  
  struct ProjectedIcon {
-@@ -153,6 +155,15 @@
+@@ -153,6 +154,15 @@
  PreviewSlot gAdvancedPreview = {};
  PreviewSlot gPlacementPreview = {};
  std::array<AutoRangePreviewSlot, kAutoRangePreviewCount> gAutoRangePreviews = {};
@@ -47,7 +39,7 @@
  std::array<ProjectedIcon, kSlotCount> gProjected = {};
  std::string gLastErrorStage = "not_started";
  IDirect3DTexture9* gRaidIconTexture = nullptr;
-@@ -445,6 +456,7 @@
+@@ -445,6 +455,7 @@
          if (!slot.preview.active || slot.preview.model == nullptr) {
              resetPreview(slot.preview);
              slot.key = key;
@@ -55,7 +47,7 @@
              return &slot;
          }
      }
-@@ -454,6 +466,14 @@
+@@ -454,6 +465,14 @@
  void resetAutoRangePreview(AutoRangePreviewSlot& slot) {
      resetPreview(slot.preview);
      slot.key.clear();
@@ -70,7 +62,7 @@
  }
  
  void resetSlot(Slot& slot) {
-@@ -1299,6 +1319,7 @@
+@@ -1299,6 +1318,7 @@
                          float scale,
                          float yawDegrees,
                          std::string& normalizedPath) {
@@ -78,7 +70,7 @@
      if (!runtimeReady("unsupported_client") || key.empty()) return false;
      gLastErrorStage = "autorange_validate";
      if (!moonMarkerAdvancedState::normalizeModelPath(modelPath, normalizedPath)
-@@ -1321,6 +1342,8 @@
+@@ -1321,6 +1341,8 @@
          return false;
      }
      slot->key = key;
@@ -87,7 +79,7 @@
      return true;
  }
  
-@@ -1328,6 +1351,7 @@
+@@ -1328,6 +1350,7 @@
                           const C3Vector& position,
                           float scale,
                           float yawDegrees) {
@@ -95,7 +87,7 @@
      if (!runtimeReady("unsupported_client")) return false;
      AutoRangePreviewSlot* slot = findAutoRangePreview(key);
      if (slot == nullptr || !std::isfinite(position.x) || !std::isfinite(position.y)
-@@ -1342,15 +1366,99 @@
+@@ -1342,15 +1365,99 @@
      slot->preview.scale = scale;
      slot->preview.yawDegrees = yawDegrees;
      applyPreviewWorldMatrix(slot->preview);
@@ -107,3 +99,14 @@
      gLastErrorStage = "autorange_moved";
      return true;
  }
+
+--- a/nativeM2Test.cpp
++++ b/nativeM2Test.cpp
+@@ -8,6 +8,7 @@
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstring>
++#include <sstream>
+ #include <string>
+ #include <vector>
+ 
