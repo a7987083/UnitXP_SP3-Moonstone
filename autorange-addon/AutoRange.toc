@@ -1,8 +1,10 @@
 ## Interface: 11200
-## Title: AutoRange · 自动技能范围
-## Notes: Auto-resolves enemy AoE radius from client DBCs and renders random patch-O danger visuals
+## Title: AutoRange · 自动危险圈
+## Notes: DLL relation filtering, one-M2 hazards, teammate circles and owner-filtered totem circles
 ## Author: a7987083 / OpenAI test build
-## Version: B3-auto-dbc-visual
-## OptionalDeps: SuperAPI
+## Version: B3.6R-OneM2-Sources
+## Dependencies: !Libs
+## OptionalDeps: FuBar, SuperAPI
 ## SavedVariables: AutoRangeDB
 AutoRange.lua
+FuBar.lua
