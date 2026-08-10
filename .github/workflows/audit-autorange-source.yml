@@ -1,0 +1,91 @@
+name: Audit AutoRange Patched Source
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/autorange-b34r-one-m2-20260810
+    paths:
+      - '.github/workflows/audit-autorange-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          find upstream -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.h' -o -name 'Makefile' \) -print0 | xargs -0 sed -i 's/\r$//'
+
+      - name: Apply exact TRUE 8x8 chain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat \
+            patches/true8x8.patch.gz.b64.part00 \
+            patches/true8x8.patch.gz.b64.part01 \
+            patches/true8x8.patch.gz.b64.part02.00 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
+            patches/true8x8.patch.gz.b64.part02.02 \
+            patches/true8x8.patch.gz.b64.part02.03 \
+            patches/true8x8.patch.gz.b64.part03 \
+            patches/true8x8.patch.gz.b64.part04 \
+            patches/true8x8.patch.gz.b64.part05 \
+            patches/true8x8.patch.gz.b64.part06 \
+            > true8x8.patch.gz.b64
+          base64 -d true8x8.patch.gz.b64 > true8x8.patch.gz
+          gzip -dc true8x8.patch.gz > true8x8.patch
+          patch --batch --forward -p1 -d upstream < true8x8.patch
+
+      - name: Apply current GroundProbe and AutoRange patches
+        shell: bash
+        run: |
+          set -euxo pipefail
+          patch --batch --forward -p1 -d upstream < patches/groundprobe-b1.patch
+          python3 tools/apply_groundprobe_b2_fixed.py upstream
+          python3 tools/apply_autorange_b3.py upstream
+          python3 tools/apply_autorange_b31_fix.py upstream
+          python3 tools/apply_autorange_b32_resolver.py upstream
+          python3 tools/apply_speed_api.py upstream
+          python3 tools/apply_autorange_b33_relation.py upstream
+          python3 tools/apply_groundprobe_b34_totem.py upstream
+          python3 tools/apply_autorange_b37_totemdbc.py upstream
+
+      - name: Collect exact patched source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir audit-source
+          cp upstream/nativeM2Test.cpp audit-source/
+          cp upstream/nativeM2Test.h audit-source/
+          cp upstream/AutoRange.cpp audit-source/
+          cp upstream/AutoRange.h audit-source/
+          cp upstream/GroundProbe.cpp audit-source/
+          cp upstream/GroundProbe.h audit-source/
+          cp upstream/dllmain.cpp audit-source/
+          cp upstream/Vanilla1121_functions.cpp audit-source/
+          cp upstream/Vanilla1121_functions.h audit-source/
+          cp upstream/Makefile audit-source/
+          grep -nE 'releasePreview|createPreview|updatePreview|AutoRangePreview|setAutoRangeVisual|moveAutoRangeVisual|clearAutoRangeVisual|clearAllAutoRangeVisuals' upstream/nativeM2Test.cpp > audit-source/NATIVE-M2-INDEX.txt || true
+
+      - name: Upload exact patched source
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoRange-Exact-Patched-Source-Audit
+          path: audit-source/
+          retention-days: 7
