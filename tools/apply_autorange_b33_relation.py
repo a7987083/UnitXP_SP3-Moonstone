@@ -23,8 +23,15 @@ if "relationByGuid(" not in h:
     h = replace_once(
         h,
         "std::string status();\n",
-        "std::string status();\nstd::string relationByGuid(const std::string& guidText);\n",
+        "std::string status();\nstd::string relationByGuid(const std::string& guidText);\nstd::string relationByUnit(const std::string& unitId);\n",
         "AutoRange.h status declaration",
+    )
+elif "relationByUnit(" not in h:
+    h = replace_once(
+        h,
+        "std::string relationByGuid(const std::string& guidText);\n",
+        "std::string relationByGuid(const std::string& guidText);\nstd::string relationByUnit(const std::string& unitId);\n",
+        "AutoRange.h relationByGuid declaration",
     )
 h_path.write_text(h, encoding="utf-8", newline="\n")
 
@@ -182,13 +189,39 @@ std::string relationByGuid(const std::string& guidText) {
         << objectType << '|' << relationHex64(guid) << '|' << reason;
     return out.str();
 }
+
+std::string relationByUnit(const std::string& unitId) {
+    if (unitId.empty())
+        return "R|UNKNOWN|-1|-1|-1|0000000000000000|UNITID_INVALID";
+    const std::uint64_t guid = vanilla1121_unitGUID(unitId.c_str());
+    if (guid == 0u)
+        return "R|UNKNOWN|-1|-1|-1|0000000000000000|UNIT_UNRESOLVED";
+    return relationByGuid(std::string("0x") + relationHex64(guid));
+}
+'''
+    cpp = cpp[:pos] + addition + cpp[pos:]
+elif "std::string relationByUnit(" not in cpp:
+    marker = "\n} // namespace autoRange\n"
+    pos = cpp.rfind(marker)
+    if pos < 0:
+        raise SystemExit("AutoRange.cpp final namespace marker missing")
+    addition = r'''
+std::string relationByUnit(const std::string& unitId) {
+    if (unitId.empty())
+        return "R|UNKNOWN|-1|-1|-1|0000000000000000|UNITID_INVALID";
+    const std::uint64_t guid = vanilla1121_unitGUID(unitId.c_str());
+    if (guid == 0u)
+        return "R|UNKNOWN|-1|-1|-1|0000000000000000|UNIT_UNRESOLVED";
+    return relationByGuid(std::string("0x") + relationHex64(guid));
+}
 '''
     cpp = cpp[:pos] + addition + cpp[pos:]
 
 cpp_path.write_text(cpp, encoding="utf-8", newline="\n")
 
-# Lua bridge. UNIT_CASTEVENT already gives AutoRange the caster GUID, so this
-# API is called only when a cast event matters; there is no per-frame 40-unit scan.
+# Lua bridge. UNIT_CASTEVENT already gives AutoRange the caster GUID, so the
+# event path stays GUID-based. RelationByUnit exists for direct 1.12 unitID
+# diagnostics (target/player/etc.) without requiring a Lua UnitGUID() global.
 d = dll_path.read_text(encoding="utf-8")
 if 'AutoRange.RelationByGuid' not in d:
     marker = '''        if (autoRangeCommand == "AutoRange.Resolve" && argumentCount >= 2
@@ -205,12 +238,34 @@ if 'AutoRange.RelationByGuid' not in d:
             lua_pushstring(L, record.c_str());
             return 1;
         }
+        if (autoRangeCommand == "AutoRange.RelationByUnit" && argumentCount >= 2
+            && lua_isstring(L, 2)) {
+            const std::string record = autoRange::relationByUnit(lua_tostring(L, 2));
+            lua_pushstring(L, record.c_str());
+            return 1;
+        }
 '''
     d = replace_once(d, marker, marker + bridge, "dllmain AutoRange.Resolve handler")
+elif 'AutoRange.RelationByUnit' not in d:
+    marker = '''        if (autoRangeCommand == "AutoRange.RelationByGuid" && argumentCount >= 2
+            && lua_isstring(L, 2)) {
+            const std::string record = autoRange::relationByGuid(lua_tostring(L, 2));
+            lua_pushstring(L, record.c_str());
+            return 1;
+        }
+'''
+    bridge = '''        if (autoRangeCommand == "AutoRange.RelationByUnit" && argumentCount >= 2
+            && lua_isstring(L, 2)) {
+            const std::string record = autoRange::relationByUnit(lua_tostring(L, 2));
+            lua_pushstring(L, record.c_str());
+            return 1;
+        }
+'''
+    d = replace_once(d, marker, marker + bridge, "dllmain RelationByGuid handler")
 dll_path.write_text(d, encoding="utf-8", newline="\n")
 
 checks = {
-    h_path: ["relationByGuid"],
+    h_path: ["relationByGuid", "relationByUnit"],
     cpp_path: [
         '#include "Vanilla1121_functions.h"',
         "vanilla1121_unitReaction(object)",
@@ -218,8 +273,14 @@ checks = {
         'return "FRIENDLY"',
         'return "UNKNOWN"',
         "std::string relationByGuid",
+        "std::string relationByUnit",
+        "vanilla1121_unitGUID(unitId.c_str())",
+        "UNIT_UNRESOLVED",
     ],
-    dll_path: ["AutoRange.RelationByGuid", "autoRange::relationByGuid"],
+    dll_path: [
+        "AutoRange.RelationByGuid", "autoRange::relationByGuid",
+        "AutoRange.RelationByUnit", "autoRange::relationByUnit",
+    ],
 }
 for p, needles in checks.items():
     text = p.read_text(encoding="utf-8")
@@ -227,4 +288,4 @@ for p, needles in checks.items():
         if needle not in text:
             raise SystemExit(f"postcondition failed: {needle} missing from {p}")
 
-print("AutoRange B3.3 native tri-state relation classifier: OK")
+print("AutoRange B3.3.1 native tri-state relation classifier + UnitID API: OK")
