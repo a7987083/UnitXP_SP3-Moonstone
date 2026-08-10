@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Build trigger: 2026-08-10 speed API compatibility test.
 from pathlib import Path
 import sys
 
@@ -25,6 +24,10 @@ def main() -> int:
             // Compatibility API from the X2.0 UnitXP_SP3 branch.
             // Legacy behavior returns three movement-speed fields, rounded to 4 decimals.
             // CAT currently consumes the first return value via UnitXP("speed", "player").
+            // Keep a tiny volatile marker so post-link validation survives ThinLTO string folding.
+            static volatile char speedApiBuildMarker[] = "speed";
+            (void)speedApiBuildMarker[0];
+
             uint32_t unit = 0;
             const std::string unitID = lua_tostring(L, 2);
             if (!unitID.empty()) {
