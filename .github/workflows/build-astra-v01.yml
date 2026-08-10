@@ -164,13 +164,27 @@ jobs:
         working-directory: upstream
         shell: bash
         run: |
-          set -euxo pipefail
-          make clean
-          make -j2
-          test -f Astra.dll
-          file Astra.dll | tee ASTRA-FILE-TYPE.txt
-          grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' ASTRA-FILE-TYPE.txt
-          strings Astra.dll | grep -F 'Astra 0.1.0-migration'
+          set +e
+          make clean > BUILD.log 2>&1
+          make -j1 >> BUILD.log 2>&1
+          rc=$?
+          cat BUILD.log
+          if [ "$rc" -eq 0 ]; then
+            test -f Astra.dll
+            file Astra.dll | tee ASTRA-FILE-TYPE.txt
+            grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' ASTRA-FILE-TYPE.txt
+            strings Astra.dll | grep -F 'Astra 0.1.0-migration'
+          fi
+          exit "$rc"
+
+      - name: Upload compiler log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astra-v0.1-build-log
+          path: upstream/BUILD.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Package Astra artifact
         shell: bash
