@@ -1,4 +1,4 @@
-name: Build UnitXP DBC Fusion B1 x86
+name: Build UnitXP DBC Fusion B1R1 x86
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/build-unitxp-dbc-fusion-b1.yml'
       - 'tools/apply_unitxp_dbc_fusion_b1.py'
+      - 'tools/apply_unitxp_dbc_fusion_b1_fix.py'
 
 permissions:
   contents: read
@@ -96,17 +97,23 @@ jobs:
           grep -Fq 'AutoRange.TotemInfo' upstream/dllmain.cpp
           grep -Fq 'AutoRange.VisualRestart' upstream/dllmain.cpp
 
-      - name: Apply zero-idle DBC fusion B1
+      - name: Apply zero-idle DBC fusion B1R1
         shell: bash
         run: |
           set -euxo pipefail
           python3 tools/apply_unitxp_dbc_fusion_b1.py upstream
+          python3 tools/apply_unitxp_dbc_fusion_b1_fix.py upstream
           grep -Fq 'UnitXPDbc.cpp' upstream/Makefile
           grep -Fq 'unitxpDbc::dispatch' upstream/dllmain.cpp
           grep -Fq 'DBFilesClient\\Spell.dbc' upstream/UnitXPDbc.cpp
           grep -Fq 'DBFilesClient\\SpellVisual.dbc' upstream/UnitXPDbc.cpp
           grep -Fq 'DBFilesClient\\SpellVisualKit.dbc' upstream/UnitXPDbc.cpp
           grep -Fq 'DBFilesClient\\SpellVisualEffectName.dbc' upstream/UnitXPDbc.cpp
+          grep -Fq 'gSpell.u32(r, 82u + i)' upstream/UnitXPDbc.cpp
+          grep -Fq 'gSpell.u32(r, 85u + i)' upstream/UnitXPDbc.cpp
+          grep -Fq 'gSpell.u32(r, 88u + i)' upstream/UnitXPDbc.cpp
+          grep -Fq 'gRadius.i32(r, 2u)' upstream/UnitXPDbc.cpp
+          grep -Fq 'gRadius.i32(r, 3u)' upstream/UnitXPDbc.cpp
           grep -Fq 'static bool attempted = false' upstream/UnitXPDbc.cpp
 
       - name: Install xwin and SDK
@@ -135,33 +142,34 @@ jobs:
           file UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
           grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' DLL-FILE-TYPE.txt
           test -s UnitXP_SP3.dll
-          sha256sum UnitXP_SP3.dll
+          stat -c '%s' UnitXP_SP3.dll | tee DLL-SIZE.txt
+          sha256sum UnitXP_SP3.dll | tee DLL-SHA256.txt
 
       - name: Package
         shell: bash
         run: |
           set -euxo pipefail
           mkdir release
-          cp upstream/UnitXP_SP3.dll release/UnitXP_SP3_DBC_Fusion_B1.dll
-          cp upstream/UnitXP_SP3.pdb release/ 2>/dev/null || true
+          cp upstream/UnitXP_SP3.dll release/UnitXP_SP3.dll
           cp upstream/DLL-FILE-TYPE.txt release/
-          sha256sum release/UnitXP_SP3_DBC_Fusion_B1.dll > release/SHA256.txt
-          cat > release/README-DBC-Fusion-B1.txt <<'TXT'
-          UnitXP_SP3 DBC Fusion B1
+          cp upstream/DLL-SIZE.txt release/
+          cp upstream/DLL-SHA256.txt release/SHA256.txt
+          cat > release/README-DBC-Fusion-B1R1.txt <<'TXT'
+          UnitXP_SP3 DBC Fusion B1R1 - test build
 
           Baseline:
           - exact B3.8R2 VisualResync source chain that produced the user's
             748,032-byte DLL with SHA-256
             88f843c4bb5525e1bb542d270c6b79a1c7674f4e78a7c647cdfd1f3943d69d35
 
-          Preserved:
+          Preserved baseline feature chain:
           - TRUE 8x8
           - GroundProbe / AutoRange / Totem DBC
           - UnitXP("speed", "player")
           - B3.3 relation and B3.4/B3.7 totem capabilities
           - B3.8R2 VisualResync
 
-          New on-demand Lua APIs (all return one table on success; nil,error on failure):
+          New on-demand Lua APIs:
           - UnitXP("spell", spellID)
           - UnitXP("spellradius", radiusID)
           - UnitXP("spellrange", rangeID)
@@ -171,32 +179,29 @@ jobs:
           - UnitXP("spellvisualkit", kitID)
           - UnitXP("spellvisualeffect", effectID)
 
+          Return convention:
+          - success: one Lua table
+          - failure: nil, errorString
+
           Performance contract:
           - no new thread
           - no OnUpdate/frame scan
           - no timer/polling
-          - no MPQ scan until one of the new DBC APIs is explicitly called
-          - each DBC is loaded separately on first access and retained in memory
-          - existing UnitXP commands are ahead of the DBC handler and return before it
+          - no MPQ directory scan until one of the new DBC commands is actually called
+          - each DBC loads separately on first use and is cached for the session
+          - legacy UnitXP commands return before the DBC handler
 
-          Example:
-            local s, err = UnitXP("spell", 133)
-            if s then
-              DEFAULT_CHAT_FRAME:AddMessage("Spell=" .. (s.name or "?") ..
-                " visual=" .. tostring(s.spellVisual1))
-            end
+          Basic test examples:
+            /run local s,e=UnitXP("spell",133); if s then DEFAULT_CHAT_FRAME:AddMessage("Spell="..(s.name or "?").." Visual="..tostring(s.spellVisual1).." Radius1="..tostring(s.radiusIndex1)) else DEFAULT_CHAT_FRAME:AddMessage(tostring(e)) end
 
-            local v = UnitXP("spellvisual", s.spellVisual1)
-            local kit = v and UnitXP("spellvisualkit", v.impactKit)
-            local fx = kit and UnitXP("spellvisualeffect", kit.baseEffect)
-            if fx then
-              DEFAULT_CHAT_FRAME:AddMessage("M2=" .. (fx.fileName or ""))
-            end
+            /run local r,e=UnitXP("spellradius",1); if r then DEFAULT_CHAT_FRAME:AddMessage("Radius="..tostring(r.radius).." Max="..tostring(r.radiusMax).." MPQ="..tostring(r.source)) else DEFAULT_CHAT_FRAME:AddMessage(tostring(e)) end
+
+          This build is compile/static-validated. In-game DBC loading still needs the first TurtleWoW runtime test.
           TXT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP-SP3-DBC-Fusion-B1-x86
+          name: UnitXP-SP3-DBC-Fusion-B1R1-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
