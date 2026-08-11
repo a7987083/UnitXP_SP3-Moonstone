@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/build-autorange-tremor40-m2scale.yml'
       - 'tools/apply_autorange_tremor40_m2scale.py'
+      - 'tools/apply_autorange_r63_spellchain_fields.py'
   workflow_dispatch:
 
 permissions:
@@ -108,12 +109,22 @@ jobs:
           grep -Fq 'gCache.spell.u32(r, 85u + i)' upstream/AutoRange.cpp
           grep -Fq 'const std::uint32_t rid = gCache.spell.u32(r, 88u + i);' upstream/AutoRange.cpp
 
-      - name: Apply AutoRange-only large M2 scale fix
+      - name: Apply R6.3 Reliquary-derived Spell chain fields
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 tools/apply_autorange_r63_spellchain_fields.py upstream
+          grep -Fq 'std::string("applyAura") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'descriptionZhCN' upstream/UnitXPDbc.cpp
+          grep -Fq 'auraDescriptionEnUS' upstream/UnitXPDbc.cpp
+
+      - name: Apply AutoRange-only large M2 scale and PlayerPosition fix
         shell: bash
         run: |
           set -euxo pipefail
           python3 tools/apply_autorange_tremor40_m2scale.py upstream
           grep -Fq 'constexpr float kAutoRangeMaxScale = 20.0f;' upstream/nativeM2Test.cpp
+          grep -Fq 'GroundProbe.PlayerPosition' upstream/dllmain.cpp
 
       - name: Install xwin and SDK
         shell: bash
@@ -152,33 +163,22 @@ jobs:
           cp upstream/DLL-FILE-TYPE.txt release/
           cp upstream/DLL-SIZE.txt release/
           cp upstream/DLL-SHA256.txt release/SHA256.txt
-          cat > release/README-AutoRange-Tremor40-M2Scale.txt <<'TXT'
-          AutoRange Tremor40 + M2Scale test build
+          cat > release/README-AutoRange-R63-SpellChain.txt <<'TXT'
+          AutoRange B3.8R6.3 Spell-chain test DLL
 
-          Parent baseline:
-          - UnitXP_SP3 DBC Fusion B1R1 (user baseline: 775,680 bytes)
-          - preserves B3.8R2 CleanCore / VisualResync feature chain
+          Adds read-only, on-demand Spell fields used by the Lua totem resolver:
+          - applyAura1/2/3
+          - nameZhCN
+          - descriptionEnUS / descriptionZhCN
+          - auraDescriptionEnUS / auraDescriptionZhCN
 
-          Native change in this build:
-          - Dedicated AutoRange danger visual max scale raised to 20.0 only for
-            AutoRange.VisualSet / AutoRange.VisualMove.
-          - Shared MoonMarker scale validation remains unchanged.
-
-          The companion B3.8R5 addon uses the B1R1 zero-idle spell/spellradius
-          API to resolve Tremor 8146 from live client DBC data and removes the
-          incorrect hardcoded 30 yd fallback.
-
-          Expected Tremor result:
-          - 8146 -> RadiusIndex 23 -> 40 yards
-          - W10 scale 8.0 accepted
-          - W12 scale ~6.667 accepted
-
-          No new thread, timer, OnUpdate or polling is introduced by this DLL patch.
+          Existing spell/radius/target/trigger fields remain unchanged.
+          No new thread, timer, OnUpdate, polling, or idle work is introduced.
           TXT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AutoRange-Tremor40-M2Scale-x86
+          name: AutoRange-R63-SpellChain-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
