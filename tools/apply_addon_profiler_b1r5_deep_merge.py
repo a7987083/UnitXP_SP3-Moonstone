@@ -13,6 +13,19 @@ for p in (final, clean, deep):
     if not p.is_dir():
         raise SystemExit('missing tree: %s' % p)
 
+# B1R4's calibrated generator emits addonProfilerLite.cpp but older workflow ancestry
+# supplied this tiny header separately. Make the B1R5 build deterministic by ensuring
+# the exact B1R4 header is present before compilation.
+lite_h = final / 'addonProfilerLite.h'
+if not lite_h.exists():
+    lite_h.write_text(
+        '#pragma once\n'
+        'namespace addonProfilerLite {\n'
+        '    int handleLua(void* L);\n'
+        '    void onFrameBoundary();\n'
+        '}\n',
+        encoding='utf-8', newline='\n')
+
 # Copy the already-tested B1R2 debug-hook profiler as an isolated, opt-in deep module.
 src_cpp = deep / 'addonProfiler.cpp'
 src_h = deep / 'addonProfiler.h'
@@ -128,14 +141,10 @@ if 'profilerdeep' not in text:
 final_path.write_text(text, encoding='utf-8', newline='\n')
 
 # Makefile integration.
-# B1R4's generator can add its source token as a standalone appended line.  Do not
-# repeat that pattern here: normalize profiler source tokens and inject both units
-# inside the SRCS continuation block, before OBJS.
 mk_path = final / 'Makefile'
 mk = mk_path.read_text(encoding='utf-8', errors='replace')
 lines = mk.splitlines()
 
-# Remove only malformed standalone profiler source lines outside the SRCS block.
 in_srcs = False
 cleaned = []
 for line in lines:
@@ -143,7 +152,6 @@ for line in lines:
     if stripped.startswith('SRCS') and '=' in stripped:
         in_srcs = True
     if in_srcs and stripped and not stripped.endswith('\\') and not stripped.startswith('SRCS'):
-        # This is the final source line of the continuation block.
         in_srcs = False
     malformed = (not in_srcs and stripped in (
         'addonProfilerLite.cpp', 'addonProfilerDeep.cpp',
@@ -154,25 +162,21 @@ for line in lines:
         continue
     cleaned.append(line)
 
-# Remove profiler tokens from any existing SRCS continuation lines to avoid duplicates.
 normalized = []
 for line in cleaned:
     if 'addonProfilerLite.cpp' in line or 'addonProfilerDeep.cpp' in line:
         line = line.replace('addonProfilerLite.cpp', '').replace('addonProfilerDeep.cpp', '')
-        # Preserve a continuation-only line only if it still has another token.
         content = line.replace('\\', '').strip()
         if not content:
             continue
     normalized.append(line)
 
-# Insert both profiler sources immediately before the first MinHook source in SRCS.
 insert_at = None
 for idx, line in enumerate(normalized):
     if '$(MINHOOK_DIR)/src/' in line:
         insert_at = idx
         break
 if insert_at is None:
-    # Fallback: immediately before OBJS, while preserving a valid continuation.
     for idx, line in enumerate(normalized):
         if line.lstrip().startswith('OBJS'):
             insert_at = idx
@@ -180,11 +184,10 @@ if insert_at is None:
 if insert_at is None:
     raise SystemExit('cannot locate Makefile SRCS/OBJS insertion point')
 
-# If the previous source line was the final non-continuation line, make it continue.
 prev = insert_at - 1
 while prev >= 0 and not normalized[prev].strip():
     prev -= 1
-if prev >= 0 and normalized[prev].lstrip().startswith('SRCS') is False and not normalized[prev].rstrip().endswith('\\'):
+if prev >= 0 and not normalized[prev].lstrip().startswith('SRCS') and not normalized[prev].rstrip().endswith('\\'):
     normalized[prev] = normalized[prev].rstrip() + ' \\'
 
 prof_lines = [
@@ -201,8 +204,8 @@ if 'addonProfilerDeep.h' not in final_dll:
     raise SystemExit('deep header integration missing')
 if 'profilerdeep' not in final_dll:
     raise SystemExit('profilerdeep command namespace missing')
-if not (final / 'addonProfilerLite.cpp').exists():
-    raise SystemExit('B1R4 light profiler missing')
+if not (final / 'addonProfilerLite.cpp').exists() or not lite_h.exists():
+    raise SystemExit('B1R4 light profiler source/header missing')
 light = (final / 'addonProfilerLite.cpp').read_text(encoding='utf-8', errors='replace')
 if 'lua_sethook' in light or 'LUA_MASKCALL' in light:
     raise SystemExit('light profiler unexpectedly contains debug hook')
