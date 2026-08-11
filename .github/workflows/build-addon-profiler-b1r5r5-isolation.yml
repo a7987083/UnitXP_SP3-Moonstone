@@ -171,7 +171,7 @@ jobs:
           strings -a UnitXP_SP3.dll | grep -F 'AddonProfiler B1R4 Calibrated'
           strings -a UnitXP_SP3.dll | grep -F 'AddonProfiler Deep B1R5R4 Targeted'
           strings -a UnitXP_SP3.dll | grep -F 'TARGETED_ENTRY_SAMPLING'
-          strings -a UnitXP_SP3.dll | grep -F 'B1R5R5_DEEP_LIGHT_ISOLATION'
+          strings -a UnitXP_SP3.dll | grep -F 'deepIsolation'
           strings -a UnitXP_SP3.dll | grep -x 'profiler'
           strings -a UnitXP_SP3.dll | grep -x 'profilerdeep'
 
