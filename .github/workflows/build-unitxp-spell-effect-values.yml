@@ -160,10 +160,9 @@ jobs:
           strings -a UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
           strings -a UnitXP_SP3.dll | grep -x 'profiler'
           strings -a UnitXP_SP3.dll | grep -x 'profilerdeep'
-          strings -a UnitXP_SP3.dll | grep -x 'AutoRange.M2Scan.Start'
-          strings -a UnitXP_SP3.dll | grep -x 'effectBasePoints1'
-          strings -a UnitXP_SP3.dll | grep -x 'effectAmplitude1'
-          strings -a UnitXP_SP3.dll | grep -x 'effectSimpleValue1'
+          strings -a UnitXP_SP3.dll | grep -F 'effectBasePoints'
+          strings -a UnitXP_SP3.dll | grep -F 'effectAmplitude'
+          strings -a UnitXP_SP3.dll | grep -F 'effectSimpleValue'
 
       - name: Package
         shell: bash
