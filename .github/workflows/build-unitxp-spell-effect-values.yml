@@ -122,15 +122,19 @@ jobs:
           grep -Fq 'AutoRange.M2Scan.Get' upstream/dllmain.cpp
           grep -Fq 'gSourceByPath' upstream/MoonMarkerM2Scanner.cpp
 
-      - name: Add Spell.dbc effect value fields
+      - name: Add and verify Spell.dbc effect value fields
         shell: bash
         run: |
           set -euxo pipefail
           python3 tools/apply_unitxp_spell_effect_values.py upstream
-          grep -Fq 'effectBasePoints' upstream/UnitXPDbc.cpp
-          grep -Fq 'effectDieSides' upstream/UnitXPDbc.cpp
-          grep -Fq 'effectAmplitude' upstream/UnitXPDbc.cpp
-          grep -Fq 'effectSimpleValue' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectDieSides") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectBaseDice") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectRealPointsPerLevel") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectBasePoints") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectMechanic") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectAmplitude") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectPointsPerComboPoint") + suffix' upstream/UnitXPDbc.cpp
+          grep -Fq 'std::string("effectSimpleValue") + suffix' upstream/UnitXPDbc.cpp
 
       - name: Install Windows SDK and D3DX9 headers
         shell: bash
@@ -160,9 +164,6 @@ jobs:
           strings -a UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
           strings -a UnitXP_SP3.dll | grep -x 'profiler'
           strings -a UnitXP_SP3.dll | grep -x 'profilerdeep'
-          strings -a UnitXP_SP3.dll | grep -F 'effectBasePoints'
-          strings -a UnitXP_SP3.dll | grep -F 'effectAmplitude'
-          strings -a UnitXP_SP3.dll | grep -F 'effectSimpleValue'
 
       - name: Package
         shell: bash
