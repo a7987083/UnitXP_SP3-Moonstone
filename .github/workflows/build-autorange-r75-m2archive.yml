@@ -1,0 +1,188 @@
+name: Build AutoRange R7.5 M2 Archive Browser x86
+
+on:
+  push:
+    branches:
+      - agent/autorange-r75-m2archive-20260813
+    paths:
+      - '.github/workflows/build-autorange-r75-m2archive.yml'
+      - 'tools/apply_autorange_r75_m2archive.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates gnupg make unzip git patch file python3 binutils
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y lld-19
+          sudo ln -sf /usr/bin/clang-cl-19 /usr/local/bin/clang-cl
+          sudo ln -sf /usr/bin/lld-link-19 /usr/local/bin/lld-link
+
+      - name: Fetch exact UnitXP_SP3 v89 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/brues-code/UnitXP_SP3.git
+          git -C upstream fetch --depth 1 origin 3370011e396ccdbf4c9921f6cf2b005bed818b24
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "3370011e396ccdbf4c9921f6cf2b005bed818b24"
+          find upstream -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.h' -o -name 'Makefile' \) -print0 | xargs -0 sed -i 's/\r$//'
+
+      - name: Apply exact R6.3 baseline feature chain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat \
+            patches/true8x8.patch.gz.b64.part00 \
+            patches/true8x8.patch.gz.b64.part01 \
+            patches/true8x8.patch.gz.b64.part02.00 \
+            patches/true8x8.patch.gz.b64.part02.01.00 \
+            patches/true8x8.patch.gz.b64.part02.01.01 \
+            patches/true8x8.patch.gz.b64.part02.01.02 \
+            patches/true8x8.patch.gz.b64.part02.01.03 \
+            patches/true8x8.patch.gz.b64.part02.02 \
+            patches/true8x8.patch.gz.b64.part02.03 \
+            patches/true8x8.patch.gz.b64.part03 \
+            patches/true8x8.patch.gz.b64.part04 \
+            patches/true8x8.patch.gz.b64.part05 \
+            patches/true8x8.patch.gz.b64.part06 > true8x8.patch.gz.b64
+          echo 'a932b4a1b9786c10e23755ee344fb285fd2ceca25333825c6e99cbc105d8c320  true8x8.patch.gz.b64' | sha256sum -c -
+          base64 -d true8x8.patch.gz.b64 > true8x8.patch.gz
+          gzip -dc true8x8.patch.gz > true8x8.patch
+          patch --batch --forward -p1 -d upstream < true8x8.patch
+          patch --batch --forward -p1 -d upstream < patches/groundprobe-b1.patch
+          python3 tools/apply_groundprobe_b2_fixed.py upstream
+          python3 tools/apply_autorange_b3.py upstream
+          python3 tools/apply_autorange_b31_fix.py upstream
+          python3 tools/apply_autorange_b32_resolver.py upstream
+          python3 tools/apply_speed_api.py upstream
+          python3 tools/apply_autorange_b33_relation.py upstream
+          python3 tools/apply_groundprobe_b34_totem.py upstream
+          python3 tools/apply_autorange_b37_totemdbc.py upstream
+          patch --batch --forward -p1 -d upstream < patches/b38-cleancore-vfinal.patch
+          patch --batch --forward -p1 -d upstream < patches/b38-cleancore-sstream.patch
+          python3 tools/apply_autorange_b38r2_visual_resync.py upstream
+          python3 tools/apply_unitxp_dbc_fusion_b1.py upstream
+          python3 tools/apply_unitxp_dbc_fusion_b1_fix.py upstream
+          python3 tools/apply_autorange_r63_spellchain_fields.py upstream
+          python3 tools/apply_autorange_tremor40_m2scale.py upstream
+
+      - name: Prepare B1R2 deep template
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp -a upstream cleanbase
+          cp -a upstream deepbase
+          python3 tools/apply_addon_profiler_b1.py deepbase
+          python3 tools/apply_addon_profiler_b1r2_fix.py deepbase
+          grep -Fq 'lua_sethook' deepbase/addonProfiler.cpp
+
+      - name: Apply B1R4 through B1R5R7 stable profiler chain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 tools/apply_addon_profiler_b1r3_lite.py upstream
+          python3 tools/apply_addon_profiler_b1r4_calibrated.py upstream
+          python3 tools/apply_addon_profiler_b1r5_deep_merge.py upstream cleanbase deepbase
+          curl -fsSL https://raw.githubusercontent.com/a7987083/UnitXP_SP3-Moonstone/681f4167996c7b2442cafd93662cbe934e35dc86/tools/apply_addon_profiler_b1r5r4_targeted.py -o targeted-r5r4.py
+          python3 targeted-r5r4.py upstream
+          python3 tools/apply_addon_profiler_b1r5r5_isolation_ci.py upstream
+          python3 tools/apply_addon_profiler_b1r5r6_longframe_contribution.py upstream
+          python3 tools/apply_addon_profiler_b1r5r7_loginsafe.py upstream
+
+      - name: Apply B1R5R8 long-frame details
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 tools/apply_addon_profiler_b1r5r8_longframe_details.py upstream
+          grep -Fq 'B1R5R8_LONGFRAME_TOP5_DETAILS' upstream/addonProfilerLite.cpp
+
+      - name: Apply AutoRange R7.5 M2 archive source API
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 tools/apply_autorange_r75_m2archive.py upstream
+          grep -Fq 'AutoRange.M2Scan.Start' upstream/dllmain.cpp
+          grep -Fq 'AutoRange.M2Scan.Get' upstream/dllmain.cpp
+          grep -Fq 'gSourceByPath' upstream/MoonMarkerM2Scanner.cpp
+          grep -Fq 'std::string& source' upstream/MoonMarkerM2Scanner.h
+
+      - name: Install Windows SDK and D3DX9 headers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XWIN_VERSION=0.9.0
+          curl -L --fail --retry 3 "https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o xwin.tar.gz
+          tar -xzf xwin.tar.gz
+          sudo install -m 0755 "xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl/xwin" /usr/local/bin/xwin
+          xwin --accept-license --arch x86 splat --output upstream/xwinSDK
+          curl -L --fail --retry 3 "https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8" -o d3dx.nupkg
+          unzip -q d3dx.nupkg -d d3dx_pkg
+          mkdir -p upstream/d3d9x_headers
+          cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
+
+      - name: Build R7.5 DLL
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make clean
+          make -j2
+          file UnitXP_SP3.dll | tee DLL-FILE-TYPE.txt
+          grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' DLL-FILE-TYPE.txt
+          stat -c '%s' UnitXP_SP3.dll | tee DLL-SIZE.txt
+          sha256sum UnitXP_SP3.dll | tee DLL-SHA256.txt
+          strings -a UnitXP_SP3.dll | grep -F 'AutoRange.M2Scan.Start'
+          strings -a UnitXP_SP3.dll | grep -F 'AutoRange.M2Scan.Get'
+          strings -a UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
+          strings -a UnitXP_SP3.dll | grep -x 'profiler'
+          strings -a UnitXP_SP3.dll | grep -x 'profilerdeep'
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release/source
+          cp upstream/UnitXP_SP3.dll release/UnitXP_SP3.dll
+          cp upstream/DLL-FILE-TYPE.txt release/
+          cp upstream/DLL-SIZE.txt release/
+          cp upstream/DLL-SHA256.txt release/SHA256.txt
+          cp upstream/MoonMarkerM2Scanner.cpp upstream/MoonMarkerM2Scanner.h release/source/
+          cp upstream/dllmain.cpp upstream/Makefile release/source/
+          cp tools/apply_autorange_r75_m2archive.py release/source/
+          cat > release/README-R7.5-M2ARCHIVE.txt <<'TXT'
+          AutoRange R7.5 M2 Archive Browser native extension
+
+          Adds public incremental scanner commands without changing MoonMarker.Advanced auth:
+            AutoRange.M2Scan.Start
+            AutoRange.M2Scan.Step
+            AutoRange.M2Scan.Status
+            AutoRange.M2Scan.Get(index) -> ok, path, sourceArchive
+
+          Existing MoonMarker.Advanced.ScanM2.* remains unchanged and compatible.
+          Existing profiler, GroundProbe, AutoRange resolver/visuals and DBC Fusion are retained.
+          No permanent thread, timer, OnUpdate or background scan is added by the DLL.
+          TXT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoRange-R75-M2Archive-x86
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
