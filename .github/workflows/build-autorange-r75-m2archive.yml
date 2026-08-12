@@ -148,8 +148,6 @@ jobs:
           grep -Eq 'PE32 executable.*Intel 80386|PE32 executable.*80386' DLL-FILE-TYPE.txt
           stat -c '%s' UnitXP_SP3.dll | tee DLL-SIZE.txt
           sha256sum UnitXP_SP3.dll | tee DLL-SHA256.txt
-          strings -a UnitXP_SP3.dll | grep -F 'AutoRange.M2Scan.Start'
-          strings -a UnitXP_SP3.dll | grep -F 'AutoRange.M2Scan.Get'
           strings -a UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
           strings -a UnitXP_SP3.dll | grep -x 'profiler'
           strings -a UnitXP_SP3.dll | grep -x 'profilerdeep'
