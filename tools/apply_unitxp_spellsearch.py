@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -244,6 +245,11 @@ int pushSpellSearch(void* L, const std::string& rawQuery, std::uint32_t limit) {
             if marker not in text:
                 raise RuntimeError(f"postcondition failed: {filename} missing {marker}")
     print("UnitXP SpellSearch patch applied successfully")
+    subprocess.run([
+        sys.executable,
+        str(Path(__file__).with_name("apply_unitxp_creature_spell_link.py")),
+        str(root),
+    ], check=True)
 
 
 if __name__ == "__main__":
