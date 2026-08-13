@@ -1,12 +1,13 @@
-name: Build UnitXP R7.5.1 FullTooltip SpellSearch x86
+name: Build UnitXP R7.5.1b GroundCursor Inspection x86
 
 on:
   push:
     branches:
-      - agent/r751-fulltooltip-20260813
+      - agent/r751b-groundcursor-hookless-20260814
     paths:
       - '.github/workflows/build-r751-fulltooltip.yml'
       - 'tools/apply_autorange_r751_m2archive_fix.py'
+      - 'tools/apply_autorange_r752_raw_listfile_fallback.py'
       - 'tools/apply_unitxp_spellsearch.py'
       - 'tools/apply_unitxp_tooltip_fields.py'
       - 'tools/apply_unitxp_spell_effect_values.py'
@@ -96,7 +97,7 @@ jobs:
           python3 tools/apply_addon_profiler_b1r2_fix.py deepbase
           grep -Fq 'lua_sethook' deepbase/addonProfiler.cpp
 
-      - name: Apply B1R4 through B1R5R7 stable profiler chain
+      - name: Apply B1R4 through B1R5R8 profiler chain
         shell: bash
         run: |
           set -euxo pipefail
@@ -108,53 +109,26 @@ jobs:
           python3 tools/apply_addon_profiler_b1r5r5_isolation_ci.py upstream
           python3 tools/apply_addon_profiler_b1r5r6_longframe_contribution.py upstream
           python3 tools/apply_addon_profiler_b1r5r7_loginsafe.py upstream
-
-      - name: Apply B1R5R8 long-frame details
-        shell: bash
-        run: |
-          set -euxo pipefail
           python3 tools/apply_addon_profiler_b1r5r8_longframe_details.py upstream
           grep -Fq 'B1R5R8_LONGFRAME_TOP5_DETAILS' upstream/addonProfilerLite.cpp
 
-      - name: Apply AutoRange R7.5 M2 archive API
+      - name: Apply AutoRange R7.5.1b M2 archive chain
         shell: bash
         run: |
           set -euxo pipefail
           python3 tools/apply_autorange_r75_m2archive.py upstream
-          grep -Fq 'AutoRange.M2Scan.Get' upstream/dllmain.cpp
-          grep -Fq 'gSourceByPath' upstream/MoonMarkerM2Scanner.cpp
-
-      - name: Apply AutoRange R7.5.1 archive fix
-        shell: bash
-        run: |
-          set -euxo pipefail
           python3 tools/apply_autorange_r751_m2archive_fix.py upstream
+          python3 tools/apply_autorange_r752_raw_listfile_fallback.py upstream
           grep -Fq 'AutoRange.M2Scan.ArchiveGet' upstream/dllmain.cpp
-          grep -Fq 'getArchive' upstream/MoonMarkerM2Scanner.cpp
-          grep -Fq 'ScanResult' upstream/MoonMarkerM2Scanner.cpp
-          if grep -Fq 'gSourceByPath' upstream/MoonMarkerM2Scanner.cpp; then exit 1; fi
+          grep -Fq 'readRawClassicMpqListfile' upstream/MoonMarkerM2Scanner.cpp
 
-      - name: Add Spell.dbc effect value fields
+      - name: Add Spell effect values and FullTooltip SpellSearch
         shell: bash
         run: |
           set -euxo pipefail
           python3 tools/apply_unitxp_spell_effect_values.py upstream
-          grep -Fq 'std::string("effectDieSides") + suffix' upstream/UnitXPDbc.cpp
-          grep -Fq 'std::string("effectRealPointsPerLevel") + suffix' upstream/UnitXPDbc.cpp
-          grep -Fq 'std::string("effectAmplitude") + suffix' upstream/UnitXPDbc.cpp
-          grep -Fq 'std::string("effectChainTarget") + suffix' upstream/UnitXPDbc.cpp
-          grep -Fq 'std::string("effectSimpleValue") + suffix' upstream/UnitXPDbc.cpp
-
-      - name: Add SpellSearch FullTooltip API chain
-        shell: bash
-        run: |
-          set -euxo pipefail
           python3 tools/apply_unitxp_spellsearch.py upstream
           grep -Fq 'pushSpellSearch' upstream/UnitXPDbc.cpp
-          grep -Fq 'cmd == "spellsearch"' upstream/UnitXPDbc.cpp
-          grep -Fq 'isSearchCommand' upstream/dllmain.cpp
-          grep -Fq '"procChance"' upstream/UnitXPDbc.cpp
-          grep -Fq '"maximumAffectedTargets"' upstream/UnitXPDbc.cpp
           grep -Fq 'effectDamageMultiplier' upstream/UnitXPDbc.cpp
           grep -Fq 'cmd == "creaturebyspell"' upstream/UnitXPDbc.cpp
 
@@ -172,7 +146,7 @@ jobs:
           mkdir -p upstream/d3d9x_headers
           cp -a d3dx_pkg/build/native/include/. upstream/d3d9x_headers/
 
-      - name: Build combined DLL
+      - name: Build exact R7.5.1b inspection baseline
         working-directory: upstream
         shell: bash
         run: |
@@ -184,53 +158,31 @@ jobs:
           stat -c '%s' UnitXP_SP3.dll | tee DLL-SIZE.txt
           sha256sum UnitXP_SP3.dll | tee DLL-SHA256.txt
           strings -a UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
-          strings -a UnitXP_SP3.dll | grep -x 'profiler'
-          strings -a UnitXP_SP3.dll | grep -x 'profilerdeep'
           strings -a UnitXP_SP3.dll | grep -x 'spellsearch'
 
-      - name: Package combined native build
+      - name: Package generated ground cursor source
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p release/source
           cp upstream/UnitXP_SP3.dll release/UnitXP_SP3.dll
-          cp upstream/DLL-FILE-TYPE.txt release/
-          cp upstream/DLL-SIZE.txt release/
+          cp upstream/DLL-FILE-TYPE.txt upstream/DLL-SIZE.txt release/
           cp upstream/DLL-SHA256.txt release/SHA256.txt
+          cp upstream/moonMarker.cpp upstream/moonMarker.h release/source/
+          cp upstream/MoonMarkerRuntimeGuard.cpp upstream/MoonMarkerRuntimeGuard.h release/source/
+          cp upstream/nativeM2Test.cpp upstream/nativeM2Test.h release/source/
+          cp upstream/dllmain.cpp upstream/Makefile release/source/
           cp upstream/UnitXPDbc.cpp upstream/UnitXPDbc.h release/source/
           cp upstream/MoonMarkerM2Scanner.cpp upstream/MoonMarkerM2Scanner.h release/source/
-          cp upstream/dllmain.cpp upstream/Makefile release/source/
-          cp tools/apply_autorange_r75_m2archive.py release/source/
-          cp tools/apply_autorange_r751_m2archive_fix.py release/source/
-          cp tools/apply_unitxp_spell_effect_values.py release/source/
-          cp tools/apply_unitxp_spellsearch.py release/source/
-          cp tools/apply_unitxp_tooltip_fields.py release/source/
-          cp tools/apply_unitxp_creature_spell_link.py release/source/
-          cat > release/README-R751-FULLTOOLTIP.txt <<'TXT'
-          UnitXP_SP3 R7.5.1 + SpellSearch FullTooltip native combined build
-
-          Baseline: R7.5 SpellSearch FullTooltip v0.5.0 feature chain.
-          Adds AutoRange R7.5.1 M2 archive classification fix on top.
-
-          R7.5.1 M2 changes:
-          - AutoRange.M2Scan.ArchiveGet(index) enumerates every detected Data MPQ.
-          - Left-side MPQ list no longer depends on unique M2 contribution.
-          - M2 dedup is archive + path, not path globally.
-          - Identical virtual M2 paths can appear under patch-O.mpq and patch-P.mpq independently.
-
-          Retained native APIs/features:
-          - SpellSearch Chinese/English lookup.
-          - Spell.dbc effect value fields.
-          - FullTooltip support fields including procChance/procCharges/levels/mana/target limits/family/damage multiplier.
-          - CreatureSpellData / CreatureSpellSearch / CreatureBySpell static-link APIs.
-          - B1R5R8 profiler, GroundProbe, AutoRange, DBC Fusion, MoonMarker/DreamAvatar baseline.
-
-          No permanent thread, timer, OnUpdate or background M2 scan is added.
+          cat > release/README.txt <<'TXT'
+          Exact R7.5.1b inspection build.
+          Includes the generated MoonMarker ground-cursor source so the permanent hook can be replaced without guessing.
+          No ground-cursor behavior change is applied in this inspection build.
           TXT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP-R751-FullTooltip-SpellSearch-x86
+          name: UnitXP-R751b-GroundCursor-Inspection-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
