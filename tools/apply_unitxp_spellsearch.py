@@ -250,6 +250,11 @@ int pushSpellSearch(void* L, const std::string& rawQuery, std::uint32_t limit) {
         str(Path(__file__).with_name("apply_unitxp_creature_spell_link.py")),
         str(root),
     ], check=True)
+    subprocess.run([
+        sys.executable,
+        str(Path(__file__).with_name("apply_unitxp_tooltip_fields.py")),
+        str(root),
+    ], check=True)
 
 
 if __name__ == "__main__":
