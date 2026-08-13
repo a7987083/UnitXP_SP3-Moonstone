@@ -59,3 +59,12 @@ d = replace_once(d, marker, addition, "dllmain archive getter API")
 dllmain.write_text(d, encoding="utf-8")
 
 print("Applied AutoRange R7.5.1 M2 archive dedup/source-list fix")
+
+# R7.5.1c: keep the R7.5.1b feature chain but replace MoonMarker's permanent
+# ground-cursor input hook with on-demand camera-ray/CWorld_Intersect lookup.
+import subprocess
+subprocess.run([
+    sys.executable,
+    str(Path(__file__).with_name("apply_moonmarker_groundcursor_hookless.py")),
+    str(root),
+], check=True)
