@@ -59,3 +59,12 @@ d = replace_once(d, marker, addition, "dllmain archive getter API")
 dllmain.write_text(d, encoding="utf-8")
 
 print("Applied AutoRange R7.5.1 M2 archive dedup/source-list fix")
+
+# R7.5.1b: custom/classic MPQ compatibility fallback for archives whose
+# embedded (listfile) is valid but the client's legacy SFile path cannot read it.
+import subprocess
+subprocess.run([
+    sys.executable,
+    str(Path(__file__).with_name("apply_autorange_r752_raw_listfile_fallback.py")),
+    str(root),
+], check=True)
