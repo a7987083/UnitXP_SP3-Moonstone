@@ -1,0 +1,6 @@
+## Interface: 11200
+## Title: 技能搜索库
+## Notes: 基于 UnitXP Spell.dbc 的中文/英文技能搜索与字段浏览
+## Author: 公会-太阳神殿-yanz
+## Version: 0.1.0
+SpellSearchLibrary.lua
