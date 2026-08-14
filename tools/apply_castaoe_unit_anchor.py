@@ -11,7 +11,7 @@ text = p.read_text(encoding="utf-8-sig")
 
 helper = r'''
 // UnitXP("castAOE", "target"|"player")
-// One-shot bridge for the client's current ground-target cursor.  It deliberately
+// One-shot bridge for the client's current ground-target cursor. It deliberately
 // does not start a spell, poll, move the mouse, or send a packet itself; it only
 // resolves the requested unit position and feeds that XYZ to the vanilla client's
 // Spell_C::HandleTerrainClick (WoW 1.12.1 build 5875 @ 0x006E60F0).
@@ -20,11 +20,13 @@ static bool unitXpCastAOEAtUnit(const std::string& unitID) {
         return false;
     }
 
-    // SPELLMGR targeting state for WoW 1.12.1 build 5875.
-    // +0x60: target-mask/flag_word.  +0x30: ground-target cursor flag.
+    // SPELLMGR +0x60 (absolute 0x00CECAC0) is the pending target mask.
+    // Location targeting is SOURCE_LOCATION 0x20 and/or DEST_LOCATION 0x40.
+    // Using the native 0x60 mask avoids any extra timing dependency on auxiliary
+    // ground-cursor state when /cast or /use and /run execute in the same macro.
     volatile uint16_t* targetingFlags = reinterpret_cast<volatile uint16_t*>(0x00CECAC0);
-    volatile uint32_t* groundTargetFlag = reinterpret_cast<volatile uint32_t*>(0x00CECA90);
-    if (*targetingFlags == 0 || *groundTargetFlag == 0) {
+    constexpr uint16_t LOCATION_TARGET_MASK = 0x0060;
+    if ((*targetingFlags & LOCATION_TARGET_MASK) == 0) {
         return false;
     }
 
@@ -55,9 +57,8 @@ static bool unitXpCastAOEAtUnit(const std::string& unitID) {
 
     pSpellHandleTerrainClick(xyz);
 
-    // A valid accepted terrain click consumes the pending target mask.  Returning
-    // false when it remains set makes diagnostics useful without changing game logic.
-    return *targetingFlags == 0;
+    // An accepted native terrain click consumes the pending location bits.
+    return (*targetingFlags & LOCATION_TARGET_MASK) == 0;
 }
 
 '''
@@ -86,7 +87,7 @@ required = [
     'if (cmd == "castAOE")',
     'unitID != "target" && unitID != "player"',
     '0x00CECAC0',
-    '0x00CECA90',
+    'LOCATION_TARGET_MASK = 0x0060',
     'vanilla1121_unitGUID(unitID.c_str())',
     'vanilla1121_getVisiableObject(guid)',
     'vanilla1121_unitPosition(unit)',
@@ -109,5 +110,6 @@ p.write_text(text, encoding="utf-8", newline="\n")
 print('UnitXP castAOE unit-anchor patch: OK')
 print('  UnitXP("castAOE","target")')
 print('  UnitXP("castAOE","player")')
+print('  location target mask: 0x0060')
 print('  native terrain-click entry: 0x006E60F0')
 print('  background polling/hooks: none')
