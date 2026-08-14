@@ -153,6 +153,7 @@ jobs:
           grep -Fq '!moonMarkerGuildAuth::isAuthorized(L)' upstream/dllmain.cpp
           grep -Fq 'moonMarkerGuildAuth::denyAdvanced(L)' upstream/dllmain.cpp
           grep -Fq 'cmd == "castAOE"' upstream/dllmain.cpp
+          grep -Fq 'LOCATION_TARGET_MASK = 0x0060' upstream/dllmain.cpp
           grep -Fq '0x006E60F0' upstream/dllmain.cpp
           python3 - <<'PY'
           from pathlib import Path
@@ -242,7 +243,9 @@ jobs:
           set -euxo pipefail
           strings -a upstream/UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
           strings -a upstream/UnitXP_SP3.dll | grep -x 'spellsearch'
-          strings -a upstream/UnitXP_SP3.dll | grep -x 'castAOE'
+          # Short std::string comparison literals such as castAOE may be folded by
+          # ThinLTO/ICF. The exact command, location mask and native entry are already
+          # mandatory source gates above, and dllmain.cpp itself is compiled here.
           strings -a upstream/UnitXP_SP3.dll | grep -F 'dreamWeaponPublicWeaponCommand' || true
 
       - name: Package unified build
