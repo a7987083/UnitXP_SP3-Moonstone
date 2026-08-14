@@ -1,12 +1,13 @@
-name: Build Unified UnitXP DreamWeapon Public Weapons x86
+name: Build Unified UnitXP DreamWeapon Public Weapons + Facing x86
 
 on:
   push:
     branches:
-      - agent/unified-dreamweapon-public-weapons-20260814
+      - agent/unified-facing-api-20260815
     paths:
       - '.github/workflows/build-unified-dreamweapon-public-weapons.yml'
       - 'tools/apply_dreamweapon_public_weapon_api.py'
+      - 'tools/apply_facing_api.py'
   workflow_dispatch:
 
 permissions:
@@ -151,7 +152,6 @@ jobs:
           grep -Fq 'suffix == "SetAutoMaintainWeapons"' upstream/dllmain.cpp
           grep -Fq '!moonMarkerGuildAuth::isAuthorized(L)' upstream/dllmain.cpp
           grep -Fq 'moonMarkerGuildAuth::denyAdvanced(L)' upstream/dllmain.cpp
-          # Build/send sync must remain protected, never in the bypass helper section.
           python3 - <<'PY'
           from pathlib import Path
           s=Path('upstream/dllmain.cpp').read_text(encoding='utf-8')
@@ -167,11 +167,18 @@ jobs:
           print('DreamWeapon whitelist/static protection checks: OK')
           PY
 
+      - name: Add native facing API
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 tools/apply_facing_api.py upstream
+          grep -Fq 'cmd == "facing"' upstream/dllmain.cpp
+          grep -Fq 'vanilla1121_unitFacing(unit)' upstream/dllmain.cpp
+
       - name: Static compatibility gates
         shell: bash
         run: |
           set -euxo pipefail
-          # AutoRange / GroundProbe / Profiler / SpellSearch / Media / DreamWeapon
           grep -Fq 'AutoRange.Resolve' upstream/dllmain.cpp
           grep -Fq 'AutoRange.TotemInfo' upstream/dllmain.cpp
           grep -Fq 'AutoRange.VisualSet' upstream/dllmain.cpp
@@ -182,13 +189,11 @@ jobs:
           grep -Fq 'cmd == "profilerdeep"' upstream/dllmain.cpp
           grep -Fq 'cmd == "spellsearch"' upstream/UnitXPDbc.cpp
           grep -Fq 'cmd == "speed"' upstream/dllmain.cpp
-          # DebuffFilter compatibility gate: preserve the original SP3 UnitXP bridge and
-          # core distance/LOS/behind APIs; this patch changes only DreamAvatar authorization.
+          grep -Fq 'cmd == "facing"' upstream/dllmain.cpp
           grep -Fq 'cmd == "inSight"' upstream/dllmain.cpp
           grep -Fq 'cmd == "distanceBetween"' upstream/dllmain.cpp
           grep -Fq 'cmd == "behind"' upstream/dllmain.cpp
           grep -Fq 'return p_original_UnitXP(L);' upstream/dllmain.cpp
-          # Protected surfaces must still exist and route through authorization.
           grep -Fq 'MoonMarker.Advanced' upstream/dllmain.cpp
           grep -Fq 'moonMarkerGuildAuth::isAuthorized' upstream/dllmain.cpp
 
@@ -243,9 +248,7 @@ jobs:
           set -euxo pipefail
           strings -a upstream/UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
           strings -a upstream/UnitXP_SP3.dll | grep -x 'spellsearch'
-          strings -a upstream/UnitXP_SP3.dll | grep -F 'dreamWeaponPublicWeaponCommand' || true
-          # Short C++ comparison strings may be folded by ThinLTO, so source gates above
-          # are authoritative for exact whitelist members. Binary must still build as x86.
+          strings -a upstream/UnitXP_SP3.dll | grep -x 'facing'
 
       - name: Package unified build
         shell: bash
@@ -257,47 +260,32 @@ jobs:
           cp upstream/DLL-SHA256.txt release/SHA256.txt
           cp upstream/dllmain.cpp release/source/dllmain.cpp
           cp tools/apply_dreamweapon_public_weapon_api.py release/source/
+          cp tools/apply_facing_api.py release/source/
           cat > release/README.txt <<'TXT'
           Unified UnitXP_SP3 build based on R7.5.1b + AutoRange Media scan.
 
           Compatibility target:
-          - AutoRange
-          - GroundProbe
+          - AutoRange / GroundProbe
           - Addon Profiler / ProfilerDeep
           - SpellSearch / FullTooltip / DBC Fusion
           - AutoRange Media TGA enumeration
           - DebuffFilter existing UnitXP compatibility surface
-          - DreamWeapon
+          - DreamWeapon public weapon APIs
 
-          DreamWeapon public (no guild auth) local APIs:
-          - MoonMarker.DreamAvatar.WeaponStatus
-          - MoonMarker.DreamAvatar.GetTargetWeapons
-          - MoonMarker.DreamAvatar.GetTargetNpcWeapons
-          - MoonMarker.DreamAvatar.ApplyWeapon
-          - MoonMarker.DreamAvatar.RestoreWeapons
-          - MoonMarker.DreamAvatar.MaintainWeapons
-          - MoonMarker.DreamAvatar.SetAutoMaintainWeapons
-          The DreamAvatar.* alias prefix is equivalent.
+          Added low-overhead explicit API:
+          - UnitXP("facing", "player") -> facing radians or nil
+          - Also accepts another visible unit token / 0x GUID.
+          - No timer, thread, background scan, or polling is created by this API.
 
-          Receive-side sync remains allowed without guild auth:
-          - Sync.Receive
-          - Sync.Reapply
-          - Sync.RestoreSender
-          - Sync.RestoreAll
-
-          Still protected by normal MoonMarker guild authorization:
-          - DreamAvatar character model operations
-          - weapon glow operations
-          - mount operations
-          - Sync.Build / Sync.BuildClear
-          - MoonMarker Advanced and other protected commands
+          DreamWeapon public local weapon APIs and receive-side Sync behavior are unchanged.
+          Character model, glow, mount, Sync.Build/BuildClear, MoonMarker Advanced and other protected commands remain protected.
 
           PE TimeDateStamp is normalized to 0x6A7D63AF after build.
           TXT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP-R751b-Unified-DreamWeapon-PublicWeapons-x86
+          name: UnitXP-R751b-Unified-DreamWeapon-PublicWeapons-Facing-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
