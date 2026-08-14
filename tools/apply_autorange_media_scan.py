@@ -27,6 +27,7 @@ std::string autoRangeAsciiLower(const std::string& value) {
 }
 
 std::string autoRangeMediaDirectory() {
+    // scan-root-marker: Interface\\AddOns\\AutoRange\\Media
     char exePath[MAX_PATH] = {};
     const DWORD n = GetModuleFileNameA(nullptr, exePath, static_cast<DWORD>(sizeof(exePath)));
     if (n == 0 || n >= sizeof(exePath)) return std::string();
