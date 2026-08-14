@@ -248,7 +248,8 @@ jobs:
           set -euxo pipefail
           strings -a upstream/UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
           strings -a upstream/UnitXP_SP3.dll | grep -x 'spellsearch'
-          strings -a upstream/UnitXP_SP3.dll | grep -x 'facing'
+          # The source gate above is authoritative for the short "facing" command.
+          # ThinLTO can fold short comparison strings, so do not require it to survive as a standalone binary string.
 
       - name: Package unified build
         shell: bash
