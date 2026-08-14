@@ -3,10 +3,11 @@ name: Build Unified UnitXP DreamWeapon Public Weapons x86
 on:
   push:
     branches:
-      - agent/unified-dreamweapon-public-weapons-20260814
+      - agent/castaoe-unit-anchor-20260814
     paths:
       - '.github/workflows/build-unified-dreamweapon-public-weapons.yml'
       - 'tools/apply_dreamweapon_public_weapon_api.py'
+      - 'tools/apply_castaoe_unit_anchor.py'
   workflow_dispatch:
 
 permissions:
@@ -151,7 +152,8 @@ jobs:
           grep -Fq 'suffix == "SetAutoMaintainWeapons"' upstream/dllmain.cpp
           grep -Fq '!moonMarkerGuildAuth::isAuthorized(L)' upstream/dllmain.cpp
           grep -Fq 'moonMarkerGuildAuth::denyAdvanced(L)' upstream/dllmain.cpp
-          # Build/send sync must remain protected, never in the bypass helper section.
+          grep -Fq 'cmd == "castAOE"' upstream/dllmain.cpp
+          grep -Fq '0x006E60F0' upstream/dllmain.cpp
           python3 - <<'PY'
           from pathlib import Path
           s=Path('upstream/dllmain.cpp').read_text(encoding='utf-8')
@@ -171,7 +173,6 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          # AutoRange / GroundProbe / Profiler / SpellSearch / Media / DreamWeapon
           grep -Fq 'AutoRange.Resolve' upstream/dllmain.cpp
           grep -Fq 'AutoRange.TotemInfo' upstream/dllmain.cpp
           grep -Fq 'AutoRange.VisualSet' upstream/dllmain.cpp
@@ -182,13 +183,11 @@ jobs:
           grep -Fq 'cmd == "profilerdeep"' upstream/dllmain.cpp
           grep -Fq 'cmd == "spellsearch"' upstream/UnitXPDbc.cpp
           grep -Fq 'cmd == "speed"' upstream/dllmain.cpp
-          # DebuffFilter compatibility gate: preserve the original SP3 UnitXP bridge and
-          # core distance/LOS/behind APIs; this patch changes only DreamAvatar authorization.
+          grep -Fq 'cmd == "castAOE"' upstream/dllmain.cpp
           grep -Fq 'cmd == "inSight"' upstream/dllmain.cpp
           grep -Fq 'cmd == "distanceBetween"' upstream/dllmain.cpp
           grep -Fq 'cmd == "behind"' upstream/dllmain.cpp
           grep -Fq 'return p_original_UnitXP(L);' upstream/dllmain.cpp
-          # Protected surfaces must still exist and route through authorization.
           grep -Fq 'MoonMarker.Advanced' upstream/dllmain.cpp
           grep -Fq 'moonMarkerGuildAuth::isAuthorized' upstream/dllmain.cpp
 
@@ -243,9 +242,8 @@ jobs:
           set -euxo pipefail
           strings -a upstream/UnitXP_SP3.dll | grep -F 'B1R5R8_LONGFRAME_TOP5_DETAILS'
           strings -a upstream/UnitXP_SP3.dll | grep -x 'spellsearch'
+          strings -a upstream/UnitXP_SP3.dll | grep -x 'castAOE'
           strings -a upstream/UnitXP_SP3.dll | grep -F 'dreamWeaponPublicWeaponCommand' || true
-          # Short C++ comparison strings may be folded by ThinLTO, so source gates above
-          # are authoritative for exact whitelist members. Binary must still build as x86.
 
       - name: Package unified build
         shell: bash
@@ -257,8 +255,15 @@ jobs:
           cp upstream/DLL-SHA256.txt release/SHA256.txt
           cp upstream/dllmain.cpp release/source/dllmain.cpp
           cp tools/apply_dreamweapon_public_weapon_api.py release/source/
+          cp tools/apply_castaoe_unit_anchor.py release/source/
           cat > release/README.txt <<'TXT'
           Unified UnitXP_SP3 build based on R7.5.1b + AutoRange Media scan.
+
+          Added API:
+          - UnitXP("castAOE","target")
+          - UnitXP("castAOE","player")
+          Uses the native WoW 1.12.1 Spell_C::HandleTerrainClick path at 0x006E60F0.
+          It acts only when called; no OnUpdate, timer, mouse simulation, or background polling.
 
           Compatibility target:
           - AutoRange
@@ -297,7 +302,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UnitXP-R751b-Unified-DreamWeapon-PublicWeapons-x86
+          name: UnitXP-R751b-Unified-CastAOE-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
