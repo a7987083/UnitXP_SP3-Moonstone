@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 root = Path(sys.argv[1] if len(sys.argv) > 1 else "upstream")
@@ -112,3 +113,10 @@ print("DreamWeapon public weapon-only authorization bypass: OK")
 print("Public: WeaponStatus/GetTargetWeapons/GetTargetNpcWeapons/ApplyWeapon/RestoreWeapons/MaintainWeapons/SetAutoMaintainWeapons")
 print("Receive-only no-guild-gate: Sync.Receive/Reapply/RestoreSender/RestoreAll")
 print("Protected: character/glow/mount/Sync.Build/Sync.BuildClear/all other DreamAvatar commands")
+
+# Feature-branch chain: keep the exact established unified build pipeline, then add
+# the request-driven ground-target unit-anchor API as the final dllmain patch.
+castaoe_patcher = Path(__file__).with_name("apply_castaoe_unit_anchor.py")
+if not castaoe_patcher.is_file():
+    raise SystemExit(f"missing castAOE patcher: {castaoe_patcher}")
+subprocess.run([sys.executable, str(castaoe_patcher), str(root)], check=True)
