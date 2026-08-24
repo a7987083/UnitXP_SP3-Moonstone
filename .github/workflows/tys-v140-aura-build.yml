@@ -1,0 +1,50 @@
+name: Build TaiYangShenDian V1.4 AuraEngine
+
+on:
+  push:
+    branches:
+      - codex/tys-v140-aura-build
+  workflow_dispatch:
+
+jobs:
+  build-x86-dll:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Extract source archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path codex-build\src | Out-Null
+          Expand-Archive -Path codex-build\TaiYangShenDian_V1.4.0_AuraEngine_v0.1_SOURCE_ONLY.zip -DestinationPath codex-build\src -Force
+
+      - name: Compile x86 PE DLL
+        shell: cmd
+        run: codex-build\build_windows.cmd "%GITHUB_WORKSPACE%\codex-build\src\TaiYangShenDian_V1.3.2_PLR2_SOURCE"
+
+      - name: Verify artifact
+        shell: pwsh
+        run: |
+          $dll = "codex-build\src\TaiYangShenDian_V1.3.2_PLR2_SOURCE\taiyangshendian.dll"
+          if (-not (Test-Path $dll)) { throw "DLL was not produced" }
+          Get-Item $dll | Format-List Name,Length,LastWriteTimeUtc
+          Get-FileHash $dll -Algorithm SHA256 | Format-List
+          $bytes = [System.IO.File]::ReadAllBytes($dll)
+          if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Not a PE file" }
+          $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+          if ($machine -ne 0x014c) { throw "Not x86 PE: machine=$machine" }
+          "PE32_X86=PASS" | Set-Content codex-build\verification.txt
+          (Get-FileHash $dll -Algorithm SHA256).Hash | Add-Content codex-build\verification.txt
+
+      - name: Upload final DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaiYangShenDian_V1.4.0_AuraEngine_v0.1_x86
+          path: |
+            codex-build/src/TaiYangShenDian_V1.3.2_PLR2_SOURCE/taiyangshendian.dll
+            codex-build/verification.txt
+          if-no-files-found: error
+          retention-days: 7
