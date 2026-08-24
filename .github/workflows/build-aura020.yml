@@ -24,8 +24,8 @@ jobs:
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y clang lld unzip file binutils
-          CLANG_CL="$(find /usr/bin -maxdepth 1 -type f -name 'clang-cl*' | sort -V | tail -n1)"
-          LLD_LINK="$(find /usr/bin -maxdepth 1 -type f -name 'lld-link*' | sort -V | tail -n1)"
+          CLANG_CL="$(command -v clang-cl-18 || command -v clang-cl)"
+          LLD_LINK="$(command -v lld-link-18 || command -v lld-link)"
           test -x "$CLANG_CL"
           test -x "$LLD_LINK"
           sudo ln -sf "$CLANG_CL" /usr/local/bin/clang-cl
