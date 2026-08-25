@@ -1,9 +1,9 @@
-name: Build TaiYangShenDian Aura 031 FPS Hotfix
+name: Build TaiYangShenDian Aura 032 Native Event
 
 on:
   push:
     branches:
-      - codex/aura-fps-v031-20260825
+      - codex/aura-native-event-v032-20260825
   pull_request:
     branches:
       - main
@@ -27,10 +27,10 @@ jobs:
           LLD_LINK="$(command -v lld-link-18 || command -v lld-link)"
           sudo ln -sf "$CLANG_CL" /usr/local/bin/clang-cl
           sudo ln -sf "$LLD_LINK" /usr/local/bin/lld-link
-      - name: Extract and build x86 DLL
+      - name: Extract and build
         run: |
           set -euxo pipefail
-          unzip -q TaiYangShenDian_Aura031_Source.zip -d source
+          unzip -q TaiYangShenDian_Aura032_Source.zip -d source
           cd source/TaiYangShenDian_V1.3.2_PLR2_SOURCE
           bash build/build.sh
           test -f taiyangshendian.dll
@@ -43,12 +43,12 @@ jobs:
           sha256sum release/taiyangshendian.dll > release/SHA256SUMS.txt
           file release/taiyangshendian.dll > release/PE_VERIFY.txt
           objdump -p release/taiyangshendian.dll >> release/PE_VERIFY.txt
-          strings -a release/taiyangshendian.dll | grep -E '1.4.3-AURA0.3.1|20260825-v143-aura031-single-channel-fps|NAMPOWER_EVENTS|STANDALONE_NATIVE_HOOK' > release/MODE_VERIFY.txt
-          cp "$SRC/AURA_ENGINE_V031.md" release/
-          cp "$SRC/BUILD_STATUS_V031.md" release/
+          strings -a release/taiyangshendian.dll | grep -E '1.4.4-AURA0.3.2|20260825-v144-aura032-native-event-dispatch|TYS_AURA|STANDALONE_NATIVE_HOOK' > release/MODE_VERIFY.txt
+          cp "$SRC/AURA_ENGINE_V032.md" release/
+          cp "$SRC/BUILD_STATUS_V032.md" release/
       - uses: actions/upload-artifact@v4
         with:
-          name: TaiYangShenDian-Aura031-x86
+          name: TaiYangShenDian-Aura032-x86
           path: release/
           if-no-files-found: error
           retention-days: 14
