@@ -1,9 +1,9 @@
-name: Build TaiYangShenDian Aura Dual Mode
+name: Build TaiYangShenDian Aura 030
 
 on:
   push:
     branches:
-      - codex/aura-dual-v020-20260825
+      - codex/aura-event-v030-20260825
   pull_request:
     branches:
       - main
@@ -30,13 +30,11 @@ jobs:
           test -x "$LLD_LINK"
           sudo ln -sf "$CLANG_CL" /usr/local/bin/clang-cl
           sudo ln -sf "$LLD_LINK" /usr/local/bin/lld-link
-          clang-cl --version
-          lld-link --version
 
       - name: Extract source
         run: |
           set -euxo pipefail
-          unzip -q TaiYangShenDian_Aura020_Source.zip -d source
+          unzip -q TaiYangShenDian_Aura030_Source.zip -d source
           test -f source/TaiYangShenDian_V1.3.2_PLR2_SOURCE/build/build.sh
 
       - name: Build x86 DLL
@@ -56,13 +54,13 @@ jobs:
           sha256sum release/taiyangshendian.dll > release/SHA256SUMS.txt
           file release/taiyangshendian.dll > release/PE_VERIFY.txt
           objdump -p release/taiyangshendian.dll >> release/PE_VERIFY.txt
-          strings -a release/taiyangshendian.dll | grep -E '1.4.0-AURA0.2.0|NAMPOWER_EVENTS|STANDALONE_NATIVE_HOOK|PASSIVE_UNIT_AURA' > release/MODE_VERIFY.txt
-          cp "$SRC/AURA_ENGINE_V020.md" release/
-          cp "$SRC/BUILD_STATUS_V020.md" release/
+          strings -a release/taiyangshendian.dll | grep -E '1.4.2-AURA0.3.0|20260825-v142-aura030-nampower-target-guid|NAMPOWER_EVENTS|UNIT_AURA_GUID|STANDALONE_NATIVE_HOOK' > release/MODE_VERIFY.txt
+          cp "$SRC/AURA_ENGINE_V030.md" release/
+          cp "$SRC/BUILD_STATUS_V030.md" release/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: TaiYangShenDian-Aura020-x86
+          name: TaiYangShenDian-Aura030-x86
           path: release/
           if-no-files-found: error
           retention-days: 14

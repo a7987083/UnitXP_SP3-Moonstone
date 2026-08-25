@@ -1,0 +1,1 @@
+Aura v0.3.0 target GUID relay plus direct Nampower Lua events
