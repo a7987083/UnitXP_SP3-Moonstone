@@ -1,0 +1,1 @@
+Aura v0.2.1 target GUID event fix
