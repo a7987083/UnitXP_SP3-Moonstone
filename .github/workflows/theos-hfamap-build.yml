@@ -29,12 +29,13 @@ jobs:
           cd hfamap
           make clean
           make FINALPACKAGE=1
-          find . -type f -name '*.dylib' -print
+          mkdir -p dist
+          cp .theos/obj/HFAMapUniversal.dylib dist/HFAMapUniversal.dylib
+          ls -lh dist/HFAMapUniversal.dylib
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: HFAMapUniversal-build
-          path: |
-            hfamap/**/*.dylib
+          path: hfamap/dist/HFAMapUniversal.dylib
           if-no-files-found: error
