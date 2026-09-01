@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.4.5.2 SecretRuntimeCandidateTrace
+name: HFAMapUniversal v1.4.5.3 SecretIMPCallGraph
 
 on:
   push:
@@ -22,22 +22,24 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.4.5.2
+      - name: Build and verify HFAMapUniversal v1.4.5.3
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          cp .theos/obj/HFAMapUniversal.dylib dist/HFAMapUniversal.dylib
-          file dist/HFAMapUniversal.dylib
-          shasum -a 256 dist/HFAMapUniversal.dylib
-          nm -m dist/HFAMapUniversal.dylib | grep -q HFAMapSecretCallGraphTicker
-          strings dist/HFAMapUniversal.dylib | grep -q "HFALearn v1.4.5.2 SecretRuntimeCandidateProbe"
-          ls -lh dist/HFAMapUniversal.dylib
+          out="dist/HFAMapUniversal_v1.4.5.3_SecretIMPCallGraph.dylib"
+          cp .theos/obj/HFAMapUniversal.dylib "$out"
+          file "$out"
+          shasum -a 256 "$out"
+          strings "$out" | grep -q "HFALearn v1.4.5.3 SecretIMPCallGraph"
+          strings "$out" | grep -q "source=_methodDescription"
+          if strings "$out" | grep -q "CG-CANDIDATE"; then exit 1; fi
+          ls -lh "$out"
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.4.5.2-UniversalSecretCandidateTrace
-          path: hfamap/dist/HFAMapUniversal.dylib
+          name: HFAMapUniversal-v1.4.5.3-SecretIMPCallGraph
+          path: hfamap/dist/HFAMapUniversal_v1.4.5.3_SecretIMPCallGraph.dylib
           if-no-files-found: error
