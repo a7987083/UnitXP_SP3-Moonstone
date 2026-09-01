@@ -1,24 +1,33 @@
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
-#import <mach-o/loader.h>
-#import <mach/vm_prot.h>
-#include <stdarg.h>
+#include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { Class cls; SEL sel; IMP imp; } HFAMethodHook;
-static HFAMethodHook gHooks[160];
-static unsigned gHookCount = 0;
-static Class gClasses[24];
-static unsigned gClassCount = 0;
-static int gArmed = 0, gBusy = 0, gImage = -1, gConfiguredImage = -1;
-static unsigned gEvent = 0;
-static char gFeature[256] = {0};
+typedef int (*HFASecretDecryptFn)(void *, void *);
+typedef struct { Class cls; SEL sel; IMP imp; } HFAHook;
+typedef struct {
+    id owner;
+    id offsetWrapper;
+    id patchWrapper;
+    char module[160];
+    char key[128];
+} HFADescriptor;
 
-static void HFAPLog(const char *fmt, ...) {
+static HFAHook gHooks[64];
+static unsigned gHookCount;
+static HFADescriptor gDescriptors[128];
+static unsigned gDescriptorCount;
+static unsigned gEvent;
+static char gFeature[256];
+static char gFeatureDesc[384];
+static char gTarget[256];
+
+static void HFALog(const char *fmt, ...) {
     @autoreleasepool {
         NSString *p = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/HFAMap_Learn.log"];
         FILE *f = fopen(p.fileSystemRepresentation, "a");
@@ -29,58 +38,75 @@ static void HFAPLog(const char *fmt, ...) {
 }
 
 static const char *HFABase(const char *p) {
-    if (!p) return "?";
-    const char *q = strrchr(p, '/');
-    return q ? q + 1 : p;
+    const char *q = p ? strrchr(p, '/') : NULL;
+    return q ? q + 1 : (p ? p : "?");
 }
 
-static int HFANameMatchesImage(const char *value, const char *path, unsigned index) {
-    if (!value || !*value || !path) return 0;
-    if (strcmp(value, "main") == 0) return index == 0;
-    const char *b = HFABase(path);
-    if (strcmp(value, b) == 0) return 1;
-    char stem[256]; size_t n = strlen(b);
-    if (n >= sizeof(stem)) n = sizeof(stem) - 1;
-    memcpy(stem, b, n); stem[n] = 0;
-    char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
-    return strcmp(value, stem) == 0;
+static int HFAImageIndexForName(const char *value) {
+    if (!value || !*value) return -1;
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const char *base = HFABase(_dyld_get_image_name(i));
+        if (strcmp(value, base) == 0) return (int)i;
+        char stem[256]; snprintf(stem, sizeof(stem), "%s", base);
+        char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
+        if (strcmp(value, stem) == 0) return (int)i;
+    }
+    return -1;
+}
+
+static HFADescriptor *HFADescriptorFor(id owner, int create) {
+    if (!owner) return NULL;
+    for (unsigned i = 0; i < gDescriptorCount; i++)
+        if (gDescriptors[i].owner == owner) return &gDescriptors[i];
+    if (!create || gDescriptorCount >= 128) return NULL;
+    HFADescriptor *d = &gDescriptors[gDescriptorCount++];
+    memset(d, 0, sizeof(*d));
+    d->owner = owner;
+    return d;
 }
 
 void HFAPatchTraceBeginEvent(unsigned event) {
-    gEvent = event; gArmed = 0; gImage = gConfiguredImage; gFeature[0] = 0;
+    gEvent = event;
+    gFeature[0] = 0;
+    gFeatureDesc[0] = 0;
 }
 
 void HFAPatchTraceSetFeature(const char *text) {
-    if (!text || !*text || gFeature[0]) return;
-    snprintf(gFeature, sizeof(gFeature), "%s", text);
-}
-
-void HFAPatchTraceConsiderString(const char *value) {
-    if (!value || !*value || gImage >= 0) return;
-    uint32_t n = _dyld_image_count();
-    for (uint32_t i = 0; i < n; i++) {
-        const char *path = _dyld_get_image_name(i);
-        if (HFANameMatchesImage(value, path, i)) { gImage = (int)i; gConfiguredImage = (int)i; return; }
-    }
+    if (!text || !*text) return;
+    if (!gFeature[0]) snprintf(gFeature, sizeof(gFeature), "%s", text);
+    else if (!gFeatureDesc[0] && strcmp(gFeature, text) != 0)
+        snprintf(gFeatureDesc, sizeof(gFeatureDesc), "%s", text);
 }
 
 void HFAPatchTraceSetTarget(const char *value) {
-    if (!value || !*value) return;
-    uint32_t n = _dyld_image_count();
-    for (uint32_t i = 0; i < n; i++) {
-        if (HFANameMatchesImage(value, _dyld_get_image_name(i), i)) {
-            gImage = (int)i; gConfiguredImage = (int)i; return;
-        }
-    }
+    if (value && *value) snprintf(gTarget, sizeof(gTarget), "%s", value);
 }
 
+void HFAPatchTraceConsiderString(const char *value) { (void)value; }
+
 void HFAPatchTraceArm(unsigned event) {
-    if (event == gEvent) {
-        gArmed = 1;
-        HFAPLog("[PATCH-ARM] event=%u feature=%s module=%s\n", event,
-                gFeature[0] ? gFeature : "?",
-                gImage >= 0 ? HFABase(_dyld_get_image_name((uint32_t)gImage)) : "?");
-    }
+    if (event == gEvent)
+        HFALog("[MAP-ARM] event=%u title=%s desc=%s target=%s\n", event,
+               gFeature[0] ? gFeature : "?",
+               gFeatureDesc[0] ? gFeatureDesc : "?",
+               gTarget[0] ? gTarget : "?");
+}
+
+void HFARegisterPatchSecret(id owner, id wrapper, const char *kind) {
+    HFADescriptor *d = HFADescriptorFor(owner, 1);
+    if (!d || !wrapper || !kind) return;
+    if (strstr(kind, "Int")) d->offsetWrapper = wrapper;
+    else if (strstr(kind, "Data")) d->patchWrapper = wrapper;
+}
+
+void HFARegisterPatchString(id owner, const char *value) {
+    HFADescriptor *d = HFADescriptorFor(owner, 1);
+    if (!d || !value || !*value) return;
+    if (HFAImageIndexForName(value) >= 0)
+        snprintf(d->module, sizeof(d->module), "%s", value);
+    else if (!d->key[0] && strchr(value, '-') && !strchr(value, ' '))
+        snprintf(d->key, sizeof(d->key), "%s", value);
 }
 
 static IMP HFAOriginal(Class cls, SEL sel) {
@@ -89,116 +115,117 @@ static IMP HFAOriginal(Class cls, SEL sel) {
     return NULL;
 }
 
-typedef struct { const uint8_t *addr; size_t size; uint8_t *copy; } HFARegion;
-static unsigned HFACaptureText(int image, HFARegion *out, unsigned cap) {
-    if (image < 0) return 0;
-    const struct mach_header_64 *h = (const struct mach_header_64 *)_dyld_get_image_header((uint32_t)image);
-    intptr_t slide = _dyld_get_image_vmaddr_slide((uint32_t)image);
-    if (!h || h->magic != MH_MAGIC_64) return 0;
-    const uint8_t *p = (const uint8_t *)(h + 1); unsigned count = 0;
-    for (uint32_t i = 0; i < h->ncmds && count < cap; i++) {
-        const struct load_command *lc = (const struct load_command *)p;
-        if (lc->cmd == LC_SEGMENT_64) {
-            const struct segment_command_64 *sg = (const struct segment_command_64 *)p;
-            const struct section_64 *sc = (const struct section_64 *)(sg + 1);
-            for (uint32_t j = 0; j < sg->nsects && count < cap; j++) {
-                if (strcmp(sc[j].sectname, "__text") != 0 || sc[j].size == 0) continue;
-                size_t size = (size_t)sc[j].size;
-                uint8_t *copy = malloc(size);
-                if (!copy) continue;
-                const uint8_t *addr = (const uint8_t *)((uintptr_t)slide + sc[j].addr);
-                memcpy(copy, addr, size);
-                out[count++] = (HFARegion){addr, size, copy};
-            }
-        }
-        if (!lc->cmdsize) break;
-        p += lc->cmdsize;
+static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *label) {
+    if (!wrapper || !out || outCap < 2) return 0;
+    SEL secretSel = sel_registerName("secret");
+    Method getterMethod = class_getInstanceMethod(object_getClass(wrapper), secretSel);
+    if (!getterMethod) return 0;
+    void *secret = ((void *(*)(id,SEL))objc_msgSend)(wrapper, secretSel);
+    if (!secret) return 0;
+
+    uint32_t len = 0, flags = 0;
+    memcpy(&len, secret, 4);
+    memcpy(&flags, (uint8_t *)secret + 4, 4);
+    size_t blobSize = (size_t)(len & ~0xFu) + 0x28u;
+    if (blobSize <= 0x28u) blobSize = 0x28u;
+    if (!len || len > 0x10000u || blobSize > 0x11000u) return 0;
+
+    IMP getter = method_getImplementation(getterMethod);
+    uintptr_t decryptAddress = (uintptr_t)getter + 0xD00u;
+    Dl_info getterInfo = {0}, decryptInfo = {0};
+    if (!dladdr((void *)getter, &getterInfo) ||
+        !dladdr((void *)decryptAddress, &decryptInfo) ||
+        getterInfo.dli_fbase != decryptInfo.dli_fbase) return 0;
+    uintptr_t getterRVA = (uintptr_t)getter - (uintptr_t)getterInfo.dli_fbase;
+    uintptr_t decryptRVA = decryptAddress - (uintptr_t)decryptInfo.dli_fbase;
+
+    void *copy = malloc(blobSize);
+    void *plain = calloc(1, (size_t)len + 0x20u);
+    if (!copy || !plain) {
+        free(copy); free(plain); return 0;
     }
-    return count;
-}
-
-static void HFAHex(FILE *f, const uint8_t *p, size_t n) {
-    for (size_t i = 0; i < n; i++) fprintf(f, "%02X", p[i]);
-}
-
-static unsigned HFADiffAndLog(HFARegion *r, unsigned n, SEL sel) {
-    unsigned runs = 0;
-    NSString *lp = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/HFAMap_Learn.log"];
-    FILE *f = fopen(lp.fileSystemRepresentation, "a"); if (!f) return 0;
-    uintptr_t base = gImage >= 0 ? (uintptr_t)_dyld_get_image_header((uint32_t)gImage) : 0;
-    for (unsigned k = 0; k < n && runs < 128; k++) {
-        size_t i = 0;
-        while (i < r[k].size && runs < 128) {
-            if (r[k].copy[i] == r[k].addr[i]) { i++; continue; }
-            size_t start = i;
-            while (i < r[k].size && r[k].copy[i] != r[k].addr[i] && i - start < 128) i++;
-            size_t len = i - start;
-            fprintf(f, "[PATCH] event=%u feature=%s selector=%s module=%s offset=%llX address=%p len=%llu before=",
-                    gEvent, gFeature[0] ? gFeature : "?", sel_getName(sel),
-                    gImage >= 0 ? HFABase(_dyld_get_image_name((uint32_t)gImage)) : "?",
-                    (unsigned long long)((uintptr_t)(r[k].addr + start) - base), r[k].addr + start,
-                    (unsigned long long)len);
-            HFAHex(f, r[k].copy + start, len); fprintf(f, " after=");
-            HFAHex(f, r[k].addr + start, len); fprintf(f, "\n"); runs++;
-        }
+    memcpy(copy, secret, blobSize);
+    int rc = ((HFASecretDecryptFn)decryptAddress)(copy, plain);
+    if (rc == 0) {
+        size_t n = len < outCap - 1 ? len : outCap - 1;
+        memcpy(out, plain, n);
+        out[n] = 0;
     }
-    fclose(f); return runs;
+    HFALog("[MAP-DECRYPT] field=%s image=%s getterRVA=%llX decryptRVA=%llX len=%u flags=%08X rc=%d plain=%s\n",
+           label, HFABase(getterInfo.dli_fname),
+           (unsigned long long)getterRVA, (unsigned long long)decryptRVA,
+           len, flags, rc, rc == 0 ? out : "?");
+    free(plain); free(copy);
+    return rc == 0;
 }
 
-static void HFAPatchMethodHook(id self, SEL _cmd) {
-    Class cls = object_getClass(self); IMP orig = HFAOriginal(cls, _cmd);
-    if (!orig) return;
-    if (!gArmed || gBusy || gImage < 0) { ((void(*)(id,SEL))orig)(self,_cmd); return; }
-    gBusy = 1;
-    HFARegion regions[8] = {0}; unsigned n = HFACaptureText(gImage, regions, 8);
-    ((void(*)(id,SEL))orig)(self,_cmd);
-    unsigned changes = HFADiffAndLog(regions, n, _cmd);
-    for (unsigned i = 0; i < n; i++) free(regions[i].copy);
-    HFAPLog("[PATCH-CALL] event=%u class=%s selector=%s changes=%u\n",
-            gEvent, class_getName(cls), sel_getName(_cmd), changes);
-    if (changes) gArmed = 0;
-    gBusy = 0;
+static int HFAValidOffset(const char *s) {
+    if (!s || s[0] != '0' || (s[1] != 'x' && s[1] != 'X') || !s[2]) return 0;
+    for (const char *p = s + 2; *p; p++)
+        if (!strchr("0123456789abcdefABCDEF", *p)) return 0;
+    return 1;
 }
 
-static void HFAPatchMethodHook1(id self, SEL _cmd, uintptr_t arg) {
-    Class cls = object_getClass(self); IMP orig = HFAOriginal(cls, _cmd);
-    if (!orig) return;
-    if (!gArmed || gBusy || gImage < 0) { ((void(*)(id,SEL,uintptr_t))orig)(self,_cmd,arg); return; }
-    gBusy = 1;
-    HFARegion regions[8] = {0}; unsigned n = HFACaptureText(gImage, regions, 8);
-    ((void(*)(id,SEL,uintptr_t))orig)(self,_cmd,arg);
-    unsigned changes = HFADiffAndLog(regions, n, _cmd);
-    for (unsigned i = 0; i < n; i++) free(regions[i].copy);
-    HFAPLog("[PATCH-CALL] event=%u class=%s selector=%s arg=0x%llX changes=%u\n",
-            gEvent, class_getName(cls), sel_getName(_cmd), (unsigned long long)arg, changes);
-    if (changes) gArmed = 0;
-    gBusy = 0;
+static int HFAValidPatch(const char *s) {
+    if (!s || !*s) return 0;
+    size_t n = strlen(s);
+    if (n & 1) return 0;
+    for (const char *p = s; *p; p++)
+        if (!strchr("0123456789abcdefABCDEF", *p)) return 0;
+    return 1;
+}
+
+static void HFAEmitMapping(id owner, uintptr_t active) {
+    HFADescriptor *d = HFADescriptorFor(owner, 0);
+    if (!d) {
+        HFALog("[MAP-MISS] event=%u owner=%p reason=no-descriptor\n", gEvent, owner);
+        return;
+    }
+    char offset[160] = {0}, patch[512] = {0};
+    int haveOffset = HFADecryptWrapper(d->offsetWrapper, offset, sizeof(offset), "offset");
+    int havePatch = HFADecryptWrapper(d->patchWrapper, patch, sizeof(patch), "patchData");
+    int valid = haveOffset && havePatch && HFAValidOffset(offset) && HFAValidPatch(patch);
+    HFALog("[MAPPING] title=\"%s\" desc=\"%s\" key=%s module=%s offset=%s patch=%s active=%u valid=%d\n",
+           gFeature[0] ? gFeature : "(not found)",
+           gFeatureDesc[0] ? gFeatureDesc : "(not found)",
+           d->key[0] ? d->key : "?",
+           d->module[0] ? d->module : "?",
+           haveOffset ? offset : "?",
+           havePatch ? patch : "?",
+           (unsigned)(active != 0), valid);
+}
+
+static void HFASetActiveHook(id self, SEL _cmd, uintptr_t active) {
+    Class cls = object_getClass(self);
+    IMP orig = HFAOriginal(cls, _cmd);
+    HFAEmitMapping(self, active);
+    if (orig) ((void(*)(id,SEL,uintptr_t))orig)(self, _cmd, active);
 }
 
 void HFARegisterPatchObject(id obj, const char *actualClass) {
-    if (!obj) return; Class cls = object_getClass(obj); if (!cls) return;
-    for (unsigned i = 0; i < gClassCount; i++) if (gClasses[i] == cls) return;
-    if (gClassCount >= 24) return; gClasses[gClassCount++] = cls;
-    unsigned count = 0; Method *methods = class_copyMethodList(cls, &count);
-    unsigned installed = 0;
-    for (unsigned i = 0; i < count && gHookCount < 160; i++) {
-        Method m = methods[i]; SEL s = method_getName(m); const char *name = sel_getName(s);
-        char ret[8] = {0}; method_getReturnType(m, ret, sizeof(ret));
-        unsigned argc = method_getNumberOfArguments(m);
-        if ((argc != 2 && argc != 3) || ret[0] != 'v') continue;
-        if (!name || strcmp(name,"dealloc") == 0 || strcmp(name,".cxx_destruct") == 0) continue;
-        if (argc == 3) {
-            char arg[16] = {0}; method_getArgumentType(m, 2, arg, sizeof(arg));
-            if (!strchr("BcCiIqQ@#:^*", arg[0])) continue;
-        }
-        IMP old = method_setImplementation(m, argc == 2 ? (IMP)HFAPatchMethodHook : (IMP)HFAPatchMethodHook1);
-        gHooks[gHookCount++] = (HFAMethodHook){cls,s,old}; installed++;
+    if (!obj) return;
+    Class cls = object_getClass(obj);
+    if (!cls) return;
+    SEL sel = sel_registerName("setActive:");
+    for (unsigned i = 0; i < gHookCount; i++)
+        if (gHooks[i].cls == cls && gHooks[i].sel == sel) return;
+    if (gHookCount >= 64) return;
+    Method method = class_getInstanceMethod(cls, sel);
+    if (!method || method_getNumberOfArguments(method) != 3) {
+        HFALog("[MAP-OBJECT] class=%s object=%p setActive=missing\n",
+               actualClass ? actualClass : class_getName(cls), obj);
+        return;
     }
-    free(methods);
-    HFAPLog("[PATCH-OBJECT] class=%s object=%p hooks=%u\n",
-            actualClass ? actualClass : class_getName(cls), obj, installed);
+    IMP old = method_getImplementation(method);
+    const char *types = method_getTypeEncoding(method);
+    if (!class_addMethod(cls, sel, (IMP)HFASetActiveHook, types))
+        method_setImplementation(method, (IMP)HFASetActiveHook);
+    gHooks[gHookCount++] = (HFAHook){cls, sel, old};
+    HFADescriptorFor(obj, 1);
+    HFALog("[MAP-OBJECT] class=%s object=%p selector=setActive: orig=%p\n",
+           actualClass ? actualClass : class_getName(cls), obj, old);
 }
 
-__attribute__((constructor)) static void HFAPatchTraceInit(void) {
-    HFAPLog("[HFALearn v1.4.6.1 PatchExecutionTrace] loaded\n");
+__attribute__((constructor)) static void HFAInit(void) {
+    HFALog("[HFALearn v1.4.6.2 DescriptorMapping] loaded\n");
 }
