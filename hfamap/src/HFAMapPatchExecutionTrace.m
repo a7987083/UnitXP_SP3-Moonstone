@@ -16,6 +16,8 @@ typedef struct {
     id patchWrapper;
     char module[160];
     char key[128];
+    char sourceImage[256];
+    unsigned seenEvent;
 } HFADescriptor;
 
 static HFAHook gHooks[64];
@@ -26,6 +28,10 @@ static unsigned gEvent;
 static char gFeature[256];
 static char gFeatureDesc[384];
 static char gTarget[256];
+static char gIdentifier[96];
+static char gWantedKey[128];
+static char gDetectedTarget[256];
+static unsigned gExecutedEvent;
 
 static void HFALog(const char *fmt, ...) {
     @autoreleasepool {
@@ -71,6 +77,8 @@ void HFAPatchTraceBeginEvent(unsigned event) {
     gEvent = event;
     gFeature[0] = 0;
     gFeatureDesc[0] = 0;
+    gIdentifier[0] = 0;
+    gWantedKey[0] = 0;
 }
 
 void HFAPatchTraceSetFeature(const char *text) {
@@ -84,19 +92,34 @@ void HFAPatchTraceSetTarget(const char *value) {
     if (value && *value) snprintf(gTarget, sizeof(gTarget), "%s", value);
 }
 
+void HFAPatchTraceSetIdentifier(const char *value) {
+    if (!value || !*value) return;
+    snprintf(gIdentifier, sizeof(gIdentifier), "%s", value);
+    snprintf(gWantedKey, sizeof(gWantedKey), "%s-switch", value);
+}
+
+const char *HFAPatchTraceDetectedTarget(void) { return gDetectedTarget; }
+
 void HFAPatchTraceConsiderString(const char *value) { (void)value; }
 
 void HFAPatchTraceArm(unsigned event) {
     if (event == gEvent)
-        HFALog("[MAP-ARM] event=%u title=%s desc=%s target=%s\n", event,
+        HFALog("[MAP-ARM] event=%u title=%s desc=%s identifier=%s key=%s target=%s\n", event,
                gFeature[0] ? gFeature : "?",
                gFeatureDesc[0] ? gFeatureDesc : "?",
+               gIdentifier[0] ? gIdentifier : "?",
+               gWantedKey[0] ? gWantedKey : "?",
                gTarget[0] ? gTarget : "?");
 }
 
 void HFARegisterPatchSecret(id owner, id wrapper, const char *kind) {
     HFADescriptor *d = HFADescriptorFor(owner, 1);
     if (!d || !wrapper || !kind) return;
+    d->seenEvent = gEvent;
+    Method m = class_getInstanceMethod(object_getClass(wrapper), sel_registerName("secret"));
+    Dl_info info = {0};
+    if (m && dladdr((void *)method_getImplementation(m), &info) && info.dli_fname)
+        snprintf(d->sourceImage, sizeof(d->sourceImage), "%s", HFABase(info.dli_fname));
     if (strstr(kind, "Int")) d->offsetWrapper = wrapper;
     else if (strstr(kind, "Data")) d->patchWrapper = wrapper;
 }
@@ -104,6 +127,7 @@ void HFARegisterPatchSecret(id owner, id wrapper, const char *kind) {
 void HFARegisterPatchString(id owner, const char *value) {
     HFADescriptor *d = HFADescriptorFor(owner, 1);
     if (!d || !value || !*value) return;
+    d->seenEvent = gEvent;
     if (HFAImageIndexForName(value) >= 0)
         snprintf(d->module, sizeof(d->module), "%s", value);
     else if (!d->key[0] && strchr(value, '-') && !strchr(value, ' '))
@@ -150,6 +174,15 @@ static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *l
                (unsigned long long)getterRVA, (unsigned long long)decryptRVA,
                insn0, insn30, insn40);
         return 0;
+    }
+
+    const char *verifiedImage = HFABase(getterInfo.dli_fname);
+    if (strcmp(gDetectedTarget, verifiedImage) != 0) {
+        snprintf(gDetectedTarget, sizeof(gDetectedTarget), "%s", verifiedImage);
+        snprintf(gTarget, sizeof(gTarget), "%s", verifiedImage);
+        HFALog("[AUTO-TARGET] image=%s getterRVA=%llX decryptRVA=%llX verified=1\n",
+               verifiedImage, (unsigned long long)getterRVA,
+               (unsigned long long)decryptRVA);
     }
 
     void *copy = malloc(blobSize);
@@ -239,15 +272,53 @@ static void HFAEmitMapping(id owner, uintptr_t active) {
         HFAWriteCompactMapping(gFeature, d->module, normalizedOffset, patch);
 }
 
+void HFAPatchTraceFinalizeEvent(unsigned event) {
+    if (event != gEvent || !gWantedKey[0]) return;
+    unsigned count = 0;
+    for (unsigned i = 0; i < gDescriptorCount; i++) {
+        HFADescriptor *d = &gDescriptors[i];
+        if (d->seenEvent == event && strcmp(d->key, gWantedKey) == 0) count++;
+    }
+    const char *status = gExecutedEvent == event ? "EXECUTED" : "NOT_EXECUTED";
+    HFALog("[GROUP] event=%u title=\"%s\" identifier=%s key=%s members=%u status=%s\n",
+           event, gFeature[0] ? gFeature : "(not found)", gIdentifier,
+           gWantedKey, count, status);
+    unsigned part = 0;
+    for (unsigned i = 0; i < gDescriptorCount; i++) {
+        HFADescriptor *d = &gDescriptors[i];
+        if (d->seenEvent != event || strcmp(d->key, gWantedKey) != 0) continue;
+        part++;
+        char offset[160] = {0}, normalizedOffset[164] = {0}, patch[512] = {0};
+        int haveOffset = HFADecryptWrapper(d->offsetWrapper, offset, sizeof(offset), "group-offset");
+        int havePatch = HFADecryptWrapper(d->patchWrapper, patch, sizeof(patch), "group-patchData");
+        int valid = haveOffset && havePatch && HFAValidOffset(offset) && HFAValidPatch(patch);
+        if (haveOffset && offset[0] == '0' && (offset[1] == 'x' || offset[1] == 'X'))
+            snprintf(normalizedOffset, sizeof(normalizedOffset), "%s", offset);
+        else if (haveOffset && HFAValidOffset(offset))
+            snprintf(normalizedOffset, sizeof(normalizedOffset), "0x%s", offset);
+        HFALog("[GROUP-MAPPING] event=%u part=%u/%u title=\"%s\" identifier=%s key=%s source=%s module=%s offset=%s patch=%s status=%s valid=%d\n",
+               event, part, count, gFeature[0] ? gFeature : "(not found)",
+               gIdentifier, gWantedKey, d->sourceImage[0] ? d->sourceImage : "?",
+               d->module[0] ? d->module : "?",
+               normalizedOffset[0] ? normalizedOffset : "?",
+               havePatch ? patch : "?", status, valid);
+        if (valid && gFeature[0] && d->module[0] && normalizedOffset[0])
+            HFAWriteCompactMapping(gFeature, d->module, normalizedOffset, patch);
+    }
+}
+
 static void HFASetActiveHook(id self, SEL _cmd, uintptr_t active) {
     Class cls = object_getClass(self);
     IMP orig = HFAOriginal(cls, _cmd);
+    gExecutedEvent = gEvent;
     HFAEmitMapping(self, active);
     if (orig) ((void(*)(id,SEL,uintptr_t))orig)(self, _cmd, active);
 }
 
 void HFARegisterPatchObject(id obj, const char *actualClass) {
     if (!obj) return;
+    HFADescriptor *d = HFADescriptorFor(obj, 1);
+    if (d) d->seenEvent = gEvent;
     Class cls = object_getClass(obj);
     if (!cls) return;
     SEL sel = sel_registerName("setActive:");
@@ -265,11 +336,10 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
     if (!class_addMethod(cls, sel, (IMP)HFASetActiveHook, types))
         method_setImplementation(method, (IMP)HFASetActiveHook);
     gHooks[gHookCount++] = (HFAHook){cls, sel, old};
-    HFADescriptorFor(obj, 1);
     HFALog("[MAP-OBJECT] class=%s object=%p selector=setActive: orig=%p\n",
            actualClass ? actualClass : class_getName(cls), obj, old);
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.4.6.5 CompactMappingLog] loaded\n");
+    HFALog("[HFALearn v1.4.7 AutoGroupMapping] loaded\n");
 }
