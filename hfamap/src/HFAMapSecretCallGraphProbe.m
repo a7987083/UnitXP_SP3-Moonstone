@@ -87,12 +87,12 @@ static uintptr_t HFAKeyBundleLoaderHook(const void *payload,
 
 static void HFAInstallKeyBundleHook(uintptr_t base) {
     if (gOriginalKeyBundleLoader) return;
-    uintptr_t wrapper = base + 0x99A190u;
+    uintptr_t loader = base + 0x995914u;
     uint32_t fingerprint[2] = {0};
-    memcpy(fingerprint, (const void *)wrapper, sizeof(fingerprint));
-    if (fingerprint[0] != 0xB40007A2u ||
-        fingerprint[1] != 0xD101C3FFu) {
-        HFAKey2Log("[KEY2-AUTH-HOOK-SKIP] wrapperRVA=99A190 fingerprint=%08X/%08X\n",
+    memcpy(fingerprint, (const void *)loader, sizeof(fingerprint));
+    if (fingerprint[0] != 0xD10643FFu ||
+        fingerprint[1] != 0xA9136FFCu) {
+        HFAKey2Log("[KEY2-AUTH-HOOK-SKIP] loaderRVA=995914 fingerprint=%08X/%08X\n",
                    fingerprint[0], fingerprint[1]);
         return;
     }
@@ -100,12 +100,12 @@ static void HFAInstallKeyBundleHook(uintptr_t base) {
     HFAMSHookFunction hook = (HFAMSHookFunction)dlsym(
         RTLD_DEFAULT, "MSHookFunction");
     if (!hook) {
-        HFAKey2Log("[KEY2-AUTH-HOOK-SKIP] wrapperRVA=99A190 reason=no-MSHookFunction\n");
+        HFAKey2Log("[KEY2-AUTH-HOOK-SKIP] loaderRVA=995914 reason=no-MSHookFunction\n");
         return;
     }
-    hook((void *)wrapper, (void *)&HFAKeyBundleLoaderHook,
+    hook((void *)loader, (void *)&HFAKeyBundleLoaderHook,
          (void **)&gOriginalKeyBundleLoader);
-    HFAKey2Log("[KEY2-AUTH-HOOK] wrapperRVA=99A190 installed=%u original=%p\n",
+    HFAKey2Log("[KEY2-AUTH-HOOK] loaderRVA=995914 installed=%u original=%p\n",
                gOriginalKeyBundleLoader ? 1u : 0u,
                (void *)gOriginalKeyBundleLoader);
 }

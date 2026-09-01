@@ -851,5 +851,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.8.2 EarlyAuthTrace] loaded\n");
+    HFALog("[HFALearn v1.8.3 KeyLoaderTrace] loaded\n");
 }
