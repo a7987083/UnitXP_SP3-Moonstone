@@ -52,6 +52,11 @@ typedef struct {
     char sourceImage[256];
     unsigned seenEvent;
 } HFADescriptor;
+typedef struct {
+    char label[256];
+    char identifier[96];
+    char key[128];
+} HFAFeatureDefinition;
 
 static HFAHook gHooks[64];
 static unsigned gHookCount;
@@ -63,6 +68,8 @@ static HFAStateSite gStateSites[256];
 static unsigned gStateSiteCount;
 static HFADescriptor gDescriptors[128];
 static unsigned gDescriptorCount;
+static HFAFeatureDefinition gFeatureDefinitions[128];
+static unsigned gFeatureDefinitionCount;
 static unsigned gEvent;
 static char gFeature[256];
 static char gFeatureDesc[384];
@@ -185,6 +192,41 @@ void HFARegisterPatchString(id owner, const char *value) {
         snprintf(d->module, sizeof(d->module), "%s", value);
     else if (!d->key[0] && strchr(value, '-') && !strchr(value, ' '))
         snprintf(d->key, sizeof(d->key), "%s", value);
+}
+
+void HFARegisterFeatureDefinition(const char *label, const char *identifier) {
+    if (!label || !*label || !identifier || !*identifier) return;
+    char key[128] = {0};
+    size_t identifierLength = strlen(identifier);
+    if (identifierLength > 7 &&
+        strcmp(identifier + identifierLength - 7, "-switch") == 0)
+        snprintf(key, sizeof(key), "%s", identifier);
+    else
+        snprintf(key, sizeof(key), "%s-switch", identifier);
+    for (unsigned i = 0; i < gFeatureDefinitionCount; i++) {
+        HFAFeatureDefinition *definition = &gFeatureDefinitions[i];
+        if (strcmp(definition->key, key) != 0) continue;
+        snprintf(definition->label, sizeof(definition->label), "%s", label);
+        snprintf(definition->identifier, sizeof(definition->identifier), "%s",
+                 identifier);
+        return;
+    }
+    if (gFeatureDefinitionCount >= 128) return;
+    HFAFeatureDefinition *definition =
+        &gFeatureDefinitions[gFeatureDefinitionCount++];
+    memset(definition, 0, sizeof(*definition));
+    snprintf(definition->label, sizeof(definition->label), "%s", label);
+    snprintf(definition->identifier, sizeof(definition->identifier), "%s",
+             identifier);
+    snprintf(definition->key, sizeof(definition->key), "%s", key);
+}
+
+static HFAFeatureDefinition *HFAFeatureDefinitionForKey(const char *key) {
+    if (!key || !*key) return NULL;
+    for (unsigned i = 0; i < gFeatureDefinitionCount; i++)
+        if (strcmp(gFeatureDefinitions[i].key, key) == 0)
+            return &gFeatureDefinitions[i];
+    return NULL;
 }
 
 static IMP HFAOriginal(Class cls, SEL sel) {
@@ -647,6 +689,69 @@ static void HFAWriteCompactMapping(const char *feature, const char *module,
     }
 }
 
+unsigned HFAPatchTraceFinalizeScan(void) {
+    unsigned groups = 0, emitted = 0, validParts = 0;
+    HFALog("[FULL-SCAN-BEGIN] features=%u descriptors=%u\n",
+           gFeatureDefinitionCount, gDescriptorCount);
+    for (unsigned i = 0; i < gDescriptorCount; i++) {
+        HFADescriptor *first = &gDescriptors[i];
+        if (!first->key[0]) continue;
+        int alreadySeen = 0;
+        for (unsigned previous = 0; previous < i; previous++) {
+            if (strcmp(gDescriptors[previous].key, first->key) == 0) {
+                alreadySeen = 1;
+                break;
+            }
+        }
+        if (alreadySeen) continue;
+        unsigned count = 0;
+        for (unsigned j = i; j < gDescriptorCount; j++)
+            if (strcmp(gDescriptors[j].key, first->key) == 0) count++;
+        HFAFeatureDefinition *definition =
+            HFAFeatureDefinitionForKey(first->key);
+        const char *title = definition ? definition->label : "(unresolved)";
+        const char *identifier = definition ? definition->identifier : "?";
+        groups++;
+        unsigned part = 0;
+        for (unsigned j = i; j < gDescriptorCount; j++) {
+            HFADescriptor *descriptor = &gDescriptors[j];
+            if (strcmp(descriptor->key, first->key) != 0) continue;
+            part++;
+            char offset[160] = {0}, normalizedOffset[164] = {0};
+            char patch[512] = {0};
+            int haveOffset = HFADecryptWrapper(descriptor->offsetWrapper,
+                                               offset, sizeof(offset),
+                                               "full-offset");
+            int havePatch = HFADecryptWrapper(descriptor->patchWrapper,
+                                              patch, sizeof(patch),
+                                              "full-patchData");
+            int valid = haveOffset && havePatch && HFAValidOffset(offset) &&
+                        HFAValidPatch(patch) && descriptor->module[0];
+            if (haveOffset && offset[0] == '0' &&
+                (offset[1] == 'x' || offset[1] == 'X'))
+                snprintf(normalizedOffset, sizeof(normalizedOffset), "%s", offset);
+            else if (haveOffset && HFAValidOffset(offset))
+                snprintf(normalizedOffset, sizeof(normalizedOffset), "0x%s", offset);
+            HFALog("[FULL-MAPPING] part=%u/%u title=\"%s\" identifier=%s key=%s source=%s module=%s offset=%s patch=%s valid=%d\n",
+                   part, count, title, identifier, descriptor->key,
+                   descriptor->sourceImage[0] ? descriptor->sourceImage : "?",
+                   descriptor->module[0] ? descriptor->module : "?",
+                   normalizedOffset[0] ? normalizedOffset : "?",
+                   havePatch ? patch : "?", valid);
+            emitted++;
+            if (valid) {
+                validParts++;
+                if (definition)
+                    HFAWriteCompactMapping(title, descriptor->module,
+                                           normalizedOffset, patch);
+            }
+        }
+    }
+    HFALog("[FULL-SCAN-END] groups=%u mappings=%u valid=%u unresolved=%u\n",
+           groups, emitted, validParts, emitted - validParts);
+    return validParts;
+}
+
 static void HFAEmitMapping(id owner, uintptr_t active) {
     HFADescriptor *d = HFADescriptorFor(owner, 0);
     if (!d) {
@@ -743,5 +848,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.5.0 OriginalTargetResolver] loaded\n");
+    HFALog("[HFALearn v1.6.0 FullMenuScanner] loaded\n");
 }

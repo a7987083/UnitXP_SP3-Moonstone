@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.5.0 OriginalTargetResolver
+name: HFAMapUniversal v1.6.0 FullMenuScanner
 
 on:
   push:
@@ -22,17 +22,21 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.5.0
+      - name: Build and verify HFAMapUniversal v1.6.0
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.5.0_OriginalTargetResolver.dylib"
+          out="dist/HFAMapUniversal_v1.6.0_FullMenuScanner.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out"
-          strings "$out" | grep -q "HFALearn v1.5.0 OriginalTargetResolver"
+          strings "$out" | grep -q "HFALearn v1.6.0 FullMenuScanner"
+          strings "$out" | grep -q "\[FULL-SCAN-BEGIN\]"
+          strings "$out" | grep -q "\[FULL-MAPPING\]"
+          strings "$out" | grep -q "\[FULL-SCAN-END\]"
+          strings "$out" | grep -q "\[AUTO-SCAN\]"
           strings "$out" | grep -q "\[AUTO-TARGET\]"
           strings "$out" | grep -q "\[GROUP-MAPPING\]"
           strings "$out" | grep -q "\[CUSTOM-BLOCK\]"
@@ -52,6 +56,6 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.5.0-OriginalTargetResolver
-          path: hfamap/dist/HFAMapUniversal_v1.5.0_OriginalTargetResolver.dylib
+          name: HFAMapUniversal-v1.6.0-FullMenuScanner
+          path: hfamap/dist/HFAMapUniversal_v1.6.0_FullMenuScanner.dylib
           if-no-files-found: error
