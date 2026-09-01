@@ -1,0 +1,29 @@
+name: Build HelloPopup Dylib
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'HelloDylib/**'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          brew install ldid || true
+
+      - name: Build
+        run: |
+          cd HelloDylib
+          echo "Build environment ready"
+          echo "Use Theos on runner to produce dylib"
+
+      - name: Package source
+        uses: actions/upload-artifact@v4
+        with:
+          name: HelloPopup-Dylib
+          path: HelloDylib
