@@ -848,5 +848,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.6.0 FullMenuScanner] loaded\n");
+    HFALog("[HFALearn v1.6.1 CrashSafeFullMenuScanner] loaded\n");
 }
