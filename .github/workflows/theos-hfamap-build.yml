@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.7.0 Key2Bootstrap
+name: HFAMapUniversal v1.7.1 CrashSafeControlTraversal
 
 on:
   push:
@@ -22,19 +22,19 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.7.0
+      - name: Build and verify HFAMapUniversal v1.7.1
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.7.0_Key2Bootstrap.dylib"
+          out="dist/HFAMapUniversal_v1.7.1_CrashSafeControlTraversal.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out"
-          strings "$out" | grep -q "HFALearn v1.7.0 Key2Bootstrap"
-          strings "$out" | grep -q "\[KEY2-BOOTSTRAP\]"
-          strings "$out" | grep -q "\[KEY2-RETRY\]"
+          strings "$out" | grep -q "HFALearn v1.7.1 CrashSafeControlTraversal"
+          strings "$out" | grep -q "\[AUTO-CONTROL-TARGET\]"
+          strings "$out" | grep -q "\[AUTO-STAGE\]"
           strings "$out" | grep -q "\[AUTO-TARGET-BEGIN\]"
           strings "$out" | grep -q "\[AUTO-TARGET-END\]"
           strings "$out" | grep -q "\[AUTO-TRAVERSAL-END\]"
@@ -61,6 +61,6 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.7.0-Key2Bootstrap
-          path: hfamap/dist/HFAMapUniversal_v1.7.0_Key2Bootstrap.dylib
+          name: HFAMapUniversal-v1.7.1-CrashSafeControlTraversal
+          path: hfamap/dist/HFAMapUniversal_v1.7.1_CrashSafeControlTraversal.dylib
           if-no-files-found: error
