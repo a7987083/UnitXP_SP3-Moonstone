@@ -37,3 +37,5 @@ jobs:
             hfamap/packages/*.deb
             hfamap/**/*.dylib
           if-no-files-found: error
+
+# retrigger: 2026-09-01
