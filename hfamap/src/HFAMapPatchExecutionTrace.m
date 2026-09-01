@@ -3,7 +3,6 @@
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
 #import <mach/mach.h>
-#import <mach/mach_vm.h>
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -284,27 +283,27 @@ void HFARegisterCustomBlock(id value, const char *identifier) {
     snprintf(hook->identifier, sizeof(hook->identifier), "%s", identifier);
     snprintf(hook->image, sizeof(hook->image), "%s", HFABase(info.dli_fname));
 
-    mach_vm_address_t address = (mach_vm_address_t)(uintptr_t)&literal->invoke;
-    mach_vm_address_t region = address;
-    mach_vm_size_t regionSize = 0;
+    vm_address_t address = (vm_address_t)(uintptr_t)&literal->invoke;
+    vm_address_t region = address;
+    vm_size_t regionSize = 0;
     vm_region_basic_info_data_64_t regionInfo = {0};
     mach_msg_type_number_t infoCount = VM_REGION_BASIC_INFO_COUNT_64;
     mach_port_t objectName = MACH_PORT_NULL;
-    kern_return_t kr = mach_vm_region(mach_task_self(), &region, &regionSize,
-                                      VM_REGION_BASIC_INFO_64,
-                                      (vm_region_info_t)&regionInfo,
-                                      &infoCount, &objectName);
+    kern_return_t kr = vm_region_64(mach_task_self(), &region, &regionSize,
+                                    VM_REGION_BASIC_INFO_64,
+                                    (vm_region_info_t)&regionInfo,
+                                    &infoCount, &objectName);
     int installed = 0;
     if (kr == KERN_SUCCESS) {
         vm_prot_t oldProtection = regionInfo.protection;
-        mach_vm_size_t pageSize = (mach_vm_size_t)vm_page_size;
-        mach_vm_address_t page = address & ~(pageSize - 1);
-        kr = mach_vm_protect(mach_task_self(), page, pageSize, FALSE,
-                             oldProtection | VM_PROT_WRITE);
+        vm_size_t pageSize = (vm_size_t)vm_page_size;
+        vm_address_t page = address & ~(pageSize - 1);
+        kr = vm_protect(mach_task_self(), page, pageSize, FALSE,
+                        oldProtection | VM_PROT_WRITE);
         if (kr == KERN_SUCCESS) {
             literal->invoke = HFACustomBlockInvoke;
             __sync_synchronize();
-            mach_vm_protect(mach_task_self(), page, pageSize, FALSE, oldProtection);
+            vm_protect(mach_task_self(), page, pageSize, FALSE, oldProtection);
             installed = 1;
         }
     }
