@@ -7,7 +7,7 @@ TWEAK_NAME = HFAMapUniversal
 
 HFAMapUniversal_FILES = \
     src/HFAMapLegacy.m \
-    src/HFAMapSecretCallGraphProbe.m
+    src/HFAMapPatchExecutionTrace.m
 HFAMapUniversal_CFLAGS = -Oz -fno-stack-protector -fno-builtin -Wno-empty-body
 HFAMapUniversal_FRAMEWORKS = UIKit Foundation
 
