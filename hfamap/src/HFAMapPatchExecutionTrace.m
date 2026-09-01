@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if __has_feature(ptrauth_calls)
+#include <ptrauth.h>
+#endif
 
 typedef int (*HFASecretDecryptFn)(void *, void *);
 typedef struct { Class cls; SEL sel; IMP imp; } HFAHook;
@@ -38,6 +41,7 @@ typedef struct {
     char identifier[16];
     uintptr_t lastResult;
     unsigned calls;
+    unsigned hookLogged;
 } HFAStateSite;
 typedef struct {
     id owner;
@@ -354,6 +358,137 @@ static HFAStateSite *HFAStateSiteFor(uintptr_t caller, SEL query,
     return site;
 }
 
+static int64_t HFASignExtend(uint64_t value, unsigned bits) {
+    return (int64_t)(value << (64u - bits)) >> (64u - bits);
+}
+
+static uintptr_t HFAStripCodePointer(uintptr_t value) {
+#if __has_feature(ptrauth_calls)
+    return (uintptr_t)ptrauth_strip((void *)value, ptrauth_key_function_pointer);
+#else
+    return value;
+#endif
+}
+
+static int HFAReadable(uintptr_t address, size_t length) {
+    vm_address_t region = (vm_address_t)address;
+    vm_size_t regionSize = 0;
+    vm_region_basic_info_data_64_t info = {0};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t objectName = MACH_PORT_NULL;
+    kern_return_t kr = vm_region_64(mach_task_self(), &region, &regionSize,
+                                    VM_REGION_BASIC_INFO_64,
+                                    (vm_region_info_t)&info, &count, &objectName);
+    if (kr != KERN_SUCCESS || !(info.protection & VM_PROT_READ)) return 0;
+    return region <= address && address + length >= address &&
+           address + length <= region + regionSize;
+}
+
+static uintptr_t HFAFindFunctionStart(uintptr_t caller) {
+    for (uintptr_t delta = 4; delta <= 0x100; delta += 4) {
+        uintptr_t address = caller - delta;
+        if (!HFAReadable(address, 4)) break;
+        uint32_t word = *(const uint32_t *)address;
+        if ((word & 0xFFC003E0u) == 0xA98003E0u) return address;
+    }
+    return 0;
+}
+
+static uintptr_t HFAResolveOriginalSlot(uintptr_t caller) {
+    for (uintptr_t forward = 0; forward <= 0x100; forward += 4) {
+        uintptr_t branchAddress = caller + forward;
+        if (!HFAReadable(branchAddress, 4)) break;
+        uint32_t branch = *(const uint32_t *)branchAddress;
+        if ((branch & 0xFFFFFC1Fu) != 0xD61F0000u) continue;
+        unsigned branchRegister = (branch >> 5) & 31u;
+        for (uintptr_t back = 4; back <= 0x40 && back < branchAddress; back += 4) {
+            uintptr_t loadAddress = branchAddress - back;
+            uint32_t load = *(const uint32_t *)loadAddress;
+            if ((load & 0xFFC00000u) != 0xF9400000u ||
+                (load & 31u) != branchRegister) continue;
+            unsigned baseRegister = (load >> 5) & 31u;
+            uintptr_t loadOffset = ((load >> 10) & 0xFFFu) * 8u;
+            for (uintptr_t adrpBack = 4; adrpBack <= 0x40 &&
+                 adrpBack < loadAddress; adrpBack += 4) {
+                uintptr_t adrpAddress = loadAddress - adrpBack;
+                uint32_t adrp = *(const uint32_t *)adrpAddress;
+                if ((adrp & 0x9F000000u) != 0x90000000u ||
+                    (adrp & 31u) != baseRegister) continue;
+                uint64_t immediate = (((uint64_t)(adrp >> 5) & 0x7FFFFu) << 2) |
+                                     ((adrp >> 29) & 3u);
+                int64_t pageDelta = HFASignExtend(immediate, 21) << 12;
+                return (adrpAddress & ~(uintptr_t)0xFFFu) +
+                       (uintptr_t)pageDelta + loadOffset;
+            }
+        }
+    }
+    return 0;
+}
+
+static uintptr_t HFAResolveTrampoline(uintptr_t original) {
+    if (!original || !HFAReadable(original, 64)) return original;
+    Dl_info direct = {0};
+    if (dladdr((void *)original, &direct) && direct.dli_fbase) return original;
+    for (unsigned i = 0; i < 16; i++) {
+        uintptr_t pc = original + i * 4u;
+        uint32_t word = *(const uint32_t *)pc;
+        if ((word & 0xFC000000u) == 0x14000000u) {
+            int64_t displacement = HFASignExtend(word & 0x03FFFFFFu, 26) << 2;
+            uintptr_t target = pc + (uintptr_t)displacement;
+            Dl_info info = {0};
+            if (dladdr((void *)target, &info) && info.dli_fbase) return target;
+        }
+        if ((word & 0xFF000000u) == 0x58000000u) {
+            unsigned targetRegister = word & 31u;
+            int64_t displacement = HFASignExtend((word >> 5) & 0x7FFFFu, 19) << 2;
+            uintptr_t literal = pc + (uintptr_t)displacement;
+            if (!HFAReadable(literal, sizeof(uintptr_t))) continue;
+            for (unsigned j = 1; j <= 4 && i + j < 16; j++) {
+                uint32_t branch = *(const uint32_t *)(pc + j * 4u);
+                if ((branch & 0xFFFFFC1Fu) == 0xD61F0000u &&
+                    ((branch >> 5) & 31u) == targetRegister)
+                    return HFAStripCodePointer(*(const uintptr_t *)literal);
+            }
+        }
+    }
+    return original;
+}
+
+static void HFAEmitHookTarget(HFAStateSite *site, uintptr_t caller) {
+    Dl_info replacementInfo = {0}, originalInfo = {0}, targetInfo = {0};
+    if (!site || !dladdr((void *)caller, &replacementInfo) ||
+        !replacementInfo.dli_fbase) return;
+    uintptr_t replacement = HFAFindFunctionStart(caller);
+    uintptr_t slot = HFAResolveOriginalSlot(caller);
+    uintptr_t original = 0;
+    if (slot && HFAReadable(slot, sizeof(uintptr_t)))
+        original = HFAStripCodePointer(*(const uintptr_t *)slot);
+    uintptr_t target = HFAResolveTrampoline(original);
+    dladdr((void *)original, &originalInfo);
+    dladdr((void *)target, &targetInfo);
+    uintptr_t base = (uintptr_t)replacementInfo.dli_fbase;
+    uintptr_t originalRVA = originalInfo.dli_fbase
+        ? original - (uintptr_t)originalInfo.dli_fbase : 0;
+    uintptr_t targetRVA = targetInfo.dli_fbase
+        ? target - (uintptr_t)targetInfo.dli_fbase : 0;
+    HFALog("[CUSTOM-HOOK-TARGET] identifier=%s replacementImage=%s replacementRVA=%llX callsiteRVA=%llX originalSlotRVA=%llX original=%p originalImage=%s originalRVA=%llX target=%p targetImage=%s targetRVA=%llX\n",
+           site->identifier, HFABase(replacementInfo.dli_fname),
+           (unsigned long long)(replacement ? replacement - base : 0),
+           (unsigned long long)(caller - base),
+           (unsigned long long)(slot ? slot - base : 0),
+           (void *)original,
+           originalInfo.dli_fname ? HFABase(originalInfo.dli_fname) : "?",
+           (unsigned long long)originalRVA, (void *)target,
+           targetInfo.dli_fname ? HFABase(targetInfo.dli_fname) : "?",
+           (unsigned long long)targetRVA);
+    uint32_t words[8] = {0};
+    if (original && HFAReadable(original, sizeof(words)))
+        memcpy(words, (const void *)original, sizeof(words));
+    HFALog("[CUSTOM-TRAMPOLINE] identifier=%s original=%p words=%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X\n",
+           site->identifier, (void *)original, words[0], words[1], words[2],
+           words[3], words[4], words[5], words[6], words[7]);
+}
+
 static uintptr_t HFACustomStateQuery(id self, SEL _cmd, id argument) {
     Class owner = object_getClass(self);
     HFAQueryHook *hook = HFAQueryHookFor(owner, _cmd);
@@ -373,6 +508,10 @@ static uintptr_t HFACustomStateQuery(id self, SEL _cmd, id argument) {
     uintptr_t previous = site->lastResult;
     site->calls++;
     site->lastResult = result;
+    if (!site->hookLogged) {
+        site->hookLogged = 1;
+        HFAEmitHookTarget(site, caller);
+    }
     if (site->calls != 1 && previous == result) return result;
 
     Dl_info callerInfo = {0}, queryInfo = {0};
@@ -604,5 +743,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.4.9 CustomStateQueryTrace] loaded\n");
+    HFALog("[HFALearn v1.5.0 OriginalTargetResolver] loaded\n");
 }
