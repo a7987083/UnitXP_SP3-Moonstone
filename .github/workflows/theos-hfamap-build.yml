@@ -1,0 +1,50 @@
+name: HFAMapUniversal Theos Build
+
+on:
+  push:
+    branches:
+      - feature/ios-popup-rebuild
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git clang make perl
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Check project
+        run: |
+          ls -la
+          find . -maxdepth 3 -type f | head -100
+
+      - name: Build if Theos project exists
+        run: |
+          if [ -f Makefile ]; then
+            make package FINALPACKAGE=1
+          elif [ -f ios-popup/Makefile ]; then
+            cd ios-popup
+            make package FINALPACKAGE=1
+          else
+            echo "No Theos Makefile yet. Workflow ready for migration."
+          fi
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: HFAMapUniversal-build
+          path: |
+            packages/*.deb
+            **/*.dylib
+          if-no-files-found: warn
