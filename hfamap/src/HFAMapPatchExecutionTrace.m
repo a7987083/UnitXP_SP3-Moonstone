@@ -191,6 +191,27 @@ static int HFAValidPatch(const char *s) {
     return 1;
 }
 
+static void HFAWriteCompactMapping(const char *feature, const char *module,
+                                   const char *offset, const char *patch) {
+    if (!feature || !module || !offset || !patch) return;
+    @autoreleasepool {
+        NSString *p = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/HFAMap_Mapping.log"];
+        FILE *f = fopen(p.fileSystemRepresentation, "a+");
+        if (!f) return;
+        char wanted[1200];
+        snprintf(wanted, sizeof(wanted), "%s\t%s\t%s\t%s\n", feature, module, offset, patch);
+        rewind(f);
+        char line[1200];
+        while (fgets(line, sizeof(line), f)) {
+            if (strcmp(line, wanted) == 0) { fclose(f); return; }
+        }
+        fseek(f, 0, SEEK_END);
+        if (ftell(f) == 0) fprintf(f, "feature\tmodule\toffset\tpatch\n");
+        fputs(wanted, f);
+        fflush(f); fclose(f);
+    }
+}
+
 static void HFAEmitMapping(id owner, uintptr_t active) {
     HFADescriptor *d = HFADescriptorFor(owner, 0);
     if (!d) {
@@ -214,6 +235,8 @@ static void HFAEmitMapping(id owner, uintptr_t active) {
            normalizedOffset[0] ? normalizedOffset : "?",
            havePatch ? patch : "?",
            (unsigned)(active != 0), valid);
+    if (valid && gFeature[0] && d->module[0] && normalizedOffset[0])
+        HFAWriteCompactMapping(gFeature, d->module, normalizedOffset, patch);
 }
 
 static void HFASetActiveHook(id self, SEL _cmd, uintptr_t active) {
@@ -248,5 +271,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.4.6.4 UniversalMapping] loaded\n");
+    HFALog("[HFALearn v1.4.6.5 CompactMappingLog] loaded\n");
 }
