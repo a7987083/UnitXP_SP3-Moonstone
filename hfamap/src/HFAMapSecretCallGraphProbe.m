@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #include <dlfcn.h>
 #include <stdint.h>
@@ -107,6 +108,26 @@ static void HFAInstallKeyBundleHook(uintptr_t base) {
     HFAKey2Log("[KEY2-AUTH-HOOK] wrapperRVA=99A190 installed=%u original=%p\n",
                gOriginalKeyBundleLoader ? 1u : 0u,
                (void *)gOriginalKeyBundleLoader);
+}
+
+static void HFAKey2ImageAdded(const struct mach_header *header,
+                              intptr_t slide) {
+    (void)slide;
+    if (!header || gOriginalKeyBundleLoader) return;
+    Dl_info info = {0};
+    if (!dladdr((const void *)header, &info) || !info.dli_fbase ||
+        strcmp(HFABaseName(info.dli_fname), "RiseofBerk.dylib") != 0)
+        return;
+    uintptr_t base = (uintptr_t)info.dli_fbase;
+    gKeyRegistryMaskAddress = base + 0xCFC9C0u;
+    HFAKey2Log("[KEY2-AUTH-EARLY] image=RiseofBerk.dylib base=%p\n",
+               (void *)base);
+    HFAInstallKeyBundleHook(base);
+}
+
+__attribute__((constructor))
+static void HFAKey2AuthTraceInit(void) {
+    _dyld_register_func_for_add_image(HFAKey2ImageAdded);
 }
 
 static uintptr_t HFABLTarget(uintptr_t pc, uint32_t instruction) {
