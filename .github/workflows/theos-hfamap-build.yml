@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.6.1 CrashSafeFullMenuScanner
+name: HFAMapUniversal v1.6.2 BoundedGraphScanner
 
 on:
   push:
@@ -22,17 +22,19 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.6.1
+      - name: Build and verify HFAMapUniversal v1.6.2
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.6.1_CrashSafeFullMenuScanner.dylib"
+          out="dist/HFAMapUniversal_v1.6.2_BoundedGraphScanner.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out"
-          strings "$out" | grep -q "HFALearn v1.6.1 CrashSafeFullMenuScanner"
+          strings "$out" | grep -q "HFALearn v1.6.2 BoundedGraphScanner"
+          strings "$out" | grep -q "\[AUTO-TARGET-BEGIN\]"
+          strings "$out" | grep -q "\[AUTO-TARGET-END\]"
           strings "$out" | grep -q "\[FULL-SCAN-BEGIN\]"
           strings "$out" | grep -q "\[FULL-MAPPING\]"
           strings "$out" | grep -q "\[FULL-SCAN-END\]"
@@ -56,6 +58,6 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.6.1-CrashSafeFullMenuScanner
-          path: hfamap/dist/HFAMapUniversal_v1.6.1_CrashSafeFullMenuScanner.dylib
+          name: HFAMapUniversal-v1.6.2-BoundedGraphScanner
+          path: hfamap/dist/HFAMapUniversal_v1.6.2_BoundedGraphScanner.dylib
           if-no-files-found: error
