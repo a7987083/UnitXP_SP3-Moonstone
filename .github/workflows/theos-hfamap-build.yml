@@ -3,7 +3,11 @@ name: HFAMapUniversal Theos Build
 on:
   push:
     branches:
-      - feature/ios-popup-rebuild
+      - main
+      - v1.4.6-patch-object
+      - v1.4.5-SecretFunctionTrace
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -33,9 +37,16 @@ jobs:
           cp .theos/obj/HFAMapUniversal.dylib dist/HFAMapUniversal.dylib
           ls -lh dist/HFAMapUniversal.dylib
 
+      - name: Package release
+        run: |
+          mkdir -p release
+          cp hfamap/dist/HFAMapUniversal.dylib release/
+          cd release
+          zip -r HFAMapUniversal-build.zip HFAMapUniversal.dylib
+
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-build
-          path: hfamap/dist/HFAMapUniversal.dylib
+          name: HFAMapUniversal-v1.4.6-build
+          path: release/
           if-no-files-found: error
