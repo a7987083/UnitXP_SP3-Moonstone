@@ -8,6 +8,8 @@
 
 static uintptr_t gLastIntIMP = 0;
 static uintptr_t gLastDataIMP = 0;
+static uintptr_t gCandidateIMPs[64] = {0};
+static unsigned gCandidateIMPCount = 0;
 
 static const char *HFABaseName(const char *path) {
     if (!path) return "?";
@@ -116,6 +118,42 @@ static BOOL HFAClassIsKindOfSecretBase(Class cls, Class base, const char *baseNa
     return NO;
 }
 
+static BOOL HFAIsAppImagePath(const char *path) {
+    if (!path || !strstr(path, ".app/")) return NO;
+    if (strstr(path, "/System/Library/") || strstr(path, "/usr/lib/")) return NO;
+    if (strstr(path, "HFAMapUniversal.dylib")) return NO;
+    return YES;
+}
+
+static BOOL HFARecordCandidateIMP(uintptr_t imp) {
+    for (unsigned i = 0; i < gCandidateIMPCount; i++) {
+        if (gCandidateIMPs[i] == imp) return NO;
+    }
+    if (gCandidateIMPCount >= 64) return NO;
+    gCandidateIMPs[gCandidateIMPCount++] = imp;
+    return YES;
+}
+
+static void HFAProbeSecretCandidate(Class cls) {
+    if (!cls) return;
+    Method m = class_getInstanceMethod(cls, sel_registerName("secret"));
+    if (!m) return;
+    uintptr_t imp = (uintptr_t)method_getImplementation(m);
+    if (!imp) return;
+
+    uintptr_t base = 0;
+    const char *image = NULL;
+    HFAImageForAddress(imp, &base, &image);
+    if (!HFAIsAppImagePath(image) || !HFARecordCandidateIMP(imp)) return;
+
+    uint64_t rva = (base && imp >= base && imp - base < 0x10000000ULL)
+        ? (uint64_t)(imp - base) : 0;
+    HFALog("[CG-CANDIDATE] class=%s imp=%p image=%s rva=%llX\n",
+           class_getName(cls), (void *)imp, HFABaseName(image),
+           (unsigned long long)rva);
+    HFAScanSecretIMP("SecretCandidate", imp);
+}
+
 static void HFAProbeSecretClasses(void) {
     Class intClass = objc_getClass("IGSecretInt");
     Class dataClass = objc_getClass("IGSecretData");
@@ -137,6 +175,9 @@ static void HFAProbeSecretClasses(void) {
         if (HFAClassIsKindOfSecretBase(cls, dataClass, "IGSecretData")) {
             HFAProbeClass(cls, "IGSecretData");
         }
+        // Some protected builds expose IGSecret* only in ivar type metadata;
+        // the concrete runtime class is unrelated and fully renamed.
+        HFAProbeSecretCandidate(cls);
     }
     free(classes);
 }
@@ -154,7 +195,7 @@ static void HFAProbeSecretClasses(void) {
 __attribute__((constructor))
 static void HFASecretCallGraphInit(void) {
     @autoreleasepool {
-        HFALog("[HFALearn v1.4.5.1 SecretSubclassCallGraphProbe] loaded\n");
+        HFALog("[HFALearn v1.4.5.2 SecretRuntimeCandidateProbe] loaded\n");
         dispatch_async(dispatch_get_main_queue(), ^{
             static HFAMapSecretCallGraphTicker *ticker = nil;
             ticker = [HFAMapSecretCallGraphTicker new];
