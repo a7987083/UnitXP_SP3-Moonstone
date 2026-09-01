@@ -6,7 +6,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = HFAMapUniversal
 
 HFAMapUniversal_FILES = src/HFAMapLegacy.m
-HFAMapUniversal_CFLAGS = -Oz -fno-stack-protector -fno-builtin
+HFAMapUniversal_CFLAGS = -Oz -fno-stack-protector -fno-builtin -Wno-empty-body
 HFAMapUniversal_FRAMEWORKS = UIKit Foundation
 
 include $(THEOS_MAKE_PATH)/tweak.mk
