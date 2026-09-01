@@ -1,41 +1,41 @@
-name: HFAMapUniversal Theos Build
+name: HFAMapUniversal v1.4.4 Theos Build
 
 on:
   push:
     branches:
-      - feature/ios-popup-rebuild
+      - build/hfamap-v1.4.4-20260901
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install build dependencies
-        run: |
-          brew update
-          brew install ldid
+        run: brew install ldid
 
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build HFAMapUniversal
+      - name: Build HFAMapUniversal v1.4.4
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
           cp .theos/obj/HFAMapUniversal.dylib dist/HFAMapUniversal.dylib
+          file dist/HFAMapUniversal.dylib
+          shasum -a 256 dist/HFAMapUniversal.dylib
           ls -lh dist/HFAMapUniversal.dylib
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-build
+          name: HFAMapUniversal-v1.4.4
           path: hfamap/dist/HFAMapUniversal.dylib
           if-no-files-found: error
