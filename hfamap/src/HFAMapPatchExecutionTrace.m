@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
 #import <mach/mach.h>
+#import <mach/mach_vm.h>
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
