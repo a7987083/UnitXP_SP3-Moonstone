@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.4.5.1 SecretSubclassTrace
+name: HFAMapUniversal v1.4.5.2 SecretRuntimeCandidateTrace
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.4.5.1
+      - name: Build and verify HFAMapUniversal v1.4.5.2
         run: |
           cd hfamap
           make clean
@@ -32,12 +32,12 @@ jobs:
           file dist/HFAMapUniversal.dylib
           shasum -a 256 dist/HFAMapUniversal.dylib
           nm -m dist/HFAMapUniversal.dylib | grep -q HFAMapSecretCallGraphTicker
-          strings dist/HFAMapUniversal.dylib | grep -q "HFALearn v1.4.5.1 SecretSubclassCallGraphProbe"
+          strings dist/HFAMapUniversal.dylib | grep -q "HFALearn v1.4.5.2 SecretRuntimeCandidateProbe"
           ls -lh dist/HFAMapUniversal.dylib
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.4.5.1-TwoGameSecretTrace
+          name: HFAMapUniversal-v1.4.5.2-UniversalSecretCandidateTrace
           path: hfamap/dist/HFAMapUniversal.dylib
           if-no-files-found: error
