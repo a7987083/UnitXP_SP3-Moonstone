@@ -13,6 +13,7 @@
 #endif
 
 typedef int (*HFASecretDecryptFn)(void *, void *);
+extern void HFAProbeKey2Path(uintptr_t getterAddress);
 typedef struct { Class cls; SEL sel; IMP imp; } HFAHook;
 typedef uintptr_t (*HFABlockInvokeFn)(void *, uintptr_t, uintptr_t, uintptr_t,
                                       uintptr_t, uintptr_t, uintptr_t);
@@ -287,6 +288,8 @@ static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *l
     }
     memcpy(copy, secret, blobSize);
     int rc = ((HFASecretDecryptFn)decryptAddress)(copy, plain);
+    if (rc == 3 && (flags >> 24) == 2u)
+        HFAProbeKey2Path((uintptr_t)getter);
     if (rc == 0) {
         size_t n = len < outCap - 1 ? len : outCap - 1;
         memcpy(out, plain, n);
@@ -848,5 +851,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.7.1 CrashSafeControlTraversal] loaded\n");
+    HFALog("[HFALearn v1.8.0 Key2PathProbe] loaded\n");
 }
