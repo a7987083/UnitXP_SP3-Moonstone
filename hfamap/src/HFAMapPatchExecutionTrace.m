@@ -13,6 +13,8 @@
 #endif
 
 typedef int (*HFASecretDecryptFn)(void *, void *);
+typedef void (*HFASecretKeyGenFn)(void *);
+typedef int (*HFASecretRegisterKeyFn)(void *, uint32_t);
 typedef struct { Class cls; SEL sel; IMP imp; } HFAHook;
 typedef uintptr_t (*HFABlockInvokeFn)(void *, uintptr_t, uintptr_t, uintptr_t,
                                       uintptr_t, uintptr_t, uintptr_t);
@@ -235,6 +237,54 @@ static IMP HFAOriginal(Class cls, SEL sel) {
     return NULL;
 }
 
+static int HFABootstrapKey2(uintptr_t getterAddress, const Dl_info *getterInfo) {
+    if (!getterAddress || !getterInfo || !getterInfo->dli_fbase) return 0;
+
+    /* RiseofBerk's Secret getter is followed by its key-2 generator.  Register
+       that native key through the menu's own registry instead of reimplementing
+       the Secret format or touching the VIP activation path. */
+    uintptr_t keyGenAddress = getterAddress + 0x74u;
+    uintptr_t registerAddress = getterAddress + 0x1F38u;
+    Dl_info keyGenInfo = {0}, registerInfo = {0};
+    if (!dladdr((void *)keyGenAddress, &keyGenInfo) ||
+        !dladdr((void *)registerAddress, &registerInfo) ||
+        keyGenInfo.dli_fbase != getterInfo->dli_fbase ||
+        registerInfo.dli_fbase != getterInfo->dli_fbase) return 0;
+
+    uint32_t keyInsn0 = 0, keyInsn8 = 0, keyInsnC = 0, keyInsn10 = 0;
+    uint32_t registerInsn0 = 0, registerInsn18 = 0, registerInsn28 = 0;
+    memcpy(&keyInsn0, (void *)keyGenAddress, 4);
+    memcpy(&keyInsn8, (void *)(keyGenAddress + 0x08), 4);
+    memcpy(&keyInsnC, (void *)(keyGenAddress + 0x0C), 4);
+    memcpy(&keyInsn10, (void *)(keyGenAddress + 0x10), 4);
+    memcpy(&registerInsn0, (void *)registerAddress, 4);
+    memcpy(&registerInsn18, (void *)(registerAddress + 0x18), 4);
+    memcpy(&registerInsn28, (void *)(registerAddress + 0x28), 4);
+    if (keyInsn0 != 0xD10043FFu || keyInsn8 != 0x52801FC9u ||
+        keyInsnC != 0x52801DAAu || keyInsn10 != 0x5280194Bu ||
+        registerInsn0 != 0xA9BD57F6u || registerInsn18 != 0x52800900u ||
+        registerInsn28 != 0x2A146108u) {
+        HFALog("[KEY2-BOOTSTRAP-SKIP] image=%s keygenRVA=%llX registerRVA=%llX fingerprint=%08X/%08X/%08X/%08X-%08X/%08X/%08X\n",
+               HFABase(getterInfo->dli_fname),
+               (unsigned long long)(keyGenAddress - (uintptr_t)getterInfo->dli_fbase),
+               (unsigned long long)(registerAddress - (uintptr_t)getterInfo->dli_fbase),
+               keyInsn0, keyInsn8, keyInsnC, keyInsn10,
+               registerInsn0, registerInsn18, registerInsn28);
+        return 0;
+    }
+
+    uint8_t key[16] = {0};
+    ((HFASecretKeyGenFn)keyGenAddress)(key);
+    int registerRc = ((HFASecretRegisterKeyFn)registerAddress)(key, 2u);
+    HFALog("[KEY2-BOOTSTRAP] image=%s keygenRVA=%llX registerRVA=%llX keyId=2 registerRc=%d\n",
+           HFABase(getterInfo->dli_fname),
+           (unsigned long long)(keyGenAddress - (uintptr_t)getterInfo->dli_fbase),
+           (unsigned long long)(registerAddress - (uintptr_t)getterInfo->dli_fbase),
+           registerRc);
+    memset(key, 0, sizeof(key));
+    return registerRc == 0 || registerRc == 1;
+}
+
 static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *label) {
     if (!wrapper || !out || outCap < 2) return 0;
     SEL secretSel = sel_registerName("secret");
@@ -287,6 +337,14 @@ static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *l
     }
     memcpy(copy, secret, blobSize);
     int rc = ((HFASecretDecryptFn)decryptAddress)(copy, plain);
+    if (rc == 3 && (flags >> 24) == 2u &&
+        HFABootstrapKey2((uintptr_t)getter, &getterInfo)) {
+        memcpy(copy, secret, blobSize);
+        memset(plain, 0, (size_t)len + 0x20u);
+        rc = ((HFASecretDecryptFn)decryptAddress)(copy, plain);
+        HFALog("[KEY2-RETRY] field=%s image=%s len=%u flags=%08X rc=%d\n",
+               label, HFABase(getterInfo.dli_fname), len, flags, rc);
+    }
     if (rc == 0) {
         size_t n = len < outCap - 1 ? len : outCap - 1;
         memcpy(out, plain, n);
@@ -848,5 +906,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.6.3 FirstMenuStopScanner] loaded\n");
+    HFALog("[HFALearn v1.7.0 Key2Bootstrap] loaded\n");
 }
