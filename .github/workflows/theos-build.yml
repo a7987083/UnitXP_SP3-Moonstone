@@ -1,0 +1,33 @@
+name: Build TYPopup Theos dylib
+
+on:
+  push:
+    branches:
+      - feature/ios-popup-rebuild
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build package
+        run: |
+          export THEOS=$HOME/theos
+          make package FINALPACKAGE=1
+
+      - name: Upload dylib package
+        uses: actions/upload-artifact@v4
+        with:
+          name: TYPopup-Theos-build
+          path: |
+            packages/*.deb
+            .theos/obj/**
