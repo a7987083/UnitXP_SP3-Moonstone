@@ -1,5 +1,4 @@
 #import <Foundation/Foundation.h>
-#import <objc/runtime.h>
 #import <mach-o/dyld.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -8,8 +7,6 @@
 
 static uintptr_t gLastIntIMP = 0;
 static uintptr_t gLastDataIMP = 0;
-static uintptr_t gCandidateIMPs[64] = {0};
-static unsigned gCandidateIMPCount = 0;
 
 static const char *HFABaseName(const char *path) {
     if (!path) return "?";
@@ -100,111 +97,20 @@ static void HFAScanSecretIMP(const char *kind, uintptr_t imp) {
     HFALog("[CG-END]%s hits=%u\n", kind, hits);
 }
 
-static void HFAProbeClass(Class cls, const char *kind) {
-    if (!cls) return;
-    Method m = class_getInstanceMethod(cls, sel_registerName("secret"));
-    if (!m) return;
-    IMP imp = method_getImplementation(m);
-    if (!imp) return;
-    HFAScanSecretIMP(kind, (uintptr_t)imp);
+// Called by the proven v1.4.4 live-object path after it extracts the exact IMP
+// from the object's _methodDescription. No class-name or global-runtime scan.
+void HFAScanSecretIMPFromRuntimeObject(const char *kind,
+                                       uintptr_t imp,
+                                       const char *actualClass) {
+    if (!kind || !imp) return;
+    HFALog("[CG-SOURCE] kind=%s class=%s imp=%p source=_methodDescription\n",
+           kind, actualClass ? actualClass : "?", (void *)imp);
+    HFAScanSecretIMP(kind, imp);
 }
-
-static BOOL HFAClassIsKindOfSecretBase(Class cls, Class base, const char *baseName) {
-    for (Class cur = cls; cur; cur = class_getSuperclass(cur)) {
-        if (base && cur == base) return YES;
-        const char *name = class_getName(cur);
-        if (name && baseName && strcmp(name, baseName) == 0) return YES;
-    }
-    return NO;
-}
-
-static BOOL HFAIsAppImagePath(const char *path) {
-    if (!path || !strstr(path, ".app/")) return NO;
-    if (strstr(path, "/System/Library/") || strstr(path, "/usr/lib/")) return NO;
-    if (strstr(path, "HFAMapUniversal.dylib")) return NO;
-    return YES;
-}
-
-static BOOL HFARecordCandidateIMP(uintptr_t imp) {
-    for (unsigned i = 0; i < gCandidateIMPCount; i++) {
-        if (gCandidateIMPs[i] == imp) return NO;
-    }
-    if (gCandidateIMPCount >= 64) return NO;
-    gCandidateIMPs[gCandidateIMPCount++] = imp;
-    return YES;
-}
-
-static void HFAProbeSecretCandidate(Class cls) {
-    if (!cls) return;
-    Method m = class_getInstanceMethod(cls, sel_registerName("secret"));
-    if (!m) return;
-    uintptr_t imp = (uintptr_t)method_getImplementation(m);
-    if (!imp) return;
-
-    uintptr_t base = 0;
-    const char *image = NULL;
-    HFAImageForAddress(imp, &base, &image);
-    if (!HFAIsAppImagePath(image) || !HFARecordCandidateIMP(imp)) return;
-
-    uint64_t rva = (base && imp >= base && imp - base < 0x10000000ULL)
-        ? (uint64_t)(imp - base) : 0;
-    HFALog("[CG-CANDIDATE] class=%s imp=%p image=%s rva=%llX\n",
-           class_getName(cls), (void *)imp, HFABaseName(image),
-           (unsigned long long)rva);
-    HFAScanSecretIMP("SecretCandidate", imp);
-}
-
-static void HFAProbeSecretClasses(void) {
-    Class intClass = objc_getClass("IGSecretInt");
-    Class dataClass = objc_getClass("IGSecretData");
-    HFAProbeClass(intClass, "IGSecretInt");
-    HFAProbeClass(dataClass, "IGSecretData");
-
-    // The concrete classes are commonly renamed per game. Walk every class and
-    // classify it by its superclass chain instead of relying on its own name.
-    int count = objc_getClassList(NULL, 0);
-    if (count <= 0) return;
-    Class *classes = (Class *)malloc(sizeof(Class) * (size_t)count);
-    if (!classes) return;
-    count = objc_getClassList(classes, count);
-    for (int i = 0; i < count; i++) {
-        Class cls = classes[i];
-        if (HFAClassIsKindOfSecretBase(cls, intClass, "IGSecretInt")) {
-            HFAProbeClass(cls, "IGSecretInt");
-        }
-        if (HFAClassIsKindOfSecretBase(cls, dataClass, "IGSecretData")) {
-            HFAProbeClass(cls, "IGSecretData");
-        }
-        // Some protected builds expose IGSecret* only in ivar type metadata;
-        // the concrete runtime class is unrelated and fully renamed.
-        HFAProbeSecretCandidate(cls);
-    }
-    free(classes);
-}
-
-@interface HFAMapSecretCallGraphTicker : NSObject
-@end
-
-@implementation HFAMapSecretCallGraphTicker
-- (void)tick:(NSTimer *)timer {
-    (void)timer;
-    HFAProbeSecretClasses();
-}
-@end
 
 __attribute__((constructor))
 static void HFASecretCallGraphInit(void) {
     @autoreleasepool {
-        HFALog("[HFALearn v1.4.5.2 SecretRuntimeCandidateProbe] loaded\n");
-        dispatch_async(dispatch_get_main_queue(), ^{
-            static HFAMapSecretCallGraphTicker *ticker = nil;
-            ticker = [HFAMapSecretCallGraphTicker new];
-            [NSTimer scheduledTimerWithTimeInterval:0.75
-                                             target:ticker
-                                           selector:@selector(tick:)
-                                           userInfo:nil
-                                            repeats:YES];
-            HFAProbeSecretClasses();
-        });
+        HFALog("[HFALearn v1.4.5.3 SecretIMPCallGraph] loaded\n");
     }
 }
