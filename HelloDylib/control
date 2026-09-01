@@ -1,0 +1,6 @@
+Package: com.taiyang.hellopopup
+Name: HelloPopup
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Hello popup dylib test
+Maintainer: TaiYangShenDian
