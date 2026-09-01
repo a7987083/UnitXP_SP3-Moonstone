@@ -107,23 +107,36 @@ static void HFAProbeClass(Class cls, const char *kind) {
     HFAScanSecretIMP(kind, (uintptr_t)imp);
 }
 
+static BOOL HFAClassIsKindOfSecretBase(Class cls, Class base, const char *baseName) {
+    for (Class cur = cls; cur; cur = class_getSuperclass(cur)) {
+        if (base && cur == base) return YES;
+        const char *name = class_getName(cur);
+        if (name && baseName && strcmp(name, baseName) == 0) return YES;
+    }
+    return NO;
+}
+
 static void HFAProbeSecretClasses(void) {
     Class intClass = objc_getClass("IGSecretInt");
     Class dataClass = objc_getClass("IGSecretData");
     HFAProbeClass(intClass, "IGSecretInt");
     HFAProbeClass(dataClass, "IGSecretData");
 
-    // Fallback for games that prefix/subclass the known secret classes.
+    // The concrete classes are commonly renamed per game. Walk every class and
+    // classify it by its superclass chain instead of relying on its own name.
     int count = objc_getClassList(NULL, 0);
     if (count <= 0) return;
     Class *classes = (Class *)malloc(sizeof(Class) * (size_t)count);
     if (!classes) return;
     count = objc_getClassList(classes, count);
     for (int i = 0; i < count; i++) {
-        const char *name = class_getName(classes[i]);
-        if (!name) continue;
-        if (!intClass && strstr(name, "IGSecretInt")) HFAProbeClass(classes[i], "IGSecretInt");
-        if (!dataClass && strstr(name, "IGSecretData")) HFAProbeClass(classes[i], "IGSecretData");
+        Class cls = classes[i];
+        if (HFAClassIsKindOfSecretBase(cls, intClass, "IGSecretInt")) {
+            HFAProbeClass(cls, "IGSecretInt");
+        }
+        if (HFAClassIsKindOfSecretBase(cls, dataClass, "IGSecretData")) {
+            HFAProbeClass(cls, "IGSecretData");
+        }
     }
     free(classes);
 }
@@ -141,7 +154,7 @@ static void HFAProbeSecretClasses(void) {
 __attribute__((constructor))
 static void HFASecretCallGraphInit(void) {
     @autoreleasepool {
-        HFALog("[HFALearn v1.4.5 SecretCallGraphProbe] loaded\n");
+        HFALog("[HFALearn v1.4.5.1 SecretSubclassCallGraphProbe] loaded\n");
         dispatch_async(dispatch_get_main_queue(), ^{
             static HFAMapSecretCallGraphTicker *ticker = nil;
             ticker = [HFAMapSecretCallGraphTicker new];
