@@ -24,27 +24,16 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Check project
+      - name: Build HFAMapUniversal
         run: |
-          ls -la
-          find . -maxdepth 3 -type f | head -100
-
-      - name: Build if Theos project exists
-        run: |
-          if [ -f Makefile ]; then
-            make package FINALPACKAGE=1
-          elif [ -f ios-popup/Makefile ]; then
-            cd ios-popup
-            make package FINALPACKAGE=1
-          else
-            echo "No Theos Makefile yet. Workflow ready for migration."
-          fi
+          cd hfamap
+          make package FINALPACKAGE=1
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: HFAMapUniversal-build
           path: |
-            packages/*.deb
-            **/*.dylib
-          if-no-files-found: warn
+            hfamap/packages/*.deb
+            hfamap/**/*.dylib
+          if-no-files-found: error
