@@ -11,6 +11,11 @@
 #endif
 
 static int gKey2PathDone;
+static uintptr_t gKeyRegistryMaskAddress;
+static uintptr_t (*gOriginalKeyBundleLoader)(const void *, size_t,
+                                              const uint8_t *, void *);
+
+typedef void (*HFAMSHookFunction)(void *, void *, void **);
 
 static const char *HFABaseName(const char *path) {
     const char *p = path ? strrchr(path, '/') : NULL;
@@ -39,6 +44,69 @@ static uintptr_t HFAStripPointer(uintptr_t value) {
 #else
     return value;
 #endif
+}
+
+static uint64_t HFANonzeroKeyMask(const uint8_t *keys) {
+    if (!keys) return 0;
+    uint64_t mask = 0;
+    for (unsigned keyId = 0; keyId < 64; keyId++) {
+        uint8_t combined = 0;
+        for (unsigned byte = 0; byte < 16; byte++)
+            combined |= keys[keyId * 16 + byte];
+        if (combined) mask |= 1ULL << keyId;
+    }
+    return mask;
+}
+
+static uintptr_t HFAKeyBundleLoaderHook(const void *payload,
+                                         size_t payloadLength,
+                                         const uint8_t *keys,
+                                         void *authorizationContext) {
+    uint64_t suppliedMask = HFANonzeroKeyMask(keys);
+    HFAKey2Log("[KEY2-AUTH-LOAD-BEGIN] payload=%p len=%llu keys=%p nonzeroMask=%016llX key2=%u context=%p\n",
+               payload, (unsigned long long)payloadLength, keys,
+               (unsigned long long)suppliedMask,
+               (unsigned)((suppliedMask >> 2) & 1),
+               authorizationContext);
+
+    uintptr_t result = gOriginalKeyBundleLoader
+        ? gOriginalKeyBundleLoader(payload, payloadLength, keys,
+                                   authorizationContext)
+        : 0;
+
+    uint64_t registryMask = 0;
+    if (gKeyRegistryMaskAddress)
+        memcpy(&registryMask, (const void *)gKeyRegistryMaskAddress,
+               sizeof(registryMask));
+    HFAKey2Log("[KEY2-AUTH-LOAD-END] result=%p registryMask=%016llX key2=%u\n",
+               (void *)result, (unsigned long long)registryMask,
+               (unsigned)((registryMask >> 2) & 1));
+    return result;
+}
+
+static void HFAInstallKeyBundleHook(uintptr_t base) {
+    if (gOriginalKeyBundleLoader) return;
+    uintptr_t wrapper = base + 0x99A190u;
+    uint32_t fingerprint[2] = {0};
+    memcpy(fingerprint, (const void *)wrapper, sizeof(fingerprint));
+    if (fingerprint[0] != 0xB40007A2u ||
+        fingerprint[1] != 0xD101C3FFu) {
+        HFAKey2Log("[KEY2-AUTH-HOOK-SKIP] wrapperRVA=99A190 fingerprint=%08X/%08X\n",
+                   fingerprint[0], fingerprint[1]);
+        return;
+    }
+
+    HFAMSHookFunction hook = (HFAMSHookFunction)dlsym(
+        RTLD_DEFAULT, "MSHookFunction");
+    if (!hook) {
+        HFAKey2Log("[KEY2-AUTH-HOOK-SKIP] wrapperRVA=99A190 reason=no-MSHookFunction\n");
+        return;
+    }
+    hook((void *)wrapper, (void *)&HFAKeyBundleLoaderHook,
+         (void **)&gOriginalKeyBundleLoader);
+    HFAKey2Log("[KEY2-AUTH-HOOK] wrapperRVA=99A190 installed=%u original=%p\n",
+               gOriginalKeyBundleLoader ? 1u : 0u,
+               (void *)gOriginalKeyBundleLoader);
 }
 
 static uintptr_t HFABLTarget(uintptr_t pc, uint32_t instruction) {
@@ -216,10 +284,11 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
     }
 
     uintptr_t keyTableAddress = base + 0xD31D40u;
+    gKeyRegistryMaskAddress = base + 0xCFC9C0u;
     uintptr_t slots[4] = {0};
     uint64_t mask = 0;
     memcpy(slots, (const void *)keyTableAddress, sizeof(slots));
-    memcpy(&mask, (const void *)(base + 0xCFC9C0u), sizeof(mask));
+    memcpy(&mask, (const void *)gKeyRegistryMaskAddress, sizeof(mask));
     HFAKey2Log("[KEY2-PATH-BEGIN] image=%s base=%p textRVA=%llX-%llX registerRVA=%llX loaderRVA=%llX\n",
                image, (void *)base,
                (unsigned long long)(textStart - base),
@@ -229,6 +298,7 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
     HFAKey2Log("[KEY2-TABLE] mask=%016llX slot0=%p slot1=%p slot2=%p slot3=%p\n",
                (unsigned long long)mask, (void *)slots[0],
                (void *)slots[1], (void *)slots[2], (void *)slots[3]);
+    HFAInstallKeyBundleHook(base);
 
     uintptr_t targets[64] = {registerAddress, loaderAddress};
     unsigned targetCount = 2;

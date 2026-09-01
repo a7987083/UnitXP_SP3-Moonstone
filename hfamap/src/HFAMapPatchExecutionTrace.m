@@ -851,5 +851,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.8.0 Key2PathProbe] loaded\n");
+    HFALog("[HFALearn v1.8.1 Key2AuthTrace] loaded\n");
 }
