@@ -44,6 +44,7 @@ static const char *HFABase(const char *p) {
 
 static int HFAImageIndexForName(const char *value) {
     if (!value || !*value) return -1;
+    if (strcmp(value, "main") == 0) return 0;
     uint32_t count = _dyld_image_count();
     for (uint32_t i = 0; i < count; i++) {
         const char *base = HFABase(_dyld_get_image_name(i));
@@ -172,8 +173,11 @@ static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *l
 }
 
 static int HFAValidOffset(const char *s) {
-    if (!s || s[0] != '0' || (s[1] != 'x' && s[1] != 'X') || !s[2]) return 0;
-    for (const char *p = s + 2; *p; p++)
+    if (!s || !*s) return 0;
+    const char *p = s;
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+    if (!*p) return 0;
+    for (; *p; p++)
         if (!strchr("0123456789abcdefABCDEF", *p)) return 0;
     return 1;
 }
@@ -197,12 +201,17 @@ static void HFAEmitMapping(id owner, uintptr_t active) {
     int haveOffset = HFADecryptWrapper(d->offsetWrapper, offset, sizeof(offset), "offset");
     int havePatch = HFADecryptWrapper(d->patchWrapper, patch, sizeof(patch), "patchData");
     int valid = haveOffset && havePatch && HFAValidOffset(offset) && HFAValidPatch(patch);
+    char normalizedOffset[164] = {0};
+    if (haveOffset && offset[0] == '0' && (offset[1] == 'x' || offset[1] == 'X'))
+        snprintf(normalizedOffset, sizeof(normalizedOffset), "%s", offset);
+    else if (haveOffset && HFAValidOffset(offset))
+        snprintf(normalizedOffset, sizeof(normalizedOffset), "0x%s", offset);
     HFALog("[MAPPING] title=\"%s\" desc=\"%s\" key=%s module=%s offset=%s patch=%s active=%u valid=%d\n",
            gFeature[0] ? gFeature : "(not found)",
            gFeatureDesc[0] ? gFeatureDesc : "(not found)",
            d->key[0] ? d->key : "?",
            d->module[0] ? d->module : "?",
-           haveOffset ? offset : "?",
+           normalizedOffset[0] ? normalizedOffset : "?",
            havePatch ? patch : "?",
            (unsigned)(active != 0), valid);
 }
@@ -239,5 +248,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.4.6.3 DescriptorMappingGuarded] loaded\n");
+    HFALog("[HFALearn v1.4.6.4 UniversalMapping] loaded\n");
 }
