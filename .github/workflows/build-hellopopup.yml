@@ -15,20 +15,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Theos
+      - name: Prepare build tools
         run: |
+          brew install ldid || true
           git clone --depth=1 https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build
+      - name: Build dylib package
         working-directory: HelloDylib
         run: |
           export THEOS=$HOME/theos
           make package FINALPACKAGE=1
 
-      - name: Upload package
+      - name: Collect output
+        run: |
+          mkdir -p output
+          cp HelloDylib/packages/* output/ || true
+          find output -type f
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: HelloPopup-build
-          path: |
-            HelloDylib/packages/*
+          path: output/*
