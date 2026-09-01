@@ -139,6 +139,18 @@ static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *l
     uintptr_t getterRVA = (uintptr_t)getter - (uintptr_t)getterInfo.dli_fbase;
     uintptr_t decryptRVA = decryptAddress - (uintptr_t)decryptInfo.dli_fbase;
 
+    uint32_t insn0 = 0, insn30 = 0, insn40 = 0;
+    memcpy(&insn0, (void *)decryptAddress, 4);
+    memcpy(&insn30, (void *)(decryptAddress + 0x30), 4);
+    memcpy(&insn40, (void *)(decryptAddress + 0x40), 4);
+    if (insn0 != 0xD105C3FFu || insn30 != 0xB9400408u || insn40 != 0x53187D00u) {
+        HFALog("[MAP-DECRYPT-SKIP] field=%s image=%s getterRVA=%llX candidateRVA=%llX fingerprint=%08X/%08X/%08X\n",
+               label, HFABase(getterInfo.dli_fname),
+               (unsigned long long)getterRVA, (unsigned long long)decryptRVA,
+               insn0, insn30, insn40);
+        return 0;
+    }
+
     void *copy = malloc(blobSize);
     void *plain = calloc(1, (size_t)len + 0x20u);
     if (!copy || !plain) {
@@ -227,5 +239,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.4.6.2 DescriptorMapping] loaded\n");
+    HFALog("[HFALearn v1.4.6.3 DescriptorMappingGuarded] loaded\n");
 }
