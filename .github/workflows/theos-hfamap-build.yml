@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.4.8 CustomBlockTrace
+name: HFAMapUniversal v1.4.9 CustomStateQueryTrace
 
 on:
   push:
@@ -22,22 +22,25 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.4.8
+      - name: Build and verify HFAMapUniversal v1.4.9
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.4.8_CustomBlockTrace.dylib"
+          out="dist/HFAMapUniversal_v1.4.9_CustomStateQueryTrace.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out"
-          strings "$out" | grep -q "HFALearn v1.4.8 CustomBlockTrace"
+          strings "$out" | grep -q "HFALearn v1.4.9 CustomStateQueryTrace"
           strings "$out" | grep -q "\[AUTO-TARGET\]"
           strings "$out" | grep -q "\[GROUP-MAPPING\]"
           strings "$out" | grep -q "\[CUSTOM-BLOCK\]"
           strings "$out" | grep -q "\[CUSTOM-INVOKE\]"
           strings "$out" | grep -q "\[SECRET02\]"
+          strings "$out" | grep -q "\[ACTION-IMP\]"
+          strings "$out" | grep -q "\[CUSTOM-QUERY-INSTALL\]"
+          strings "$out" | grep -q "\[CUSTOM-STATE\]"
           strings "$out" | grep -q "\[MAPPING\]"
           strings "$out" | grep -q "\[MAP-DECRYPT\]"
           strings "$out" | grep -q "\[MAP-DECRYPT-SKIP\]"
@@ -47,6 +50,6 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.4.8-CustomBlockTrace
-          path: hfamap/dist/HFAMapUniversal_v1.4.8_CustomBlockTrace.dylib
+          name: HFAMapUniversal-v1.4.9-CustomStateQueryTrace
+          path: hfamap/dist/HFAMapUniversal_v1.4.9_CustomStateQueryTrace.dylib
           if-no-files-found: error

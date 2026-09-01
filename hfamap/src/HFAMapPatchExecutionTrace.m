@@ -28,6 +28,18 @@ typedef struct {
     void *descriptor;
 } HFABlockLiteral;
 typedef struct {
+    Class owner;
+    SEL sel;
+    IMP original;
+} HFAQueryHook;
+typedef struct {
+    uintptr_t caller;
+    SEL query;
+    char identifier[16];
+    uintptr_t lastResult;
+    unsigned calls;
+} HFAStateSite;
+typedef struct {
     id owner;
     id offsetWrapper;
     id patchWrapper;
@@ -41,6 +53,10 @@ static HFAHook gHooks[64];
 static unsigned gHookCount;
 static HFABlockHook gBlockHooks[64];
 static unsigned gBlockHookCount;
+static HFAQueryHook gQueryHooks[768];
+static unsigned gQueryHookCount;
+static HFAStateSite gStateSites[256];
+static unsigned gStateSiteCount;
 static HFADescriptor gDescriptors[128];
 static unsigned gDescriptorCount;
 static unsigned gEvent;
@@ -50,11 +66,19 @@ static char gTarget[256];
 static char gIdentifier[96];
 static char gWantedKey[128];
 static char gDetectedTarget[256];
+static char gQueryImage[256];
 static unsigned gExecutedEvent;
 
 static HFABlockHook *HFABlockHookFor(void *block) {
     for (unsigned i = 0; i < gBlockHookCount; i++)
         if (gBlockHooks[i].block == block) return &gBlockHooks[i];
+    return NULL;
+}
+
+static HFAQueryHook *HFAQueryHookFor(Class owner, SEL sel) {
+    for (unsigned i = 0; i < gQueryHookCount; i++)
+        if (gQueryHooks[i].owner == owner && gQueryHooks[i].sel == sel)
+            return &gQueryHooks[i];
     return NULL;
 }
 
@@ -314,6 +338,136 @@ void HFARegisterCustomBlock(id value, const char *identifier) {
     else memset(hook, 0, sizeof(*hook));
 }
 
+static HFAStateSite *HFAStateSiteFor(uintptr_t caller, SEL query,
+                                     const char *identifier) {
+    for (unsigned i = 0; i < gStateSiteCount; i++) {
+        HFAStateSite *site = &gStateSites[i];
+        if (site->caller == caller && site->query == query &&
+            strcmp(site->identifier, identifier) == 0) return site;
+    }
+    if (gStateSiteCount >= 256) return NULL;
+    HFAStateSite *site = &gStateSites[gStateSiteCount++];
+    memset(site, 0, sizeof(*site));
+    site->caller = caller;
+    site->query = query;
+    snprintf(site->identifier, sizeof(site->identifier), "%s", identifier);
+    return site;
+}
+
+static uintptr_t HFACustomStateQuery(id self, SEL _cmd, id argument) {
+    Class owner = object_getClass(self);
+    HFAQueryHook *hook = HFAQueryHookFor(owner, _cmd);
+    if (!hook || !hook->original) return 0;
+    char identifier[16] = {0};
+    if (argument && [argument isKindOfClass:[NSString class]]) {
+        const char *s = [(NSString *)argument UTF8String];
+        if (s && (strcmp(s, "Fuel") == 0 || strcmp(s, "Boost") == 0))
+            snprintf(identifier, sizeof(identifier), "%s", s);
+    }
+    uintptr_t caller = (uintptr_t)__builtin_return_address(0);
+    uintptr_t result = ((uintptr_t(*)(id,SEL,id))hook->original)(self, _cmd, argument);
+    if (!identifier[0]) return result;
+
+    HFAStateSite *site = HFAStateSiteFor(caller, _cmd, identifier);
+    if (!site) return result;
+    uintptr_t previous = site->lastResult;
+    site->calls++;
+    site->lastResult = result;
+    if (site->calls != 1 && previous == result) return result;
+
+    Dl_info callerInfo = {0}, queryInfo = {0};
+    dladdr((void *)caller, &callerInfo);
+    dladdr((void *)hook->original, &queryInfo);
+    uintptr_t callerRVA = callerInfo.dli_fbase
+        ? caller - (uintptr_t)callerInfo.dli_fbase : 0;
+    uintptr_t queryRVA = queryInfo.dli_fbase
+        ? (uintptr_t)hook->original - (uintptr_t)queryInfo.dli_fbase : 0;
+    HFALog("[CUSTOM-STATE] identifier=%s result=%llu calls=%u queryClass=%s selector=%s queryImage=%s queryRVA=%llX callerImage=%s callerRVA=%llX caller=%p\n",
+           identifier, (unsigned long long)result, site->calls,
+           class_getName(owner), sel_getName(_cmd),
+           queryInfo.dli_fname ? HFABase(queryInfo.dli_fname) : "?",
+           (unsigned long long)queryRVA,
+           callerInfo.dli_fname ? HFABase(callerInfo.dli_fname) : "?",
+           (unsigned long long)callerRVA, (void *)caller);
+    return result;
+}
+
+static int HFAIntegerReturnWithObjectArgument(Method method) {
+    if (!method || method_getNumberOfArguments(method) != 3) return 0;
+    char returnType[32] = {0}, argumentType[32] = {0};
+    method_getReturnType(method, returnType, sizeof(returnType));
+    method_getArgumentType(method, 2, argumentType, sizeof(argumentType));
+    const char *r = returnType;
+    const char *a = argumentType;
+    while (*r && strchr("rnNoORV", *r)) r++;
+    while (*a && strchr("rnNoORV", *a)) a++;
+    if (*a != '@') return 0;
+    return strchr("BcCsSiIlLqQ", *r) != NULL;
+}
+
+static unsigned HFAInstallQueryMethods(Class owner) {
+    if (!owner) return 0;
+    unsigned installed = 0;
+    unsigned count = 0;
+    Method *methods = class_copyMethodList(owner, &count);
+    for (unsigned i = 0; methods && i < count; i++) {
+        Method method = methods[i];
+        if (!HFAIntegerReturnWithObjectArgument(method) ||
+            gQueryHookCount >= 768) continue;
+        SEL sel = method_getName(method);
+        if (HFAQueryHookFor(owner, sel)) continue;
+        IMP original = method_getImplementation(method);
+        if (!original || original == (IMP)HFACustomStateQuery) continue;
+        HFAQueryHook *hook = &gQueryHooks[gQueryHookCount++];
+        hook->owner = owner;
+        hook->sel = sel;
+        hook->original = original;
+        method_setImplementation(method, (IMP)HFACustomStateQuery);
+        installed++;
+    }
+    free(methods);
+    return installed;
+}
+
+static void HFAInstallStateQueriesForImage(const char *image) {
+    if (!image || !*image || strcmp(gQueryImage, image) == 0) return;
+    int classCount = objc_getClassList(NULL, 0);
+    if (classCount <= 0) return;
+    Class *classes = malloc((size_t)classCount * sizeof(Class));
+    if (!classes) return;
+    classCount = objc_getClassList(classes, classCount);
+    unsigned matched = 0, installed = 0;
+    for (int i = 0; i < classCount; i++) {
+        Class cls = classes[i];
+        const char *path = class_getImageName(cls);
+        if (!path || strcmp(HFABase(path), image) != 0) continue;
+        matched++;
+        installed += HFAInstallQueryMethods(cls);
+        installed += HFAInstallQueryMethods(object_getClass(cls));
+    }
+    free(classes);
+    snprintf(gQueryImage, sizeof(gQueryImage), "%s", image);
+    HFALog("[CUSTOM-QUERY-INSTALL] image=%s classes=%u methods=%u total=%u\n",
+           image, matched, installed, gQueryHookCount);
+}
+
+void HFAPatchTraceObserveAction(id target, SEL action) {
+    if (!target || !action) return;
+    Class cls = object_getClass(target);
+    Method method = class_getInstanceMethod(cls, action);
+    if (!method) return;
+    IMP implementation = method_getImplementation(method);
+    Dl_info info = {0};
+    if (!implementation || !dladdr((void *)implementation, &info) ||
+        !info.dli_fbase || !info.dli_fname) return;
+    const char *image = HFABase(info.dli_fname);
+    uintptr_t rva = (uintptr_t)implementation - (uintptr_t)info.dli_fbase;
+    HFALog("[ACTION-IMP] event=%u targetClass=%s selector=%s image=%s rva=%llX\n",
+           gEvent, class_getName(cls), sel_getName(action), image,
+           (unsigned long long)rva);
+    HFAInstallStateQueriesForImage(image);
+}
+
 static int HFAValidOffset(const char *s) {
     if (!s || !*s) return 0;
     const char *p = s;
@@ -450,5 +604,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.4.8 CustomBlockTrace] loaded\n");
+    HFALog("[HFALearn v1.4.9 CustomStateQueryTrace] loaded\n");
 }
