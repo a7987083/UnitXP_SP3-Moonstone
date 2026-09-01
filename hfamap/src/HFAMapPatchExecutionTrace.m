@@ -2,6 +2,7 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
+#import <mach/mach.h>
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -10,6 +11,22 @@
 
 typedef int (*HFASecretDecryptFn)(void *, void *);
 typedef struct { Class cls; SEL sel; IMP imp; } HFAHook;
+typedef uintptr_t (*HFABlockInvokeFn)(void *, uintptr_t, uintptr_t, uintptr_t,
+                                      uintptr_t, uintptr_t, uintptr_t);
+typedef struct {
+    void *block;
+    HFABlockInvokeFn original;
+    char identifier[96];
+    char image[256];
+    uintptr_t rva;
+} HFABlockHook;
+typedef struct {
+    void *isa;
+    int flags;
+    int reserved;
+    HFABlockInvokeFn invoke;
+    void *descriptor;
+} HFABlockLiteral;
 typedef struct {
     id owner;
     id offsetWrapper;
@@ -22,6 +39,8 @@ typedef struct {
 
 static HFAHook gHooks[64];
 static unsigned gHookCount;
+static HFABlockHook gBlockHooks[64];
+static unsigned gBlockHookCount;
 static HFADescriptor gDescriptors[128];
 static unsigned gDescriptorCount;
 static unsigned gEvent;
@@ -32,6 +51,12 @@ static char gIdentifier[96];
 static char gWantedKey[128];
 static char gDetectedTarget[256];
 static unsigned gExecutedEvent;
+
+static HFABlockHook *HFABlockHookFor(void *block) {
+    for (unsigned i = 0; i < gBlockHookCount; i++)
+        if (gBlockHooks[i].block == block) return &gBlockHooks[i];
+    return NULL;
+}
 
 static void HFALog(const char *fmt, ...) {
     @autoreleasepool {
@@ -201,8 +226,92 @@ static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *l
            label, HFABase(getterInfo.dli_fname),
            (unsigned long long)getterRVA, (unsigned long long)decryptRVA,
            len, flags, rc, rc == 0 ? out : "?");
+    if ((flags >> 24) == 2u) {
+        char cipher[129] = {0};
+        size_t cipherBytes = len < 32u ? len : 32u;
+        const uint8_t *bytes = (const uint8_t *)secret + 8;
+        for (size_t i = 0; i < cipherBytes; i++)
+            snprintf(cipher + i * 2, sizeof(cipher) - i * 2, "%02X", bytes[i]);
+        HFALog("[SECRET02] event=%u field=%s wrapper=%p class=%s image=%s len=%u flags=%08X getterRVA=%llX decryptRVA=%llX rc=%d cipher=%s\n",
+               gEvent, label, wrapper, class_getName(object_getClass(wrapper)),
+               HFABase(getterInfo.dli_fname), len, flags,
+               (unsigned long long)getterRVA, (unsigned long long)decryptRVA,
+               rc, cipher);
+    }
     free(plain); free(copy);
     return rc == 0;
+}
+
+static uintptr_t HFACustomBlockInvoke(void *block, uintptr_t a1, uintptr_t a2,
+                                      uintptr_t a3, uintptr_t a4,
+                                      uintptr_t a5, uintptr_t a6) {
+    HFABlockHook *hook = HFABlockHookFor(block);
+    if (!hook || !hook->original) return 0;
+    HFALog("[CUSTOM-INVOKE] phase=begin event=%u identifier=%s block=%p image=%s invokeRVA=%llX args=%llX/%llX/%llX/%llX/%llX/%llX\n",
+           gEvent, hook->identifier, block, hook->image,
+           (unsigned long long)hook->rva,
+           (unsigned long long)a1, (unsigned long long)a2,
+           (unsigned long long)a3, (unsigned long long)a4,
+           (unsigned long long)a5, (unsigned long long)a6);
+    uintptr_t result = hook->original(block, a1, a2, a3, a4, a5, a6);
+    HFALog("[CUSTOM-INVOKE] phase=end event=%u identifier=%s block=%p image=%s invokeRVA=%llX result=%llX\n",
+           gEvent, hook->identifier, block, hook->image,
+           (unsigned long long)hook->rva, (unsigned long long)result);
+    return result;
+}
+
+void HFARegisterCustomBlock(id value, const char *identifier) {
+    if (!value || !identifier ||
+        (strcmp(identifier, "Fuel") != 0 && strcmp(identifier, "Boost") != 0))
+        return;
+    void *block = (void *)value;
+    HFABlockHook *existing = HFABlockHookFor(block);
+    if (existing) {
+        snprintf(existing->identifier, sizeof(existing->identifier), "%s", identifier);
+        return;
+    }
+    if (gBlockHookCount >= 64) return;
+    HFABlockLiteral *literal = (HFABlockLiteral *)block;
+    if (!literal->invoke) return;
+    Dl_info info = {0};
+    if (!dladdr((void *)literal->invoke, &info) || !info.dli_fbase) return;
+    HFABlockHook *hook = &gBlockHooks[gBlockHookCount];
+    memset(hook, 0, sizeof(*hook));
+    hook->block = block;
+    hook->original = literal->invoke;
+    hook->rva = (uintptr_t)literal->invoke - (uintptr_t)info.dli_fbase;
+    snprintf(hook->identifier, sizeof(hook->identifier), "%s", identifier);
+    snprintf(hook->image, sizeof(hook->image), "%s", HFABase(info.dli_fname));
+
+    mach_vm_address_t address = (mach_vm_address_t)(uintptr_t)&literal->invoke;
+    mach_vm_address_t region = address;
+    mach_vm_size_t regionSize = 0;
+    vm_region_basic_info_data_64_t regionInfo = {0};
+    mach_msg_type_number_t infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t objectName = MACH_PORT_NULL;
+    kern_return_t kr = mach_vm_region(mach_task_self(), &region, &regionSize,
+                                      VM_REGION_BASIC_INFO_64,
+                                      (vm_region_info_t)&regionInfo,
+                                      &infoCount, &objectName);
+    int installed = 0;
+    if (kr == KERN_SUCCESS) {
+        vm_prot_t oldProtection = regionInfo.protection;
+        mach_vm_size_t pageSize = (mach_vm_size_t)vm_page_size;
+        mach_vm_address_t page = address & ~(pageSize - 1);
+        kr = mach_vm_protect(mach_task_self(), page, pageSize, FALSE,
+                             oldProtection | VM_PROT_WRITE);
+        if (kr == KERN_SUCCESS) {
+            literal->invoke = HFACustomBlockInvoke;
+            __sync_synchronize();
+            mach_vm_protect(mach_task_self(), page, pageSize, FALSE, oldProtection);
+            installed = 1;
+        }
+    }
+    HFALog("[CUSTOM-BLOCK] identifier=%s block=%p class=%s image=%s invokeRVA=%llX installed=%d kr=%d\n",
+           identifier, block, class_getName(object_getClass(value)), hook->image,
+           (unsigned long long)hook->rva, installed, kr);
+    if (installed) gBlockHookCount++;
+    else memset(hook, 0, sizeof(*hook));
 }
 
 static int HFAValidOffset(const char *s) {
@@ -341,5 +450,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.4.7 AutoGroupMapping] loaded\n");
+    HFALog("[HFALearn v1.4.8 CustomBlockTrace] loaded\n");
 }
