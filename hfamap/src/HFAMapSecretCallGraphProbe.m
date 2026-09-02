@@ -2,6 +2,8 @@
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
+#import <mach/mach.h>
+#import <dispatch/dispatch.h>
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,10 +15,18 @@
 
 static int gKey2PathDone;
 static uintptr_t gKeyRegistryMaskAddress;
+static uintptr_t gKeyTableAddress;
+static uintptr_t gKeyImageBase;
+static uint64_t gLastLifecycleMask = UINT64_MAX;
+static uintptr_t gLastLifecycleSlot2 = UINTPTR_MAX;
+static uint64_t gLastLifecycleFingerprint = UINT64_MAX;
+static unsigned gLifecycleTick;
 static uintptr_t (*gOriginalKeyBundleLoader)(const void *, size_t,
                                               const uint8_t *, void *);
 
 typedef void (*HFAMSHookFunction)(void *, void *, void **);
+
+static void HFAInstallKeyBundleHook(uintptr_t base);
 
 static const char *HFABaseName(const char *path) {
     const char *p = path ? strrchr(path, '/') : NULL;
@@ -57,6 +67,64 @@ static uint64_t HFANonzeroKeyMask(const uint8_t *keys) {
         if (combined) mask |= 1ULL << keyId;
     }
     return mask;
+}
+
+static int HFASafeRead(uintptr_t address, void *output, size_t length) {
+    if (!address || !output || !length) return 0;
+    mach_vm_size_t copied = 0;
+    kern_return_t result = mach_vm_read_overwrite(
+        mach_task_self(), (mach_vm_address_t)address,
+        (mach_vm_size_t)length, (mach_vm_address_t)output, &copied);
+    return result == KERN_SUCCESS && copied == length;
+}
+
+static uint64_t HFAFingerprint(const uint8_t *bytes, size_t length) {
+    // Stable, one-way diagnostic fingerprint. Raw key bytes are never logged.
+    uint64_t hash = 1469598103934665603ULL;
+    for (size_t i = 0; i < length; i++) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+static void HFAKey2LifecycleTick(void);
+
+static void HFAScheduleKey2LifecycleTick(void) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                 (int64_t)(2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        HFAKey2LifecycleTick();
+    });
+}
+
+static void HFAKey2LifecycleTick(void) {
+    if (!gKeyImageBase || !gKeyRegistryMaskAddress || !gKeyTableAddress) return;
+    gLifecycleTick++;
+    uint64_t mask = 0;
+    uintptr_t slots[4] = {0};
+    int maskReadable = HFASafeRead(gKeyRegistryMaskAddress, &mask, sizeof(mask));
+    int tableReadable = HFASafeRead(gKeyTableAddress, slots, sizeof(slots));
+    uintptr_t slot2 = tableReadable ? slots[2] : 0;
+    uint8_t window[64] = {0};
+    int slotReadable = slot2 && HFASafeRead(slot2, window, sizeof(window));
+    uint64_t fingerprint = slotReadable ? HFAFingerprint(window, sizeof(window)) : 0;
+    int changed = mask != gLastLifecycleMask || slot2 != gLastLifecycleSlot2 ||
+                  fingerprint != gLastLifecycleFingerprint;
+    if (changed || gLifecycleTick == 1 || (gLifecycleTick % 30) == 0) {
+        HFAKey2Log("[KEY2-LIFECYCLE] tick=%u maskReadable=%u tableReadable=%u mask=%016llX key2Mask=%u slot2=%p slotReadable=%u fingerprint64=%016llX changed=%u\n",
+                   gLifecycleTick, maskReadable ? 1u : 0u,
+                   tableReadable ? 1u : 0u, (unsigned long long)mask,
+                   (unsigned)((mask >> 2) & 1), (void *)slot2,
+                   slotReadable ? 1u : 0u,
+                   (unsigned long long)fingerprint, changed ? 1u : 0u);
+        gLastLifecycleMask = mask;
+        gLastLifecycleSlot2 = slot2;
+        gLastLifecycleFingerprint = fingerprint;
+    }
+    if (!gOriginalKeyBundleLoader && (gLifecycleTick % 5) == 0)
+        HFAInstallKeyBundleHook(gKeyImageBase);
+    HFAScheduleKey2LifecycleTick();
 }
 
 static uintptr_t HFAKeyBundleLoaderHook(const void *payload,
@@ -119,10 +187,13 @@ static void HFAKey2ImageAdded(const struct mach_header *header,
         strcmp(HFABaseName(info.dli_fname), "RiseofBerk.dylib") != 0)
         return;
     uintptr_t base = (uintptr_t)info.dli_fbase;
+    gKeyImageBase = base;
+    gKeyTableAddress = base + 0xD31D40u;
     gKeyRegistryMaskAddress = base + 0xCFC9C0u;
     HFAKey2Log("[KEY2-AUTH-EARLY] image=RiseofBerk.dylib base=%p\n",
                (void *)base);
     HFAInstallKeyBundleHook(base);
+    HFAKey2LifecycleTick();
 }
 
 __attribute__((constructor))
@@ -273,7 +344,6 @@ static void HFALogMethodsForNodes(uintptr_t base, const char *image,
 
 void HFAProbeKey2Path(uintptr_t getterAddress) {
     if (gKey2PathDone || !getterAddress) return;
-    gKey2PathDone = 1;
     Dl_info info = {0};
     if (!dladdr((void *)getterAddress, &info) || !info.dli_fbase) return;
     uintptr_t base = (uintptr_t)info.dli_fbase;
@@ -285,6 +355,7 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
                    image, (unsigned long long)getterRVA);
         return;
     }
+    gKey2PathDone = 1;
 
     uintptr_t registerAddress = getterAddress + 0x1F38u;
     uintptr_t loaderAddress = getterAddress + 0xA70u;
@@ -305,6 +376,7 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
     }
 
     uintptr_t keyTableAddress = base + 0xD31D40u;
+    gKeyTableAddress = keyTableAddress;
     gKeyRegistryMaskAddress = base + 0xCFC9C0u;
     uintptr_t slots[4] = {0};
     uint64_t mask = 0;

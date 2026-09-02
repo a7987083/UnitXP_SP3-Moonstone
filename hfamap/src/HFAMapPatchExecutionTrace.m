@@ -954,5 +954,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.8.4 PackageExport] loaded\n");
+    HFALog("[HFALearn v1.8.5 Key2LifecycleProbe] loaded\n");
 }
