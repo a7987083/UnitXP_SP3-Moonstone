@@ -142,7 +142,7 @@ struct ContentView: View {
                 }
                 Section("文件访问") {
                     valueRow("分享导入", "已开启 public.data")
-                    valueRow("HFAPatchIPA", "v2.2.0")
+                    valueRow("HFAPatchIPA", "v2.2.1")
                 }
             }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
         }.navigationViewStyle(.stack)

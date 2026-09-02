@@ -1,4 +1,4 @@
-name: Build HFAPatchIPA v2.2.0
+name: Build HFAPatchIPA v2.2.1
 
 on:
   push:
@@ -69,25 +69,34 @@ jobs:
           mkdir -p HFAPatchIPA/dist/stage/Payload
           cp -R "$app" HFAPatchIPA/dist/stage/Payload/
           cd HFAPatchIPA/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../HFAPatchIPA_v2.2.0_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../HFAPatchIPA_v2.2.1_TrollStore.ipa
           cd ..
           file stage/Payload/HFAPatchIPA.app/HFAPatchIPA
-          shasum -a 256 HFAPatchIPA_v2.2.0_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 HFAPatchIPA_v2.2.1_TrollStore.ipa > SHA256SUMS.txt
+
+      - name: Verify generated Info.plist
+        run: |
+          plist="HFAPatchIPA/dist/stage/Payload/HFAPatchIPA.app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes' "$plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:2:LSItemContentTypes:0' "$plist" | grep -qx 'public.data'
+          /usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$plist" | grep -qx 'true'
+          /usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$plist" | grep -qx 'true'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx '2.2.1'
 
       - name: Publish IPA
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFAPatchIPA/dist/HFAPatchIPA_v2.2.0_TrollStore.ipa
+          git add -f HFAPatchIPA/dist/HFAPatchIPA_v2.2.1_TrollStore.ipa
           git add -f HFAPatchIPA/dist/SHA256SUMS.txt
-          git commit -m "Publish HFAPatchIPA v2.2.0 IPA [skip ci]"
+          git commit -m "Publish HFAPatchIPA v2.2.1 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-v1.0
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HFAPatchIPA-v2.2.0
+          name: HFAPatchIPA-v2.2.1
           path: |
-            HFAPatchIPA/dist/HFAPatchIPA_v2.2.0_TrollStore.ipa
+            HFAPatchIPA/dist/HFAPatchIPA_v2.2.1_TrollStore.ipa
             HFAPatchIPA/dist/SHA256SUMS.txt
           if-no-files-found: error

@@ -260,7 +260,7 @@ final class IPAProcessor {
         let exportDirectory = try Self.exportDirectory()
         let safeName = Self.safeFilename(workspace.appInfo.name)
         let modeName = mode == .fixed ? "Fixed" : "Menu"
-        let filename = "\(safeName)_HFAPatchIPA_v2.1.0_\(modeName)_\(Self.safeFilename(workspace.appInfo.shortVersion)).ipa"
+        let filename = "\(safeName)_HFAPatchIPA_v2.2.1_\(modeName)_\(Self.safeFilename(workspace.appInfo.shortVersion)).ipa"
         let output = exportDirectory.appendingPathComponent(filename)
         let temporaryZip = workspace.rootURL.appendingPathComponent("Output.zip")
         try? fileManager.removeItem(at: temporaryZip)

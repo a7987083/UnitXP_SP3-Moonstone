@@ -30,15 +30,54 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: HFAPatchIPA
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.developer-tools
         UIApplicationSupportsIndirectInputEvents: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Decrypted IPA
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.apple.itunes.ipa
+          - CFBundleTypeName: HFAPatch Package
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.hfa.patch-package
+              - public.json
+          - CFBundleTypeName: All Files
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.data
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.apple.itunes.ipa
+            UTTypeDescription: iOS App Archive
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - ipa
+          - UTTypeIdentifier: com.hfa.patch-package
+            UTTypeDescription: HFAPatch JSON Package
+            UTTypeConformsTo:
+              - public.json
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - hfapatch
+                - json
         UILaunchScreen: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hfa.patchipa
         PRODUCT_NAME: HFAPatchIPA
-        MARKETING_VERSION: 2.2.0
-        CURRENT_PROJECT_VERSION: 6
+        MARKETING_VERSION: 2.2.1
+        CURRENT_PROJECT_VERSION: 7
         SWIFT_VERSION: 5.0
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
