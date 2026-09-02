@@ -1,1 +1,1 @@
-b1a730e989a7088849ca3fc04b68cba00daeb0df85c4e84cf268bf3fccae1c5c  HFASign_v3.0.0-alpha2_TrollStore.ipa
+24b2dd284f77b17694fa5d63ca0f14cc7cccd6406b21a82faeaf09bfae07cfbe  HFASign_v3.0.0-alpha3_TrollStore.ipa
