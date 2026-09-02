@@ -4,7 +4,7 @@
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <mach/mach.h>
-#import <mach/mach_vm.h>
+#import <mach/vm_map.h>
 #import <libkern/OSCacheControl.h>
 
 #include <vector>
@@ -21,7 +21,7 @@
 @end
 
 @interface HFAPatchPreparedWrite : NSObject
-@property(nonatomic, assign) mach_vm_address_t address;
+@property(nonatomic, assign) vm_address_t address;
 @property(nonatomic, copy) NSData *before;
 @property(nonatomic, copy) NSData *after;
 @property(nonatomic, strong) HFAPatchOperation *operation;
@@ -65,8 +65,8 @@ static NSString *HFAPatchArchitecture(const struct mach_header_64 *header)
 }
 
 static BOOL HFAPatchSegmentContainsAddress(const HFAPatchResolvedTarget *target,
-                                           mach_vm_address_t address,
-                                           mach_vm_size_t length)
+                                           vm_address_t address,
+                                           vm_size_t length)
 {
     if (!target.header || length == 0 || UINT64_MAX - address < length) return NO;
     const uint8_t *cursor = (const uint8_t *)(target.header + 1);
@@ -75,8 +75,8 @@ static BOOL HFAPatchSegmentContainsAddress(const HFAPatchResolvedTarget *target,
         if (command->cmdsize < sizeof(struct load_command)) return NO;
         if (command->cmd == LC_SEGMENT_64 && command->cmdsize >= sizeof(struct segment_command_64)) {
             const struct segment_command_64 *segment = (const struct segment_command_64 *)command;
-            mach_vm_address_t start = (mach_vm_address_t)(target.slide + segment->vmaddr);
-            mach_vm_address_t end = start + segment->vmsize;
+            vm_address_t start = (vm_address_t)(target.slide + segment->vmaddr);
+            vm_address_t end = start + (vm_size_t)segment->vmsize;
             if (end >= start && address >= start && address + length >= address && address + length <= end) {
                 return YES;
             }
@@ -86,64 +86,64 @@ static BOOL HFAPatchSegmentContainsAddress(const HFAPatchResolvedTarget *target,
     return NO;
 }
 
-static BOOL HFAPatchReadMemory(mach_vm_address_t address, NSUInteger length, NSData **data, NSString **error)
+static BOOL HFAPatchReadMemory(vm_address_t address, NSUInteger length, NSData **data, NSString **error)
 {
     if (length == 0) {
         if (error) *error = @"Zero-length memory read";
         return NO;
     }
     NSMutableData *buffer = [NSMutableData dataWithLength:length];
-    mach_vm_size_t read = 0;
-    kern_return_t result = mach_vm_read_overwrite(mach_task_self(),
-                                                   address,
-                                                   (mach_vm_size_t)length,
-                                                   (mach_vm_address_t)buffer.mutableBytes,
-                                                   &read);
+    vm_size_t read = 0;
+    kern_return_t result = vm_read_overwrite(mach_task_self(),
+                                              address,
+                                              (vm_size_t)length,
+                                              (vm_address_t)buffer.mutableBytes,
+                                              &read);
     if (result != KERN_SUCCESS || read != length) {
-        if (error) *error = [NSString stringWithFormat:@"Memory read failed at 0x%llX (kr=%d)", address, result];
+        if (error) *error = [NSString stringWithFormat:@"Memory read failed at 0x%lX (kr=%d)", (unsigned long)address, result];
         return NO;
     }
     if (data) *data = buffer;
     return YES;
 }
 
-static BOOL HFAPatchWriteMemory(mach_vm_address_t address, NSData *data, NSString **error)
+static BOOL HFAPatchWriteMemory(vm_address_t address, NSData *data, NSString **error)
 {
     if (data.length == 0) {
         if (error) *error = @"Refusing zero-length patch";
         return NO;
     }
 
-    mach_vm_address_t pageStart = address & ~((mach_vm_address_t)vm_page_size - 1);
-    mach_vm_address_t endAddress = address + data.length;
+    vm_address_t pageStart = address & ~((vm_address_t)vm_page_size - 1);
+    vm_address_t endAddress = address + data.length;
     if (endAddress < address) {
         if (error) *error = @"Patch address overflow";
         return NO;
     }
-    mach_vm_address_t pageEnd = (endAddress + vm_page_size - 1) & ~((mach_vm_address_t)vm_page_size - 1);
+    vm_address_t pageEnd = (endAddress + vm_page_size - 1) & ~((vm_address_t)vm_page_size - 1);
 
     struct PageProtection {
-        mach_vm_address_t address;
+        vm_address_t address;
         vm_prot_t protection;
     };
     std::vector<PageProtection> pages;
 
-    for (mach_vm_address_t page = pageStart; page < pageEnd; page += vm_page_size) {
-        mach_vm_address_t regionAddress = page;
-        mach_vm_size_t regionSize = 0;
+    for (vm_address_t page = pageStart; page < pageEnd; page += vm_page_size) {
+        vm_address_t regionAddress = page;
+        vm_size_t regionSize = 0;
         vm_region_basic_info_data_64_t info = {};
         mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
         mach_port_t object = MACH_PORT_NULL;
-        kern_return_t query = mach_vm_region(mach_task_self(),
-                                             &regionAddress,
-                                             &regionSize,
-                                             VM_REGION_BASIC_INFO_64,
-                                             (vm_region_info_t)&info,
-                                             &count,
-                                             &object);
+        kern_return_t query = vm_region_64(mach_task_self(),
+                                           &regionAddress,
+                                           &regionSize,
+                                           VM_REGION_BASIC_INFO_64,
+                                           (vm_region_info_t)&info,
+                                           &count,
+                                           &object);
         if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
         if (query != KERN_SUCCESS || regionAddress > page || page >= regionAddress + regionSize) {
-            if (error) *error = [NSString stringWithFormat:@"Protection query failed at 0x%llX (kr=%d)", page, query];
+            if (error) *error = [NSString stringWithFormat:@"Protection query failed at 0x%lX (kr=%d)", (unsigned long)page, query];
             return NO;
         }
         pages.push_back({page, info.protection});
@@ -152,16 +152,16 @@ static BOOL HFAPatchWriteMemory(mach_vm_address_t address, NSData *data, NSStrin
     NSUInteger changedPages = 0;
     for (const PageProtection &page : pages) {
         vm_prot_t writable = page.protection | VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY;
-        kern_return_t protect = mach_vm_protect(mach_task_self(),
-                                                page.address,
-                                                vm_page_size,
-                                                FALSE,
-                                                writable);
+        kern_return_t protect = vm_protect(mach_task_self(),
+                                           page.address,
+                                           vm_page_size,
+                                           FALSE,
+                                           writable);
         if (protect != KERN_SUCCESS) {
             for (NSUInteger index = 0; index < changedPages; index++) {
-                mach_vm_protect(mach_task_self(), pages[index].address, vm_page_size, FALSE, pages[index].protection);
+                vm_protect(mach_task_self(), pages[index].address, vm_page_size, FALSE, pages[index].protection);
             }
-            if (error) *error = [NSString stringWithFormat:@"Write protection failed at 0x%llX (kr=%d)", page.address, protect];
+            if (error) *error = [NSString stringWithFormat:@"Write protection failed at 0x%lX (kr=%d)", (unsigned long)page.address, protect];
             return NO;
         }
         changedPages++;
@@ -172,11 +172,11 @@ static BOOL HFAPatchWriteMemory(mach_vm_address_t address, NSData *data, NSStrin
 
     BOOL restored = YES;
     for (const PageProtection &page : pages) {
-        kern_return_t protect = mach_vm_protect(mach_task_self(),
-                                                page.address,
-                                                vm_page_size,
-                                                FALSE,
-                                                page.protection);
+        kern_return_t protect = vm_protect(mach_task_self(),
+                                           page.address,
+                                           vm_page_size,
+                                           FALSE,
+                                           page.protection);
         if (protect != KERN_SUCCESS) restored = NO;
     }
     if (!restored) {
@@ -294,7 +294,7 @@ static BOOL HFAPatchWriteMemory(mach_vm_address_t address, NSData *data, NSStrin
                 if (error) *error = [NSString stringWithFormat:@"Address overflow in feature %@", feature.identifier];
                 return NO;
             }
-            mach_vm_address_t address = (mach_vm_address_t)(uintptr_t)target.header + operation.offset;
+            vm_address_t address = (vm_address_t)(uintptr_t)target.header + operation.offset;
             if (!HFAPatchSegmentContainsAddress(target, address, operation.originalBytes.length)) {
                 if (error) *error = [NSString stringWithFormat:@"Offset 0x%llX is outside %@ for feature %@",
                                      operation.offset, target.path.lastPathComponent, feature.identifier];
@@ -381,7 +381,7 @@ static BOOL HFAPatchWriteMemory(mach_vm_address_t address, NSData *data, NSStrin
     HFAPatchResolvedTarget *target = [self resolveTarget:targetDefinition error:error];
     if (!target) return nil;
 
-    mach_vm_address_t address = (mach_vm_address_t)(uintptr_t)target.header + operation.offset;
+    vm_address_t address = (vm_address_t)(uintptr_t)target.header + operation.offset;
     if (!HFAPatchSegmentContainsAddress(target, address, operation.originalBytes.length)) {
         if (error) *error = [NSString stringWithFormat:@"Address outside target: %@+0x%llX",
                              operation.targetIdentifier, operation.offset];
@@ -426,7 +426,7 @@ static BOOL HFAPatchWriteMemory(mach_vm_address_t address, NSData *data, NSStrin
             [self.lock unlock];
             return HFAPatchFeatureStateUnavailable;
         }
-        mach_vm_address_t address = (mach_vm_address_t)(uintptr_t)target.header + operation.offset;
+        vm_address_t address = (vm_address_t)(uintptr_t)target.header + operation.offset;
         NSData *current = nil;
         if (!HFAPatchSegmentContainsAddress(target, address, operation.originalBytes.length) ||
             !HFAPatchReadMemory(address, operation.originalBytes.length, &current, &resolveError)) {
@@ -479,8 +479,8 @@ static BOOL HFAPatchWriteMemory(mach_vm_address_t address, NSData *data, NSStrin
             for (HFAPatchPreparedWrite *rollback in completed.reverseObjectEnumerator) {
                 NSString *rollbackError = nil;
                 if (!HFAPatchWriteMemory(rollback.address, rollback.before, &rollbackError)) {
-                    HFAPatchLog(@"[ROLLBACK-FAIL] id=%@ address=0x%llX error=%@",
-                                feature.identifier, rollback.address, rollbackError);
+                    HFAPatchLog(@"[ROLLBACK-FAIL] id=%@ address=0x%lX error=%@",
+                                feature.identifier, (unsigned long)rollback.address, rollbackError);
                 }
             }
             if (error) *error = writeError;
