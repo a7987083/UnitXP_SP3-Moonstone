@@ -46,19 +46,6 @@ static NSString *HFAPatchRequiredString(NSDictionary *dictionary,
     return value;
 }
 
-NSString *HFAPatchNormalizedUUID(NSString *value)
-{
-    NSString *normalized = [[value stringByReplacingOccurrencesOfString:@"-" withString:@""] uppercaseString];
-    return normalized ?: @"";
-}
-
-static BOOL HFAPatchIsValidNormalizedUUID(NSString *value)
-{
-    if (value.length != 32) return NO;
-    NSCharacterSet *hexSet = [NSCharacterSet characterSetWithCharactersInString:@"0123456789ABCDEF"];
-    return [value rangeOfCharacterFromSet:hexSet.invertedSet].location == NSNotFound;
-}
-
 static NSData *HFAPatchDataFromHex(NSString *hex, NSString *context, NSError **error)
 {
     NSString *clean = [[[hex stringByReplacingOccurrencesOfString:@" " withString:@""]
@@ -222,12 +209,7 @@ NSString *HFAPatchHexString(NSData *data)
         HFAPatchTarget *target = [[HFAPatchTarget alloc] init];
         target.identifier = rawIdentifier;
         target.image = HFAPatchRequiredString(targetJSON, @"image", [@"targets." stringByAppendingString:rawIdentifier], error);
-        target.uuid = HFAPatchNormalizedUUID(HFAPatchRequiredString(targetJSON, @"uuid", [@"targets." stringByAppendingString:rawIdentifier], error));
-        if (!target.image || !HFAPatchIsValidNormalizedUUID(target.uuid)) {
-            if (error && !*error) *error = HFAPatchConfigError(HFAPatchConfigErrorField,
-                                                               [NSString stringWithFormat:@"targets.%@.uuid must contain 16 bytes", rawIdentifier]);
-            return nil;
-        }
+        if (!target.image) return nil;
         targets[rawIdentifier] = target;
     }
 

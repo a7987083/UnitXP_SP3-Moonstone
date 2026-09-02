@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 
 
-UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$")
 HEX_RE = re.compile(r"^(?:0[xX])?(?:[0-9a-fA-F]{2})+$")
 OFFSET_RE = re.compile(r"^(?:0[xX][0-9a-fA-F]+|[0-9]+)$")
 
@@ -54,8 +53,6 @@ def validate(document: object) -> None:
         require_string(target_id, "target id")
         require(isinstance(target, dict), f"targets.{target_id} must be an object")
         require_string(target.get("image"), f"targets.{target_id}.image")
-        uuid = require_string(target.get("uuid"), f"targets.{target_id}.uuid")
-        require(bool(UUID_RE.fullmatch(uuid)), f"targets.{target_id}.uuid is invalid")
 
     features = document.get("features")
     require(isinstance(features, list) and features, "features must be a non-empty array")

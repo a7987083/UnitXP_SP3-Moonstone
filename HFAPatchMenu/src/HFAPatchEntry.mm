@@ -10,7 +10,7 @@ static void HFAPatchStartOnce(void)
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (![NSBundle.mainBundle.bundlePath.pathExtension.lowercaseString isEqualToString:@"app"]) return;
-            HFAPatchLog(@"[BOOT] version=0.1.0 bundle=%@", NSBundle.mainBundle.bundleIdentifier ?: @"<none>");
+            HFAPatchLog(@"[BOOT] version=0.2.0 bundle=%@", NSBundle.mainBundle.bundleIdentifier ?: @"<none>");
             [HFAPatchMenuUI.sharedUI start];
         });
     });

@@ -9,12 +9,10 @@
   },
   "targets": {
     "main": {
-      "image": "@main",
-      "uuid": "00112233-4455-6677-8899-AABBCCDDEEFF"
+      "image": "@main"
     },
     "unity": {
-      "image": "UnityFramework",
-      "uuid": "11223344-5566-7788-99AA-BBCCDDEEFF00"
+      "image": "UnityFramework"
     }
   },
   "features": [

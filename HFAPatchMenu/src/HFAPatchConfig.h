@@ -5,7 +5,6 @@ NS_ASSUME_NONNULL_BEGIN
 @interface HFAPatchTarget : NSObject
 @property(nonatomic, copy) NSString *identifier;
 @property(nonatomic, copy) NSString *image;
-@property(nonatomic, copy) NSString *uuid;
 @end
 
 @interface HFAPatchOperation : NSObject
@@ -44,7 +43,6 @@ NS_ASSUME_NONNULL_BEGIN
                                           error:(NSError **)error;
 @end
 
-FOUNDATION_EXPORT NSString *HFAPatchNormalizedUUID(NSString *value);
 FOUNDATION_EXPORT NSString *HFAPatchHexString(NSData *data);
 
 NS_ASSUME_NONNULL_END

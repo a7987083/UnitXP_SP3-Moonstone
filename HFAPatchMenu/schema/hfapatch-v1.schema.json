@@ -35,16 +35,12 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["image", "uuid"],
+        "required": ["image"],
         "properties": {
           "image": {
             "type": "string",
             "minLength": 1,
             "description": "@main or an exact loaded image basename"
-          },
-          "uuid": {
-            "type": "string",
-            "pattern": "^[0-9A-Fa-f]{8}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{12}$"
           }
         }
       }

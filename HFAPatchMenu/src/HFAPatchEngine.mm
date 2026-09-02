@@ -13,7 +13,6 @@
 @property(nonatomic, assign) const struct mach_header_64 *header;
 @property(nonatomic, assign) intptr_t slide;
 @property(nonatomic, copy) NSString *path;
-@property(nonatomic, copy) NSString *uuid;
 @property(nonatomic, copy) NSString *architecture;
 @end
 
@@ -36,23 +35,6 @@
 @property(nonatomic, assign, readwrite, getter=isReady) BOOL ready;
 @property(nonatomic, strong) NSRecursiveLock *lock;
 @end
-
-static NSString *HFAPatchImageUUID(const struct mach_header_64 *header)
-{
-    if (!header || header->magic != MH_MAGIC_64) return @"";
-    const uint8_t *cursor = (const uint8_t *)(header + 1);
-    for (uint32_t index = 0; index < header->ncmds; index++) {
-        const struct load_command *command = (const struct load_command *)cursor;
-        if (command->cmdsize < sizeof(struct load_command)) return @"";
-        if (command->cmd == LC_UUID && command->cmdsize >= sizeof(struct uuid_command)) {
-            const struct uuid_command *uuidCommand = (const struct uuid_command *)command;
-            NSUUID *uuid = [[NSUUID alloc] initWithUUIDBytes:uuidCommand->uuid];
-            return HFAPatchNormalizedUUID(uuid.UUIDString);
-        }
-        cursor += command->cmdsize;
-    }
-    return @"";
-}
 
 static NSString *HFAPatchArchitecture(const struct mach_header_64 *header)
 {
@@ -230,14 +212,7 @@ static BOOL HFAPatchWriteMemory(vm_address_t address, NSData *data, NSString **e
         resolved.header = (const struct mach_header_64 *)rawHeader;
         resolved.slide = _dyld_get_image_vmaddr_slide(index);
         resolved.path = path;
-        resolved.uuid = HFAPatchImageUUID(resolved.header);
         resolved.architecture = HFAPatchArchitecture(resolved.header);
-
-        if (![resolved.uuid isEqualToString:target.uuid]) {
-            if (error) *error = [NSString stringWithFormat:@"UUID mismatch for %@: expected %@, got %@",
-                                 target.image, target.uuid, resolved.uuid.length ? resolved.uuid : @"<none>"];
-            return nil;
-        }
         return resolved;
     }
     if (error) *error = [NSString stringWithFormat:@"Target image not loaded: %@", target.image];
