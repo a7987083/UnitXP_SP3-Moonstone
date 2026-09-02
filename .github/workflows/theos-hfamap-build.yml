@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.8.5 Key2LifecycleProbe
+name: HFAMapUniversal v1.8.6 GenericKey2Probe
 
 on:
   push:
@@ -22,18 +22,19 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.8.5
+      - name: Build and verify HFAMapUniversal v1.8.6
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.8.5_Key2LifecycleProbe.dylib"
+          out="dist/HFAMapUniversal_v1.8.6_GenericKey2Probe.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out"
-          strings "$out" | grep -q "HFALearn v1.8.5 Key2LifecycleProbe"
+          strings "$out" | grep -q "HFALearn v1.8.6 GenericKey2Probe"
           strings "$out" | grep -q "\[KEY2-LIFECYCLE\]"
+          strings "$out" | grep -q "\[MODULE-NORMALIZE\]"
           strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
           strings "$out" | grep -q "\[AUTO-CONTROL-TARGET\]"
           strings "$out" | grep -q "\[AUTO-STAGE\]"
@@ -72,13 +73,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hfamap/dist/HFAMapUniversal_v1.8.5_Key2LifecycleProbe.dylib
-          git commit -m "Publish HFAMapUniversal v1.8.5 dylib [skip ci]"
+          git add -f hfamap/dist/HFAMapUniversal_v1.8.6_GenericKey2Probe.dylib
+          git commit -m "Publish HFAMapUniversal v1.8.6 dylib [skip ci]"
           git push origin HEAD:build/hfamap-v1.4.5-20260901
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.8.5-Key2LifecycleProbe
-          path: hfamap/dist/HFAMapUniversal_v1.8.5_Key2LifecycleProbe.dylib
+          name: HFAMapUniversal-v1.8.6-GenericKey2Probe
+          path: hfamap/dist/HFAMapUniversal_v1.8.6_GenericKey2Probe.dylib
           if-no-files-found: error

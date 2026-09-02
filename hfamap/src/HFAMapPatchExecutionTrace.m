@@ -190,8 +190,14 @@ void HFARegisterPatchString(id owner, const char *value) {
     HFADescriptor *d = HFADescriptorFor(owner, 1);
     if (!d || !value || !*value) return;
     d->seenEvent = gEvent;
+    const char *normalized = HFABase(value);
     if (HFAImageIndexForName(value) >= 0)
         snprintf(d->module, sizeof(d->module), "%s", value);
+    else if (normalized && normalized != value &&
+             HFAImageIndexForName(normalized) >= 0) {
+        snprintf(d->module, sizeof(d->module), "%s", normalized);
+        HFALog("[MODULE-NORMALIZE] input=%s output=%s\n", value, normalized);
+    }
     else if (!d->key[0] && strchr(value, '-') && !strchr(value, ' '))
         snprintf(d->key, sizeof(d->key), "%s", value);
 }
@@ -288,9 +294,9 @@ static int HFADecryptWrapper(id wrapper, char *out, size_t outCap, const char *l
         free(copy); free(plain); return 0;
     }
     memcpy(copy, secret, blobSize);
-    int rc = ((HFASecretDecryptFn)decryptAddress)(copy, plain);
-    if (rc == 3 && (flags >> 24) == 2u)
+    if ((flags >> 24) == 2u)
         HFAProbeKey2Path((uintptr_t)getter);
+    int rc = ((HFASecretDecryptFn)decryptAddress)(copy, plain);
     if (rc == 0) {
         size_t n = len < outCap - 1 ? len : outCap - 1;
         memcpy(out, plain, n);
@@ -954,5 +960,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.8.5 Key2LifecycleProbe] loaded\n");
+    HFALog("[HFALearn v1.8.6 GenericKey2Probe] loaded\n");
 }
