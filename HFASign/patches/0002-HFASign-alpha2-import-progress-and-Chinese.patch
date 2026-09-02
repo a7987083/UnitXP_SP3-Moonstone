@@ -70,7 +70,7 @@ index 5124eeb..2bf4ec2 100644
  }
 \ No newline at end of file
 diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
-index dbb6725..3270868 100644
+index dbb6725..569fa3b 100644
 --- a/Ksign/FeatherApp.swift
 +++ b/Ksign/FeatherApp.swift
 @@ -18,11 +18,14 @@ struct FeatherApp: App {
@@ -88,7 +88,7 @@ index dbb6725..3270868 100644
                  ExtractHeaderView(extractManager: extractManager)
                      .transition(.move(edge: .top).combined(with: .opacity))
  				DownloadHeaderView(downloadManager: downloadManager)
-@@ -57,19 +60,11 @@ struct FeatherApp: App {
+@@ -57,20 +60,7 @@ struct FeatherApp: App {
  				_ = DownloadManager.shared.startDownload(from: downloadURL, id: "FeatherManualDownload_\(UUID().uuidString)")
  			}
  		} else {
@@ -102,16 +102,15 @@ index dbb6725..3270868 100644
 -				
 -				return
 -			}
-+			SharedImportCoordinator.shared.receive(url)
-+			return
- 			
-             if url.pathExtension == "ksign" {
+-			
+-            if url.pathExtension == "ksign" {
 -                UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Ksign certificate file (.ksign) is now unsupported from v1.5.1, please refer to use .p12 and .mobileprovision instead."))
-+                UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Ksign certificate file (.ksign) is now unsupported from v1.5.1, please refer to use .p12 and .mobileprovision instead."))
-             }
+-            }
++			SharedImportCoordinator.shared.receive(url)
  		}
  	}
-@@ -127,7 +122,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+ 	
+@@ -127,7 +117,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
          let appDirectory = URL.documentsDirectory.appendingPathComponent("App")
          try? fileManager.createDirectoryIfNeeded(at: appDirectory)
          
