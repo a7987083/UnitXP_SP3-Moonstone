@@ -2,6 +2,7 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
+#import <mach-o/loader.h>
 #import <mach/mach.h>
 #include <dlfcn.h>
 #include <stdint.h>
@@ -671,6 +672,92 @@ static int HFAValidPatch(const char *s) {
     return 1;
 }
 
+static NSData *HFADataFromHex(const char *value) {
+    if (!HFAValidPatch(value)) return nil;
+    size_t length = strlen(value) / 2;
+    NSMutableData *data = [NSMutableData dataWithLength:length];
+    uint8_t *bytes = data.mutableBytes;
+    for (size_t i = 0; i < length; i++) {
+        unsigned byte = 0;
+        if (sscanf(value + i * 2, "%2x", &byte) != 1) return nil;
+        bytes[i] = (uint8_t)byte;
+    }
+    return data;
+}
+
+static NSString *HFAHexData(NSData *data) {
+    NSMutableString *result = [NSMutableString stringWithCapacity:data.length * 2];
+    const uint8_t *bytes = data.bytes;
+    for (NSUInteger i = 0; i < data.length; i++) [result appendFormat:@"%02X", bytes[i]];
+    return result;
+}
+
+static NSString *HFAImageUUIDAtIndex(uint32_t index) {
+    const struct mach_header *raw = _dyld_get_image_header(index);
+    if (!raw || raw->magic != MH_MAGIC_64) return nil;
+    const struct mach_header_64 *header = (const struct mach_header_64 *)raw;
+    const uint8_t *cursor = (const uint8_t *)(header + 1);
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        const struct load_command *command = (const struct load_command *)cursor;
+        if (command->cmdsize < sizeof(*command)) return nil;
+        if (command->cmd == LC_UUID && command->cmdsize >= sizeof(struct uuid_command)) {
+            const struct uuid_command *uuid = (const struct uuid_command *)command;
+            return [[[NSUUID alloc] initWithUUIDBytes:uuid->uuid] UUIDString];
+        }
+        cursor += command->cmdsize;
+    }
+    return nil;
+}
+
+static NSData *HFAReadOriginalBytes(uint32_t imageIndex, uint64_t rva, NSUInteger length) {
+    if (!length || UINT64_MAX - (uint64_t)_dyld_get_image_vmaddr_slide(imageIndex) < rva) return nil;
+    vm_address_t address = (vm_address_t)(_dyld_get_image_vmaddr_slide(imageIndex) + rva);
+    NSMutableData *data = [NSMutableData dataWithLength:length];
+    vm_size_t read = 0;
+    kern_return_t kr = vm_read_overwrite(mach_task_self(), address, length,
+                                         (vm_address_t)data.mutableBytes, &read);
+    return kr == KERN_SUCCESS && read == length ? data : nil;
+}
+
+static void HFAWritePatchPackage(NSArray *features, NSDictionary *targets) {
+    if (!features.count || !targets.count) return;
+    NSBundle *bundle = NSBundle.mainBundle;
+    NSString *bundleID = bundle.bundleIdentifier ?: @"unknown.game";
+    NSString *shortVersion = [bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"0";
+    NSString *buildVersion = [bundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"0";
+#ifdef CPU_SUBTYPE_ARM64E
+    const struct mach_header *header = _dyld_get_image_header(0);
+    cpu_subtype_t subtype = header ? (header->cpusubtype & ~CPU_SUBTYPE_MASK) : 0;
+    NSString *architecture = subtype == CPU_SUBTYPE_ARM64E ? @"arm64e" : @"arm64";
+#else
+    NSString *architecture = @"arm64";
+#endif
+    NSDictionary *root = @{
+        @"schema": @"com.hfa.patch/v1",
+        @"name": [NSString stringWithFormat:@"%@ %@", bundleID, shortVersion],
+        @"package": @{ @"bundleIdentifier": bundleID,
+                        @"shortVersion": shortVersion,
+                        @"buildVersion": buildVersion,
+                        @"architectures": @[architecture] },
+        @"targets": targets,
+        @"features": features
+    };
+    NSError *error = nil;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:root options:NSJSONWritingPrettyPrinted error:&error];
+    if (!json) {
+        HFALog("[PACKAGE-EXPORT-FAIL] reason=%s\n", error.localizedDescription.UTF8String ?: "json");
+        return;
+    }
+    NSString *safeID = [bundleID stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+    NSString *name = [NSString stringWithFormat:@"%@_%@_%@.hfapatch.json", safeID, shortVersion, buildVersion];
+    NSString *path = [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"] stringByAppendingPathComponent:name];
+    if ([json writeToFile:path options:NSDataWritingAtomic error:&error])
+        HFALog("[PACKAGE-EXPORT] path=%s features=%u targets=%u\n", path.UTF8String,
+               (unsigned)features.count, (unsigned)targets.count);
+    else
+        HFALog("[PACKAGE-EXPORT-FAIL] reason=%s\n", error.localizedDescription.UTF8String ?: "write");
+}
+
 static void HFAWriteCompactMapping(const char *feature, const char *module,
                                    const char *offset, const char *patch) {
     if (!feature || !module || !offset || !patch) return;
@@ -694,6 +781,8 @@ static void HFAWriteCompactMapping(const char *feature, const char *module,
 
 unsigned HFAPatchTraceFinalizeScan(void) {
     unsigned groups = 0, emitted = 0, validParts = 0;
+    NSMutableArray *exportFeatures = [NSMutableArray array];
+    NSMutableDictionary *exportTargets = [NSMutableDictionary dictionary];
     HFALog("[FULL-SCAN-BEGIN] features=%u descriptors=%u\n",
            gFeatureDefinitionCount, gDescriptorCount);
     for (unsigned i = 0; i < gDescriptorCount; i++) {
@@ -716,6 +805,7 @@ unsigned HFAPatchTraceFinalizeScan(void) {
         const char *identifier = definition ? definition->identifier : "?";
         groups++;
         unsigned part = 0;
+        NSMutableArray *exportPatches = [NSMutableArray array];
         for (unsigned j = i; j < gDescriptorCount; j++) {
             HFADescriptor *descriptor = &gDescriptors[j];
             if (strcmp(descriptor->key, first->key) != 0) continue;
@@ -747,11 +837,42 @@ unsigned HFAPatchTraceFinalizeScan(void) {
                 if (definition)
                     HFAWriteCompactMapping(title, descriptor->module,
                                            normalizedOffset, patch);
+                int imageIndex = HFAImageIndexForName(descriptor->module);
+                NSData *enabled = HFADataFromHex(patch);
+                uint64_t rva = strtoull(normalizedOffset, NULL, 16);
+                NSData *original = imageIndex >= 0 ? HFAReadOriginalBytes((uint32_t)imageIndex, rva, enabled.length) : nil;
+                NSString *uuid = imageIndex >= 0 ? HFAImageUUIDAtIndex((uint32_t)imageIndex) : nil;
+                if (definition && enabled.length && original.length == enabled.length && uuid.length) {
+                    if ([original isEqualToData:enabled]) {
+                        HFALog("[PACKAGE-SKIP] title=\"%s\" reason=patch-already-enabled\n", title);
+                    } else {
+                        NSString *targetID = imageIndex == 0 ? @"main" : [NSString stringWithUTF8String:descriptor->module];
+                        NSString *image = imageIndex == 0 ? @"@main" :
+                            [NSString stringWithUTF8String:HFABase(_dyld_get_image_name((uint32_t)imageIndex))];
+                        exportTargets[targetID] = @{ @"image": image, @"uuid": uuid };
+                        [exportPatches addObject:@{ @"target": targetID,
+                                                   @"offset": [NSString stringWithUTF8String:normalizedOffset],
+                                                   @"original": HFAHexData(original),
+                                                   @"enabled": [NSString stringWithUTF8String:patch] }];
+                    }
+                } else if (definition) {
+                    HFALog("[PACKAGE-SKIP] title=\"%s\" reason=identity-or-original-unavailable\n", title);
+                }
             }
+        }
+        if (definition && exportPatches.count) {
+            NSString *featureID = [NSString stringWithUTF8String:identifier];
+            NSString *featureTitle = [NSString stringWithUTF8String:title];
+            [exportFeatures addObject:@{ @"id": featureID,
+                                         @"title": featureTitle,
+                                         @"group": @"Imported",
+                                         @"defaultEnabled": @NO,
+                                         @"patches": exportPatches }];
         }
     }
     HFALog("[FULL-SCAN-END] groups=%u mappings=%u valid=%u unresolved=%u\n",
            groups, emitted, validParts, emitted - validParts);
+    HFAWritePatchPackage(exportFeatures, exportTargets);
     return validParts;
 }
 
@@ -851,5 +972,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.8.3 KeyLoaderTrace] loaded\n");
+    HFALog("[HFALearn v1.8.4 PackageExport] loaded\n");
 }

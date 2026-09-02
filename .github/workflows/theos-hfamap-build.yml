@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.8.3 KeyLoaderTrace
+name: HFAMapUniversal v1.8.4 PackageExport
 
 on:
   push:
@@ -22,17 +22,18 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.8.3
+      - name: Build and verify HFAMapUniversal v1.8.4
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.8.3_KeyLoaderTrace.dylib"
+          out="dist/HFAMapUniversal_v1.8.4_PackageExport.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out"
-          strings "$out" | grep -q "HFALearn v1.8.3 KeyLoaderTrace"
+          strings "$out" | grep -q "HFALearn v1.8.4 PackageExport"
+          strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
           strings "$out" | grep -q "\[AUTO-CONTROL-TARGET\]"
           strings "$out" | grep -q "\[AUTO-STAGE\]"
           strings "$out" | grep -q "\[KEY2-PATH-BEGIN\]"
@@ -70,13 +71,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hfamap/dist/HFAMapUniversal_v1.8.3_KeyLoaderTrace.dylib
-          git commit -m "Publish HFAMapUniversal v1.8.3 dylib [skip ci]"
+          git add -f hfamap/dist/HFAMapUniversal_v1.8.4_PackageExport.dylib
+          git commit -m "Publish HFAMapUniversal v1.8.4 dylib [skip ci]"
           git push origin HEAD:build/hfamap-v1.4.5-20260901
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.8.3-KeyLoaderTrace
-          path: hfamap/dist/HFAMapUniversal_v1.8.3_KeyLoaderTrace.dylib
+          name: HFAMapUniversal-v1.8.4-PackageExport
+          path: hfamap/dist/HFAMapUniversal_v1.8.4_PackageExport.dylib
           if-no-files-found: error
