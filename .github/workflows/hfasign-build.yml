@@ -16,6 +16,7 @@ jobs:
           git clone https://github.com/Nyasami/Ksign.git HFASignBuild
           git -C HFASignBuild checkout 03a3a9c86897d79f9faf8106037b9971841d56a0
           git -C HFASignBuild apply ../HFASign/patches/0001-Rebrand-Ksign-baseline-as-HFASign-alpha1.patch
+          git -C HFASignBuild apply ../HFASign/patches/0002-HFASign-alpha2-import-progress-and-Chinese.patch
           git -C HFASignBuild submodule update --init --recursive
       - name: Install packaging tools
         run: brew install ldid
@@ -42,9 +43,9 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../HFASign_v3.0.0-alpha1_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../HFASign_v3.0.0-alpha2_TrollStore.ipa
           cd ..
-          shasum -a 256 HFASign_v3.0.0-alpha1_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 HFASign_v3.0.0-alpha2_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
@@ -56,13 +57,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/HFASign_v3.0.0-alpha1_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish HFASign v3.0.0-alpha1 IPA [skip ci]"
+          git add -f HFASign/dist/HFASign_v3.0.0-alpha2_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish HFASign v3.0.0-alpha2 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
       - uses: actions/upload-artifact@v4
         with:
-          name: HFASign-v3.0.0-alpha1
+          name: HFASign-v3.0.0-alpha2
           path: |
-            HFASign/dist/HFASign_v3.0.0-alpha1_TrollStore.ipa
+            HFASign/dist/HFASign_v3.0.0-alpha2_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
