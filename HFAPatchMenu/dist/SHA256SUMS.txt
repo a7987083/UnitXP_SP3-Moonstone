@@ -1,2 +1,2 @@
-52332251b0eb20d4d0bb4189320d61d205f96bbaec4a3b6705ab8d0fa635e362  dist/HFAPatchMenu_v0.1.0.dylib
-6e2f4f8c2be9848c7ae54f0af475925d159d38ad9fb2066ece5f8044ae319de8  dist/HFAPatchMenu_v0.1.0_Package.zip
+16223aafc4e5e361b1fc9c11e5fd9bce11612b3d94eb16ca231050e9c79b0072  dist/HFAPatchMenu_v0.2.0.dylib
+c95d8bcee847a71eb4e1667c6ecff6679c57b368f6807abc1b4b1473197e18fa  dist/HFAPatchMenu_v0.2.0_Package.zip
