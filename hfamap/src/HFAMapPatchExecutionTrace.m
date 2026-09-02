@@ -692,23 +692,6 @@ static NSString *HFAHexData(NSData *data) {
     return result;
 }
 
-static NSString *HFAImageUUIDAtIndex(uint32_t index) {
-    const struct mach_header *raw = _dyld_get_image_header(index);
-    if (!raw || raw->magic != MH_MAGIC_64) return nil;
-    const struct mach_header_64 *header = (const struct mach_header_64 *)raw;
-    const uint8_t *cursor = (const uint8_t *)(header + 1);
-    for (uint32_t i = 0; i < header->ncmds; i++) {
-        const struct load_command *command = (const struct load_command *)cursor;
-        if (command->cmdsize < sizeof(*command)) return nil;
-        if (command->cmd == LC_UUID && command->cmdsize >= sizeof(struct uuid_command)) {
-            const struct uuid_command *uuid = (const struct uuid_command *)command;
-            return [[[NSUUID alloc] initWithUUIDBytes:uuid->uuid] UUIDString];
-        }
-        cursor += command->cmdsize;
-    }
-    return nil;
-}
-
 static NSData *HFAReadOriginalBytes(uint32_t imageIndex, uint64_t rva, NSUInteger length) {
     if (!length || UINT64_MAX - (uint64_t)_dyld_get_image_vmaddr_slide(imageIndex) < rva) return nil;
     vm_address_t address = (vm_address_t)(_dyld_get_image_vmaddr_slide(imageIndex) + rva);
@@ -841,15 +824,14 @@ unsigned HFAPatchTraceFinalizeScan(void) {
                 NSData *enabled = HFADataFromHex(patch);
                 uint64_t rva = strtoull(normalizedOffset, NULL, 16);
                 NSData *original = imageIndex >= 0 ? HFAReadOriginalBytes((uint32_t)imageIndex, rva, enabled.length) : nil;
-                NSString *uuid = imageIndex >= 0 ? HFAImageUUIDAtIndex((uint32_t)imageIndex) : nil;
-                if (definition && enabled.length && original.length == enabled.length && uuid.length) {
+                if (definition && enabled.length && original.length == enabled.length) {
                     if ([original isEqualToData:enabled]) {
                         HFALog("[PACKAGE-SKIP] title=\"%s\" reason=patch-already-enabled\n", title);
                     } else {
                         NSString *targetID = imageIndex == 0 ? @"main" : [NSString stringWithUTF8String:descriptor->module];
                         NSString *image = imageIndex == 0 ? @"@main" :
                             [NSString stringWithUTF8String:HFABase(_dyld_get_image_name((uint32_t)imageIndex))];
-                        exportTargets[targetID] = @{ @"image": image, @"uuid": uuid };
+                        exportTargets[targetID] = @{ @"image": image };
                         [exportPatches addObject:@{ @"target": targetID,
                                                    @"offset": [NSString stringWithUTF8String:normalizedOffset],
                                                    @"original": HFAHexData(original),
