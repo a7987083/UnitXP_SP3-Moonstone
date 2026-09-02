@@ -1,0 +1,8 @@
+Package: com.hfa.patchmenu
+Name: HFAPatchMenu
+Version: 0.1.0
+Architecture: iphoneos-arm
+Description: JSON-driven runtime patch menu for TrollStore and jailbroken apps.
+Maintainer: HFA
+Author: HFA
+Section: Tweaks

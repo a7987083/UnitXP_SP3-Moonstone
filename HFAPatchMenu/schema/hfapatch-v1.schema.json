@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hfa.local/schema/hfapatch-v1.schema.json",
+  "title": "HFAPatch data package v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "package", "targets", "features"],
+  "properties": {
+    "schema": {
+      "const": "com.hfa.patch/v1"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleIdentifier", "shortVersion", "buildVersion", "architectures"],
+      "properties": {
+        "bundleIdentifier": { "type": "string", "minLength": 1 },
+        "shortVersion": { "type": "string", "minLength": 1 },
+        "buildVersion": { "type": "string", "minLength": 1 },
+        "architectures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["arm64", "arm64e"] }
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["image", "uuid"],
+        "properties": {
+          "image": {
+            "type": "string",
+            "minLength": 1,
+            "description": "@main or an exact loaded image basename"
+          },
+          "uuid": {
+            "type": "string",
+            "pattern": "^[0-9A-Fa-f]{8}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{12}$"
+          }
+        }
+      }
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "group", "patches"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "group": { "type": "string", "minLength": 1 },
+          "defaultEnabled": { "type": "boolean", "default": false },
+          "patches": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["target", "offset", "original", "enabled"],
+              "properties": {
+                "target": { "type": "string", "minLength": 1 },
+                "offset": {
+                  "oneOf": [
+                    { "type": "integer", "minimum": 0 },
+                    { "type": "string", "pattern": "^(0[xX][0-9A-Fa-f]+|[0-9]+)$" }
+                  ]
+                },
+                "original": {
+                  "type": "string",
+                  "pattern": "^(0[xX])?([0-9A-Fa-f]{2})+$"
+                },
+                "enabled": {
+                  "type": "string",
+                  "pattern": "^(0[xX])?([0-9A-Fa-f]{2})+$"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

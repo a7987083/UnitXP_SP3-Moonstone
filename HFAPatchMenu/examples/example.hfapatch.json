@@ -1,0 +1,55 @@
+{
+  "schema": "com.hfa.patch/v1",
+  "name": "Example Game 1.0",
+  "package": {
+    "bundleIdentifier": "com.example.game",
+    "shortVersion": "1.0",
+    "buildVersion": "100",
+    "architectures": ["arm64", "arm64e"]
+  },
+  "targets": {
+    "main": {
+      "image": "@main",
+      "uuid": "00112233-4455-6677-8899-AABBCCDDEEFF"
+    },
+    "unity": {
+      "image": "UnityFramework",
+      "uuid": "11223344-5566-7788-99AA-BBCCDDEEFF00"
+    }
+  },
+  "features": [
+    {
+      "id": "currency.freeze",
+      "title": "Freeze Currencies",
+      "group": "Currency",
+      "defaultEnabled": false,
+      "patches": [
+        {
+          "target": "main",
+          "offset": "0x1007DA74C",
+          "original": "00008052",
+          "enabled": "C0035FD6"
+        }
+      ]
+    },
+    {
+      "id": "store.free",
+      "title": "Free Store",
+      "group": "Store",
+      "patches": [
+        {
+          "target": "unity",
+          "offset": "0x219C8C4",
+          "original": "E00300AAE10301AA",
+          "enabled": "00E0BF52C0035FD6"
+        },
+        {
+          "target": "unity",
+          "offset": "0x219C910",
+          "original": "20008052",
+          "enabled": "C0035FD6"
+        }
+      ]
+    }
+  ]
+}
