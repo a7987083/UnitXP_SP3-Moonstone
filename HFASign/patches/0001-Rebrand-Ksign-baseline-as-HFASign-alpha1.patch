@@ -1,0 +1,307 @@
+From 17559d4a96171b75010d0c17944d58254b5fb04b Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Wed, 2 Sep 2026 22:33:59 +0800
+Subject: [PATCH] Rebrand Ksign baseline as HFASign alpha1
+
+---
+ Ksign.xcodeproj/project.pbxproj               | 16 ++++++------
+ Ksign/FeatherApp.swift                        | 13 +++-------
+ Ksign/Resources/Info.plist                    | 24 ++++++++++++-----
+ .../Views/Settings/AppIcon/AppIconView.swift  |  2 +-
+ Ksign/Views/Settings/Logs/LogsView.swift      |  3 +--
+ Ksign/Views/Settings/SettingsView.swift       | 22 +++-------------
+ Ksign/Views/TabView/TabEnum.swift             | 26 +++++++------------
+ 7 files changed, 43 insertions(+), 63 deletions(-)
+
+diff --git a/Ksign.xcodeproj/project.pbxproj b/Ksign.xcodeproj/project.pbxproj
+index 6db3b94..080145f 100644
+--- a/Ksign.xcodeproj/project.pbxproj
++++ b/Ksign.xcodeproj/project.pbxproj
+@@ -468,9 +468,9 @@
+ 				);
+ 				GENERATE_INFOPLIST_FILE = YES;
+ 				INFOPLIST_FILE = Ksign/Resources/Info.plist;
+-				INFOPLIST_KEY_CFBundleDisplayName = Ksign;
++				INFOPLIST_KEY_CFBundleDisplayName = HFASign;
+ 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2025 Nagata Asami";
++				INFOPLIST_KEY_NSHumanReadableCopyright = "HFASign is based on Ksign and Feather (GPL-3.0)";
+ 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+ 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+ 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+@@ -489,8 +489,8 @@
+ 					"$(PROJECT_DIR)/Ksign/Resources/idevice",
+ 				);
+ 				MACOSX_DEPLOYMENT_TARGET = 15.2;
+-				MARKETING_VERSION = 1.6.1;
+-				PRODUCT_BUNDLE_IDENTIFIER = nya.asami.ksign;
++				MARKETING_VERSION = 3.0.0;
++				PRODUCT_BUNDLE_IDENTIFIER = com.hfa.sign;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				PROVISIONING_PROFILE_SPECIFIER = "";
+ 				SDKROOT = auto;
+@@ -534,9 +534,9 @@
+ 				GCC_PREPROCESSOR_DEFINITIONS = "SERVER=1";
+ 				GENERATE_INFOPLIST_FILE = YES;
+ 				INFOPLIST_FILE = Ksign/Resources/Info.plist;
+-				INFOPLIST_KEY_CFBundleDisplayName = Ksign;
++				INFOPLIST_KEY_CFBundleDisplayName = HFASign;
+ 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2025 Nagata Asami";
++				INFOPLIST_KEY_NSHumanReadableCopyright = "HFASign is based on Ksign and Feather (GPL-3.0)";
+ 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+ 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+ 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+@@ -555,8 +555,8 @@
+ 					"$(PROJECT_DIR)/Ksign/Resources/idevice",
+ 				);
+ 				MACOSX_DEPLOYMENT_TARGET = 15.2;
+-				MARKETING_VERSION = 1.6.1;
+-				PRODUCT_BUNDLE_IDENTIFIER = nya.asami.ksign;
++				MARKETING_VERSION = 3.0.0;
++				PRODUCT_BUNDLE_IDENTIFIER = com.hfa.sign;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				PROVISIONING_PROFILE_SPECIFIER = "";
+ 				SDKROOT = auto;
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 14bb9d6..dbb6725 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -45,7 +45,7 @@ struct FeatherApp: App {
+ 	}
+ 	
+ 	private func _handleURL(_ url: URL) {
+-		if url.scheme == "ksign" {
++		if url.scheme == "hfasign" {
+ 			if let fullPath = url.validatedScheme(after: "/source/") {
+ 				FR.handleSource(fullPath) { }
+ 			}
+@@ -84,16 +84,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+         
+         _createPipeline()
+         _createSourcesDirectory()
+-        if !UserDefaults.standard.bool(forKey: "hasInitializedBuiltInSources") {
+-            _initializeBuiltInSources()
+-            UserDefaults.standard.set(true, forKey: "hasInitializedBuiltInSources")
+-        }
+-        
+-        _clean()
++		_clean()
+         
+         _copyServerCertificates()
+-        _addDefaultCertificates()
+-
+ #if SERVER
+         // fallback just in case xd
+         _downloadSSLCertificates()
+@@ -114,7 +107,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+                 config.urlCache = nil
+                 return DataLoader(configuration: config)
+             }()
+-            let dataCache = try? DataCache(name: "thewonderofyou.Feather.datacache") // disk cache
++            let dataCache = try? DataCache(name: "com.hfa.sign.datacache") // disk cache
+             let imageCache = Nuke.ImageCache() // memory cache
+             dataCache?.sizeLimit = 500 * 1024 * 1024
+             imageCache.costLimit = 100 * 1024 * 1024
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index c6b432d..dcb4a5b 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -8,6 +8,18 @@
+ 	</array>
+ 	<key>CFBundleDocumentTypes</key>
+ 	<array>
++		<dict>
++			<key>CFBundleTypeName</key>
++			<string>All Files</string>
++			<key>CFBundleTypeRole</key>
++			<string>Viewer</string>
++			<key>LSHandlerRank</key>
++			<string>Alternate</string>
++			<key>LSItemContentTypes</key>
++			<array>
++				<string>public.data</string>
++			</array>
++		</dict>
+ 		<dict>
+ 			<key>CFBundleTypeIconFile</key>
+ 			<string>ksign_extension</string>
+@@ -40,14 +52,14 @@
+ 			<key>CFBundleTypeIconFile</key>
+ 			<string>ksign_extension</string>
+ 			<key>CFBundleTypeName</key>
+-			<string>Ksign Certificate Package</string>
++			<string>HFASign Certificate Package</string>
+ 			<key>CFBundleTypeRole</key>
+ 			<string>Editor</string>
+ 			<key>LSHandlerRank</key>
+ 			<string>Owner</string>
+ 			<key>LSItemContentTypes</key>
+ 			<array>
+-				<string>nya.asami.ksign.cert</string>
++				<string>com.hfa.sign.cert</string>
+ 			</array>
+ 		</dict>
+ 	</array>
+@@ -114,10 +126,10 @@
+ 			<key>CFBundleURLIconFile</key>
+ 			<string>ksign_extension</string>
+ 			<key>CFBundleURLName</key>
+-			<string>nya.asami.ksign</string>
++			<string>com.hfa.sign</string>
+ 			<key>CFBundleURLSchemes</key>
+ 			<array>
+-				<string>ksign</string>
++				<string>hfasign</string>
+ 			</array>
+ 		</dict>
+ 	</array>
+@@ -200,7 +212,7 @@
+ 				<string>public.content</string>
+ 			</array>
+ 			<key>UTTypeDescription</key>
+-			<string>Ksign Certificate Package</string>
++			<string>HFASign Certificate Package</string>
+ 			<key>UTTypeIconFile</key>
+ 			<string>ksign_extension</string>
+ 			<key>UTTypeIcons</key>
+@@ -209,7 +221,7 @@
+ 				<string>KSIGN</string>
+ 			</dict>
+ 			<key>UTTypeIdentifier</key>
+-			<string>nya.asami.ksign.cert</string>
++			<string>com.hfa.sign.cert</string>
+ 			<key>UTTypeTagSpecification</key>
+ 			<dict>
+ 				<key>public.filename-extension</key>
+diff --git a/Ksign/Views/Settings/AppIcon/AppIconView.swift b/Ksign/Views/Settings/AppIcon/AppIconView.swift
+index df8d1f0..311f117 100644
+--- a/Ksign/Views/Settings/AppIcon/AppIconView.swift
++++ b/Ksign/Views/Settings/AppIcon/AppIconView.swift
+@@ -25,7 +25,7 @@ struct AppIconView: View {
+         AppIconOption(
+             id: "primary",
+             title: "Default",
+-            subtitle: "Ksign",
++            subtitle: "HFASign",
+             iconName: "AppIcon",
+             alternateIconName: nil
+         ),
+diff --git a/Ksign/Views/Settings/Logs/LogsView.swift b/Ksign/Views/Settings/Logs/LogsView.swift
+index 4aaf9db..3df8ab6 100644
+--- a/Ksign/Views/Settings/Logs/LogsView.swift
++++ b/Ksign/Views/Settings/Logs/LogsView.swift
+@@ -54,7 +54,7 @@ struct LogsView: View {
+ 		let dateFormatter = DateFormatter()
+ 		dateFormatter.dateFormat = "yyyy-MM-dd-HHmmss"
+ 		let timestamp = dateFormatter.string(from: Date())
+-		let fileName = "Ksign-Logs-\(timestamp).txt"
++		let fileName = "HFASign-Logs-\(timestamp).txt"
+ 
+ 		let tempDir = FileManager.default.temporaryDirectory
+ 		let fileURL = tempDir.appendingPathComponent(fileName)
+@@ -68,4 +68,3 @@ struct LogsView: View {
+ 	}
+ }
+ 
+-
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index 1113079..de60aa7 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -28,17 +28,10 @@ struct SettingsView: View {
+     }
+     
+     
+-	private let _donationsUrl = "https://github.com/sponsors/nyasami"
+-	private let _githubUrl = "https://github.com/nyasami/ksign"
+-    private let _discordUrl = "https://discord.gg/sfbZfQzVdQ"
+ 	// MARK: Body
+     var body: some View {
+ 		NBNavigationView(.localized("Settings")) {
+ 			Form {
+-//				#if !NIGHTLY && !DEBUG
+-				SettingsDonationCellView(site: _donationsUrl)
+-//				#endif
+-				
+ 				_feedback()
+ 				
+ 				Section {
+@@ -105,17 +98,8 @@ extension SettingsView {
+ 	@ViewBuilder
+ 	private func _feedback() -> some View {
+ 		Section {
+-			NavigationLink(destination: AboutNyaView()) {
+-                Label(.localized("About"), systemImage: "info.circle")
+-            }
+-			Button(.localized("Telegram Channel"), systemImage: "paperplane.circle") {
+-				UIApplication.open("https://t.me/KhoinDNS")
+-			}
+-			Button(.localized("GitHub Repository"), systemImage: "safari") {
+-				UIApplication.open(_githubUrl)
+-			}
+-            Button(.localized("Discord Server"), systemImage: "safari") {
+-                UIApplication.open(_discordUrl)
++			NavigationLink(destination: AboutView()) {
++                Label("关于 HFASign", systemImage: "info.circle")
+             }
+ 		}
+ 	}
+@@ -130,7 +114,7 @@ extension SettingsView {
+ 				UIApplication.open(FileManager.default.archives.toSharedDocumentsURL()!)
+ 			}
+ 		} footer: {
+-			Text(.localized("All of Ksign files except certificates are contained in the documents directory, here are some quick links to these."))
++			Text("除证书外，HFASign 文件都保存在 Documents 目录。")
+ 		}
+ 	}
+ }
+diff --git a/Ksign/Views/TabView/TabEnum.swift b/Ksign/Views/TabView/TabEnum.swift
+index 6622a98..9268a90 100644
+--- a/Ksign/Views/TabView/TabEnum.swift
++++ b/Ksign/Views/TabView/TabEnum.swift
+@@ -18,13 +18,13 @@ enum TabEnum: String, CaseIterable, Hashable {
+     case downloader
+ 	var title: String {
+ 		switch self {
+-        case .files:        return .localized("Files")
+-		case .sources:     	return .localized("Sources")
+-		case .library: 		return .localized("Library")
+-		case .settings: 	return .localized("Settings")
+-		case .certificates:	return .localized("Certificates")
+-		case .appstore: 	return .localized("App Store")
+-        case .downloader:   return .localized("Downloads")
++		case .files:        return "文件"
++		case .sources:     	return "软件源"
++		case .library: 		return "资源"
++		case .settings: 	return "设置"
++		case .certificates:	return "证书"
++		case .appstore: 	return "应用"
++        case .downloader:   return "下载"
+ 		}
+ 	}
+ 	
+@@ -54,18 +54,10 @@ enum TabEnum: String, CaseIterable, Hashable {
+ 	}
+ 	
+ 	static var defaultTabs: [TabEnum] {
+-		return [
+-            .files,
+-            .library,
+-            .appstore,
+-            .downloader,
+-			.settings,
+-		]
++		return [.library, .files, .certificates, .downloader, .settings]
+ 	}
+ 	
+ 	static var customizableTabs: [TabEnum] {
+-		return [
+-			.certificates
+-		]
++		return []
+ 	}
+ }
+-- 
+2.51.1
+

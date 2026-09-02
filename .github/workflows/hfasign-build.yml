@@ -1,0 +1,68 @@
+name: Build HFASign v3 alpha
+
+on:
+  push:
+    branches: [work/hfapatchipa-ksign-v3]
+    paths: ["HFASign/**", ".github/workflows/hfasign-build.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare pinned Ksign source
+        run: |
+          git clone https://github.com/Nyasami/Ksign.git HFASignBuild
+          git -C HFASignBuild checkout 03a3a9c86897d79f9faf8106037b9971841d56a0
+          git -C HFASignBuild apply ../HFASign/patches/0001-Rebrand-Ksign-baseline-as-HFASign-alpha1.patch
+          git -C HFASignBuild submodule update --init --recursive
+      - name: Install packaging tools
+        run: brew install ldid
+      - name: Prepare installer assets
+        working-directory: HFASignBuild
+        run: make deps
+      - name: Resolve packages
+        run: xcodebuild -resolvePackageDependencies -project HFASignBuild/Ksign.xcodeproj -scheme Ksign
+      - name: Build unsigned app
+        run: |
+          xcodebuild -project HFASignBuild/Ksign.xcodeproj -scheme Ksign \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath HFASignBuild/build -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Package TrollStore IPA
+        run: |
+          app="HFASignBuild/build/Build/Products/Release-iphoneos/Ksign.app"
+          test -d "$app"
+          cp HFASignBuild/deps/* "$app/" || true
+          while IFS= read -r file; do
+            if file "$file" | grep -q 'Mach-O'; then ldid -S "$file"; fi
+          done < <(find "$app/Frameworks" -type f 2>/dev/null || true)
+          ldid -S "$app/Ksign"
+          mkdir -p HFASign/dist/stage/Payload
+          cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
+          cd HFASign/dist/stage
+          ditto -c -k --sequesterRsrc --keepParent Payload ../HFASign_v3.0.0-alpha1_TrollStore.ipa
+          cd ..
+          shasum -a 256 HFASign_v3.0.0-alpha1_TrollStore.ipa > SHA256SUMS.txt
+      - name: Verify product metadata and file import
+        run: |
+          plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx HFASign
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist" | grep -qx public.data
+      - name: Publish alpha IPA
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f HFASign/dist/HFASign_v3.0.0-alpha1_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish HFASign v3.0.0-alpha1 IPA [skip ci]"
+          git push origin HEAD:work/hfapatchipa-ksign-v3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HFASign-v3.0.0-alpha1
+          path: |
+            HFASign/dist/HFASign_v3.0.0-alpha1_TrollStore.ipa
+            HFASign/dist/SHA256SUMS.txt
+          if-no-files-found: error
