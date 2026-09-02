@@ -1,0 +1,2 @@
+52332251b0eb20d4d0bb4189320d61d205f96bbaec4a3b6705ab8d0fa635e362  dist/HFAPatchMenu_v0.1.0.dylib
+6e2f4f8c2be9848c7ae54f0af475925d159d38ad9fb2066ece5f8044ae319de8  dist/HFAPatchMenu_v0.1.0_Package.zip
