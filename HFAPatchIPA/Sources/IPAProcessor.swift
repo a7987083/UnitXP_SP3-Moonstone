@@ -1,6 +1,6 @@
 import Foundation
 import Zip
-import ZsignSwift
+import Zsign
 
 struct GameAppInfo {
     let name: String
