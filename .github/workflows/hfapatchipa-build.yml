@@ -35,7 +35,7 @@ jobs:
           cp swift/utils.mm src/utils_wrapper.mm
           cp swift/utils.hpp src/utils.hpp
           perl -0pi -e 's#\.\./swift/utils\.mm#utils_wrapper.mm#g; s#\.\./swift/zsign\.mm#zsign_wrapper.mm#g' Package.swift
-          perl -0pi -e 's/void\(\^completionHandler\)\(BOOL success, NSError \*error\)/void(^completionHandler)(BOOL success)/g; s/completionHandler\(bRet\);/if (completionHandler) completionHandler(bRet);/g' src/zsign_wrapper.mm
+          perl -0pi -e 's/void\(\^completionHandler\)\(BOOL success, NSError \*error\)/void(^completionHandler)(BOOL success)/g; s/vector<string> arrDylibFiles;/vector<string> arrDylibFiles;\n\tvector<string> arrRemoveDylibNames;/g; s/arrDylibFiles, bForce/arrDylibFiles, arrRemoveDylibNames, bForce/g; s/completionHandler\(bRet\);/if (completionHandler) completionHandler(bRet);/g' src/zsign_wrapper.mm
           grep -n 'wrapper.mm' Package.swift
 
       - name: Generate project
