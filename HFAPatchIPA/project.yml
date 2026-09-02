@@ -25,7 +25,7 @@ targets:
       - package: Zip
         product: Zip
       - package: Zsign
-        product: ZsignSwift
+        product: Zsign
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hfa.patchipa
