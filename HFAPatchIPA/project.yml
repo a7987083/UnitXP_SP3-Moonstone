@@ -11,8 +11,7 @@ packages:
     url: https://github.com/marmelroy/Zip.git
     from: 2.1.2
   Zsign:
-    url: https://github.com/claration/Zsign-Package.git
-    revision: 6ffe703df73ef9069adacdbb19d571f11a69a801
+    path: Vendor/Zsign
 
 targets:
   HFAPatchIPA:
