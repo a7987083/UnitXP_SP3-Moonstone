@@ -43,6 +43,18 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
+    func acceptSharedURL(_ source: URL) {
+        let name = source.lastPathComponent.lowercased()
+        if name.hasSuffix(".ipa") {
+            acceptImportedURL(source, kind: .ipa)
+        } else if name.hasSuffix(".json") || name.hasSuffix(".hfapatch") {
+            acceptImportedURL(source, kind: .config)
+        } else {
+            errorMessage = "不支持的文件：\(source.lastPathComponent)"
+            status = "导入失败"
+        }
+    }
+
     func validate() {
         guard let ipaURL, let configURL else { return }
         isBusy = true
@@ -115,6 +127,6 @@ final class WorkspaceModel: ObservableObject {
 }
 
 extension UTType {
-    static let hfaIPA = UTType(filenameExtension: "ipa") ?? .archive
-    static let hfaPatchJSON = UTType(filenameExtension: "json") ?? .json
+    static let hfaIPA = UTType(importedAs: "com.apple.itunes.ipa", conformingTo: .zip)
+    static let hfaPatchJSON = UTType(importedAs: "com.hfa.patch-package", conformingTo: .json)
 }

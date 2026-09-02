@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>Decrypted IPA</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>LSItemContentTypes</key><array><string>com.apple.itunes.ipa</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>HFAPatch Package</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>LSItemContentTypes</key><array><string>com.hfa.patch-package</string><string>public.json</string></array>
+        </dict>
+    </array>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.apple.itunes.ipa</string>
+            <key>UTTypeDescription</key><string>iOS App Archive</string>
+            <key>UTTypeConformsTo</key><array><string>public.zip-archive</string><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>ipa</string></array></dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key><string>com.hfa.patch-package</string>
+            <key>UTTypeDescription</key><string>HFAPatch JSON Package</string>
+            <key>UTTypeConformsTo</key><array><string>public.json</string><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>hfapatch</string><string>json</string></array></dict>
+        </dict>
+    </array>
+    <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+    <key>UIFileSharingEnabled</key><true/>
+</dict>
+</plist>

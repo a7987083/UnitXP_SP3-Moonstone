@@ -21,16 +21,22 @@ struct ContentView: View {
             .navigationTitle("HFAPatchIPA")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Text("v1.0.0").font(.caption).foregroundColor(.secondary)
+                    Text("v1.0.1").font(.caption).foregroundColor(.secondary)
                 }
             }
         }
         .navigationViewStyle(.stack)
-        .fileImporter(isPresented: $importingIPA, allowedContentTypes: [.hfaIPA], allowsMultipleSelection: false) {
-            handleImport($0, kind: .ipa)
+        .sheet(isPresented: $importingIPA) {
+            DocumentPicker(contentTypes: [.hfaIPA, .data]) { url in
+                importingIPA = false
+                model.acceptImportedURL(url, kind: .ipa)
+            }
         }
-        .fileImporter(isPresented: $importingConfig, allowedContentTypes: [.hfaPatchJSON], allowsMultipleSelection: false) {
-            handleImport($0, kind: .config)
+        .sheet(isPresented: $importingConfig) {
+            DocumentPicker(contentTypes: [.json, .hfaPatchJSON, .data]) { url in
+                importingConfig = false
+                model.acceptImportedURL(url, kind: .config)
+            }
         }
         .sheet(isPresented: $sharing) {
             if let output = model.output {
@@ -157,12 +163,4 @@ struct ContentView: View {
         return .secondary
     }
 
-    private func handleImport(_ result: Result<[URL], Error>, kind: WorkspaceModel.ImportKind) {
-        switch result {
-        case .success(let urls):
-            if let url = urls.first { model.acceptImportedURL(url, kind: kind) }
-        case .failure(let error):
-            model.errorMessage = error.localizedDescription
-        }
-    }
 }

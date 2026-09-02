@@ -8,6 +8,7 @@ struct HFAPatchIPAApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
+                .onOpenURL { model.acceptSharedURL($0) }
         }
     }
 }
