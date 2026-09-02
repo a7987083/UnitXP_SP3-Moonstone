@@ -1,0 +1,3406 @@
+diff --git a/Ksign/Backend/Observable/OperationProgressManager.swift b/Ksign/Backend/Observable/OperationProgressManager.swift
+new file mode 100644
+index 0000000..a267983
+--- /dev/null
++++ b/Ksign/Backend/Observable/OperationProgressManager.swift
+@@ -0,0 +1,92 @@
++import Foundation
++import Combine
++
++final class OperationProgressManager: ObservableObject {
++    static let shared = OperationProgressManager()
++
++    @Published var isActive = false
++    @Published var title = ""
++    @Published var detail = ""
++    @Published var progress: Double = 0
++    @Published var entries: [String] = []
++    @Published var startedAt: Date?
++    @Published var finishedAt: Date?
++    @Published var succeeded: Bool?
++    @Published var appName = ""
++    @Published var bundleID = ""
++    @Published var appVersion = ""
++    @Published var signingMode = ""
++
++    private init() {}
++
++    func begin(_ title: String, detail: String = "") {
++        DispatchQueue.main.async {
++            self.title = title
++            self.detail = detail
++            self.progress = 0
++            self.isActive = true
++            self.entries = []
++            self.startedAt = Date()
++            self.finishedAt = nil
++            self.succeeded = nil
++        }
++    }
++
++    func update(_ progress: Double, detail: String) {
++        DispatchQueue.main.async {
++            self.progress = min(max(progress, 0), 1)
++            self.detail = detail
++            self.entries.append("[\(Self.timeFormatter.string(from: Date()))] \(detail)")
++        }
++    }
++
++    func finish(detail: String = "") {
++        DispatchQueue.main.async {
++            self.progress = 1
++            self.detail = detail
++            self.entries.append("[\(Self.timeFormatter.string(from: Date()))] \(detail)")
++            self.finishedAt = Date()
++            self.succeeded = true
++        }
++    }
++
++    func fail(_ message: String) {
++        DispatchQueue.main.async {
++            self.detail = message
++            self.entries.append("[\(Self.timeFormatter.string(from: Date()))] \(message)")
++            self.finishedAt = Date()
++            self.succeeded = false
++        }
++    }
++
++    func configure(appName: String, bundleID: String, version: String, mode: String) {
++        DispatchQueue.main.async {
++            self.appName = appName
++            self.bundleID = bundleID
++            self.appVersion = version
++            self.signingMode = mode
++        }
++    }
++
++    func log(_ message: String) {
++        DispatchQueue.main.async {
++            self.entries.append("[\(Self.timeFormatter.string(from: Date()))] \(message)")
++        }
++    }
++
++    func close() {
++        DispatchQueue.main.async { self.isActive = false }
++    }
++
++    var elapsedText: String {
++        guard let startedAt else { return "0.00s" }
++        let end = finishedAt ?? Date()
++        return String(format: "%.2fs", end.timeIntervalSince(startedAt))
++    }
++
++    private static let timeFormatter: DateFormatter = {
++        let formatter = DateFormatter()
++        formatter.dateFormat = "HH:mm:ss"
++        return formatter
++    }()
++}
+diff --git a/Ksign/Extensions/UIUserInterfaceStyle+cases.swift b/Ksign/Extensions/UIUserInterfaceStyle+cases.swift
+index 5124eeb..2bf4ec2 100644
+--- a/Ksign/Extensions/UIUserInterfaceStyle+cases.swift
++++ b/Ksign/Extensions/UIUserInterfaceStyle+cases.swift
+@@ -14,10 +14,10 @@ extension UIUserInterfaceStyle: @retroactive CaseIterable {
+ 	
+ 	var label: String {
+ 		switch self {
+-		case .unspecified: .localized("Default")
++		case .unspecified: .localized("默认")
+ 		case .dark: .localized("Dark")
+ 		case .light: .localized("Light")
+-		@unknown default: .localized("Unknown")
++		@unknown default: .localized("未知")
+ 		}
+ 	}
+ }
+\ No newline at end of file
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index dbb6725..f2b20eb 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -18,11 +18,14 @@ struct FeatherApp: App {
+ 	@StateObject var accentColorManager = AccentColorManager.shared
+     @StateObject var extractManager = ExtractManager.shared
+ 	@StateObject var logsManager = LogsManager.shared
++	@StateObject var operationProgress = OperationProgressManager.shared
+ 	let storage = Storage.shared
+ 
+ 	var body: some Scene {
+ 		WindowGroup {
+ 			VStack {
++				OperationProgressView(manager: operationProgress)
++					.transition(.move(edge: .top).combined(with: .opacity))
+                 ExtractHeaderView(extractManager: extractManager)
+                     .transition(.move(edge: .top).combined(with: .opacity))
+ 				DownloadHeaderView(downloadManager: downloadManager)
+@@ -57,20 +60,7 @@ struct FeatherApp: App {
+ 				_ = DownloadManager.shared.startDownload(from: downloadURL, id: "FeatherManualDownload_\(UUID().uuidString)")
+ 			}
+ 		} else {
+-			if url.pathExtension == "ipa" || url.pathExtension == "tipa" {
+-				if FileManager.default.isFileFromFileProvider(at: url) {
+-					guard url.startAccessingSecurityScopedResource() else { return }
+-					FR.handlePackageFile(url) { _ in }
+-				} else {
+-					FR.handlePackageFile(url) { _ in }
+-				}
+-				
+-				return
+-			}
+-			
+-            if url.pathExtension == "ksign" {
+-                UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Ksign certificate file (.ksign) is now unsupported from v1.5.1, please refer to use .p12 and .mobileprovision instead."))
+-            }
++			SharedImportCoordinator.shared.receive(url)
+ 		}
+ 	}
+ 	
+@@ -91,6 +81,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+         // fallback just in case xd
+         _downloadSSLCertificates()
+ #endif
++        if let url = launchOptions?[.url] as? URL {
++            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
++                SharedImportCoordinator.shared.receive(url)
++            }
++        }
++        return true
++    }
++
++    func application(
++        _ app: UIApplication,
++        open url: URL,
++        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
++    ) -> Bool {
++        SharedImportCoordinator.shared.receive(url)
+         return true
+     }
+     
+@@ -127,7 +131,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+         let appDirectory = URL.documentsDirectory.appendingPathComponent("App")
+         try? fileManager.createDirectoryIfNeeded(at: appDirectory)
+         
+-        let directories = ["Signed", "Unsigned", "Archives", "Server", "Tweaks"].map {
++		let directories = ["Signed", "Unsigned", "Archives", "Server", "Tweaks"].map {
+             appDirectory.appendingPathComponent($0)
+         }
+         
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index dcb4a5b..7d34401 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -2,6 +2,10 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
++	<key>LSSupportsOpeningDocumentsInPlace</key>
++	<true/>
++	<key>UIFileSharingEnabled</key>
++	<true/>
+ 	<key>BGTaskSchedulerPermittedIdentifiers</key>
+ 	<array>
+ 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).userTask.*</string>
+diff --git a/Ksign/Utilities/BackgroundTaskManager.swift b/Ksign/Utilities/BackgroundTaskManager.swift
+index 9b8dbd8..3cba800 100644
+--- a/Ksign/Utilities/BackgroundTaskManager.swift
++++ b/Ksign/Utilities/BackgroundTaskManager.swift
+@@ -36,7 +36,7 @@ class BackgroundTaskManager: ObservableObject {
+             self.registeredTasks.insert(taskIdentifier)
+         }
+         
+-        let request = BGContinuedProcessingTaskRequest(identifier: taskIdentifier, title: filename, subtitle: .localized("Downloading"))
++        let request = BGContinuedProcessingTaskRequest(identifier: taskIdentifier, title: filename, subtitle: .localized("正在下载"))
+         request.strategy = .queue
+         do {
+             try BGTaskScheduler.shared.submit(request)
+diff --git a/Ksign/Utilities/FR.swift b/Ksign/Utilities/FR.swift
+index 177f050..543d426 100644
+--- a/Ksign/Utilities/FR.swift
++++ b/Ksign/Utilities/FR.swift
+@@ -47,6 +47,7 @@ enum FR {
+ 		certificate: CertificatePair?,
+ 		completion: @escaping (Error?) -> Void
+ 	) {
++		OperationProgressManager.shared.begin("正在签名", detail: "准备文件")
+ 		Task.detached {
+ 			let handler = SigningHandler(app: app, options: options)
+ 			if !options.onlyModify {
+@@ -55,15 +56,19 @@ enum FR {
+ 			handler.appIcon = icon
+ 			
+ 			do {
++				OperationProgressManager.shared.update(0.08, detail: "复制应用")
+ 				try await handler.copy()
++				OperationProgressManager.shared.update(0.22, detail: "修改配置并注入")
+ 				try await handler.modify()
+                 try? await handler.clean()
++				OperationProgressManager.shared.finish(detail: "签名完成")
+ 				
+ 				await MainActor.run {
+ 					completion(nil)
+ 				}
+ 			} catch {
+ 				try? await handler.clean()
++				OperationProgressManager.shared.fail("签名失败：\(error.localizedDescription)")
+ 				await MainActor.run {
+ 					completion(error)
+ 				}
+@@ -206,12 +211,12 @@ enum FR {
+ 					}
+ 				} else {
+ 					DispatchQueue.main.async {
+-						UIAlertController.showAlertWithOk(title: "Error", message: "Repository already added.")
++						UIAlertController.showAlertWithOk(title: "错误", message: "Repository already added.")
+ 					}
+ 				}
+ 			case .failure(let error):
+ 				DispatchQueue.main.async {
+-					UIAlertController.showAlertWithOk(title: "Error", message: error.localizedDescription)
++					UIAlertController.showAlertWithOk(title: "错误", message: error.localizedDescription)
+ 				}
+ 			}
+ 		}
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+index e1fcdc2..16352fc 100644
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -51,6 +51,7 @@ final class SigningHandler: NSObject {
+ 		
+ 		try _fileManager.copyItem(at: appUrl, to: movedAppURL)
+ 		_movedAppPath = movedAppURL
++		OperationProgressManager.shared.log("已复制应用：\(appUrl.lastPathComponent)")
+ 		print("[\(_uuid)] Moved Payload to: \(movedAppURL.path)")
+ 	}
+ 	
+@@ -68,6 +69,8 @@ final class SigningHandler: NSObject {
+ 		}
+ 		
+ 		try await _modifyDict(using: infoDictionary, with: _options, to: movedAppPath)
++		OperationProgressManager.shared.log("已读取并更新 Info.plist")
++		OperationProgressManager.shared.update(0.32, detail: "写入应用配置")
+ 		
+ 		if let icon = appIcon {
+ 			try await _modifyDict(using: infoDictionary, for: icon, to: movedAppPath)
+@@ -86,22 +89,25 @@ final class SigningHandler: NSObject {
+ 		}
+ 		
+         try await _removeCodeSignature(for: movedAppPath)
+-		try await _removeProvisioning(for: movedAppPath)
++        try await _removeProvisioning(for: movedAppPath)
++		OperationProgressManager.shared.log("已移除旧签名与描述文件")
++		OperationProgressManager.shared.update(0.43, detail: "清理旧签名")
+ 		
+-        try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
+-        
++		if !_options.injectionFiles.isEmpty {
++			OperationProgressManager.shared.log("准备注入 \(_options.injectionFiles.count) 个插件")
++			for file in _options.injectionFiles {
++				OperationProgressManager.shared.log("插件：\(file.lastPathComponent)")
++			}
++			try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
++			OperationProgressManager.shared.update(0.58, detail: "插件注入完成")
++		} else {
++			OperationProgressManager.shared.update(0.58, detail: "没有选择插件，跳过注入")
++		}
++
+         if _options.experiment_supportLiquidGlass {
+             try await _locateMachosAndChangeToSDK26(for: movedAppPath)
+         }
+         
+-        if _options.experiment_replaceSubstrateWithEllekit {
+-            try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
+-        } else {
+-            if !_options.injectionFiles.isEmpty {
+-                try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
+-            }
+-        }
+-        
+         if #available(iOS 19, *) {
+             try await _locateMachosAndFixupArm64eSlice(for: movedAppPath)
+         }
+@@ -110,18 +116,23 @@ final class SigningHandler: NSObject {
+         try await handler.disinject()
+ 		
+ 		if !_options.onlyModify {
++			OperationProgressManager.shared.update(0.72, detail: "签名 Framework 与主程序")
+ 			let handler = ZsignHandler(appUrl: movedAppPath, options: _options, cert: appCertificate)
+ 			
+ 			if _options.doAdhocSigning {
++				OperationProgressManager.shared.log("签名方式：Ad-hoc 临时签署")
+ 				try await handler.adhocSign()
+ 			} else if (appCertificate != nil) {
++				OperationProgressManager.shared.log("签名方式：证书签名")
+ 				try await handler.sign()
+ 			} else {
+ 				throw SigningFileHandlerError.missingCertifcate
+ 			}
+ 		}
++		OperationProgressManager.shared.update(0.90, detail: "重新打包并保存")
+         try await self.move()
+         try await self.addToDatabase()
++		OperationProgressManager.shared.log("已保存到已签名应用库")
+ 
+         if let error = handler.hadError {
+             throw error
+@@ -190,7 +201,7 @@ extension SigningHandler {
+ 		if options.experiment_supportLiquidGlass {infoDictionary.removeObject(forKey: "UIDesignRequiresCompatibility") }
+ 		if options.experiment_disableLiquidGlass { infoDictionary.setObject(true, forKey: "UIDesignRequiresCompatibility" as NSCopying) }	
+ 		
+-		// these are for picker arrays, we check if the default option is named "Default" before applying
++		// these are for picker arrays, we check if the default option is named "默认" before applying
+ 		if options.appAppearance != Options.defaultOptions.appAppearance {
+ 			infoDictionary.setObject(options.appAppearance, forKey: "UIUserInterfaceStyle" as NSCopying)
+ 		}
+diff --git a/Ksign/Utilities/SharedImportCoordinator.swift b/Ksign/Utilities/SharedImportCoordinator.swift
+new file mode 100644
+index 0000000..08d1d86
+--- /dev/null
++++ b/Ksign/Utilities/SharedImportCoordinator.swift
+@@ -0,0 +1,131 @@
++import Foundation
++import UIKit
++
++final class SharedImportCoordinator {
++    static let shared = SharedImportCoordinator()
++    private let fileManager = FileManager.default
++    private let progress = OperationProgressManager.shared
++    private var lastImport: (path: String, date: Date)?
++
++    private init() {}
++
++    func receive(_ url: URL) {
++        if let lastImport,
++           lastImport.path == url.absoluteString,
++           Date().timeIntervalSince(lastImport.date) < 2 {
++            return
++        }
++        lastImport = (url.absoluteString, Date())
++        let accessed = url.startAccessingSecurityScopedResource()
++
++        let ext = url.pathExtension.lowercased()
++        if ext == "ipa" || ext == "tipa" {
++            progress.begin("正在导入 IPA", detail: url.lastPathComponent)
++            let id = "HFASignImport_\(UUID().uuidString)"
++            let download = DownloadManager.shared.startArchive(from: url, id: id)
++            DownloadManager.shared.handlePachageFile(url: url, dl: download) { error in
++                if accessed { url.stopAccessingSecurityScopedResource() }
++                if let error {
++                    self.progress.fail("导入失败：\(error.localizedDescription)")
++                } else {
++                    self.progress.finish(detail: "导入完成")
++                }
++            }
++            return
++        }
++
++        let supported = ["zip", "dylib", "framework", "deb", "p12", "mobileprovision"]
++        guard supported.contains(ext) || url.hasDirectoryPath else {
++            if accessed { url.stopAccessingSecurityScopedResource() }
++            progress.fail("暂不支持此文件类型")
++            return
++        }
++
++        let isTweak = ["dylib", "framework", "deb", "bundle"].contains(ext)
++        let destinationDirectory = isTweak
++            ? fileManager.tweaks
++            : URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
++        try? fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
++        let destination = destinationDirectory.appendingPathComponent(url.lastPathComponent)
++        resolveConflict(for: destination) { choice in
++            guard let choice else {
++                if accessed { url.stopAccessingSecurityScopedResource() }
++                return
++            }
++            self.copy(url, to: choice) {
++                if accessed { url.stopAccessingSecurityScopedResource() }
++            }
++        }
++    }
++
++    private func resolveConflict(for destination: URL, completion: @escaping (URL?) -> Void) {
++        guard fileManager.fileExists(atPath: destination.path) else {
++            completion(destination)
++            return
++        }
++        DispatchQueue.main.async {
++            let overwrite = UIAlertAction(title: "覆盖", style: .destructive) { _ in
++                try? self.fileManager.removeItem(at: destination)
++                completion(destination)
++            }
++            let keepBoth = UIAlertAction(title: "保留两个", style: .default) { _ in
++                completion(self.uniqueURL(for: destination))
++            }
++            UIAlertController.showAlertWithCancel(
++                title: "文件已存在",
++                message: "“\(destination.lastPathComponent)”已存在，是否覆盖？",
++                actions: [overwrite, keepBoth]
++            )
++        }
++    }
++
++    private func copy(_ source: URL, to destination: URL, completion: @escaping () -> Void) {
++        progress.begin("正在导入文件", detail: source.lastPathComponent)
++        DispatchQueue.global(qos: .userInitiated).async {
++            do {
++                if source.hasDirectoryPath {
++                    try self.fileManager.copyItem(at: source, to: destination)
++                } else {
++                    try self.copyFileWithProgress(source, to: destination)
++                }
++                let location = ["dylib", "framework", "deb", "bundle"].contains(source.pathExtension.lowercased())
++                    ? "插件目录"
++                    : "文件区 / Imports"
++                self.progress.finish(detail: "已保存到\(location)")
++            } catch {
++                self.progress.fail("导入失败：\(error.localizedDescription)")
++            }
++            completion()
++        }
++    }
++
++    private func copyFileWithProgress(_ source: URL, to destination: URL) throws {
++        fileManager.createFile(atPath: destination.path, contents: nil)
++        let input = try FileHandle(forReadingFrom: source)
++        let output = try FileHandle(forWritingTo: destination)
++        defer { try? input.close(); try? output.close() }
++        let size = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
++        var copied = 0
++        while true {
++            let data = try input.read(upToCount: 1024 * 1024) ?? Data()
++            if data.isEmpty { break }
++            try output.write(contentsOf: data)
++            copied += data.count
++            let fraction = size > 0 ? Double(copied) / Double(size) : 0.5
++            progress.update(fraction, detail: "正在复制 \(source.lastPathComponent)")
++        }
++    }
++
++    private func uniqueURL(for url: URL) -> URL {
++        var index = 1
++        var candidate = url
++        while fileManager.fileExists(atPath: candidate.path) {
++            let base = url.deletingPathExtension().lastPathComponent
++            let ext = url.pathExtension
++            let name = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
++            candidate = url.deletingLastPathComponent().appendingPathComponent(name)
++            index += 1
++        }
++        return candidate
++    }
++}
+diff --git a/Ksign/Views/Common/OperationProgressView.swift b/Ksign/Views/Common/OperationProgressView.swift
+new file mode 100644
+index 0000000..c0795fa
+--- /dev/null
++++ b/Ksign/Views/Common/OperationProgressView.swift
+@@ -0,0 +1,24 @@
++import SwiftUI
++
++struct OperationProgressView: View {
++    @ObservedObject var manager: OperationProgressManager
++
++    var body: some View {
++        if manager.isActive {
++            VStack(alignment: .leading, spacing: 5) {
++                HStack {
++                    Text(manager.title).font(.subheadline.bold())
++                    Spacer()
++                    Text("\(Int(manager.progress * 100))%")
++                        .font(.caption.monospacedDigit())
++                        .foregroundStyle(.secondary)
++                }
++                ProgressView(value: manager.progress)
++                Text(manager.detail).font(.caption).foregroundStyle(.secondary)
++            }
++            .padding(.horizontal)
++            .padding(.vertical, 8)
++            .background(.regularMaterial)
++        }
++    }
++}
+diff --git a/Ksign/Views/Downloader/Components/DownloadItemRow.swift b/Ksign/Views/Downloader/Components/DownloadItemRow.swift
+index cd841ad..bc69244 100644
+--- a/Ksign/Views/Downloader/Components/DownloadItemRow.swift
++++ b/Ksign/Views/Downloader/Components/DownloadItemRow.swift
+@@ -119,25 +119,25 @@ struct DownloadItemRow: View {
+             shareItems = [item.localPath]
+             UIActivityViewController.show(activityItems: shareItems)
+         } label: {
+-            Label(.localized("Share"), systemImage: "square.and.arrow.up")
++            Label(.localized("分享"), systemImage: "square.and.arrow.up")
+         }
+         
+         Button {
+             importIpaToLibrary(item)
+         } label: {
+-            Label(.localized("Import to Library"), systemImage: "square.grid.2x2.fill")
++            Label(.localized("导入资源库"), systemImage: "square.grid.2x2.fill")
+         }
+         
+         Button {
+             exportToFiles(item)
+         } label: {
+-            Label(.localized("Export to Files App"), systemImage: "square.and.arrow.up.fill")
++            Label(.localized("分享到文件 App"), systemImage: "square.and.arrow.up.fill")
+         }
+         
+         Button(role: .destructive) {
+             deleteItem(item)
+         } label: {
+-            Label(.localized("Delete"), systemImage: "trash")
++            Label(.localized("删除"), systemImage: "trash")
+         }
+     }
+ 
+@@ -148,13 +148,13 @@ struct DownloadItemRow: View {
+                 deleteItem(item)
+             }
+         } label: {
+-            Label(.localized("Delete"), systemImage: "trash")
++            Label(.localized("删除"), systemImage: "trash")
+         }
+ 
+         Button(role: .cancel) {
+             importIpaToLibrary(item)
+         } label: {
+-            Label(.localized("Import"), systemImage: "square.grid.2x2.fill")
++            Label(.localized("导入"), systemImage: "square.grid.2x2.fill")
+         }
+     }
+ }
+diff --git a/Ksign/Views/Downloader/DownloaderView.swift b/Ksign/Views/Downloader/DownloaderView.swift
+index 2eb0b5f..cdb4702 100644
+--- a/Ksign/Views/Downloader/DownloaderView.swift
++++ b/Ksign/Views/Downloader/DownloaderView.swift
+@@ -31,10 +31,10 @@ struct DownloaderView: View {
+     }
+ 
+     var body: some View {
+-        NBNavigationView(.localized("Downloads")) {
++        NBNavigationView(.localized("下载")) {
+             List {
+                 if !libraryManager.downloads.isEmpty || !downloadManager.activeItems.isEmpty {
+-                    NBSection(.localized("Downloading"), secondary: (libraryManager.downloads.count + downloadManager.activeItems.count).description) {
++                    NBSection(.localized("正在下载"), secondary: (libraryManager.downloads.count + downloadManager.activeItems.count).description) {
+                         ForEach(libraryManager.downloads) { download in
+                             AppStoreDownloadItemRow(download: download)
+                         }
+@@ -50,7 +50,7 @@ struct DownloaderView: View {
+                     }
+                 }
+                 
+-                NBSection(.localized("Downloaded"), secondary: filteredDownloadItems.count.description) {
++                NBSection(.localized("已下载"), secondary: filteredDownloadItems.count.description) {
+                     ForEach(filteredDownloadItems) { item in
+                         DownloadItemRow(
+                             item: item,
+@@ -67,7 +67,7 @@ struct DownloaderView: View {
+                 if downloadManager.finishedItems.isEmpty && downloadManager.activeItems.isEmpty && libraryManager.downloads.isEmpty {
+                     if #available(iOS 17, *) {
+                         ContentUnavailableView {
+-                            Label(.localized("No downloaded IPAs"), systemImage: "square.and.arrow.down.fill")
++                            Label(.localized("没有已下载的 IPA"), systemImage: "square.and.arrow.down.fill")
+                         } description: {
+                             Text(.localized("Get started by downloading your first IPA file."))
+                         } actions: {
+@@ -160,7 +160,7 @@ private extension DownloaderView {
+ private extension DownloaderView {
+     func _addDownload() {
+         UIAlertController.showAlertWithTextBox(
+-            title: .localized("Enter URL"),
++            title: .localized("输入网址"),
+             message: .localized("""
+ Enter the URL of the website containing the IPA file (Direct install/ITMS Services) or URL to the IPA file, supported: 
+ - https://example.com
+@@ -168,8 +168,8 @@ Enter the URL of the website containing the IPA file (Direct install/ITMS Servic
+ - https://example.com/app.ipa
+ """),
+             textFieldPlaceholder: .localized("https://example.com"),
+-            submit: .localized("OK"),
+-            cancel: .localized("Cancel"),
++            submit: .localized("确定"),
++            cancel: .localized("取消"),
+             onSubmit: { url in
+                 handleURLInput(url: url)
+             }
+@@ -185,7 +185,7 @@ Enter the URL of the website containing the IPA file (Direct install/ITMS Servic
+         }
+         
+         guard let validUrl = URL(string: finalUrl) else {
+-            UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Invalid URL format"))
++            UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Invalid URL format"))
+             return
+         }
+         
+@@ -195,9 +195,9 @@ Enter the URL of the website containing the IPA file (Direct install/ITMS Servic
+             downloadManager.checkFileTypeAndDownload(url: validUrl) { result in
+                 switch result {
+                 case .success:
+-                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("The IPA file is being downloaded!\nYou can close this window or download more!"))
++                    UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("The IPA file is being downloaded!\nYou can close this window or download more!"))
+                 case .failure(let error):
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: error.localizedDescription)
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: error.localizedDescription)
+                 }
+             }
+         } else {
+@@ -218,7 +218,7 @@ Enter the URL of the website containing the IPA file (Direct install/ITMS Servic
+             DispatchQueue.main.async {
+                 if (err != nil) {
+                     UIAlertController.showAlertWithOk(
+-                        title: .localized("Error"),
++                        title: .localized("错误"),
+                         message: .localized("Whoops!, something went wrong when extracting the file. \nMaybe try switching the extraction library in the settings?"),
+                     )
+                 }
+@@ -249,7 +249,7 @@ Enter the URL of the website containing the IPA file (Direct install/ITMS Servic
+                 }
+             }
+         } catch {
+-            UIAlertController.showAlertWithOk(title: .localized("Error"), message: error.localizedDescription)
++            UIAlertController.showAlertWithOk(title: .localized("错误"), message: error.localizedDescription)
+         }
+     }
+ } 
+diff --git a/Ksign/Views/Downloader/Utils/WebViewContainer.swift b/Ksign/Views/Downloader/Utils/WebViewContainer.swift
+index 21e8845..fc10b8c 100644
+--- a/Ksign/Views/Downloader/Utils/WebViewContainer.swift
++++ b/Ksign/Views/Downloader/Utils/WebViewContainer.swift
+@@ -39,9 +39,9 @@ struct WebViewContainer: UIViewRepresentable {
+             DispatchQueue.main.async {
+                 switch result {
+                 case .success:
+-                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("The IPA file is being downloaded!\nYou can close this window or download more!"))
++                    UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("The IPA file is being downloaded!\nYou can close this window or download more!"))
+                 case .failure(let error):
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: error.localizedDescription)
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: error.localizedDescription)
+                 }
+             }
+         }
+@@ -51,9 +51,9 @@ struct WebViewContainer: UIViewRepresentable {
+         downloadManager.checkFileTypeAndDownload(url: url) { result in
+             switch result {
+             case .success:
+-                UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("The IPA file is being downloaded!\nYou can close this window or download more!"))
++                UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("The IPA file is being downloaded!\nYou can close this window or download more!"))
+             case .failure(let error):
+-                UIAlertController.showAlertWithOk(title: .localized("Error"), message: error.localizedDescription)
++                UIAlertController.showAlertWithOk(title: .localized("错误"), message: error.localizedDescription)
+             }
+         }
+     }
+diff --git a/Ksign/Views/Downloader/Utils/WebViewCoordinator.swift b/Ksign/Views/Downloader/Utils/WebViewCoordinator.swift
+index 1662d86..055bef5 100644
+--- a/Ksign/Views/Downloader/Utils/WebViewCoordinator.swift
++++ b/Ksign/Views/Downloader/Utils/WebViewCoordinator.swift
+@@ -72,6 +72,6 @@ class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+             return
+         }
+         
+-        UIAlertController.showAlertWithOk(title: .localized("Error"), message: error.localizedDescription)
++        UIAlertController.showAlertWithOk(title: .localized("错误"), message: error.localizedDescription)
+     }
+ }
+diff --git a/Ksign/Views/Files/Components/FileRow.swift b/Ksign/Views/Files/Components/FileRow.swift
+index e004804..808d128 100644
+--- a/Ksign/Views/Files/Components/FileRow.swift
++++ b/Ksign/Views/Files/Components/FileRow.swift
+@@ -168,7 +168,7 @@ struct FileRow: View {
+             Button {
+                 quickLookFileURL = file.url
+             } label: {
+-                Label(String(localized: "Preview"), systemImage: "eye")
++                Label(String(localized: "预览"), systemImage: "eye")
+             }
+         }
+         
+@@ -176,7 +176,7 @@ struct FileRow: View {
+             Button {
+                 textEditorFileURL = file.url
+             } label: {
+-                Label(String(localized: "Text Editor"), systemImage: "doc.plaintext")
++                Label(String(localized: "文本编辑器"), systemImage: "doc.plaintext")
+             }
+         }
+         
+@@ -184,7 +184,7 @@ struct FileRow: View {
+             Button {
+                 plistFileURL = file.url
+             } label: {
+-                Label(String(localized: "Plist Editor"), systemImage: "list.bullet")
++                Label(String(localized: "Plist 编辑器"), systemImage: "list.bullet")
+             }
+         }
+         
+@@ -192,7 +192,7 @@ struct FileRow: View {
+             Button {
+                 hexEditorFileURL = file.url
+             } label: {
+-                Label(String(localized: "Hex Editor"), systemImage: "doc.text")
++                Label(String(localized: "十六进制编辑器"), systemImage: "doc.text")
+             }
+         }
+         
+@@ -200,7 +200,7 @@ struct FileRow: View {
+             Button {
+                 viewModel.importCertificate(file)
+             } label: {
+-                Label(String(localized: "Import Certificate"), systemImage: "key")
++                Label(String(localized: "导入证书"), systemImage: "key")
+             }
+         }
+         
+@@ -208,7 +208,7 @@ struct FileRow: View {
+             Button {
+                 UIAlertController.showAlertWithOk(title: "?", message: .localized("Ksign certificate file (.ksign) is now unsupported from v1.5.1, please refer to use .p12 and .mobileprovision instead."))
+             } label: {
+-                Label(String(localized: "Import Certificate"), systemImage: "questionmark")
++                Label(String(localized: "导入证书"), systemImage: "questionmark")
+             }
+         }
+         
+@@ -216,7 +216,7 @@ struct FileRow: View {
+             Button {
+                 onImportIpa(file)
+             } label: {
+-                Text(String(localized: "Import to Library"))
++                Text(String(localized: "导入资源库"))
+                 Image(systemName: "square.grid.2x2.fill")
+             }
+         }
+@@ -225,7 +225,7 @@ struct FileRow: View {
+             Button {
+                 onPackageApp(file)
+             } label: {
+-                Label(String(localized: "Package as IPA"), systemImage: "doc.zipper")
++                Label(String(localized: "打包为 IPA"), systemImage: "doc.zipper")
+             }
+         }
+         
+@@ -233,43 +233,43 @@ struct FileRow: View {
+             Button {
+                 onExtractArchive(file)
+             } label: {
+-                Label(String(localized: "Extract"), systemImage: "doc.zipper")
++                Label(String(localized: "解压"), systemImage: "doc.zipper")
+             }
+         }
+ 
+         Button {
+             moveFileItem = file
+         } label: {
+-            Label(String(localized: "Move"), systemImage: "folder")
++            Label(String(localized: "移动"), systemImage: "folder")
+         }
+         
+         Button {
+             UIAlertController.showAlertWithTextBox(
+-                title: .localized("Rename"),
++                title: .localized("重命名"),
+                 message: .localized("Enter a new name"),
+-                textFieldPlaceholder: .localized("File name"),
++                textFieldPlaceholder: .localized("文件名"),
+                 textFieldText: file.name,
+-                submit: .localized("Rename"),
+-                cancel: .localized("Cancel"),
++                submit: .localized("重命名"),
++                cancel: .localized("取消"),
+                 onSubmit: { name in
+                     viewModel.renameFile(newName: name, item: file)
+                 }
+             )
+         } label: {
+-            Label(String(localized: "Rename"), systemImage: "pencil")
++            Label(String(localized: "重命名"), systemImage: "pencil")
+         }
+         
+         Button {
+             shareItems = [file.url]
+             UIActivityViewController.show(activityItems: shareItems)
+         } label: {
+-            Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
++            Label(String(localized: "分享"), systemImage: "square.and.arrow.up")
+         }
+         
+         Button(role: .destructive) {
+             viewModel.deleteFile(file)
+         } label: {
+-            Label(String(localized: "Delete"), systemImage: "trash")
++            Label(String(localized: "删除"), systemImage: "trash")
+         }
+     }
+ }
+diff --git a/Ksign/Views/Files/Components/FileUIHelpers.swift b/Ksign/Views/Files/Components/FileUIHelpers.swift
+index b6cc0f3..8ebec4d 100644
+--- a/Ksign/Views/Files/Components/FileUIHelpers.swift
++++ b/Ksign/Views/Files/Components/FileUIHelpers.swift
+@@ -18,23 +18,23 @@ struct FileUIHelpers {
+                 viewModel.deleteFile(file)
+             }
+         } label: {
+-            Label(String(localized: "Delete"), systemImage: "trash")
++            Label(String(localized: "删除"), systemImage: "trash")
+         }
+         
+         Button {
+             UIAlertController.showAlertWithTextBox(
+-                title: .localized("Rename"),
++                title: .localized("重命名"),
+                 message: .localized("Enter a new name"),
+-                textFieldPlaceholder: .localized("File name"),
++                textFieldPlaceholder: .localized("文件名"),
+                 textFieldText: file.name,
+-                submit: .localized("Rename"),
+-                cancel: .localized("Cancel"),
++                submit: .localized("重命名"),
++                cancel: .localized("取消"),
+                 onSubmit: { name in
+                     viewModel.renameFile(newName: name, item: file)
+                 }
+             )
+         } label: {
+-            Label(String(localized: "Rename"), systemImage: "pencil")
++            Label(String(localized: "重命名"), systemImage: "pencil")
+         }
+         .tint(.blue)
+     }
+diff --git a/Ksign/Views/Files/FilesView.swift b/Ksign/Views/Files/FilesView.swift
+index 6b164d1..3a27401 100644
+--- a/Ksign/Views/Files/FilesView.swift
++++ b/Ksign/Views/Files/FilesView.swift
+@@ -120,7 +120,7 @@ struct FilesView: View {
+         }
+         .sheet(isPresented: $viewModel.showingImporter) {
+             FileImporterRepresentableView(
+-                allowedContentTypes: [UTType.item],
++                allowedContentTypes: [.data, .item, .folder],
+                 allowsMultipleSelection: true,
+                 onDocumentsPicked: { urls in
+                     viewModel.importFiles(urls: urls)
+@@ -211,14 +211,14 @@ struct FilesView: View {
+             if filteredFiles.isEmpty {
+                 if #available(iOS 17, *) {
+                     ContentUnavailableView {
+-                        Label(.localized("No Files"), systemImage: "folder.fill.badge.questionmark")
++                        Label(.localized("没有文件"), systemImage: "folder.fill.badge.questionmark")
+                     } description: {
+-                        Text(.localized("Get started by importing your first file."))
++                        Text(.localized("请先导入文件。"))
+                     } actions: {
+                         Button {
+                             viewModel.showingImporter = true
+                         } label: {
+-                            Text("Import Files").bg()
++                            Text("导入文件").bg()
+                         }
+                     }
+                 }
+@@ -252,36 +252,36 @@ struct FilesView: View {
+             Button {
+                 viewModel.showingImporter = true
+             } label: {
+-                Label(String(localized: "Import Files"), systemImage: "doc.badge.plus")
++                Label(String(localized: "导入文件"), systemImage: "doc.badge.plus")
+             }
+             Button {
+                 UIAlertController.showAlertWithTextBox(
+-                    title: .localized("New Folder"),
++                    title: .localized("新建文件夹"),
+                     message: .localized("Enter a name for the new folder"),
+-                    textFieldPlaceholder: .localized("Folder name"),
+-                    submit: .localized("Create"),
+-                    cancel: .localized("Cancel"),
++                    textFieldPlaceholder: .localized("文件夹名称"),
++                    submit: .localized("创建"),
++                    cancel: .localized("取消"),
+                     onSubmit: { name in
+                         viewModel.createNewFolder(name: name)
+                     }
+                 )
+             } label: {
+-                Label(String(localized: "New Folder"), systemImage: "folder.badge.plus")
++                Label(String(localized: "新建文件夹"), systemImage: "folder.badge.plus")
+             }
+             Button {
+                 UIAlertController.showAlertWithTextBox(
+-                    title: .localized("New Text File"),
++                    title: .localized("新建文本文件"),
+                     message: .localized("Enter a name for the new text file"),
+                     textFieldPlaceholder: .localized("Text file name"),
+                     textFieldText: "Unnamed.txt",
+-                    submit: .localized("Create"),
+-                    cancel: .localized("Cancel"),
++                    submit: .localized("创建"),
++                    cancel: .localized("取消"),
+                     onSubmit: { name in
+                        viewModel.createNewTextFile(name: name)
+                     }
+                 )
+             } label: {
+-                Label(String(localized: "New Text File"), systemImage: "doc.badge.plus")
++                Label(String(localized: "新建文本文件"), systemImage: "doc.badge.plus")
+             }
+         } label: {
+             Image(systemName: "plus")
+@@ -300,7 +300,7 @@ struct FilesView: View {
+                 }
+             }
+         } label: {
+-            Text(viewModel.isEditMode == .active ? String(localized: "Done") : String(localized: "Edit"))
++            Text(viewModel.isEditMode == .active ? String(localized: "完成") : String(localized: "编辑"))
+         }
+     }
+     
+@@ -322,7 +322,7 @@ struct FilesView: View {
+         Button {
+             viewModel.showDirectoryPicker = true
+         } label: {
+-            Label(String(localized: "Move"), systemImage: "folder")
++            Label(String(localized: "移动"), systemImage: "folder")
+         }
+         .disabled(viewModel.selectedItems.isEmpty)
+     }
+@@ -382,7 +382,7 @@ struct FilesView: View {
+                     }
+                     
+                 case .failure:
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Whoops!, something went wrong when extracting the file. \nMaybe try switching the extraction library in the settings?"))
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Whoops!, something went wrong when extracting the file. \nMaybe try switching the extraction library in the settings?"))
+                 }
+                 ExtractManager.shared.finish(item: extractItem)
+             }
+@@ -407,9 +407,9 @@ struct FilesView: View {
+                 switch result {
+                 case .success(let ipaFileName):
+                     self.viewModel.loadFiles()
+-                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("Successfully packaged \(file.name) as \(ipaFileName)"))
++                    UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("Successfully packaged \(file.name) as \(ipaFileName)"))
+                 case .failure(let error):
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Failed to package IPA: \(error.localizedDescription)"))
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Failed to package IPA: \(error.localizedDescription)"))
+                 }
+                 ExtractManager.shared.finish(item: extractItem)
+             }
+@@ -422,7 +422,7 @@ struct FilesView: View {
+         downloadManager.handlePachageFile(url: file.url, dl: download) { err in
+             DispatchQueue.main.async {
+                 if let error = err {
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Whoops!, something went wrong when extracting the file. \nMaybe try switching the extraction library in the settings?"))
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Whoops!, something went wrong when extracting the file. \nMaybe try switching the extraction library in the settings?"))
+                 } else {
+                 }
+                 if let index = DownloadManager.shared.getDownloadIndex(by: download.id) {
+@@ -442,7 +442,7 @@ struct FilesView: View {
+ 
+     @ViewBuilder
+     private func _sortActions() -> some View {
+-        Section(.localized("Filter by")) {
++        Section(.localized("筛选")) {
+             ForEach(FilesViewModel.SortOption.allCases, id: \.displayName) { opt in
+                 _sortButton(for: opt)
+             }
+diff --git a/Ksign/Views/Files/Utils/TextEditorView.swift b/Ksign/Views/Files/Utils/TextEditorView.swift
+index 4344f19..3246fd3 100644
+--- a/Ksign/Views/Files/Utils/TextEditorView.swift
++++ b/Ksign/Views/Files/Utils/TextEditorView.swift
+@@ -22,10 +22,10 @@ struct TextEditorView: View {
+                 .navigationTitle(fileURL.lastPathComponent).navigationBarTitleDisplayMode(.inline)
+                 .toolbar { 
+                     ToolbarItem(placement: .cancellationAction) {
+-                        Button(String(localized: "Cancel")) { dismiss() }
++                        Button(String(localized: "取消")) { dismiss() }
+                     }
+                     ToolbarItem(placement: .confirmationAction) {
+-                        Button(String(localized: "Save")) { _saveFile() }
++                        Button(String(localized: "保存")) { _saveFile() }
+                             .disabled(!_isChanged)
+                     }
+                 }
+diff --git a/Ksign/Views/Files/ViewModels/FilesViewModel.swift b/Ksign/Views/Files/ViewModels/FilesViewModel.swift
+index f22e834..ace573a 100644
+--- a/Ksign/Views/Files/ViewModels/FilesViewModel.swift
++++ b/Ksign/Views/Files/ViewModels/FilesViewModel.swift
+@@ -8,6 +8,7 @@
+ 
+ 
+ import SwiftUI
++import UIKit
+ 
+ 
+ class FilesViewModel: ObservableObject {
+@@ -26,9 +27,9 @@ class FilesViewModel: ObservableObject {
+         
+         var displayName: String {
+             switch self {
+-            case .name:    .localized("Name")
+-            case .date:    .localized("Date")
+-            case .type:    .localized("Type")
++            case .name:    .localized("名称")
++            case .date:    .localized("日期")
++            case .type:    .localized("类型")
+             }
+         }
+     }
+@@ -75,7 +76,7 @@ class FilesViewModel: ObservableObject {
+             files = _applySort(to: mapped)
+         } catch {
+             DispatchQueue.main.async {
+-                UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error loading files: \(error.localizedDescription)"))
++                UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Error loading files: \(error.localizedDescription)"))
+             }
+         }
+     }
+@@ -126,7 +127,7 @@ class FilesViewModel: ObservableObject {
+             DispatchQueue.main.async {
+                 if !errorMessages.isEmpty {
+                     let count = errorMessages.count
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Failed to delete \(count) item\(count == 1 ? "" : "s")"))
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Failed to delete \(count) item\(count == 1 ? "" : "s")"))
+                 }
+             }
+         }
+@@ -145,7 +146,7 @@ class FilesViewModel: ObservableObject {
+             }
+         } catch {
+             DispatchQueue.main.async {
+-                UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error creating folder: \(error.localizedDescription)"))
++                UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Error creating folder: \(error.localizedDescription)"))
+             }
+         }
+     }
+@@ -165,7 +166,7 @@ class FilesViewModel: ObservableObject {
+             }       
+         } catch {
+             DispatchQueue.main.async {
+-                UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error creating text file: \(error.localizedDescription)"))
++                UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Error creating text file: \(error.localizedDescription)"))
+             }
+         }
+     }
+@@ -183,7 +184,7 @@ class FilesViewModel: ObservableObject {
+             }
+         } catch {
+             DispatchQueue.main.async {
+-                UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error renaming file: \(error.localizedDescription)"))
++                UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Error renaming file: \(error.localizedDescription)"))
+             }
+         }
+     }
+@@ -195,37 +196,37 @@ class FilesViewModel: ObservableObject {
+         let provisionFile = CertificateService.shared.findProvisionFile(near: file)
+         switch provisionFile {
+         case .failure(let err):
+-            DispatchQueue.main.async { UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized(err.errorDescription ?? "Unknown error")) }
++            DispatchQueue.main.async { UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized(err.errorDescription ?? "Unknown error")) }
+         case .success(let provisionFile):
+             CertificateService.shared.importP12Certificate(p12File: file, provisionFile: provisionFile, password: "") { [weak self] result in
+                 DispatchQueue.main.async {
+                     switch result {
+                     case .success(let message):
+-                        UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized(message))
++                        UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized(message))
+                     case .failure(let importError):
+                         if case .invalidPassword = importError {
+                             UIAlertController.showAlertWithTextBox(
+-                                title: .localized("Enter Certificate Password"),
++                                title: .localized("输入证书密码"),
+                                 message: .localized("Enter the password for the certificate. Leave it blank if no password is required."),
+-                                textFieldPlaceholder: .localized("Password"),
++                                textFieldPlaceholder: .localized("密码"),
+                                 textFieldText: "",
+-                                submit: .localized("Import"),
+-                                cancel: .localized("Cancel"),
++                                submit: .localized("导入"),
++                                cancel: .localized("取消"),
+                                 onSubmit: { password in
+                                     CertificateService.shared.importP12Certificate(p12File: file, provisionFile: provisionFile, password: password) { result in
+                                         DispatchQueue.main.async {
+                                             switch result {
+                                             case .success(let message):
+-                                                UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized(message))
++                                                UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized(message))
+                                             case .failure(let finalError):
+-                                                UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized(finalError.localizedDescription))
++                                                UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized(finalError.localizedDescription))
+                                             }
+                                         }
+                                     }
+                                 }
+                             )
+                         } else {
+-                            UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized(importError.localizedDescription))
++                            UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized(importError.localizedDescription))
+                         }
+                     }
+                 }
+@@ -241,35 +242,44 @@ class FilesViewModel: ObservableObject {
+     
+     func importFiles(urls: [URL]) {
+         guard !urls.isEmpty else { return }
+-        
+-        DispatchQueue.global(qos: .userInitiated).async {
+-            let fileManager = FileManager.default
+-            var failureCount = 0
+-            
+-            for url in urls {
++        importNext(urls, index: 0)
++    }
++
++    private func importNext(_ urls: [URL], index: Int) {
++        guard index < urls.count else {
++            loadFiles()
++            return
++        }
++        let source = urls[index]
++        let destination = currentDirectory.appendingPathComponent(source.lastPathComponent)
++        let proceed: (URL?) -> Void = { target in
++            guard let target else { self.importNext(urls, index: index + 1); return }
++            OperationProgressManager.shared.begin("正在导入文件", detail: source.lastPathComponent)
++            DispatchQueue.global(qos: .userInitiated).async {
++                let accessed = source.startAccessingSecurityScopedResource()
++                defer { if accessed { source.stopAccessingSecurityScopedResource() } }
+                 do {
+-                    guard fileManager.fileExists(atPath: url.path) else {
+-                        throw NSError(domain: "FileImportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Source file not accessible: \(url.lastPathComponent)"])
+-                    }
+-                    
+-                    let destinationURL = self.currentDirectory.appendingPathComponent(url.lastPathComponent)
+-                    let finalDestinationURL = self.generateUniqueFileName(for: destinationURL)
+-                    
+-                    try self.importSingleItem(from: url, to: finalDestinationURL)
++                    try self.importSingleItem(from: source, to: target)
++                    OperationProgressManager.shared.finish(detail: "导入完成")
+                 } catch {
+-                    failureCount += 1
+-                }
+-            }
+-            
+-            DispatchQueue.main.async {
+-                if failureCount > 0 {
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Failed to import \(failureCount) file\(failureCount == 1 ? "" : "s")"))
+-                }
+-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+-                    self.loadFiles()
++                    OperationProgressManager.shared.fail("导入失败：\(error.localizedDescription)")
+                 }
++                DispatchQueue.main.async { self.importNext(urls, index: index + 1) }
+             }
+         }
++        guard FileManager.default.fileExists(atPath: destination.path) else { proceed(destination); return }
++        let overwrite = UIAlertAction(title: "覆盖", style: .destructive) { _ in
++            try? FileManager.default.removeItem(at: destination)
++            proceed(destination)
++        }
++        let keepBoth = UIAlertAction(title: "保留两个", style: .default) { _ in
++            proceed(self.generateUniqueFileName(for: destination))
++        }
++        UIAlertController.showAlertWithCancel(
++            title: "文件已存在",
++            message: "“\(source.lastPathComponent)”已存在，是否覆盖？",
++            actions: [overwrite, keepBoth]
++        )
+     }
+     
+     private func importSingleItem(from sourceURL: URL, to destinationURL: URL) throws {
+@@ -336,11 +346,11 @@ class FilesViewModel: ObservableObject {
+                         self?.loadFiles()
+                     }
+                     
+-                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("File extracted successfully"))
++                    UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("文件解压成功"))
+                     
+                 case .failure(let error):
+                     NotificationCenter.default.post(name: NSNotification.Name("ExtractionFailed"), object: nil)
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error extracting archive: \(error.localizedDescription)"))
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Error extracting archive: \(error.localizedDescription)"))
+                 }
+             }
+         }
+@@ -357,11 +367,11 @@ class FilesViewModel: ObservableObject {
+                 case .success(let ipaFileName):
+                     NotificationCenter.default.post(name: NSNotification.Name("ExtractionCompleted"), object: nil)
+                     self?.loadFiles()
+-                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("Successfully packaged \(file.name) as \(ipaFileName)"))
++                    UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("Successfully packaged \(file.name) as \(ipaFileName)"))
+                     
+                 case .failure(let error):
+                     NotificationCenter.default.post(name: NSNotification.Name("ExtractionFailed"), object: nil)
+-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Failed to package IPA: \(error.localizedDescription)"))
++                    UIAlertController.showAlertWithOk(title: .localized("错误"), message: .localized("Failed to package IPA: \(error.localizedDescription)"))
+                 }
+             }
+         }
+@@ -403,7 +413,7 @@ class FilesViewModel: ObservableObject {
+     private func _fileType(for file: FileItem) -> String {
+         if file.isDirectory { return .localized("Folder") }
+         let ext = file.url.pathExtension
+-        return ext.isEmpty ? .localized("Unknown") : ext.lowercased()
++        return ext.isEmpty ? .localized("未知") : ext.lowercased()
+     }
+     
+ } 
+diff --git a/Ksign/Views/Library/Frameworks&Dylibs/DylibsView.swift b/Ksign/Views/Library/Frameworks&Dylibs/DylibsView.swift
+index 7afb55d..6fea069 100644
+--- a/Ksign/Views/Library/Frameworks&Dylibs/DylibsView.swift
++++ b/Ksign/Views/Library/Frameworks&Dylibs/DylibsView.swift
+@@ -67,7 +67,7 @@ struct DylibsView: View {
+             }
+             .toolbar {
+                 ToolbarItem(placement: .navigationBarLeading) {
+-                    Button(.localized("Cancel")) {
++                    Button(.localized("取消")) {
+                         dismiss()
+                     }
+                 }
+@@ -79,7 +79,7 @@ struct DylibsView: View {
+                     }
+                 }
+                 ToolbarItem(placement: .navigationBarTrailing) {
+-                    Button(.localized("Copy")) {
++                    Button(.localized("复制")) {
+                         showDirectoryPicker = true
+                     }
+                     .disabled(selectedDylibs.isEmpty)
+diff --git a/Ksign/Views/Library/Info/LibraryInfoView.swift b/Ksign/Views/Library/Info/LibraryInfoView.swift
+index 12fa74d..7d9852d 100644
+--- a/Ksign/Views/Library/Info/LibraryInfoView.swift
++++ b/Ksign/Views/Library/Info/LibraryInfoView.swift
+@@ -44,21 +44,21 @@ struct LibraryInfoView: View {
+ extension LibraryInfoView {
+ 	@ViewBuilder
+ 	private func _infoSection(for app: AppInfoPresentable) -> some View {
+-		NBSection(.localized("Info")) {
++		NBSection(.localized("信息")) {
+ 			if let name = app.name {
+-				_infoCell(.localized("Name"), desc: name)
++				_infoCell(.localized("名称"), desc: name)
+ 			}
+ 			
+ 			if let ver = app.version {
+-				_infoCell(.localized("Version"), desc: ver)
++				_infoCell(.localized("版本"), desc: ver)
+ 			}
+ 			
+ 			if let id = app.identifier {
+-				_infoCell(.localized("Identifier"), desc: id)
++				_infoCell(.localized("Bundle ID"), desc: id)
+ 			}
+ 			
+ 			if let date = app.date {
+-				_infoCell(.localized("Date Added"), desc: date.formatted())
++				_infoCell(.localized("添加日期"), desc: date.formatted())
+ 			}
+ 		}
+ 	}
+@@ -66,7 +66,7 @@ extension LibraryInfoView {
+ 	@ViewBuilder
+ 	private func _certSection(for app: AppInfoPresentable) -> some View {
+ 		if let cert = Storage.shared.getCertificate(from: app) {
+-			NBSection(.localized("Certificate")) {
++			NBSection(.localized("证书")) {
+ 				CertificatesCellView(
+ 					cert: cert
+ 				)
+@@ -76,11 +76,11 @@ extension LibraryInfoView {
+ 	
+ 	@ViewBuilder
+ 	private func _bundleSection(for app: AppInfoPresentable) -> some View {
+-		NBSection(.localized("Bundle")) {
+-			NavigationLink(.localized("Alternative Icons")) {
++		NBSection(.localized("应用包")) {
++			NavigationLink(.localized("备用图标")) {
+ 				SigningAlternativeIconView(app: app, appIcon: .constant(nil), isModifing: .constant(false))
+ 			}
+-			NavigationLink(.localized("Frameworks & PlugIns")) {
++			NavigationLink(.localized("Framework 与插件")) {
+ 				SigningFrameworksView(app: app, options: .constant(nil))
+ 			}
+ 		}
+@@ -88,8 +88,8 @@ extension LibraryInfoView {
+ 	
+ 	@ViewBuilder
+ 	private func _executableSection(for app: AppInfoPresentable) -> some View {
+-		NBSection(.localized("Executable")) {
+-			NavigationLink(.localized("Dylibs")) {
++		NBSection(.localized("可执行文件")) {
++			NavigationLink(.localized("动态库")) {
+ 				SigningDylibView(app: app, options: .constant(nil))
+ 			}
+ 		}
+diff --git a/Ksign/Views/Library/Install/InstallPreviewView.swift b/Ksign/Views/Library/Install/InstallPreviewView.swift
+index a430888..79f5238 100644
+--- a/Ksign/Views/Library/Install/InstallPreviewView.swift
++++ b/Ksign/Views/Library/Install/InstallPreviewView.swift
+@@ -15,7 +15,6 @@ struct InstallPreviewView: View {
+ 	@Environment(\.dismiss) var dismiss
+ 	
+ 	// Sharing
+-	@AppStorage("Feather.useShareSheetForArchiving") private var _useShareSheet: Bool = false
+ 	
+ 	// Methods
+     @AppStorage("Feather.installationMethod") private var _installationMethod: Int = 0
+@@ -101,7 +100,7 @@ struct InstallPreviewView: View {
+ 	private func _install() {
+         guard isSharing || app.identifier != Bundle.main.bundleIdentifier! || _installationMethod == 1 else {
+             UIAlertController.showAlertWithOk(
+-                title: .localized("Install"),
++                title: .localized("安装"),
+                 message: .localized("You cannot update ‘%@‘ with itself, please use an alternative tool to update it.", arguments: Bundle.main.name)
+             )
+             return
+@@ -137,18 +136,11 @@ struct InstallPreviewView: View {
+                         try await handler.install(at: packageUrl, suspend: app.identifier == Bundle.main.bundleIdentifier!)
+                     }
+ 				} else {
+-					let package = try await handler.moveToArchive(packageUrl, shouldOpen: !_useShareSheet)
+-					
+-					if await !_useShareSheet {
++					let package = try await handler.moveToArchive(packageUrl, shouldOpen: false)
++					if let package {
+ 						await MainActor.run {
+ 							dismiss()
+-						}
+-					} else {
+-						if let package {
+-							await MainActor.run {
+-								dismiss()
+-								UIActivityViewController.show(activityItems: [package])
+-							}
++							UIActivityViewController.show(activityItems: [package])
+ 						}
+ 					}
+ 				}
+@@ -156,7 +148,7 @@ struct InstallPreviewView: View {
+                 await progressTask?.cancel()
+ 				await MainActor.run {
+ 					UIAlertController.showAlertWithOk(
+-						title: .localized("Install"),
++						title: .localized("安装"),
+ 						message: error.localizedDescription,
+ 						action: {
+ 							HeartbeatManager.shared.start(true)
+diff --git a/Ksign/Views/Library/LibraryCellView.swift b/Ksign/Views/Library/LibraryCellView.swift
+index 241ce1d..c67178e 100644
+--- a/Ksign/Views/Library/LibraryCellView.swift
++++ b/Ksign/Views/Library/LibraryCellView.swift
+@@ -46,7 +46,7 @@ struct LibraryCellView: View {
+ 			FRAppIconView(app: app, size: 57)
+ 			
+ 			NBTitleWithSubtitleView(
+-				title: app.name ?? .localized("Unknown"),
++				title: app.name ?? .localized("未知"),
+ 				subtitle: _desc,
+ 				linelimit: 0
+ 			)
+@@ -85,7 +85,7 @@ struct LibraryCellView: View {
+ 			}
+ 		}
+ 		.confirmationDialog(
+-			app.name ?? .localized("Unknown"),
++			app.name ?? .localized("未知"),
+ 			isPresented: $_showActionSheet,
+ 			titleVisibility: .visible
+ 		) {
+@@ -116,7 +116,7 @@ struct LibraryCellView: View {
+ 		{
+ 			return "\(version) • \(id)"
+ 		} else {
+-			return .localized("Unknown")
++			return .localized("未知")
+ 		}
+ 	}
+ 	
+@@ -140,14 +140,14 @@ struct LibraryCellView: View {
+ extension LibraryCellView {
+ 	@ViewBuilder
+ 	private func _actions(for app: AppInfoPresentable) -> some View {
+-		Button(.localized("Delete"), systemImage: "trash", role: .destructive) {
++		Button(.localized("删除"), systemImage: "trash", role: .destructive) {
+ 			Storage.shared.deleteApp(for: app)
+ 		}
+ 	}
+ 	
+ 	@ViewBuilder
+ 	private func _contextActions(for app: AppInfoPresentable) -> some View {
+-		Button(.localized("Get Info"), systemImage: "info.circle") {
++		Button(.localized("详细信息"), systemImage: "info.circle") {
+ 			selectedInfoAppPresenting = AnyApp(base: app)
+ 		}
+ 	}
+@@ -156,21 +156,21 @@ extension LibraryCellView {
+ 	private func _contextActionsExtra(for app: AppInfoPresentable) -> some View {
+ 		if app.isSigned {
+ 			if let id = app.identifier {
+-				Button(.localized("Open"), systemImage: "app.badge.checkmark") {
++				Button(.localized("打开"), systemImage: "app.badge.checkmark") {
+ 					UIApplication.openApp(with: id)
+ 				}
+ 			}
+-			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
++			Button(.localized("安装"), systemImage: "square.and.arrow.down") {
+ 				selectedInstallAppPresenting = AnyApp(base: app)
+ 			}
+-			Button(.localized("Re-sign"), systemImage: "signature") {
++			Button(.localized("重新签名"), systemImage: "signature") {
+ 				selectedSigningAppPresenting = AnyApp(base: app)
+ 			}
+-			Button(.localized("Export"), systemImage: "square.and.arrow.up") {
++			Button("分享", systemImage: "square.and.arrow.up") {
+ 				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
+ 			}
+ 		} else {
+-			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
++			Button(.localized("安装"), systemImage: "square.and.arrow.down") {
+ 				selectedInstallAppPresenting = AnyApp(base: app)
+ 			}
+ 		}
+@@ -179,46 +179,46 @@ extension LibraryCellView {
+ 	@ViewBuilder
+ 	private func _actionSheetButtons(for app: AppInfoPresentable) -> some View {
+ 		if app.isSigned {
+-			Button(.localized("Install")) {
++			Button(.localized("安装")) {
+ 				selectedInstallAppPresenting = AnyApp(base: app)
+ 			}
+ 			
+ 			if let id = app.identifier {
+-				Button(.localized("Open")) {
++				Button(.localized("打开")) {
+ 					UIApplication.openApp(with: id)
+ 				}
+ 			}
+ 			
+-			Button(.localized("Re-sign")) {
++			Button(.localized("重新签名")) {
+ 				selectedSigningAppPresenting = AnyApp(base: app)
+ 			}
+ 			
+-			Button(.localized("Export")) {
++			Button("分享") {
+ 				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
+ 			}
+ 		} else {
+-			Button(.localized("Sign & Install")) {
++			Button(.localized("签名并安装")) {
+ 				selectedSigningAppPresenting = AnyApp(base: app, signAndInstall: true)
+ 			}
+ 			
+-			Button(.localized("Sign")) {
++			Button(.localized("签名")) {
+ 				selectedSigningAppPresenting = AnyApp(base: app)
+ 			}
+ 			
+-			Button(.localized("Export")) {
++			Button("分享") {
+ 				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
+ 			}
+ 		}
+ 		
+-		Button(.localized("Show Dylibs")) {
++		Button(.localized("查看动态库")) {
+ 			selectedAppDylibsPresenting = AnyApp(base: app)
+ 		}
+ 		
+-		Button(.localized("Get Info")) {
++		Button(.localized("详细信息")) {
+ 			selectedInfoAppPresenting = AnyApp(base: app)
+ 		}
+ 		
+-		Button(.localized("Delete"), role: .destructive) {
++		Button(.localized("删除"), role: .destructive) {
+ 			Storage.shared.deleteApp(for: app)
+ 		}
+ 	}
+@@ -231,7 +231,7 @@ extension LibraryCellView {
+ 					selectedInstallAppPresenting = AnyApp(base: app)
+ 				} label: {
+ 					FRExpirationPillView(
+-						title: .localized("Install"),
++						title: .localized("安装"),
+ 						showOverlay: _libraryCellAppearance == 0,
+ 						expiration: certInfo
+ 					)
+@@ -241,7 +241,7 @@ extension LibraryCellView {
+ 					selectedSigningAppPresenting = AnyApp(base: app)
+ 				} label: {
+ 					FRExpirationPillView(
+-						title: .localized("Sign"),
++						title: .localized("签名"),
+ 						showOverlay: true,
+ 						expiration: nil
+ 					)
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index 3c966a5..3f65bcb 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -63,11 +63,11 @@ struct LibraryView: View {
+ 	
+ 	// MARK: Body
+     var body: some View {
+-		NBNavigationView(.localized("Library")) {
++		NBNavigationView(.localized("资源")) {
+ 			VStack(spacing: 0) {
+ 				Picker("", selection: $_selectedTab) {
+-					Text(.localized("Downloaded Apps")).tag(0)
+-					Text(.localized("Signed Apps")).tag(1)
++					Text("未签名").tag(0)
++					Text(.localized("已签名应用")).tag(1)
+ 				}
+ 				.pickerStyle(SegmentedPickerStyle())
+ 				.padding(.horizontal)
+@@ -76,7 +76,7 @@ struct LibraryView: View {
+ 				NBListAdaptable {
+ 					if _selectedTab == 0 {
+ 						NBSection(
+-							.localized("Downloaded Apps"),
++							"未签名",
+ 							secondary: _filteredImportedApps.count.description
+ 						) {
+ 							ForEach(_filteredImportedApps, id: \.uuid) { app in
+@@ -93,7 +93,7 @@ struct LibraryView: View {
+ 						}
+ 					} else {
+ 						NBSection(
+-							.localized("Signed Apps"),
++							.localized("已签名应用"),
+ 							secondary: _filteredSignedApps.count.description
+ 						) {
+ 							ForEach(_filteredSignedApps, id: \.uuid) { app in
+@@ -119,14 +119,14 @@ struct LibraryView: View {
+                 {
+                     if #available(iOS 17, *) {
+                         ContentUnavailableView {
+-                            Label(.localized("No Apps"), systemImage: "questionmark.app.fill")
++                            Label(.localized("没有应用"), systemImage: "questionmark.app.fill")
+                         } description: {
+                             Text(.localized("Get started by importing your first IPA file."))
+                         } actions: {
+                             Menu {
+                                 _importActions()
+                             } label: {
+-                                Text("Import").bg()
++                                Text("导入").bg()
+                             }
+                         }
+                     }
+@@ -142,21 +142,21 @@ struct LibraryView: View {
+                             Button {
+                                 _isBulkSigningPresenting = true
+                             } label: {
+-                                NBButton(.localized("Sign"), systemImage: "signature", style: .icon)
++                                NBButton(.localized("签名"), systemImage: "signature", style: .icon)
+                             }
+                             .disabled(_selectedApps.isEmpty)
+                         } else {
+                             Button {
+                                 _isBulkInstallingPresenting = true
+                             } label: {
+-                                NBButton(.localized("Install"), systemImage: "square.and.arrow.down")
++                                NBButton(.localized("安装"), systemImage: "square.and.arrow.down")
+                             }
+                             .disabled(_selectedApps.isEmpty)
+                         }
+ 						Button {
+ 							_bulkDeleteSelectedApps()
+ 						} label: {
+-							NBButton(.localized("Delete"), systemImage: "trash", style: .icon)
++							NBButton(.localized("删除"), systemImage: "trash", style: .icon)
+ 						}
+ 						.disabled(_selectedApps.isEmpty)
+ 					}
+@@ -206,29 +206,34 @@ struct LibraryView: View {
+             }
+ 			.sheet(isPresented: $_isImportingPresenting) {
+ 				FileImporterRepresentableView(
+-					allowedContentTypes:  [.ipa, .tipa],
++					allowedContentTypes:  [.data, .item, .folder],
+ 					allowsMultipleSelection: true,
+ 					onDocumentsPicked: { urls in
+ 						guard !urls.isEmpty else { return }
+ 						
+-						for ipas in urls {
++					for file in urls {
++						let ext = file.pathExtension.lowercased()
++						guard ext == "ipa" || ext == "tipa" else {
++							SharedImportCoordinator.shared.receive(file)
++							continue
++						}
+ 							let id = "FeatherManualDownload_\(UUID().uuidString)"
+-							let dl = downloadManager.startArchive(from: ipas, id: id)
+-							downloadManager.handlePachageFile(url: ipas, dl: dl) { err in
++							let dl = downloadManager.startArchive(from: file, id: id)
++							downloadManager.handlePachageFile(url: file, dl: dl) { err in
+ 								if let error = err {
+-									UIAlertController.showAlertWithOk(title: "Error", message: .localized("Whoops!, something went wrong when extracting the file. \nMaybe try switching the extraction library in the settings?"))
++									UIAlertController.showAlertWithOk(title: "错误", message: .localized("Whoops!, something went wrong when extracting the file. \nMaybe try switching the extraction library in the settings?"))
+ 								}
+ 							}
+ 						}
+ 					}
+ 				)
+ 			}
+-			.alert(.localized("Import from URL"), isPresented: $_isDownloadingPresenting) {
+-				TextField(.localized("URL"), text: $_alertDownloadString)
+-				Button(.localized("Cancel"), role: .cancel) {
++			.alert(.localized("从网址导入"), isPresented: $_isDownloadingPresenting) {
++				TextField(.localized("网址"), text: $_alertDownloadString)
++				Button(.localized("取消"), role: .cancel) {
+ 					_alertDownloadString = ""
+ 				}
+-				Button(.localized("OK")) {
++				Button(.localized("确定")) {
+ 					if let url = URL(string: _alertDownloadString) {
+ 						_ = downloadManager.startDownload(from: url, id: "FeatherManualDownload_\(UUID().uuidString)")
+ 					}
+@@ -255,10 +260,10 @@ struct LibraryView: View {
+ extension LibraryView {
+     @ViewBuilder
+     private func _importActions() -> some View {
+-        Button(.localized("Import from Files"), systemImage: "folder") {
++        Button("导入文件", systemImage: "folder") {
+             _isImportingPresenting = true
+         }
+-        Button(.localized("Import from URL"), systemImage: "globe") {
++        Button("从网址导入", systemImage: "globe") {
+             _isDownloadingPresenting = true
+         }
+     }
+diff --git a/Ksign/Views/Settings/About/AboutNyaView.swift b/Ksign/Views/Settings/About/AboutNyaView.swift
+index 4a95d27..98c67f9 100644
+--- a/Ksign/Views/Settings/About/AboutNyaView.swift
++++ b/Ksign/Views/Settings/About/AboutNyaView.swift
+@@ -17,7 +17,7 @@ struct AboutNyaView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBList(.localized("About")) {
++		NBList(.localized("关于")) {
+             Section {
+                 VStack {
+                     Image(uiImage: (UIImage(named: Bundle.main.iconFileName ?? ""))! )
+@@ -48,7 +48,7 @@ struct AboutNyaView: View {
+             .frame(maxWidth: .infinity)
+             .listRowBackground(EmptyView())
+ 			
+-			NBSection(.localized("Credits")) {
++			NBSection(.localized("开源致谢")) {
+ 				_credit(name: "Nyasami", desc: "Developer", github: "nyasami")
+ 			}
+ 			
+diff --git a/Ksign/Views/Settings/About/AboutView.swift b/Ksign/Views/Settings/About/AboutView.swift
+index 38b933d..1d28916 100644
+--- a/Ksign/Views/Settings/About/AboutView.swift
++++ b/Ksign/Views/Settings/About/AboutView.swift
+@@ -18,8 +18,8 @@ struct AboutView: View {
+ 	]
+ 	// MARK: Body
+ 	var body: some View {
+-		NBList(.localized("About")) {
+-			NBSection(.localized("Credits")) {
++		NBList(.localized("关于")) {
++			NBSection(.localized("开源致谢")) {
+ 				if !_credits.isEmpty {
+ 					ForEach(_credits, id: \.self) { credit in
+ 						_credit(name: credit.name, desc: credit.desc, github: credit.github)
+diff --git a/Ksign/Views/Settings/AppIcon/AppIconView.swift b/Ksign/Views/Settings/AppIcon/AppIconView.swift
+index 311f117..d91dedb 100644
+--- a/Ksign/Views/Settings/AppIcon/AppIconView.swift
++++ b/Ksign/Views/Settings/AppIcon/AppIconView.swift
+@@ -37,7 +37,7 @@ struct AppIconView: View {
+     
+     // MARK: Body
+     var body: some View {
+-        NBList(.localized("App Icon")) {
++        NBList(.localized("应用图标")) {
+             NBSection(.localized("Available Icons")) {
+                 ForEach(appIcons, id: \.id) { iconOption in
+                     _iconCell(for: iconOption)
+diff --git a/Ksign/Views/Settings/Appearance/AppearanceView.swift b/Ksign/Views/Settings/Appearance/AppearanceView.swift
+index 49fd531..1b14aa8 100644
+--- a/Ksign/Views/Settings/Appearance/AppearanceView.swift
++++ b/Ksign/Views/Settings/Appearance/AppearanceView.swift
+@@ -14,14 +14,14 @@ struct AppearanceView: View {
+ 	@AppStorage("Feather.libraryCellAppearance") private var _libraryCellAppearance: Int = 0
+ 	
+ 	private let _libraryCellAppearanceMethods: [String] = [
+-		.localized("Standard"),
++		.localized("标准"),
+ 		.localized("Pill")
+ 	]
+ 	
+ 	@AppStorage("Feather.storeCellAppearance") private var _storeCellAppearance: Int = 1
+ 	
+ 	private let _storeCellAppearanceMethods: [String] = [
+-		.localized("Standard"),
++		.localized("标准"),
+ 		.localized("Big Description")
+ 	]
+ 	
+@@ -29,7 +29,7 @@ struct AppearanceView: View {
+ 	@StateObject private var accentColorManager = AccentColorManager.shared
+     
+ 	private let _accentColors: [(name: String, color: Color)] = [
+-		(.localized("Default"), Color(red: 0x53/255, green: 0x94/255, blue: 0xF7/255)),
++		(.localized("默认"), Color(red: 0x53/255, green: 0x94/255, blue: 0xF7/255)),
+ 		(.localized("Cherry"), Color(red: 0xFF/255, green: 0x8B/255, blue: 0x92/255)),
+ 		(.localized("Red"), .red),
+ 		(.localized("Orange"), .orange),
+@@ -49,10 +49,10 @@ struct AppearanceView: View {
+ 	}
+ 
+     var body: some View {
+-        NBList(.localized("Appearance")) {
++        NBList(.localized("外观")) {
+             
+             Section {
+-                Picker(.localized("Appearance"), selection: $_userIntefacerStyle) {
++                Picker(.localized("外观"), selection: $_userIntefacerStyle) {
+                     ForEach(UIUserInterfaceStyle.allCases.sorted(by: { $0.rawValue < $1.rawValue }), id: \.rawValue) { style in
+                         Text(style.label).tag(style.rawValue)
+                     }
+@@ -60,7 +60,7 @@ struct AppearanceView: View {
+                 .pickerStyle(.segmented)
+             }
+ 			
+-			NBSection(.localized("Sources")) {
++			NBSection(.localized("软件源")) {
+                 _storePreview()
+ 				Picker(.localized("Store Cell Appearance"), selection: $_storeCellAppearance) {
+ 					ForEach(_storeCellAppearanceMethods.indices, id: \.description) { index in
+@@ -111,7 +111,7 @@ struct AppearanceView: View {
+ 			)
+ 			
+ 			FRExpirationPillView(
+-				title: .localized("Install"),
++				title: .localized("安装"),
+ 				showOverlay: _libraryCellAppearance == 0,
+ 				expiration: Date.now.expirationInfo()
+ 			).animation(.spring, value: _libraryCellAppearance)
+diff --git a/Ksign/Views/Settings/Archive & Extraction/ArchiveView.swift b/Ksign/Views/Settings/Archive & Extraction/ArchiveView.swift
+index 07b6944..0b4a354 100644
+--- a/Ksign/Views/Settings/Archive & Extraction/ArchiveView.swift	
++++ b/Ksign/Views/Settings/Archive & Extraction/ArchiveView.swift	
+@@ -16,9 +16,9 @@ struct ArchiveView: View {
+ 	@AppStorage("Feather.extractionLibrary") private var _extractionLibrary: String = "Zip"
+     
+     var body: some View {
+-		NBList(.localized("Archive & Extraction")) {
++		NBList(.localized("归档与解压")) {
+ 			Section {
+-				Picker(.localized("Compression Level"), systemImage: "archivebox", selection: $_compressionLevel) {
++				Picker(.localized("压缩级别"), systemImage: "archivebox", selection: $_compressionLevel) {
+ 					ForEach(ZipCompression.allCases, id: \.rawValue) { level in
+ 						Text(level.label).tag(level)
+ 					}
+@@ -38,7 +38,7 @@ struct ArchiveView: View {
+             }
+ 
+             Section {
+-                Picker(.localized("Extraction Library"), systemImage: "archivebox.circle.fill", selection: $_extractionLibrary) {
++                Picker(.localized("解压引擎"), systemImage: "archivebox.circle.fill", selection: $_extractionLibrary) {
+                     ForEach(Options.extractionLibraryValues, id: \.self) { value in
+                         Text(value).tag(value)
+                     }
+diff --git a/Ksign/Views/Settings/Certificates/CertificatesAddView.swift b/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
+index 1ac98db..1996ae1 100644
+--- a/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
++++ b/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
+@@ -39,31 +39,31 @@ struct CertificatesAddView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBNavigationView(.localized("New Certificate"), displayMode: .inline) {
++		NBNavigationView(.localized("新建证书"), displayMode: .inline) {
+ 			Form {
+-				NBSection(.localized("Files")) {
+-					_importButton(.localized("Import Certificate File"), file: _p12URL, hasData: _p12Data) {
++				NBSection(.localized("文件")) {
++					_importButton(.localized("导入证书文件"), file: _p12URL, hasData: _p12Data) {
+ 						_isImportingP12Presenting = true
+ 					}
+-					_importButton(.localized("Import Provisioning File"), file: _provisionURL, hasData: _provisionData) {
++					_importButton(.localized("导入描述文件"), file: _provisionURL, hasData: _provisionData) {
+ 						_isImportingMobileProvisionPresenting = true
+ 					}
+ 				}
+-				NBSection(.localized("Password")) {
+-					SecureField(.localized("Enter Password"), text: $_p12Password)
++				NBSection(.localized("密码")) {
++					SecureField(.localized("输入密码"), text: $_p12Password)
+ 				} footer: {
+ 					Text(.localized("Enter the password associated with the private key. Leave it blank if theres no password required."))
+ 				}
+ 				
+ 				Section {
+-					TextField(.localized("Nickname (Optional)"), text: $_certificateName)
++					TextField(.localized("名称（可选）"), text: $_certificateName)
+ 				}
+ 			}
+ 			.toolbar {
+ 				NBToolbarButton(role: .cancel)
+ 				
+ 				NBToolbarButton(
+-					.localized("Save"),
++					.localized("保存"),
+ 					style: .text,
+ 					placement: .confirmationAction,
+ 					isDisabled: saveButtonDisabled
+@@ -93,16 +93,16 @@ struct CertificatesAddView: View {
+ 			}
+ 			.alert(isPresented: $_isPasswordAlertPresenting) {
+ 				Alert(
+-					title: Text(.localized("Bad Password")),
++					title: Text(.localized("密码错误")),
+ 					message: Text(.localized("Please check the password and try again.")),
+-					dismissButton: .default(Text(.localized("OK")))
++					dismissButton: .default(Text(.localized("确定")))
+ 				)
+ 			}
+ 			.alert(isPresented: $_isErrorPresenting) {
+ 				Alert(
+ 					title: Text(.localized("Import Error")),
+ 					message: Text(_errorMessage),
+-					dismissButton: .default(Text(.localized("OK")))
++					dismissButton: .default(Text(.localized("确定")))
+ 				)
+ 			}
+ 		}
+diff --git a/Ksign/Views/Settings/Certificates/CertificatesCellView.swift b/Ksign/Views/Settings/Certificates/CertificatesCellView.swift
+index e660306..4cc689e 100644
+--- a/Ksign/Views/Settings/Certificates/CertificatesCellView.swift
++++ b/Ksign/Views/Settings/Certificates/CertificatesCellView.swift
+@@ -19,8 +19,8 @@ struct CertificatesCellView: View {
+ 		VStack(spacing: 6) {
+ 			
+ 			NBTitleWithSubtitleView(
+-				title: cert.nickname ?? data?.Name ?? .localized("Unknown"),
+-				subtitle: data?.AppIDName ?? .localized("Unknown")
++				title: cert.nickname ?? data?.Name ?? .localized("未知"),
++				subtitle: data?.AppIDName ?? .localized("未知")
+ 			)
+ 			
+ 			_certInfoPill(data: cert)
+diff --git a/Ksign/Views/Settings/Certificates/CertificatesView.swift b/Ksign/Views/Settings/Certificates/CertificatesView.swift
+index bb97a0a..836fc6a 100644
+--- a/Ksign/Views/Settings/Certificates/CertificatesView.swift
++++ b/Ksign/Views/Settings/Certificates/CertificatesView.swift
+@@ -40,7 +40,7 @@ struct CertificatesView: View {
+ 				_cellButton(for: cert, at: index)
+ 			}
+ 		}
+-		.navigationTitle(.localized("Certificates"))
++		.navigationTitle(.localized("证书管理"))
+ 		.navigationBarTitleDisplayMode(.inline)
+         .overlay {
+             if certificates.isEmpty {
+@@ -48,7 +48,7 @@ struct CertificatesView: View {
+                     ContentUnavailableView {
+                         Label(.localized("No Certificates"), systemImage: "questionmark.folder.fill")
+                     } description: {
+-                        Text(.localized("Get started signing by importing your first certificate."))
++                        Text(.localized("请先导入签名证书。"))
+                     } actions: {
+                         Button {
+                             _isAddingPresenting = true
+@@ -143,7 +143,7 @@ extension CertificatesView {
+                 Storage.shared.deleteCertificate(for: cert)
+             }
+ 		} label: {
+-			Label(.localized("Delete"), systemImage: "trash")
++			Label(.localized("删除"), systemImage: "trash")
+ 		}
+ 	}
+ 	
+@@ -152,7 +152,7 @@ extension CertificatesView {
+ 		Button {
+ 			_isSelectedInfoPresenting = cert
+ 		} label: {
+-			Label(.localized("Get Info"), systemImage: "info.circle")
++			Label(.localized("详细信息"), systemImage: "info.circle")
+ 		}
+ 	}
+ 	
+diff --git a/Ksign/Views/Settings/Certificates/Info/CertificatesInfoEntitlementView.swift b/Ksign/Views/Settings/Certificates/Info/CertificatesInfoEntitlementView.swift
+index 5623529..82195f7 100644
+--- a/Ksign/Views/Settings/Certificates/Info/CertificatesInfoEntitlementView.swift
++++ b/Ksign/Views/Settings/Certificates/Info/CertificatesInfoEntitlementView.swift
+@@ -14,7 +14,7 @@ struct CertificatesInfoEntitlementView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBList(.localized("Entitlements")) {
++		NBList(.localized("权限配置")) {
+ 			ForEach(entitlements.keys.sorted(), id: \.self) { key in
+ 				if let value = entitlements[key]?.value {
+ 					CertificatesInfoEntitlementCellView(key: key, value: value)
+diff --git a/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift b/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift
+index 88df16c..5951cb3 100644
+--- a/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift
++++ b/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift
+@@ -47,14 +47,14 @@ struct CertificatesInfoView: View {
+ extension CertificatesInfoView {
+ 	@ViewBuilder
+ 	private func _infoSection(data: Certificate) -> some View {
+-		NBSection(.localized("Info")) {
+-			_info(.localized("Name"), description: data.Name)
++		NBSection(.localized("信息")) {
++			_info(.localized("名称"), description: data.Name)
+ 			_info(.localized("AppID Name"), description: data.AppIDName)
+ 			_info(.localized("Team Name"), description: data.TeamName)
+ 		}
+ 		
+ 		Section {
+-			_info(.localized("Expires"), description: data.ExpirationDate.expirationInfo().formatted)
++			_info(.localized("到期时间"), description: data.ExpirationDate.expirationInfo().formatted)
+ 				.foregroundStyle(data.ExpirationDate.expirationInfo().color)
+             
+             _info(.localized("Revoked"), description: cert.revoked ? "Yes" : "No")
+@@ -69,7 +69,7 @@ extension CertificatesInfoView {
+ 	private func _entitlementsSection(data: Certificate) -> some View {
+ 		if let entitlements = data.Entitlements {
+ 			Section {
+-				NavigationLink(.localized("View Entitlements")) {
++				NavigationLink(.localized("查看权限")) {
+ 					CertificatesInfoEntitlementView(entitlements: entitlements)
+ 				}
+ 			}
+@@ -78,7 +78,7 @@ extension CertificatesInfoView {
+ 	
+ 	@ViewBuilder
+ 	private func _miscSection(data: Certificate) -> some View {
+-		NBSection(.localized("Misc")) {
++		NBSection(.localized("其他")) {
+ 			_disclosure(.localized("Platform"), keys: data.Platform)
+ 			
+ 			if let all = data.ProvisionsAllDevices {
+diff --git a/Ksign/Views/Settings/Features/AppFeaturesView.swift b/Ksign/Views/Settings/Features/AppFeaturesView.swift
+index c991336..e408572 100644
+--- a/Ksign/Views/Settings/Features/AppFeaturesView.swift
++++ b/Ksign/Views/Settings/Features/AppFeaturesView.swift
+@@ -13,17 +13,17 @@ struct AppFeaturesView: View {
+     @StateObject private var _optionsManager = OptionsManager.shared
+     
+     var body: some View {
+-        NBList(.localized("App Features")) {
++        NBList(.localized("应用功能")) {
+             Section {
+                 Toggle(isOn: $_optionsManager.options.backgroundAudio) {
+-                    Label(.localized("Keep app running in background"), systemImage: "arrow.trianglehead.2.clockwise")
++                    Label(.localized("保持后台运行"), systemImage: "arrow.trianglehead.2.clockwise")
+                 }
+             } footer: {
+                 Text(.localized("This will keep the app running even when you close it, helpful with download or installing ipa."))
+             }
+             Section {
+                 Toggle(isOn: $_optionsManager.options.signingLogs) {
+-                    Label(.localized("Show logs when signing"), systemImage: "terminal")
++                    Label(.localized("签名时显示日志"), systemImage: "terminal")
+                 }
+             } footer: {
+                 Text(.localized("This will show the logs of the signing process when you start signing."))
+@@ -68,7 +68,7 @@ struct AppFeaturesView: View {
+                 DispatchQueue.main.async {
+                     _optionsManager.options.notifications = false
+                     
+-                    let cancel = UIAlertAction(title: .localized("Cancel"), style: .cancel)
++                    let cancel = UIAlertAction(title: .localized("取消"), style: .cancel)
+                     let ok = UIAlertAction(title: .localized("Open Settings"), style: .default) { _ in
+                         if let url = URL(string: UIApplication.openSettingsURLString) {
+                             UIApplication.shared.open(url)
+diff --git a/Ksign/Views/Settings/Installation/InstallationView.swift b/Ksign/Views/Settings/Installation/InstallationView.swift
+index 19fea48..dd44067 100644
+--- a/Ksign/Views/Settings/Installation/InstallationView.swift
++++ b/Ksign/Views/Settings/Installation/InstallationView.swift
+@@ -20,9 +20,9 @@ struct InstallationView: View {
+     
+     // MARK: Body
+     var body: some View {
+-        NBList(.localized("Installation")) {
++        NBList(.localized("安装")) {
+             Section {
+-                Picker(.localized("Installation Type"), systemImage: "arrow.down.app", selection: $_installationMethod) {
++                Picker(.localized("安装方式"), systemImage: "arrow.down.app", selection: $_installationMethod) {
+                     ForEach(_installationMethods.indices, id: \.description) { index in
+                         Text(_installationMethods[index]).tag(index)
+                     }
+@@ -45,7 +45,7 @@ struct InstallationView: View {
+             Button(.localized("Switch Back"), role: .destructive) {
+                 _installationMethod = 0
+             }
+-            Button(.localized("OK"), role: .cancel) {}
++            Button(.localized("确定"), role: .cancel) {}
+         } message: {
+             Text(.localized("idevice warning"))
+         }
+diff --git a/Ksign/Views/Settings/Installation/Server & SSL/ServerView.swift b/Ksign/Views/Settings/Installation/Server & SSL/ServerView.swift
+index 6d7f423..68c6fef 100644
+--- a/Ksign/Views/Settings/Installation/Server & SSL/ServerView.swift	
++++ b/Ksign/Views/Settings/Installation/Server & SSL/ServerView.swift	
+@@ -14,7 +14,7 @@ struct ServerView: View {
+ 	@AppStorage("Feather.serverMethod") private var _serverMethod: Int = 0
+ 	
+ 	private let _serverMethods: [String] = [
+-		.localized("Fully Local"), 
++		.localized("完全本地"),
+ 		.localized("Semi Local")
+ 	]
+ 	
+@@ -24,7 +24,7 @@ struct ServerView: View {
+ 	var body: some View {
+ 		Group {
+ 			Section {
+-				Picker(.localized("Installation Type"), systemImage: "server.rack", selection: $_serverMethod) {
++				Picker(.localized("安装方式"), systemImage: "server.rack", selection: $_serverMethod) {
+ 					ForEach(_serverMethods.indices, id: \.self) { index in
+ 						Text(_serverMethods[index]).tag(index)
+ 					}
+diff --git a/Ksign/Views/Settings/Installation/Tunnel & Pairing/TunnelView.swift b/Ksign/Views/Settings/Installation/Tunnel & Pairing/TunnelView.swift
+index 9ad459a..fa1b2a3 100644
+--- a/Ksign/Views/Settings/Installation/Tunnel & Pairing/TunnelView.swift	
++++ b/Ksign/Views/Settings/Installation/Tunnel & Pairing/TunnelView.swift	
+@@ -33,7 +33,7 @@ struct TunnelView: View {
+ 			}
+ 			
+ 			Section {
+-				Button(.localized("Import Pairing File"), systemImage: "square.and.arrow.down") {
++				Button(.localized("导入配对文件"), systemImage: "square.and.arrow.down") {
+ 					_isImportingPairingPresenting = true
+ 				}
+ 				if #available(iOS 17.4, *) {
+@@ -55,11 +55,11 @@ struct TunnelView: View {
+ 				}
+ 			}
+ 			
+-			NBSection(.localized("Help")) {
++			NBSection(.localized("帮助")) {
+ 				Button(.localized("Pairing File Guide"), systemImage: "questionmark.circle") {
+ 					UIApplication.open("https://github.com/claration/Impactor#pairing-file")
+ 				}
+-				Button(.localized("Download LocalDevVPN"), systemImage: "arrow.down.app") {
++				Button(.localized("下载 LocalDevVPN"), systemImage: "arrow.down.app") {
+ 					UIApplication.open("https://apps.apple.com/us/app/localdevvpn/id6755608044")
+ 				}
+ 			}
+@@ -87,7 +87,7 @@ struct TunnelView: View {
+ 	private func _tunnelInfo() -> some View {
+ 		HStack {
+ 			VStack(alignment: .leading, spacing: 6) {
+-				Text(.localized("Heartbeat"))
++				Text(.localized("后台保活"))
+ 					.font(.headline)
+ 				Text(.localized("The heartbeat is activated in the background, it will restart when the app is re-opened or prompted. If the status below is pulsing, that means its healthy."))
+ 					.font(.subheadline)
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index de60aa7..f3078f2 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -30,51 +30,51 @@ struct SettingsView: View {
+     
+ 	// MARK: Body
+     var body: some View {
+-		NBNavigationView(.localized("Settings")) {
++		NBNavigationView(.localized("设置")) {
+ 			Form {
+ 				_feedback()
+ 				
+ 				Section {
+                     NavigationLink(destination: AppIconView()) {
+-                        Label(.localized("App Icon"), systemImage: "app.badge")
++                        Label(.localized("应用图标"), systemImage: "app.badge")
+                     }
+ 					NavigationLink(destination: AppearanceView()) {
+-                        Label(.localized("Appearance"), systemImage: "paintbrush")
++                        Label(.localized("外观"), systemImage: "paintbrush")
+                     }
+ 				}
+                 
+-                NBSection(.localized("Certificates")) {
++                NBSection(.localized("证书管理")) {
+                     
+                     if let cert = selectedCertificate {
+                         CertificatesCellView(cert: cert)
+                     } else {
+-                        Text(.localized("No Certificate"))
++                        Text(.localized("没有证书"))
+                             .font(.footnote)
+                             .foregroundColor(.disabled())
+                     }
+                     NavigationLink(destination: CertificatesView()) {
+-                        Label(.localized("Certificates"), systemImage: "signature")
++                        Label(.localized("证书管理"), systemImage: "signature")
+                     }
+                  
+                 } footer: {
+                     Text(.localized("Add and manage certificates used for signing applications."))
+                 }
+ 				
+-				NBSection(.localized("Features")) {
++				NBSection(.localized("功能")) {
+                     NavigationLink(destination: LogsView(manager: LogsManager.shared)) {
+-                        Label(.localized("Logs"), systemImage: "apple.terminal")
++                        Label(.localized("日志"), systemImage: "apple.terminal")
+                     }
+ 					NavigationLink(destination: AppFeaturesView()) {
+-                        Label(.localized("App Features"), systemImage: "sparkles")
++                        Label(.localized("应用功能"), systemImage: "sparkles")
+                     }
+ 					NavigationLink(destination: ConfigurationView()) {
+-                        Label(.localized("Signing Options"), systemImage: "gear")
++                        Label(.localized("签名选项"), systemImage: "gear")
+                     }
+ 					NavigationLink(destination: ArchiveView()) {
+-                        Label(.localized("Archive & Extraction"), systemImage: "archivebox")
++                        Label(.localized("归档与解压"), systemImage: "archivebox")
+                     }
+ 					NavigationLink(destination: InstallationView()) {
+-                        Label(.localized("Installation"), systemImage: "server.rack")
++                        Label(.localized("安装"), systemImage: "server.rack")
+                     }
+ 				}
+ 				
+@@ -82,7 +82,7 @@ struct SettingsView: View {
+                 
+                 Section {
+                     NavigationLink(destination: ResetView()) {
+-                        Label(.localized("Reset"), systemImage: "trash")
++                        Label(.localized("重置"), systemImage: "trash")
+                     }
+                 } footer: {
+                     Text("Reset the applications sources, certificates, apps, and general contents.")
+@@ -106,11 +106,11 @@ extension SettingsView {
+ 	
+ 	@ViewBuilder
+ 	private func _directories() -> some View {
+-		NBSection(.localized("Misc")) {
+-			Button(.localized("Open Documents"), systemImage: "folder") {
++		NBSection(.localized("其他")) {
++			Button(.localized("打开文档目录"), systemImage: "folder") {
+ 				UIApplication.open(URL.documentsDirectory.toSharedDocumentsURL()!)
+ 			}
+-			Button(.localized("Open Archives"), systemImage: "folder") {
++			Button(.localized("打开归档目录"), systemImage: "folder") {
+ 				UIApplication.open(FileManager.default.archives.toSharedDocumentsURL()!)
+ 			}
+ 		} footer: {
+diff --git a/Ksign/Views/Settings/Signing Options/ConfigurationView.swift b/Ksign/Views/Settings/Signing Options/ConfigurationView.swift
+index c220134..d927efb 100644
+--- a/Ksign/Views/Settings/Signing Options/ConfigurationView.swift	
++++ b/Ksign/Views/Settings/Signing Options/ConfigurationView.swift	
+@@ -16,9 +16,9 @@ struct ConfigurationView: View {
+ 	
+ 	// MARK: Body
+     var body: some View {
+-		NBList(.localized("Signing Options")) {
+-			NavigationLink(.localized("Display Names"), destination: ConfigurationDictView(
+-				title: .localized("Display Names"),
++		NBList(.localized("签名选项")) {
++			NavigationLink(.localized("显示名称"), destination: ConfigurationDictView(
++				title: .localized("显示名称"),
+ 					dataDict: $_optionsManager.options.displayNames
+ 				)
+ 			)
+@@ -65,10 +65,10 @@ extension ConfigurationView {
+ 	@ViewBuilder
+ 	private func _randomMenuItem() -> some View {
+ 		Section(_optionsManager.options.ppqString) {
+-			Button(.localized("Change")) {
++			Button(.localized("更改")) {
+ 				isRandomAlertPresenting = true
+ 			}
+-			Button(.localized("Copy")) {
++			Button(.localized("复制")) {
+ 				UIPasteboard.general.string = _optionsManager.options.ppqString
+ 			}
+ 		}
+@@ -77,12 +77,12 @@ extension ConfigurationView {
+ 	@ViewBuilder
+ 	private func _randomMenuAlert() -> some View {
+ 		TextField(.localized("String"), text: $randomString)
+-		Button(.localized("Save")) {
++		Button(.localized("保存")) {
+ 			if !randomString.isEmpty {
+ 				_optionsManager.options.ppqString = randomString
+ 			}
+ 		}
+ 		
+-		Button(.localized("Cancel"), role: .cancel) {}
++		Button(.localized("取消"), role: .cancel) {}
+ 	}
+ }
+diff --git a/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictAddView.swift b/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictAddView.swift
+index b7ff4e5..b49cd75 100644
+--- a/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictAddView.swift	
++++ b/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictAddView.swift	
+@@ -24,9 +24,9 @@ struct ConfigurationDictAddView: View {
+ 	
+ 	// MARK: Body
+     var body: some View {
+-		NBList(.localized("New")) {
++		NBList(.localized("新建")) {
+ 			Section {
+-				TextField(.localized("Identifier"), text: $_newKey)
++				TextField(.localized("Bundle ID"), text: $_newKey)
+ 				TextField(.localized("Replacement"), text: $_newValue)
+ 			}
+ 			.autocapitalization(.none)
+diff --git a/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictView.swift b/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictView.swift
+index b64ea66..87ac9c1 100644
+--- a/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictView.swift	
++++ b/Ksign/Views/Settings/Signing Options/Dictionaries/ConfigurationDictView.swift	
+@@ -48,7 +48,7 @@ extension ConfigurationDictView {
+ 		Button(role: .destructive) {
+ 			dataDict.removeValue(forKey: key)
+ 		} label: {
+-			Label(.localized("Delete"), systemImage: "trash")
++			Label(.localized("删除"), systemImage: "trash")
+ 		}
+ 	}
+ }
+diff --git a/Ksign/Views/Signing/BulkSigningView.swift b/Ksign/Views/Signing/BulkSigningView.swift
+index f8574b7..47baf48 100644
+--- a/Ksign/Views/Signing/BulkSigningView.swift
++++ b/Ksign/Views/Signing/BulkSigningView.swift
+@@ -66,14 +66,14 @@ struct BulkSigningView: View {
+ 				Button {
+ 					_start()
+ 				} label: {
+-					NBSheetButton(title: .localized("Start Signing"))
++					NBSheetButton(title: .localized("开始签名"))
+ 				}
+ 			}
+ 			.toolbar {
+ 				NBToolbarButton(role: .dismiss)
+ 				
+ 				NBToolbarButton(
+-					.localized("Reset"),
++					.localized("重置"),
+ 					style: .text,
+ 					placement: .topBarTrailing
+ 				) {
+@@ -127,15 +127,15 @@ extension BulkSigningView {
+ 	@ViewBuilder
+ 	private func _customizationOptions(for config: Binding<AppSignConfig>) -> some View {
+ 			Menu {
+-				Button(.localized("Select Alternative Icon")) {
++				Button(.localized("选择备用图标")) {
+ 					_editingConfigId = config.wrappedValue.id
+ 					_isAltPickerPresenting = true 
+ 				}
+-				Button(.localized("Choose from Files")) {
++				Button(.localized("从文件选择")) {
+ 					_editingConfigId = config.wrappedValue.id
+ 					_isFilePickerPresenting = true 
+ 				}
+-				Button(.localized("Choose from Photos")) {
++				Button(.localized("从照片选择")) {
+ 					_editingConfigId = config.wrappedValue.id
+ 					_isImagePickerPresenting = true 
+ 				}
+@@ -149,23 +149,23 @@ extension BulkSigningView {
+ 					FRAppIconView(app: config.app.wrappedValue, size: 55)
+ 				}
+ 			}
+-			_infoCell(.localized("Name"), desc: config.options.appName.wrappedValue ?? config.app.wrappedValue.name) {
++			_infoCell(.localized("名称"), desc: config.options.appName.wrappedValue ?? config.app.wrappedValue.name) {
+ 				SigningPropertiesView(
+-					title: .localized("Name"),
++					title: .localized("名称"),
+ 					initialValue: config.options.appName.wrappedValue ?? (config.app.wrappedValue.name ?? ""),
+ 					bindingValue: config.options.appName
+ 				)
+ 			}
+-			_infoCell(.localized("Identifier"), desc: config.options.appIdentifier.wrappedValue ?? config.app.wrappedValue.identifier) {
++			_infoCell(.localized("Bundle ID"), desc: config.options.appIdentifier.wrappedValue ?? config.app.wrappedValue.identifier) {
+ 				SigningPropertiesView(
+-					title: .localized("Identifier"),
++					title: .localized("Bundle ID"),
+ 					initialValue: config.options.appIdentifier.wrappedValue ?? (config.app.wrappedValue.identifier ?? ""),
+ 					bindingValue: config.options.appIdentifier
+ 				)
+ 			}
+-			_infoCell(.localized("Version"), desc: config.options.appVersion.wrappedValue ?? config.app.wrappedValue.version) {
++			_infoCell(.localized("版本"), desc: config.options.appVersion.wrappedValue ?? config.app.wrappedValue.version) {
+ 				SigningPropertiesView(
+-					title: .localized("Version"),
++					title: .localized("版本"),
+ 					initialValue: config.options.appVersion.wrappedValue ?? (config.app.wrappedValue.version ?? ""),
+ 					bindingValue: config.options.appVersion
+ 				)
+@@ -175,7 +175,7 @@ extension BulkSigningView {
+ 
+ 	@ViewBuilder
+ 	private func _cert() -> some View {
+-		NBSection(.localized("Signing")) {
++		NBSection(.localized("正在签名")) {
+ 			if let cert = _selectedCert() {
+ 				NavigationLink {
+ 					CertificatesView(selectedCert: $_temporaryCertificate)
+@@ -190,40 +190,40 @@ extension BulkSigningView {
+ 	
+ 	@ViewBuilder
+ 	private func _customizationProperties(for config: Binding<AppSignConfig>) -> some View {
+-			DisclosureGroup(.localized("Modify")) {
+-				NavigationLink(.localized("Existing Dylibs")) {
++			DisclosureGroup(.localized("修改")) {
++				NavigationLink(.localized("已有动态库")) {
+ 					SigningDylibView(
+ 						app: config.app.wrappedValue,
+ 						options: config.options.optional()
+ 					)
+ 				}
+ 				
+-				NavigationLink(String.localized("Frameworks & PlugIns")) {
++				NavigationLink(String.localized("Framework 与插件")) {
+ 					SigningFrameworksView(
+ 						app: config.app.wrappedValue,
+ 						options: config.options.optional()
+ 					)
+ 				}
+ 				#if NIGHTLY || DEBUG
+-				NavigationLink(String.localized("Entitlements")) {
++				NavigationLink(String.localized("权限配置")) {
+ 					SigningEntitlementsView(
+ 						bindingValue: config.options.appEntitlementsFile
+ 					)
+ 				}
+ 				#endif
+-				NavigationLink(String.localized("Tweaks")) {
++				NavigationLink(String.localized("插件")) {
+ 					SigningTweaksView(
+ 						options: config.options
+ 					)
+ 				}
+ 			}
+ 			
+-			NavigationLink(String.localized("Properties")) {
++			NavigationLink(String.localized("属性")) {
+ 				Form { SigningOptionsView(
+ 					options: config.options,
+ 					temporaryOptions: _optionsManager.options
+ 				)}
+-			.navigationTitle(.localized("Properties"))
++			.navigationTitle(.localized("属性"))
+ 		}
+ 	}
+ 
+@@ -233,7 +233,7 @@ extension BulkSigningView {
+ 			destination()
+ 		} label: {
+ 			LabeledContent(title) {
+-				Text(desc ?? .localized("Unknown"))
++				Text(desc ?? .localized("未知"))
+ 			}
+ 		}
+ 	}
+@@ -242,8 +242,8 @@ extension BulkSigningView {
+ 		let canSign = _selectedCert() != nil || _configs.allSatisfy { $0.options.doAdhocSigning || $0.options.onlyModify }
+ 		guard canSign else {
+ 			UIAlertController.showAlertWithOk(
+-				title: .localized("No Certificate"),
+-				message: .localized("Please go to settings and import a valid certificate"),
++				title: .localized("没有证书"),
++				message: .localized("请前往设置导入有效证书"),
+ 				isCancel: true
+ 			)
+ 			return
+diff --git a/Ksign/Views/Signing/Shared/SigningAlternativeIconView.swift b/Ksign/Views/Signing/Shared/SigningAlternativeIconView.swift
+index 02668e9..98aa440 100644
+--- a/Ksign/Views/Signing/Shared/SigningAlternativeIconView.swift
++++ b/Ksign/Views/Signing/Shared/SigningAlternativeIconView.swift
+@@ -20,7 +20,7 @@ struct SigningAlternativeIconView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBNavigationView(.localized("Alternative Icons"), displayMode: .inline) {
++		NBNavigationView(.localized("备用图标"), displayMode: .inline) {
+ 			List(_alternateIcons, id: \.name) { icon in
+ 				Button {
+ 					appIcon = _iconUrl(icon.path)
+diff --git a/Ksign/Views/Signing/Shared/SigningDylibView.swift b/Ksign/Views/Signing/Shared/SigningDylibView.swift
+index 88eee66..5be5317 100644
+--- a/Ksign/Views/Signing/Shared/SigningDylibView.swift
++++ b/Ksign/Views/Signing/Shared/SigningDylibView.swift
+@@ -18,7 +18,7 @@ struct SigningDylibView: View {
+ 	@Binding var options: Options?
+ 	
+ 	var body: some View {
+-		NBList(.localized("Dylibs"), type: .list) {
++		NBList(.localized("动态库"), type: .list) {
+ 			Section {
+ 				ForEach(_dylibs, id: \.self) { dylib in
+ 					SigningToggleCellView(
+@@ -30,7 +30,7 @@ struct SigningDylibView: View {
+ 			}
+ 			.disabled(options == nil)
+ 			
+-			NBSection(.localized("Hidden")) {
++			NBSection(.localized("隐藏")) {
+ 				Text(verbatim: .localized("%lld required system dylibs not shown", arguments: _hiddenDylibCount))
+ 					.font(.footnote)
+ 					.foregroundColor(.disabled())
+diff --git a/Ksign/Views/Signing/Shared/SigningFrameworksView.swift b/Ksign/Views/Signing/Shared/SigningFrameworksView.swift
+index 0cafba6..21e2269 100644
+--- a/Ksign/Views/Signing/Shared/SigningFrameworksView.swift
++++ b/Ksign/Views/Signing/Shared/SigningFrameworksView.swift
+@@ -13,7 +13,7 @@ struct SigningFrameworksView: View {
+ 	@State private var _frameworks: [String] = []
+ 	@State private var _plugins: [String] = []
+ 	
+-	private let _frameworksPath: String = .localized("Frameworks")
++	private let _frameworksPath: String = .localized("Framework")
+ 	private let _pluginsPath: String = .localized("PlugIns")
+ 	
+ 	var app: AppInfoPresentable
+@@ -21,7 +21,7 @@ struct SigningFrameworksView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBList(.localized("Frameworks & PlugIns")) {
++		NBList(.localized("Framework 与插件")) {
+ 			Group {
+ 				if !_frameworks.isEmpty {
+ 					NBSection(_frameworksPath) {
+diff --git a/Ksign/Views/Signing/Shared/SigningOptionsView.swift b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+index a96ec40..fb486be 100644
+--- a/Ksign/Views/Signing/Shared/SigningOptionsView.swift
++++ b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+@@ -16,7 +16,7 @@ struct SigningOptionsView: View {
+     // MARK: Body
+     var body: some View {
+         if (temporaryOptions == nil) {
+-            NBSection(.localized("Protection")) {
++            NBSection(.localized("保护")) {
+                 _toggle(.localized("PPQ Protection"),
+                         systemImage: "shield.fill",
+                         isOn: $options.ppqProtection,
+@@ -33,7 +33,7 @@ struct SigningOptionsView: View {
+                 Text(.localized("Enabling any protection will append a random string to the bundleidentifiers of the apps you sign, this is to ensure your Apple ID does not get flagged by Apple. However, when using a signing service you can ignore this."))
+             }
+             Section {
+-                _toggle(.localized("Remove app after signed"),
++                _toggle(.localized("签名后移除原应用"),
+                         systemImage: "trash",
+                         isOn: $options.removeApp,
+                         temporaryValue: temporaryOptions?.removeApp
+@@ -42,15 +42,15 @@ struct SigningOptionsView: View {
+                 Text(.localized("This will remove app after signed (Downloaded apps)"))
+             }
+         } else {
+-            NBSection(.localized("General")) {
+-                _picker(.localized("Appearance"),
++            NBSection(.localized("通用")) {
++                _picker(.localized("外观"),
+                         systemImage: "paintpalette",
+                         selection: $options.appAppearance,
+                         values: Options.appAppearanceValues,
+                         id: \.description
+                 )
+                 
+-                _picker(.localized("Minimum Requirement"),
++                _picker(.localized("最低系统要求"),
+                         systemImage: "ruler",
+                         selection: $options.minimumAppRequirement,
+                         values: Options.appMinimumAppRequirementValues,
+@@ -58,12 +58,12 @@ struct SigningOptionsView: View {
+                 )
+             }
+             Section {
+-                _toggle(.localized("Remove app after signed"),
++                _toggle(.localized("签名后移除原应用"),
+                         systemImage: "trash",
+                         isOn: $options.removeApp,
+                         temporaryValue: temporaryOptions?.removeApp
+                 )
+-                _toggle(.localized("Only modify (No signing)"),
++                _toggle("仅修改配置，不签名",
+                         systemImage: "pencil.slash",
+                         isOn: $options.onlyModify,
+                         temporaryValue: temporaryOptions?.onlyModify
+@@ -71,14 +71,14 @@ struct SigningOptionsView: View {
+             }
+         }
+         
+-        NBSection(.localized("App Features")) {
+-            _toggle(.localized("File Sharing"),
++        NBSection(.localized("应用功能")) {
++            _toggle(.localized("文件共享"),
+                     systemImage: "folder.badge.person.crop",
+                     isOn: $options.fileSharing,
+                     temporaryValue: temporaryOptions?.fileSharing
+             )
+             
+-            _toggle(.localized("iTunes File Sharing"),
++            _toggle(.localized("iTunes 文件共享"),
+                     systemImage: "music.note.list",
+                     isOn: $options.itunesFileSharing,
+                     temporaryValue: temporaryOptions?.itunesFileSharing
+@@ -90,79 +90,79 @@ struct SigningOptionsView: View {
+                     temporaryValue: temporaryOptions?.proMotion
+             )
+             
+-            _toggle("GameMode",
++            _toggle("游戏模式",
+                     systemImage: "gamecontroller",
+                     isOn: $options.gameMode,
+                     temporaryValue: temporaryOptions?.gameMode
+             )
+             
+-            _toggle(.localized("iPad Fullscreen"),
++            _toggle(.localized("iPad 全屏"),
+                     systemImage: "ipad.landscape",
+                     isOn: $options.ipadFullscreen,
+                     temporaryValue: temporaryOptions?.ipadFullscreen
+             )
+         } footer: {
+-            Text(.localized("These options will change apps behaviours"))
++            Text("这些选项会修改应用的运行能力与显示行为")
+         }
+         
+-        NBSection(.localized("Removal")) {
+-            _toggle(.localized("Remove Supported Devices"),
++        NBSection(.localized("移除")) {
++            _toggle(.localized("移除设备限制"),
+                     systemImage: "iphone.slash",
+                     isOn: $options.removeSupportedDevices,
+                     temporaryValue: temporaryOptions?.removeSupportedDevices
+             )
+             
+-            _toggle(.localized("Remove URL Scheme"),
++            _toggle(.localized("移除 URL Scheme"),
+                     systemImage: "ellipsis.curlybraces",
+                     isOn: $options.removeURLScheme,
+                     temporaryValue: temporaryOptions?.removeURLScheme
+             )
+             
+-            _toggle(.localized("Remove Provisioning"),
++            _toggle(.localized("移除描述文件"),
+                     systemImage: "doc.badge.gearshape",
+                     isOn: $options.removeProvisioning,
+                     temporaryValue: temporaryOptions?.removeProvisioning
+             )
+             
+-            _toggle(.localized("Remove Watch Placeholder"),
++            _toggle(.localized("移除 Watch 占位应用"),
+                     systemImage: "applewatch.slash",
+                     isOn: $options.removeWatchPlaceholder,
+                     temporaryValue: temporaryOptions?.removeWatchPlaceholder
+             )
+         } footer: {
+-            Text(.localized("These options will remove stuff in unsigned IPAs"))
++            Text("签名或打包前清理原 IPA 中的限制与附加内容")
+         }
+         
+         Section {
+-            _toggle(.localized("Force Localize"),
++            _toggle(.localized("强制本地化"),
+                     systemImage: "character.bubble",
+                     isOn: $options.changeLanguageFilesForCustomDisplayName,
+                     temporaryValue: temporaryOptions?.changeLanguageFilesForCustomDisplayName
+             )
+         } footer: {
+-            Text(.localized("This will force the app to use localizations"))
++            Text("强制应用使用自定义显示名称的本地化内容")
+         }
+         
+-        NBSection(.localized("Advanced")) {
+-            _toggle(.localized("Adhoc Signing"),
++        NBSection(.localized("高级")) {
++            _toggle("Ad-hoc 临时签署",
+                     systemImage: "signature",
+                     isOn: $options.doAdhocSigning,
+                     temporaryValue: temporaryOptions?.doAdhocSigning
+             )
+         } footer: {
+-            Text(.localized("Only use this when you have Ad Hoc certificates"))
++            Text("越狱或 TrollStore 场景可使用，无需导入证书")
+         }
+         
+-        NBSection(.localized("Experiments")) {
++        NBSection("实验性功能") {
+             _toggle(
+-                .localized("Replace Substrate with ElleKit"),
++                .localized("使用 ElleKit 替换 Substrate"),
+                 systemImage: "pencil",
+                 isOn: $options.experiment_replaceSubstrateWithEllekit,
+                 temporaryValue: temporaryOptions?.experiment_replaceSubstrateWithEllekit
+             )
+             
+             _toggle(
+-                .localized("Enable Liquid Glass"),
++                .localized("启用液态玻璃"),
+                 systemImage: "26.circle",
+                 isOn: $options.experiment_supportLiquidGlass,
+                 temporaryValue: temporaryOptions?.experiment_supportLiquidGlass
+@@ -178,7 +178,7 @@ struct SigningOptionsView: View {
+ 
+ 		Section {
+ 			_toggle(
+-				.localized("Disable Liquid Glass"),
++				"禁用液态玻璃",
+ 				systemImage: "18.circle",
+ 				isOn: $options.experiment_disableLiquidGlass,
+ 				temporaryValue: temporaryOptions?.experiment_disableLiquidGlass
+diff --git a/Ksign/Views/Signing/SigningEntitlementsView.swift b/Ksign/Views/Signing/SigningEntitlementsView.swift
+index 95da376..e38dd6d 100644
+--- a/Ksign/Views/Signing/SigningEntitlementsView.swift
++++ b/Ksign/Views/Signing/SigningEntitlementsView.swift
+@@ -16,18 +16,18 @@ struct SigningEntitlementsView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBList(.localized("Entitlements")) {
++		NBList(.localized("权限配置")) {
+ 			if let ent = bindingValue {
+ 				Text(ent.lastPathComponent)
+ 					.swipeActions() {
+-						Button(.localized("Delete")) {
++						Button(.localized("删除")) {
+ 							FileManager.default.deleteStored(ent) { _ in
+ 								bindingValue = nil
+ 							}
+ 						}
+ 					}
+ 			} else {
+-				Button(.localized("Select entitlements file")) {
++				Button(.localized("选择权限文件")) {
+ 					_isAddingPresenting = true
+ 				}
+ 			}
+diff --git a/Ksign/Views/Signing/SigningProcessView.swift b/Ksign/Views/Signing/SigningProcessView.swift
+new file mode 100644
+index 0000000..28a813f
+--- /dev/null
++++ b/Ksign/Views/Signing/SigningProcessView.swift
+@@ -0,0 +1,81 @@
++import SwiftUI
++
++struct SigningProcessView: View {
++    @ObservedObject var manager: OperationProgressManager
++    let close: () -> Void
++
++    var body: some View {
++        NavigationStack {
++            VStack(spacing: 0) {
++                VStack(alignment: .leading, spacing: 12) {
++                    HStack(spacing: 12) {
++                        Image(systemName: statusIcon)
++                            .font(.system(size: 38))
++                            .foregroundStyle(statusColor)
++                        VStack(alignment: .leading) {
++                            Text(statusTitle).font(.title2.bold())
++                            Text(manager.detail).foregroundStyle(.secondary)
++                        }
++                        Spacer()
++                        Text(manager.elapsedText).foregroundStyle(.secondary).monospacedDigit()
++                    }
++                    ProgressView(value: manager.progress).tint(statusColor)
++                    HStack {
++                        Text("\(Int(manager.progress * 100))%")
++                        Spacer()
++                        Text(manager.signingMode)
++                    }.font(.caption).foregroundStyle(.secondary)
++                }.padding()
++
++                Divider()
++
++                ScrollView {
++                    VStack(alignment: .leading, spacing: 14) {
++                        GroupBox("应用信息") {
++                            infoRow("名称", manager.appName)
++                            infoRow("Bundle ID", manager.bundleID)
++                            infoRow("版本", manager.appVersion)
++                            infoRow("签名模式", manager.signingMode)
++                        }
++                        GroupBox("处理日志") {
++                            LazyVStack(alignment: .leading, spacing: 7) {
++                                ForEach(Array(manager.entries.enumerated()), id: \.offset) { _, line in
++                                    Text(line).font(.system(.caption, design: .monospaced))
++                                        .frame(maxWidth: .infinity, alignment: .leading)
++                                }
++                            }
++                        }
++                    }.padding()
++                }
++            }
++            .navigationTitle("处理进度")
++            .navigationBarTitleDisplayMode(.inline)
++            .toolbar {
++                if manager.succeeded != nil {
++                    ToolbarItem(placement: .topBarLeading) {
++                        Button("关闭") { manager.close(); close() }
++                    }
++                }
++                ToolbarItem(placement: .topBarTrailing) {
++                    Button { UIActivityViewController.show(activityItems: [manager.entries.joined(separator: "\n")]) } label: {
++                        Image(systemName: "square.and.arrow.up")
++                    }
++                }
++            }
++        }
++        .interactiveDismissDisabled(manager.succeeded == nil)
++    }
++
++    private func infoRow(_ key: String, _ value: String) -> some View {
++        HStack { Text(key).foregroundStyle(.secondary); Spacer(); Text(value).textSelection(.enabled) }
++            .font(.subheadline).padding(.vertical, 2)
++    }
++
++    private var statusTitle: String {
++        if manager.succeeded == true { return "处理完成" }
++        if manager.succeeded == false { return "处理失败" }
++        return "正在处理"
++    }
++    private var statusIcon: String { manager.succeeded == true ? "checkmark.circle.fill" : manager.succeeded == false ? "xmark.circle.fill" : "gearshape.2.fill" }
++    private var statusColor: Color { manager.succeeded == true ? .green : manager.succeeded == false ? .red : .accentColor }
++}
+diff --git a/Ksign/Views/Signing/SigningPropertiesView.swift b/Ksign/Views/Signing/SigningPropertiesView.swift
+index bc3f763..43608ed 100644
+--- a/Ksign/Views/Signing/SigningPropertiesView.swift
++++ b/Ksign/Views/Signing/SigningPropertiesView.swift
+@@ -43,7 +43,7 @@ struct SigningPropertiesView: View {
+         }
+ 		.toolbar {
+ 			NBToolbarButton(
+-				.localized("Save"),
++				.localized("保存"),
+ 				style: .text,
+ 				placement: .topBarTrailing,
+ 				isDisabled: saveButtonDisabled
+diff --git a/Ksign/Views/Signing/SigningTweaksView.swift b/Ksign/Views/Signing/SigningTweaksView.swift
+index 48e94af..3d1cb09 100644
+--- a/Ksign/Views/Signing/SigningTweaksView.swift
++++ b/Ksign/Views/Signing/SigningTweaksView.swift
+@@ -18,35 +18,35 @@ struct SigningTweaksView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBList(.localized("Tweaks")) {
+-			NBSection(.localized("Injection")) {
++		NBList(.localized("插件")) {
++			NBSection("注入设置") {
+ 				Picker(selection: $options.injectPath) {
+ 					ForEach(Options.InjectPath.allCases, id: \.rawValue) { path in
+ 						Text(path.localizedDescription).tag(path)
+ 					}
+ 				} label: {
+-					Label(.localized("Injection Path"), systemImage: "doc.badge.gearshape")
++					Label("注入路径", systemImage: "doc.badge.gearshape")
+ 				}
+ 				Picker(selection: $options.injectFolder) {
+ 					ForEach(Options.InjectFolder.allCases, id: \.rawValue) { folder in
+ 						Text(folder.localizedDescription).tag(folder)
+ 					}
+ 				} label: {
+-					Label(.localized("Injection Folder"), systemImage: "folder.badge.gearshape")
++					Label("注入目录", systemImage: "folder.badge.gearshape")
+ 				}
+ 				Toggle(isOn: $options.injectIntoExtensions) {
+-					Label(.localized("Inject into Extensions"), systemImage: "syringe")
++					Label("同时注入扩展", systemImage: "syringe")
+ 				}
+ 			}
+ 			if !options.injectionFiles.isEmpty {
+-				NBSection(.localized("Added Tweaks")) {
++				NBSection("已选择插件") {
+ 					ForEach(options.injectionFiles, id: \.absoluteString) { tweak in
+ 						_file(tweak: tweak, isFromOptions: true)
+ 					}
+ 				}
+ 			}
+ 			if !_tweaksInDirectory.isEmpty {
+-				NBSection(.localized("Available Tweaks")) {
++				NBSection(.localized("可用插件")) {
+ 					ForEach(_tweaksInDirectory, id: \.absoluteString) { tweak in
+ 						_file(tweak: tweak, isFromOptions: false)
+ 					}
+@@ -57,25 +57,25 @@ struct SigningTweaksView: View {
+ 			if options.injectionFiles.isEmpty && _tweaksInDirectory.isEmpty {
+ 				if #available(iOS 17, *) {
+ 					ContentUnavailableView {
+-						Label(.localized("No Tweaks"), systemImage: "gear.badge.questionmark")
++						Label(.localized("没有插件"), systemImage: "gear.badge.questionmark")
+ 					} description: {
+-						Text(.localized("Importing your .dylib, .deb or .framework files \n These will also be automatically added to Tweaks folder"))
++						Text("导入 .dylib、.deb、.framework 或 .bundle 文件后，可在这里选择并注入")
+                     } actions: {
+ 						Button {
+ 							_isAddingPresenting = true
+ 						} label: {
+-							Text("Import").bg()
++							Text("导入插件").bg()
+ 						}
+ 					}
+ 				} else {
+-					Text(.localized("Importing your .dylib, .deb or .framework files \n These will also be automatically added to Tweaks folder"))
++					Text("导入 .dylib、.deb、.framework 或 .bundle 文件后，可在这里选择并注入")
+ 						.foregroundColor(.secondary)
+ 						.frame(maxWidth: .infinity, alignment: .center)
+ 						.padding()
+ 				}
+ 			}
+ 		}
+-		.navigationTitle(.localized("Tweaks"))
++		.navigationTitle(.localized("插件"))
+ 		.listStyle(.plain)
+ 		.toolbar {
+ 			NBToolbarButton(
+@@ -199,7 +199,7 @@ extension SigningTweaksView {
+ 					}
+ 				}
+ 			} label: {
+-				Label(.localized("Delete"), systemImage: "trash")
++				Label(.localized("删除"), systemImage: "trash")
+ 			}
+ 		}
+ 	}
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index dff7c83..6feb204 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -15,6 +15,7 @@ struct SigningView: View {
+ 	@Namespace var _namespace
+ 
+ 	@StateObject private var _optionsManager = OptionsManager.shared
++	@StateObject private var _operationProgress = OperationProgressManager.shared
+ 	
+ 	@State private var _temporaryOptions: Options = OptionsManager.shared.options
+ 	@State private var _temporaryCertificate: Int
+@@ -63,7 +64,7 @@ struct SigningView: View {
+ 		
+ 	// MARK: Body
+     var body: some View {
+-		NBNavigationView(app.name ?? .localized("Unknown"), displayMode: .inline) {
++		NBNavigationView(app.name ?? .localized("未知"), displayMode: .inline) {
+ 			Form {
+ 				_customizationOptions(for: app)
+ 				_cert()
+@@ -71,19 +72,11 @@ struct SigningView: View {
+ 			}
+ 			.disabled(_isSigning)
+ 			.safeAreaInset(edge: .bottom) {
+-				if _isSigning {
+-					Button() {
+-						_isLogsPresenting = true
+-					} label: {
+-						NBSheetButton(title: .localized("Show Logs"))
+-					}
+-					.tint(.secondary)
+-					.compatMatchedTransitionSource(id: "showLogs", ns: _namespace)
+-				} else {
++				if !_isSigning {
+ 					Button() {
+ 						_start()
+ 					} label: {
+-						NBSheetButton(title: .localized("Start Signing"))
++						NBSheetButton(title: .localized("开始签名"))
+ 					}
+ 				}
+ 			}
+@@ -91,7 +84,7 @@ struct SigningView: View {
+ 				NBToolbarButton(role: .dismiss)
+ 				
+ 				NBToolbarButton(
+-					.localized("Reset"),
++					.localized("重置"),
+ 					style: .text,
+ 					placement: .topBarTrailing
+ 				) {
+@@ -114,6 +107,12 @@ struct SigningView: View {
+ 				LogsView(manager: LogsManager.shared)
+ 					.compatNavigationTransition(id: "showLogs", ns: _namespace)
+ 			}
++			.fullScreenCover(isPresented: $_isSigning) {
++				SigningProcessView(manager: _operationProgress) {
++					_isSigning = false
++					dismiss()
++				}
++			}
+ 			.onChange(of: _selectedPhoto) { newValue in
+ 				guard let newValue else { return }
+ 				
+@@ -178,11 +177,11 @@ struct SigningView: View {
+ extension SigningView {
+ 	@ViewBuilder
+ 	private func _customizationOptions(for app: AppInfoPresentable) -> some View {
+-		NBSection(.localized("Customization")) {
++		NBSection(.localized("自定义")) {
+ 			Menu {
+-				Button(.localized("Select Alternative Icon")) { _isAltPickerPresenting = true }
+-				Button(.localized("Choose from Files")) { _isFilePickerPresenting = true }
+-				Button(.localized("Choose from Photos")) { _isImagePickerPresenting = true }
++				Button(.localized("选择备用图标")) { _isAltPickerPresenting = true }
++				Button(.localized("从文件选择")) { _isFilePickerPresenting = true }
++				Button(.localized("从照片选择")) { _isImagePickerPresenting = true }
+ 			} label: {
+ 				if let icon = appIcon {
+ 					Image(uiImage: icon)
+@@ -192,24 +191,24 @@ extension SigningView {
+ 				}
+ 			}
+ 			
+-			_infoCell(.localized("Name"), desc: _temporaryOptions.appName ?? app.name) {
++			_infoCell(.localized("名称"), desc: _temporaryOptions.appName ?? app.name) {
+ 				SigningPropertiesView(
+-					title: .localized("Name"),
++					title: .localized("名称"),
+ 					initialValue: _temporaryOptions.appName ?? (app.name ?? ""),
+ 					bindingValue: $_temporaryOptions.appName
+ 				)
+ 			}
+-			_infoCell(.localized("Identifier"), desc: _temporaryOptions.appIdentifier ?? app.identifier) {
++			_infoCell(.localized("Bundle ID"), desc: _temporaryOptions.appIdentifier ?? app.identifier) {
+ 				SigningPropertiesView(
+-					title: .localized("Identifier"),
++					title: .localized("Bundle ID"),
+ 					initialValue: _temporaryOptions.appIdentifier ?? (app.identifier ?? ""),
+ 					certAppId: _getCertAppID(),
+ 					bindingValue: $_temporaryOptions.appIdentifier
+ 				)
+ 			}
+-			_infoCell(.localized("Version"), desc: _temporaryOptions.appVersion ?? app.version) {
++			_infoCell(.localized("版本"), desc: _temporaryOptions.appVersion ?? app.version) {
+ 				SigningPropertiesView(
+-					title: .localized("Version"),
++					title: .localized("版本"),
+ 					initialValue: _temporaryOptions.appVersion ?? (app.version ?? ""),
+ 					bindingValue: $_temporaryOptions.appVersion
+ 				)
+@@ -219,7 +218,7 @@ extension SigningView {
+ 	
+ 	@ViewBuilder
+ 	private func _cert() -> some View {
+-		NBSection(.localized("Signing")) {
++		NBSection(.localized("正在签名")) {
+ 			if let cert = _selectedCert() {
+ 				NavigationLink {
+ 					CertificatesView(selectedCert: $_temporaryCertificate)
+@@ -234,41 +233,41 @@ extension SigningView {
+ 	
+ 	@ViewBuilder
+ 	private func _customizationProperties(for app: AppInfoPresentable) -> some View {
+-		NBSection(.localized("Advanced")) {
+-			DisclosureGroup(.localized("Modify")) {
+-				NavigationLink(.localized("Existing Dylibs")) {
++		NBSection(.localized("高级")) {
++			DisclosureGroup(.localized("修改")) {
++				NavigationLink(.localized("已有动态库")) {
+ 					SigningDylibView(
+ 						app: app,
+ 						options: $_temporaryOptions.optional()
+ 					)
+ 				}
+ 				
+-				NavigationLink(String.localized("Frameworks & PlugIns")) {
++				NavigationLink(String.localized("Framework 与插件")) {
+ 					SigningFrameworksView(
+ 						app: app,
+ 						options: $_temporaryOptions.optional()
+ 					)
+ 				}
+ 				#if NIGHTLY || DEBUG
+-				NavigationLink(String.localized("Entitlements")) {
++				NavigationLink(String.localized("权限配置")) {
+ 					SigningEntitlementsView(
+ 						bindingValue: $_temporaryOptions.appEntitlementsFile
+ 					)
+ 				}
+ 				#endif
+-				NavigationLink(String.localized("Tweaks")) {
++				NavigationLink(String.localized("插件")) {
+ 					SigningTweaksView(
+ 						options: $_temporaryOptions
+ 					)
+ 				}
+ 			}
+ 			
+-			NavigationLink(String.localized("Properties")) {
++			NavigationLink(String.localized("属性")) {
+ 				Form { SigningOptionsView(
+ 					options: $_temporaryOptions,
+ 					temporaryOptions: _optionsManager.options
+ 				)}
+-				.navigationTitle(.localized("Properties"))
++				.navigationTitle(.localized("属性"))
+ 			}
+ 		}
+ 	}
+@@ -279,7 +278,7 @@ extension SigningView {
+ 			destination()
+ 		} label: {
+ 			LabeledContent(title) {
+-				Text(desc ?? .localized("Unknown"))
++				Text(desc ?? .localized("未知"))
+ 			}
+ 		}
+ 	}
+@@ -290,8 +289,8 @@ extension SigningView {
+ 	private func _start() {
+ 		guard _selectedCert() != nil || _temporaryOptions.doAdhocSigning || _temporaryOptions.onlyModify else {
+ 			UIAlertController.showAlertWithOk(
+-				title: .localized("No Certificate"),
+-				message: .localized("Please go to settings and import a valid certificate"),
++				title: .localized("没有证书"),
++				message: .localized("请前往设置导入有效证书"),
+ 				isCancel: true
+ 			)
+ 			return
+@@ -299,7 +298,15 @@ extension SigningView {
+ 
+ 		let generator = UIImpactFeedbackGenerator(style: .light)
+ 		generator.impactOccurred()
+-		_isLogsPresenting = _optionsManager.options.signingLogs
++		let mode = _temporaryOptions.onlyModify
++			? "仅修改配置"
++			: (_temporaryOptions.doAdhocSigning ? "Ad-hoc 临时签署" : "证书签名")
++		_operationProgress.configure(
++			appName: _temporaryOptions.appName ?? app.name ?? "未知应用",
++			bundleID: _temporaryOptions.appIdentifier ?? app.identifier ?? "未知",
++			version: _temporaryOptions.appVersion ?? app.version ?? "未知",
++			mode: mode
++		)
+ 		_isSigning = true
+ #if DEBUG
+ 		LogsManager.shared.startCapture()
+@@ -310,17 +317,7 @@ extension SigningView {
+ 			icon: appIcon,
+ 			certificate: _selectedCert()
+ 		) { [self] error in
+-			if let error {
+-				let ok = UIAlertAction(title: .localized("Dismiss"), style: .cancel) { _ in
+-					dismiss()
+-				}
+-				
+-				UIAlertController.showAlert(
+-					title: .localized("Signing"),
+-					message: error.localizedDescription,
+-					actions: [ok]
+-				)
+-			} else {
++			if error == nil {
+ 				// Remove app after signed option thing
+ 				if _temporaryOptions.removeApp && !app.isSigned {
+ 					Storage.shared.deleteApp(for: app)
+@@ -334,7 +331,6 @@ extension SigningView {
+                         )
+                     }
+                 }
+-				dismiss()
+ 			}
+ 		}
+ 	}
+diff --git a/Ksign/Views/Sources/Apps/Detail/ScreenshotPreviewView.swift b/Ksign/Views/Sources/Apps/Detail/ScreenshotPreviewView.swift
+index 38cdc4f..f1e9056 100644
+--- a/Ksign/Views/Sources/Apps/Detail/ScreenshotPreviewView.swift
++++ b/Ksign/Views/Sources/Apps/Detail/ScreenshotPreviewView.swift
+@@ -30,7 +30,7 @@ struct ScreenshotPreviewView: View {
+                         if #available(iOS 26.0, *) {
+                             Button(role: .close) { dismiss() }
+                         } else {
+-                            Button(.localized("Close"), role: .cancel) { dismiss() }
++                            Button(.localized("关闭"), role: .cancel) { dismiss() }
+                         }
+                     }
+                     ToolbarItem(placement: .topBarTrailing) {
+diff --git a/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift b/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
+index f2ab807..35be858 100644
+--- a/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
++++ b/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
+@@ -100,7 +100,7 @@ struct SourceAppsDetailView: View {
+ 				}
+ 				
+ 				if let appDesc = app.localizedDescription {
+-					NBSection(.localized("Description")) {
++					NBSection(.localized("说明")) {
+ 						VStack(alignment: .leading, spacing: 2) {
+ 							ExpandableText(text: appDesc, lineLimit: 3)
+ 						}
+@@ -110,10 +110,10 @@ struct SourceAppsDetailView: View {
+ 					Divider()
+ 				}
+                 
+-                NBSection(.localized("Information")) {
++                NBSection(.localized("信息")) {
+                     VStack(spacing: 12) {
+                         if let sourceName = source.name {
+-                            _infoRow(title: .localized("Source"), value: sourceName)
++                            _infoRow(title: .localized("软件源"), value: sourceName)
+                         }
+                         
+                         if let developer = app.developer, !developer.isEmpty {
+@@ -121,7 +121,7 @@ struct SourceAppsDetailView: View {
+ 						}
+ 						
+ 						if let size = app.size {
+-							_infoRow(title: .localized("Size"), value: size.formattedByteCount)
++							_infoRow(title: .localized("大小"), value: size.formattedByteCount)
+ 						}
+ 						
+                         if let category = app.category, !category.isEmpty {
+@@ -129,7 +129,7 @@ struct SourceAppsDetailView: View {
+ 						}
+ 						
+                         if let version = app.currentVersion, !version.isEmpty {
+-							_infoRow(title: .localized("Version"), value: version)
++							_infoRow(title: .localized("版本"), value: version)
+ 						}
+ 						
+                         if let date = app.currentDate?.date {
+@@ -137,7 +137,7 @@ struct SourceAppsDetailView: View {
+ 						}
+ 						
+ 						if let bundleId = app.id {
+-							_infoRow(title: .localized("Identifier"), value: bundleId)
++							_infoRow(title: .localized("Bundle ID"), value: bundleId)
+ 						}
+ 					}
+                 }
+@@ -147,7 +147,7 @@ struct SourceAppsDetailView: View {
+ 						Group {
+ 							if let entitlements = appPermissions.entitlements {
+ 								NBTitleWithSubtitleView(
+-									title: .localized("Entitlements"),
++									title: .localized("权限配置"),
+ 									subtitle: entitlements.map(\.name).joined(separator: "\n")
+ 								)
+ 							} else {
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+index 52cb126..fbe0b6f 100644
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -44,7 +44,7 @@ struct DownloadButtonView: View {
+ 						_ = downloadManager.startDownload(from: url, id: app.currentUniqueId)
+ 					}
+ 				} label: {
+-					Text(.localized("Get"))
++					Text(.localized("获取"))
+ 						.lineLimit(0)
+ 						.font(.headline.bold())
+ 						.foregroundStyle(Color.accentColor)
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsView.swift b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+index f2801a5..1c8186f 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+@@ -19,9 +19,9 @@ extension SourceAppsView {
+         
+         var displayName: String {
+             switch self {
+-            case .default:  .localized("Default")
+-            case .name:     .localized("Name")
+-            case .date:     .localized("Date")
++            case .default:  .localized("默认")
++            case .name:     .localized("名称")
++            case .date:     .localized("日期")
+             }
+         }
+     }
+@@ -42,9 +42,9 @@ struct SourceAppsView: View {
+     
+     private var _navigationTitle: String {
+         if fromAppStore {
+-            return .localized("App Store")
++            return .localized("应用商店")
+         } else if object.count == 1 {
+-            return object[0].name ?? .localized("Unknown")
++            return object[0].name ?? .localized("未知")
+         } else {
+             return .localized("%lld Sources", arguments: object.count)
+         }
+@@ -79,7 +79,7 @@ struct SourceAppsView: View {
+                 if #available(iOS 17, *) {
+                     ContentUnavailableView {
+                         ProgressView()
+-                        Label(.localized("Fetching..."), systemImage: "")
++                        Label(.localized("正在获取…"), systemImage: "")
+                     } description: {
+                         Text(.localized("Stuck? Check if you have any sources added."))
+                     }
+@@ -109,7 +109,7 @@ struct SourceAppsView: View {
+             
+             Divider()
+             
+-            Button(.localized("Copy"), systemImage: "doc.on.doc") {
++            Button(.localized("复制"), systemImage: "doc.on.doc") {
+                 UIPasteboard.general.string = object.map {
+                     $0.sourceURL!.absoluteString
+                 }.joined(separator: "\n")
+@@ -122,7 +122,7 @@ struct SourceAppsView: View {
+                     NavigationLink {
+                         SourcesView()
+                     } label: {
+-                        Text(.localized("Sources"))
++                        Text(.localized("软件源"))
+                     }
+                 }
+             }
+@@ -187,7 +187,7 @@ struct SourceAppsView: View {
+ extension SourceAppsView {
+     @ViewBuilder
+     private func _sortActions() -> some View {
+-        Section(.localized("Filter by")) {
++        Section(.localized("筛选")) {
+             ForEach(SortOption.allCases, id: \.displayName) { opt in
+                 _sortButton(for: opt)
+             }
+diff --git a/Ksign/Views/Sources/SourcesAddView.swift b/Ksign/Views/Sources/SourcesAddView.swift
+index 186246a..e457a9f 100644
+--- a/Ksign/Views/Sources/SourcesAddView.swift
++++ b/Ksign/Views/Sources/SourcesAddView.swift
+@@ -23,7 +23,7 @@ struct SourcesAddView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBNavigationView(.localized("Add Source"), displayMode: .inline) {
++		NBNavigationView(.localized("添加软件源"), displayMode: .inline) {
+ 			Form {
+ 				Section {
+ 					TextField(.localized("Source Repo URL"), text: $_sourceURL)
+@@ -33,7 +33,7 @@ struct SourcesAddView: View {
+ 				}
+ 				
+ 				Section {
+-					Button(.localized("Import"), systemImage: "square.and.arrow.down") {
++					Button(.localized("导入"), systemImage: "square.and.arrow.down") {
+ 						_isImporting = true
+ 						_addCode(UIPasteboard.general.string) {
+ 							UINotificationFeedbackGenerator().notificationOccurred(.success)
+@@ -42,12 +42,12 @@ struct SourcesAddView: View {
+ 						
+ 					}
+ 					
+-					Button(.localized("Export"), systemImage: "doc.on.clipboard") {
++					Button(.localized("分享"), systemImage: "doc.on.clipboard") {
+ 						UIPasteboard.general.string = Storage.shared.getSources().map {
+ 							$0.sourceURL!.absoluteString
+ 						}.joined(separator: "\n")
+ 						UINotificationFeedbackGenerator().notificationOccurred(.success)
+-						UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("All sources copied to clipboard."))
++						UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("All sources copied to clipboard."))
+ 					}
+ 				} footer: {
+ 					Text(.localized("Supports importing from KravaSign/MapleSign and ESign"))
+@@ -58,7 +58,7 @@ struct SourcesAddView: View {
+ 				
+ 				if !_isImporting {
+ 					NBToolbarButton(
+-						.localized("Save"),
++						.localized("保存"),
+ 						style: .text,
+ 						placement: .confirmationAction,
+ 						isDisabled: _sourceURL.isEmpty
+diff --git a/Ksign/Views/Sources/SourcesCellView.swift b/Ksign/Views/Sources/SourcesCellView.swift
+index 9043ecd..76a1381 100644
+--- a/Ksign/Views/Sources/SourcesCellView.swift
++++ b/Ksign/Views/Sources/SourcesCellView.swift
+@@ -16,7 +16,7 @@ struct SourcesCellView: View {
+ 	// MARK: Body
+ 	var body: some View {
+ 		FRIconCellView(
+-			title: source.name ?? .localized("Unknown"),
++			title: source.name ?? .localized("未知"),
+ 			subtitle: source.sourceURL?.absoluteString ?? "",
+ 			iconUrl: source.iconURL
+ 		)
+@@ -36,14 +36,14 @@ struct SourcesCellView: View {
+ extension SourcesCellView {
+ 	@ViewBuilder
+ 	private func _actions(for source: AltSource) -> some View {
+-		Button(.localized("Delete"), systemImage: "trash", role: .destructive) {
++		Button(.localized("删除"), systemImage: "trash", role: .destructive) {
+ 			Storage.shared.deleteSource(for: source)
+ 		}
+ 	}
+ 	
+ 	@ViewBuilder
+ 	private func _contextActions(for source: AltSource) -> some View {
+-		Button(.localized("Copy"), systemImage: "doc.on.clipboard") {
++		Button(.localized("复制"), systemImage: "doc.on.clipboard") {
+ 			UIPasteboard.general.string = source.sourceURL?.absoluteString
+ 		}
+ 	}
+diff --git a/Ksign/Views/Sources/SourcesView.swift b/Ksign/Views/Sources/SourcesView.swift
+index ec915e8..5981cd5 100644
+--- a/Ksign/Views/Sources/SourcesView.swift
++++ b/Ksign/Views/Sources/SourcesView.swift
+@@ -29,7 +29,7 @@ struct SourcesView: View {
+ 	
+ 	// MARK: Body
+ 	var body: some View {
+-		NBNavigationView(.localized("Sources")) {
++		NBNavigationView(.localized("软件源")) {
+ 			NBListAdaptable {
+ 				Section {
+ 					NavigationLink {
+@@ -38,7 +38,7 @@ struct SourcesView: View {
+ 						HStack(spacing: 9) {
+ 							Image("Repositories").appIconStyle()
+ 							NBTitleWithSubtitleView(
+-								title: .localized("All Repositories"),
++								title: .localized("所有软件源"),
+ 								subtitle: .localized("See all apps from your sources")
+ 							)
+ 						}
+@@ -47,7 +47,7 @@ struct SourcesView: View {
+ 				}
+ 				
+ 				NBSection(
+-					.localized("Repositories"),
++					.localized("软件源"),
+ 					secondary: _filteredSources.count.description
+ 				) {
+ 					ForEach(_filteredSources) { source in
+diff --git a/Ksign/Views/TabView/Bars/ExtendedTabbarView.swift b/Ksign/Views/TabView/Bars/ExtendedTabbarView.swift
+index 60039d5..a8867c8 100644
+--- a/Ksign/Views/TabView/Bars/ExtendedTabbarView.swift
++++ b/Ksign/Views/TabView/Bars/ExtendedTabbarView.swift
+@@ -42,7 +42,7 @@ struct ExtendedTabbarView: View {
+ 			}
+ 			
+ 			TabSection("Sources") {
+-				Tab(.localized("All Repositories"), systemImage: "globe.desk") {
++				Tab(.localized("所有软件源"), systemImage: "globe.desk") {
+ 					NavigationStack {
+ 						SourceAppsView(object: Array(_sources), viewModel: viewModel)
+ 					}
+@@ -54,17 +54,17 @@ struct ExtendedTabbarView: View {
+ 							SourceAppsView(object: [source], viewModel: viewModel)
+ 						}
+ 					} label: {
+-						_icon(source.name ?? .localized("Unknown"), iconUrl: source.iconURL)
++						_icon(source.name ?? .localized("未知"), iconUrl: source.iconURL)
+ 					}
+ 					.swipeActions {
+-						Button(String.localized("Delete"), systemImage: "trash", role: .destructive) {
++						Button(String.localized("删除"), systemImage: "trash", role: .destructive) {
+ 							Storage.shared.deleteSource(for: source)
+ 						}
+ 					}
+ 				}
+ 			}
+ 			.sectionActions {
+-				Button(.localized("Add Source"), systemImage: "plus") {
++				Button(.localized("添加软件源"), systemImage: "plus") {
+ 					_isAddingPresenting = true
+ 				}
+ 			}
+diff --git a/Ksign/Views/TabView/TabEnum.swift b/Ksign/Views/TabView/TabEnum.swift
+index 9268a90..76c35ba 100644
+--- a/Ksign/Views/TabView/TabEnum.swift
++++ b/Ksign/Views/TabView/TabEnum.swift
+@@ -47,14 +47,14 @@ enum TabEnum: String, CaseIterable, Hashable {
+ 		case .sources: SourcesView()
+ 		case .library: LibraryView()
+ 		case .settings: SettingsView()
+-		case .certificates: NBNavigationView(.localized("Certificates")) { CertificatesView() }
++		case .certificates: NBNavigationView(.localized("证书管理")) { CertificatesView() }
+ 		case .appstore: AppstoreView()
+         case .downloader: DownloaderView()
+ 		}
+ 	}
+ 	
+ 	static var defaultTabs: [TabEnum] {
+-		return [.library, .files, .certificates, .downloader, .settings]
++		return [.library, .files, .sources, .downloader, .settings]
+ 	}
+ 	
+ 	static var customizableTabs: [TabEnum] {
