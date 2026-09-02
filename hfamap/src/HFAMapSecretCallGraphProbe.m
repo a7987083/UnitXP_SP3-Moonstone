@@ -13,6 +13,7 @@
 #include <ptrauth.h>
 #endif
 
+#if 0
 static int gKey2PathDone;
 static uintptr_t gKeyRegistryMaskAddress;
 static uintptr_t gKeyTableAddress;
@@ -204,6 +205,106 @@ __attribute__((constructor))
 static void HFAKey2AuthTraceInit(void) {
     _dyld_register_func_for_add_image(HFAKey2ImageAdded);
 }
+#endif
+
+static int gKey2PathDone;
+static uintptr_t gRegisterImageBase;
+static uintptr_t (*gOriginalKeyRegister)(uintptr_t, uintptr_t, uintptr_t,
+                                          uintptr_t, uintptr_t, uintptr_t);
+
+typedef int (*HFADobbyHookFn)(void *, void *, void **);
+typedef void (*HFAMSHookFunction)(void *, void *, void **);
+
+static const char *HFABaseName(const char *path) {
+    const char *p = path ? strrchr(path, '/') : NULL;
+    return p ? p + 1 : (path ? path : "?");
+}
+
+static void HFAKey2Log(const char *fmt, ...) {
+    @autoreleasepool {
+        NSString *path = [NSHomeDirectory()
+            stringByAppendingPathComponent:@"Documents/HFAMap_Learn.log"];
+        FILE *f = fopen(path.fileSystemRepresentation, "a");
+        if (!f) return;
+        va_list ap; va_start(ap, fmt); vfprintf(f, fmt, ap); va_end(ap);
+        fflush(f); fclose(f);
+    }
+}
+
+static uintptr_t HFAStripPointer(uintptr_t value) {
+#if __has_feature(ptrauth_calls)
+    return (uintptr_t)ptrauth_strip((void *)value,
+                                    ptrauth_key_function_pointer);
+#else
+    return value;
+#endif
+}
+
+static int HFASafeFingerprint(uintptr_t address, size_t length,
+                              uint64_t *fingerprint) {
+    if (!address || !length || length > 64 || !fingerprint) return 0;
+    uint8_t bytes[64] = {0};
+    vm_size_t copied = 0;
+    kern_return_t result = vm_read_overwrite(
+        mach_task_self(), (vm_address_t)address, (vm_size_t)length,
+        (vm_address_t)bytes, &copied);
+    if (result != KERN_SUCCESS || copied != length) return 0;
+    uint64_t hash = 1469598103934665603ULL;
+    for (size_t i = 0; i < length; i++) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ULL;
+    }
+    *fingerprint = hash;
+    return 1;
+}
+
+static uintptr_t HFAKeyRegisterHook(uintptr_t a0, uintptr_t a1,
+                                    uintptr_t a2, uintptr_t a3,
+                                    uintptr_t a4, uintptr_t a5) {
+    uint64_t fp16 = 0, fp32 = 0, fp64 = 0;
+    unsigned read16 = HFASafeFingerprint(a0, 16, &fp16) ? 1u : 0u;
+    unsigned read32 = HFASafeFingerprint(a0, 32, &fp32) ? 1u : 0u;
+    unsigned read64 = HFASafeFingerprint(a0, 64, &fp64) ? 1u : 0u;
+    unsigned keyId = (unsigned)(a1 & 0xFFFFFFFFu);
+    unsigned long long lengthCandidate = a2 > 0 && a2 <= 4096
+        ? (unsigned long long)a2 : 0;
+    HFAKey2Log("[KEY-REGISTER-BEGIN] keyId=%u keyPtr=%p lengthCandidate=%llu readable16=%u fingerprint16=%016llX readable32=%u fingerprint32=%016llX readable64=%u fingerprint64=%016llX\n",
+               keyId, (void *)a0, lengthCandidate, read16,
+               (unsigned long long)fp16, read32, (unsigned long long)fp32,
+               read64, (unsigned long long)fp64);
+    uintptr_t result = gOriginalKeyRegister
+        ? gOriginalKeyRegister(a0, a1, a2, a3, a4, a5) : 0;
+    HFAKey2Log("[KEY-REGISTER-END] keyId=%u result=%p\n",
+               keyId, (void *)result);
+    return result;
+}
+
+static void HFAInstallKeyRegisterHook(uintptr_t base,
+                                      uintptr_t registerAddress) {
+    if (gOriginalKeyRegister) return;
+    gRegisterImageBase = base;
+    const char *backend = "none";
+    HFAMSHookFunction substrate = (HFAMSHookFunction)dlsym(
+        RTLD_DEFAULT, "MSHookFunction");
+    if (substrate) {
+        substrate((void *)registerAddress, (void *)&HFAKeyRegisterHook,
+                  (void **)&gOriginalKeyRegister);
+        backend = "MSHookFunction";
+    } else {
+        HFADobbyHookFn dobby = (HFADobbyHookFn)dlsym(RTLD_DEFAULT,
+                                                     "DobbyHook");
+        if (dobby) {
+            int status = dobby((void *)registerAddress,
+                               (void *)&HFAKeyRegisterHook,
+                               (void **)&gOriginalKeyRegister);
+            backend = status == 0 ? "DobbyHook" : "DobbyHook-failed";
+        }
+    }
+    HFAKey2Log("[KEY-REGISTER-HOOK] registerRVA=%llX backend=%s installed=%u original=%p\n",
+               (unsigned long long)(registerAddress - gRegisterImageBase),
+               backend, gOriginalKeyRegister ? 1u : 0u,
+               (void *)gOriginalKeyRegister);
+}
 
 static uintptr_t HFABLTarget(uintptr_t pc, uint32_t instruction) {
     int64_t immediate = instruction & 0x03FFFFFFu;
@@ -365,8 +466,6 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
         return;
     }
     gKey2PathDone = 1;
-    gKeyImageBase = base;
-    gKeyBundleLoaderAddress = loaderAddress;
 
     uintptr_t textStart = 0, textEnd = 0;
     if (!HFAFindText(base, &textStart, &textEnd)) {
@@ -374,13 +473,6 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
         return;
     }
 
-    uintptr_t keyTableAddress = getterAddress + 0x39CE9Cu;
-    gKeyTableAddress = keyTableAddress;
-    gKeyRegistryMaskAddress = getterAddress + 0x367B1Cu;
-    uintptr_t slots[4] = {0};
-    uint64_t mask = 0;
-    memcpy(slots, (const void *)keyTableAddress, sizeof(slots));
-    memcpy(&mask, (const void *)gKeyRegistryMaskAddress, sizeof(mask));
     HFAKey2Log("[KEY2-PATH-BEGIN] image=%s base=%p getterRVA=%llX textRVA=%llX-%llX registerRVA=%llX loaderRVA=%llX\n",
                image, (void *)base,
                (unsigned long long)getterRVA,
@@ -388,11 +480,7 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
                (unsigned long long)(textEnd - base),
                (unsigned long long)(registerAddress - base),
                (unsigned long long)(loaderAddress - base));
-    HFAKey2Log("[KEY2-TABLE] mask=%016llX slot0=%p slot1=%p slot2=%p slot3=%p\n",
-               (unsigned long long)mask, (void *)slots[0],
-               (void *)slots[1], (void *)slots[2], (void *)slots[3]);
-    HFAInstallKeyBundleHook(base);
-    if (!gLifecycleTick) HFAKey2LifecycleTick();
+    HFAInstallKeyRegisterHook(base, registerAddress);
 
     uintptr_t targets[64] = {registerAddress, loaderAddress};
     unsigned targetCount = 2;

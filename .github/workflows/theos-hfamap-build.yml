@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.8.6 GenericKey2Probe
+name: HFAMapUniversal v1.8.7 KeyRegisterProbe
 
 on:
   push:
@@ -22,28 +22,25 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify HFAMapUniversal v1.8.6
+      - name: Build and verify HFAMapUniversal v1.8.7
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.8.6_GenericKey2Probe.dylib"
+          out="dist/HFAMapUniversal_v1.8.7_KeyRegisterProbe.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out"
-          strings "$out" | grep -q "HFALearn v1.8.6 GenericKey2Probe"
-          strings "$out" | grep -q "\[KEY2-LIFECYCLE\]"
+          strings "$out" | grep -q "HFALearn v1.8.7 KeyRegisterProbe"
+          strings "$out" | grep -q "\[KEY-REGISTER-HOOK\]"
+          strings "$out" | grep -q "\[KEY-REGISTER-BEGIN\]"
+          strings "$out" | grep -q "\[KEY-REGISTER-END\]"
           strings "$out" | grep -q "\[MODULE-NORMALIZE\]"
           strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
           strings "$out" | grep -q "\[AUTO-CONTROL-TARGET\]"
           strings "$out" | grep -q "\[AUTO-STAGE\]"
           strings "$out" | grep -q "\[KEY2-PATH-BEGIN\]"
-          strings "$out" | grep -q "\[KEY2-TABLE\]"
-          strings "$out" | grep -q "\[KEY2-AUTH-EARLY\]"
-          strings "$out" | grep -q "\[KEY2-AUTH-HOOK\]"
-          strings "$out" | grep -q "\[KEY2-AUTH-LOAD-BEGIN\]"
-          strings "$out" | grep -q "\[KEY2-AUTH-LOAD-END\]"
           strings "$out" | grep -q "\[KEY2-XREF\]"
           strings "$out" | grep -q "\[KEY2-PATH-END\]"
           strings "$out" | grep -q "\[AUTO-TARGET-BEGIN\]"
@@ -73,13 +70,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hfamap/dist/HFAMapUniversal_v1.8.6_GenericKey2Probe.dylib
-          git commit -m "Publish HFAMapUniversal v1.8.6 dylib [skip ci]"
+          git add -f hfamap/dist/HFAMapUniversal_v1.8.7_KeyRegisterProbe.dylib
+          git commit -m "Publish HFAMapUniversal v1.8.7 dylib [skip ci]"
           git push origin HEAD:build/hfamap-v1.4.5-20260901
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.8.6-GenericKey2Probe
-          path: hfamap/dist/HFAMapUniversal_v1.8.6_GenericKey2Probe.dylib
+          name: HFAMapUniversal-v1.8.7-KeyRegisterProbe
+          path: hfamap/dist/HFAMapUniversal_v1.8.7_KeyRegisterProbe.dylib
           if-no-files-found: error

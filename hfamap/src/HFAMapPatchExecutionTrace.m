@@ -960,5 +960,5 @@ void HFARegisterPatchObject(id obj, const char *actualClass) {
 }
 
 __attribute__((constructor)) static void HFAInit(void) {
-    HFALog("[HFALearn v1.8.6 GenericKey2Probe] loaded\n");
+    HFALog("[HFALearn v1.8.7 KeyRegisterProbe] loaded\n");
 }
