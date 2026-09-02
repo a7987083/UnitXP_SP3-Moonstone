@@ -381,8 +381,9 @@ void HFAProbeKey2Path(uintptr_t getterAddress) {
     uint64_t mask = 0;
     memcpy(slots, (const void *)keyTableAddress, sizeof(slots));
     memcpy(&mask, (const void *)gKeyRegistryMaskAddress, sizeof(mask));
-    HFAKey2Log("[KEY2-PATH-BEGIN] image=%s base=%p textRVA=%llX-%llX registerRVA=%llX loaderRVA=%llX\n",
+    HFAKey2Log("[KEY2-PATH-BEGIN] image=%s base=%p getterRVA=%llX textRVA=%llX-%llX registerRVA=%llX loaderRVA=%llX\n",
                image, (void *)base,
+               (unsigned long long)getterRVA,
                (unsigned long long)(textStart - base),
                (unsigned long long)(textEnd - base),
                (unsigned long long)(registerAddress - base),
