@@ -20,6 +20,7 @@ enum PatchByteStatus: String {
     case original = "Original 匹配"
     case enabled = "已经写入 Enabled"
     case different = "实际字节不同"
+    case unavailable = "无法定位，已跳过"
 }
 
 struct PatchComparison: Identifiable {
@@ -28,9 +29,9 @@ struct PatchComparison: Identifiable {
     let title: String
     let target: String
     let rva: UInt64
-    let fileOffset: UInt64
+    let fileOffset: UInt64?
     let jsonOriginal: Data
-    let actual: Data
+    let actual: Data?
     let enabled: Data
     let status: PatchByteStatus
 }
@@ -122,8 +123,7 @@ final class IPAProcessor {
 
             let configData = try Data(contentsOf: configURL)
             let config = try HFAPatchPackage.load(from: configData)
-            try validateIdentity(config, appInfo: info)
-            log.append("[IDENTITY-OK] BundleID/Version/Build")
+            log.append(contentsOf: identityWarnings(config, appInfo: info))
 
             let executableURL = appURL.appendingPathComponent(info.executableName)
             guard fileManager.fileExists(atPath: executableURL.path) else {
@@ -133,37 +133,45 @@ final class IPAProcessor {
             var targetFiles: [String: URL] = [:]
             var targetSlices: [String: MachOSliceInfo] = [:]
             for (targetID, target) in config.targets.sorted(by: { $0.key < $1.key }) {
-                let targetURL = try resolveTarget(target, appURL: appURL, executableURL: executableURL)
-                let slices = try MachOInspector.inspect(targetURL)
-                guard let slice = slices.first(where: {
-                    config.package.architectures.contains($0.architecture)
-                }) else {
-                    let found = slices.map(\.architecture).joined(separator: ", ")
-                    throw IPAProcessorError.failed("模块 \(target.image) 架构不匹配；实际：\(found)")
+                do {
+                    let targetURL = try resolveTarget(target, appURL: appURL, executableURL: executableURL)
+                    let slices = try MachOInspector.inspect(targetURL)
+                    guard let slice = slices.first else {
+                        log.append("[WARNING] 模块 \(target.image) 没有可处理的 arm64 Slice")
+                        continue
+                    }
+                    if !config.package.architectures.contains(slice.architecture) {
+                        log.append("[WARNING] 模块 \(target.image) 架构 \(slice.architecture) 不在 JSON 声明中，仍继续")
+                    }
+                    if slice.encrypted {
+                        log.append("[WARNING] 模块 \(target.image) 仍显示加密；相关 Patch 将尝试读取")
+                    }
+                    targetFiles[targetID] = targetURL
+                    targetSlices[targetID] = slice
+                    log.append("[TARGET] id=\(targetID) image=\(target.image) arch=\(slice.architecture)")
+                } catch {
+                    log.append("[WARNING] \(error.localizedDescription)")
                 }
-                guard !slice.encrypted else {
-                    throw IPAProcessorError.failed("模块 \(target.image) 仍处于加密状态")
-                }
-                targetFiles[targetID] = targetURL
-                targetSlices[targetID] = slice
-                log.append("[TARGET-OK] id=\(targetID) image=\(target.image) arch=\(slice.architecture)")
             }
 
             var patchCount = 0
             var comparisons: [PatchComparison] = []
             for feature in config.features {
                 for patch in feature.patches {
-                    guard let targetURL = targetFiles[patch.target],
-                          let slice = targetSlices[patch.target] else {
-                        throw IPAProcessorError.failed("内部错误：Patch目标未解析")
-                    }
                     let original = try HFAPatchPackage.bytes(fromHex: patch.original)
-                    guard let fileOffset = slice.fileOffset(forRVA: patch.offset.value,
-                                                            length: UInt64(original.count)) else {
-                        throw IPAProcessorError.failed("\(feature.title) RVA 0x\(String(patch.offset.value, radix: 16).uppercased()) 无法转换为文件偏移")
-                    }
-                    let actual = try MachOInspector.bytes(at: fileOffset, count: original.count, in: targetURL)
                     let enabled = try HFAPatchPackage.bytes(fromHex: patch.enabled)
+                    guard let targetURL = targetFiles[patch.target],
+                          let slice = targetSlices[patch.target],
+                          let fileOffset = slice.fileOffset(forRVA: patch.offset.value,
+                                                           length: UInt64(original.count)),
+                          let actual = try? MachOInspector.bytes(at: fileOffset, count: original.count, in: targetURL) else {
+                        comparisons.append(PatchComparison(featureID: feature.id, title: feature.title,
+                                                           target: patch.target, rva: patch.offset.value,
+                                                           fileOffset: nil, jsonOriginal: original,
+                                                           actual: nil, enabled: enabled, status: .unavailable))
+                        log.append("[WARNING] feature=\(feature.id) target=\(patch.target) rva=0x\(String(patch.offset.value, radix: 16).uppercased()) 无法定位，已跳过")
+                        continue
+                    }
                     let status: PatchByteStatus = actual == original ? .original :
                         (actual == enabled ? .enabled : .different)
                     comparisons.append(PatchComparison(featureID: feature.id,
@@ -199,26 +207,27 @@ final class IPAProcessor {
         }
     }
 
-    func build(_ workspace: PreparedWorkspace, mode: PatchBuildMode) throws -> BuildResult {
+    func build(_ workspace: PreparedWorkspace, mode: PatchBuildMode, customMenuURL: URL?) throws -> BuildResult {
         var log = workspace.validationLines
         if mode == .fixed {
             for comparison in workspace.comparisons {
-                guard let targetURL = workspace.targetFiles[comparison.target] else {
-                    throw IPAProcessorError.failed("找不到 Patch 目标：\(comparison.target)")
-                }
-                try Self.write(comparison.enabled, at: comparison.fileOffset, to: targetURL)
-                log.append("[FIXED-PATCH] feature=\(comparison.featureID) target=\(comparison.target) rva=0x\(String(comparison.rva, radix: 16).uppercased()) before=\(Self.hex(comparison.actual)) after=\(Self.hex(comparison.enabled))")
+                guard let targetURL = workspace.targetFiles[comparison.target],
+                      let fileOffset = comparison.fileOffset,
+                      let actual = comparison.actual else { continue }
+                try Self.write(comparison.enabled, at: fileOffset, to: targetURL)
+                log.append("[FIXED-PATCH] feature=\(comparison.featureID) target=\(comparison.target) rva=0x\(String(comparison.rva, radix: 16).uppercased()) before=\(Self.hex(actual)) after=\(Self.hex(comparison.enabled))")
             }
         } else {
-            guard let menuURL = Bundle.main.url(forResource: "HFAPatchMenu_v0.2.0", withExtension: "dylib") else {
-                throw IPAProcessorError.failed("工具内缺少 HFAPatchMenu_v0.2.0.dylib")
+            guard let menuURL = customMenuURL else {
+                throw IPAProcessorError.failed("请选择你自己的菜单 dylib")
             }
             let frameworks = workspace.appURL.appendingPathComponent("Frameworks", isDirectory: true)
             try fileManager.createDirectory(at: frameworks, withIntermediateDirectories: true)
-            let destinationMenu = frameworks.appendingPathComponent("HFAPatchMenu.dylib")
+            let menuName = menuURL.lastPathComponent
+            let destinationMenu = frameworks.appendingPathComponent(menuName)
             try? fileManager.removeItem(at: destinationMenu)
             try fileManager.copyItem(at: menuURL, to: destinationMenu)
-            log.append("[MENU-COPY] Frameworks/HFAPatchMenu.dylib")
+            log.append("[MENU-COPY] Frameworks/\(menuName)")
 
             let configDirectory = workspace.appURL.appendingPathComponent("HFAPatch", isDirectory: true)
             try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
@@ -228,7 +237,7 @@ final class IPAProcessor {
             log.append("[CONFIG-COPY] actual bytes saved as Original; UUID removed")
 
             let executable = workspace.appURL.appendingPathComponent(workspace.appInfo.executableName)
-            let loadPath = "@executable_path/Frameworks/HFAPatchMenu.dylib"
+            let loadPath = "@executable_path/Frameworks/\(menuName)"
             let existing = Zsign.listDylibs(appExecutable: executable.path)
             if !existing.contains(loadPath) {
                 guard Zsign.injectDyLib(appExecutable: executable.path, with: loadPath, weak: false) else {
@@ -251,7 +260,7 @@ final class IPAProcessor {
         let exportDirectory = try Self.exportDirectory()
         let safeName = Self.safeFilename(workspace.appInfo.name)
         let modeName = mode == .fixed ? "Fixed" : "Menu"
-        let filename = "\(safeName)_HFAPatchIPA_v1.1.0_\(modeName)_\(Self.safeFilename(workspace.appInfo.shortVersion)).ipa"
+        let filename = "\(safeName)_HFAPatchIPA_v2.0.0_\(modeName)_\(Self.safeFilename(workspace.appInfo.shortVersion)).ipa"
         let output = exportDirectory.appendingPathComponent(filename)
         let temporaryZip = workspace.rootURL.appendingPathComponent("Output.zip")
         try? fileManager.removeItem(at: temporaryZip)
@@ -289,14 +298,19 @@ final class IPAProcessor {
                            executableName: executable)
     }
 
-    private func validateIdentity(_ config: HFAPatchPackage, appInfo: GameAppInfo) throws {
-        guard config.package.bundleIdentifier == appInfo.bundleIdentifier else {
-            throw IPAProcessorError.failed("BundleID 不匹配：配置 \(config.package.bundleIdentifier)，IPA \(appInfo.bundleIdentifier)")
+    private func identityWarnings(_ config: HFAPatchPackage, appInfo: GameAppInfo) -> [String] {
+        var lines: [String] = []
+        if config.package.bundleIdentifier != appInfo.bundleIdentifier {
+            lines.append("[WARNING] BundleID 不同：JSON=\(config.package.bundleIdentifier) IPA=\(appInfo.bundleIdentifier)")
         }
-        guard config.package.shortVersion == appInfo.shortVersion,
-              config.package.buildVersion == appInfo.buildVersion else {
-            throw IPAProcessorError.failed("游戏版本不匹配：配置 \(config.package.shortVersion)(\(config.package.buildVersion))，IPA \(appInfo.shortVersion)(\(appInfo.buildVersion))")
+        if config.package.shortVersion != appInfo.shortVersion {
+            lines.append("[WARNING] Version 不同：JSON=\(config.package.shortVersion) IPA=\(appInfo.shortVersion)")
         }
+        if config.package.buildVersion != appInfo.buildVersion {
+            lines.append("[WARNING] Build 不同：JSON=\(config.package.buildVersion) IPA=\(appInfo.buildVersion)")
+        }
+        if lines.isEmpty { lines.append("[IDENTITY] BundleID/Version/Build 一致") }
+        return lines
     }
 
     private func resolveTarget(_ target: HFAPatchPackage.PatchTarget,
@@ -347,7 +361,7 @@ final class IPAProcessor {
             guard var patches = features[featureIndex]["patches"] as? [[String: Any]] else { continue }
             for patchIndex in patches.indices where index < comparisons.count {
                 let item = comparisons[index]
-                let restoreBytes = item.status == .enabled ? item.jsonOriginal : item.actual
+                let restoreBytes = item.status == .enabled ? item.jsonOriginal : (item.actual ?? item.jsonOriginal)
                 patches[patchIndex]["original"] = hex(restoreBytes)
                 index += 1
             }

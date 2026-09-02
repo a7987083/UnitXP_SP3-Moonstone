@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: WorkspaceModel
     @State private var importingIPA = false
     @State private var importingConfig = false
+    @State private var importingDylib = false
     @State private var sharing = false
 
     var body: some View {
@@ -22,7 +23,7 @@ struct ContentView: View {
             .navigationTitle("HFAPatchIPA")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Text("v1.1.0").font(.caption).foregroundColor(.secondary)
+                    Text("v2.0.0").font(.caption).foregroundColor(.secondary)
                 }
             }
         }
@@ -37,6 +38,12 @@ struct ContentView: View {
             DocumentPicker(contentTypes: [.json, .hfaPatchJSON, .data]) { url in
                 importingConfig = false
                 model.acceptImportedURL(url, kind: .config)
+            }
+        }
+        .sheet(isPresented: $importingDylib) {
+            DocumentPicker(contentTypes: [.data]) { url in
+                importingDylib = false
+                model.acceptImportedURL(url, kind: .dylib)
             }
         }
         .sheet(isPresented: $sharing) {
@@ -67,6 +74,9 @@ struct ContentView: View {
             }
             fileRow(title: "游戏数据包", value: model.configURL?.lastPathComponent) {
                 importingConfig = true
+            }
+            fileRow(title: "我的菜单 dylib", value: model.dylibURL?.lastPathComponent) {
+                importingDylib = true
             }
         }
     }
@@ -115,12 +125,12 @@ struct ContentView: View {
                         Spacer()
                         Text(item.status.rawValue)
                             .font(.caption)
-                            .foregroundColor(item.status == .different ? .red :
-                                             (item.status == .enabled ? .orange : .green))
+                            .foregroundColor(item.status == .unavailable ? .red :
+                                             (item.status == .different || item.status == .enabled ? .orange : .green))
                     }
                     Text("\(item.target) + 0x\(String(item.rva, radix: 16).uppercased())")
                     Text("JSON Original  \(hex(item.jsonOriginal))")
-                    Text("IPA Actual     \(hex(item.actual))")
+                    Text("IPA Actual     \(item.actual.map(hex) ?? "无法读取")")
                     Text("Enabled        \(hex(item.enabled))")
                 }
                 .font(.system(size: 11, design: .monospaced))

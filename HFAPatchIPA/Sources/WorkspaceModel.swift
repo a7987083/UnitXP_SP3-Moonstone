@@ -4,10 +4,11 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class WorkspaceModel: ObservableObject {
-    enum ImportKind: Equatable { case ipa, config }
+    enum ImportKind: Equatable { case ipa, config, dylib }
 
     @Published var ipaURL: URL?
     @Published var configURL: URL?
+    @Published var dylibURL: URL?
     @Published var prepared: PreparedWorkspace?
     @Published var output: BuildResult?
     @Published var isBusy = false
@@ -19,7 +20,9 @@ final class WorkspaceModel: ObservableObject {
     private let processor = IPAProcessor()
 
     var canValidate: Bool { ipaURL != nil && configURL != nil && !isBusy }
-    var canBuild: Bool { prepared != nil && !isBusy }
+    var canBuild: Bool {
+        prepared != nil && !isBusy && (buildMode == .fixed || dylibURL != nil)
+    }
 
     func acceptImportedURL(_ source: URL, kind: ImportKind) {
         isBusy = true
@@ -31,6 +34,7 @@ final class WorkspaceModel: ObservableObject {
                 switch kind {
                 case .ipa: ipaURL = local
                 case .config: configURL = local
+                case .dylib: dylibURL = local
                 }
                 prepared = nil
                 output = nil
@@ -50,6 +54,8 @@ final class WorkspaceModel: ObservableObject {
             acceptImportedURL(source, kind: .ipa)
         } else if name.hasSuffix(".json") || name.hasSuffix(".hfapatch") {
             acceptImportedURL(source, kind: .config)
+        } else if name.hasSuffix(".dylib") {
+            acceptImportedURL(source, kind: .dylib)
         } else {
             errorMessage = "不支持的文件：\(source.lastPathComponent)"
             status = "导入失败"
@@ -83,6 +89,7 @@ final class WorkspaceModel: ObservableObject {
     func build() {
         guard let prepared else { return }
         let mode = buildMode
+        let menuURL = dylibURL
         isBusy = true
         errorMessage = nil
         output = nil
@@ -90,7 +97,7 @@ final class WorkspaceModel: ObservableObject {
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try IPAProcessor().build(prepared, mode: mode)
+                    try IPAProcessor().build(prepared, mode: mode, customMenuURL: menuURL)
                 }.value
                 output = result
                 logLines = result.log
@@ -118,7 +125,12 @@ final class WorkspaceModel: ObservableObject {
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let directory = documents.appendingPathComponent("HFAPatchIPA/Imports", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let ext = kind == .ipa ? "ipa" : "json"
+            let ext: String
+            switch kind {
+            case .ipa: ext = "ipa"
+            case .config: ext = "json"
+            case .dylib: ext = "dylib"
+            }
             let base = source.deletingPathExtension().lastPathComponent
             let destination = directory.appendingPathComponent("\(base).\(ext)")
             try? FileManager.default.removeItem(at: destination)

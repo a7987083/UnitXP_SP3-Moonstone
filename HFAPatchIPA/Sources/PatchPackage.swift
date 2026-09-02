@@ -91,10 +91,6 @@ extension HFAPatchPackage {
               !package.buildVersion.isEmpty else {
             throw HFAPatchPackageError.invalid("游戏身份字段不完整")
         }
-        guard !package.architectures.isEmpty,
-              package.architectures.allSatisfy({ $0 == "arm64" || $0 == "arm64e" }) else {
-            throw HFAPatchPackageError.invalid("第一版仅支持 arm64/arm64e")
-        }
         guard !targets.isEmpty, !features.isEmpty else {
             throw HFAPatchPackageError.invalid("配置没有目标模块或功能")
         }
@@ -105,22 +101,14 @@ extension HFAPatchPackage {
             }
         }
 
-        var featureIDs = Set<String>()
-        var ranges: [String: [(Range<UInt64>, String)]] = [:]
         for feature in features {
             guard !feature.id.isEmpty, !feature.title.isEmpty, !feature.group.isEmpty else {
                 throw HFAPatchPackageError.invalid("存在名称不完整的功能")
-            }
-            guard featureIDs.insert(feature.id).inserted else {
-                throw HFAPatchPackageError.invalid("功能 ID 重复：\(feature.id)")
             }
             guard !feature.patches.isEmpty else {
                 throw HFAPatchPackageError.invalid("功能 \(feature.title) 没有 Patch")
             }
             for patch in feature.patches {
-                guard targets[patch.target] != nil else {
-                    throw HFAPatchPackageError.invalid("功能 \(feature.title) 引用了未知模块 \(patch.target)")
-                }
                 let original = try Self.bytes(fromHex: patch.original)
                 let enabled = try Self.bytes(fromHex: patch.enabled)
                 guard original.count == enabled.count else {
@@ -130,11 +118,6 @@ extension HFAPatchPackage {
                 guard !end.overflow else {
                     throw HFAPatchPackageError.invalid("功能 \(feature.title) 的地址溢出")
                 }
-                let candidate = patch.offset.value..<end.partialValue
-                for (existing, owner) in ranges[patch.target, default: []] where existing.overlaps(candidate) {
-                    throw HFAPatchPackageError.invalid("功能 \(feature.title) 与 \(owner) 的地址重叠")
-                }
-                ranges[patch.target, default: []].append((candidate, feature.title))
             }
         }
     }
