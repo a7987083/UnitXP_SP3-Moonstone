@@ -26,6 +26,18 @@ jobs:
           cp HFAPatchMenu/dist/HFAPatchMenu_v0.1.0.dylib HFAPatchIPA/Resources/HFAPatchMenu_v0.1.0.dylib
           file HFAPatchIPA/Resources/HFAPatchMenu_v0.1.0.dylib
 
+      - name: Prepare fixed Zsign package
+        run: |
+          git clone --depth 1 --branch package https://github.com/claration/Zsign-Package.git HFAPatchIPA/Vendor/Zsign
+          cd HFAPatchIPA/Vendor/Zsign
+          cp swift/zsign.mm src/zsign_wrapper.mm
+          cp swift/zsign.hpp src/zsign.hpp
+          cp swift/utils.mm src/utils_wrapper.mm
+          cp swift/utils.hpp src/utils.hpp
+          perl -0pi -e 's#\.\./swift/utils\.mm#utils_wrapper.mm#g; s#\.\./swift/zsign\.mm#zsign_wrapper.mm#g' Package.swift
+          perl -0pi -e 's/void\(\^completionHandler\)\(BOOL success, NSError \*error\)/void(^completionHandler)(BOOL success)/g; s/completionHandler\(bRet\);/if (completionHandler) completionHandler(bRet);/g' src/zsign_wrapper.mm
+          grep -n 'wrapper.mm' Package.swift
+
       - name: Generate project
         run: |
           cd HFAPatchIPA
