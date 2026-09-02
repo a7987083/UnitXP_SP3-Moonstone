@@ -48,6 +48,11 @@ final class WorkspaceModel: ObservableObject {
     }
 
     func acceptImportedURL(_ source: URL, kind: ImportKind) {
+        guard Self.isSupported(source, as: kind) else {
+            errorMessage = "文件类型不匹配：\(source.lastPathComponent)"
+            status = "请选择正确的 IPA、JSON 或 dylib 文件"
+            return
+        }
         isBusy = true
         errorMessage = nil
         status = "正在导入 \(source.lastPathComponent)…"
@@ -216,6 +221,18 @@ final class WorkspaceModel: ObservableObject {
             try FileManager.default.copyItem(at: source, to: destination)
             return destination
         }.value
+    }
+
+    private static func isSupported(_ url: URL, as kind: ImportKind) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        switch kind {
+        case .ipa:
+            return name.hasSuffix(".ipa")
+        case .config:
+            return name.hasSuffix(".json") || name.hasSuffix(".hfapatch") || name.hasSuffix(".hfapatch.json")
+        case .dylib:
+            return name.hasSuffix(".dylib")
+        }
     }
 }
 

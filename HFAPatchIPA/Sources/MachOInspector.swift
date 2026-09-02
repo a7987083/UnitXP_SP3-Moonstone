@@ -19,22 +19,29 @@ struct MachOSliceInfo: Identifiable {
     }
 
     func fileOffset(forRVA rva: UInt64, length: UInt64) -> UInt64? {
-        let targetResult = headerVMAddress.addingReportingOverflow(rva)
-        guard !targetResult.overflow else { return nil }
-        let target = targetResult.partialValue
-        let targetEnd = target.addingReportingOverflow(length)
-        guard !targetEnd.overflow else { return nil }
+        // Exporters in the wild use both forms:
+        //   0x007DA74C  -> RVA relative to the image header
+        //   0x1007DA74C -> unslid Mach-O virtual address
+        // Try both without making either representation a hard requirement.
+        var candidates: [UInt64] = []
+        let relative = headerVMAddress.addingReportingOverflow(rva)
+        if !relative.overflow { candidates.append(relative.partialValue) }
+        if rva != relative.partialValue { candidates.append(rva) }
 
-        for segment in segments {
-            let vmEnd = segment.vmAddress.addingReportingOverflow(segment.fileSize)
-            guard !vmEnd.overflow,
-                  target >= segment.vmAddress,
-                  targetEnd.partialValue <= vmEnd.partialValue else { continue }
-            let delta = target - segment.vmAddress
-            let local = segment.fileOffset.addingReportingOverflow(delta)
-            guard !local.overflow else { return nil }
-            let absolute = fileOffset.addingReportingOverflow(local.partialValue)
-            return absolute.overflow ? nil : absolute.partialValue
+        for target in candidates {
+            let targetEnd = target.addingReportingOverflow(length)
+            guard !targetEnd.overflow else { continue }
+            for segment in segments {
+                let vmEnd = segment.vmAddress.addingReportingOverflow(segment.fileSize)
+                guard !vmEnd.overflow,
+                      target >= segment.vmAddress,
+                      targetEnd.partialValue <= vmEnd.partialValue else { continue }
+                let delta = target - segment.vmAddress
+                let local = segment.fileOffset.addingReportingOverflow(delta)
+                guard !local.overflow else { continue }
+                let absolute = fileOffset.addingReportingOverflow(local.partialValue)
+                if !absolute.overflow { return absolute.partialValue }
+            }
         }
         return nil
     }

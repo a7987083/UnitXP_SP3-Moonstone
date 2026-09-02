@@ -9,8 +9,11 @@ struct DocumentPicker: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let controller = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: false)
+        // Import a local copy. Some Files providers return read-only URLs when
+        // opened in-place, which looked selectable but never produced a usable file.
+        let controller = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: true)
         controller.allowsMultipleSelection = false
+        controller.shouldShowFileExtensions = true
         controller.delegate = context.coordinator
         return controller
     }
@@ -22,7 +25,8 @@ struct DocumentPicker: UIViewControllerRepresentable {
         init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            if let url = urls.first { onPick(url) }
+            guard let url = urls.first else { return }
+            DispatchQueue.main.async { self.onPick(url) }
         }
     }
 }
