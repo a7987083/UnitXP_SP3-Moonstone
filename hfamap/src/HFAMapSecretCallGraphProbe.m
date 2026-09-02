@@ -71,10 +71,10 @@ static uint64_t HFANonzeroKeyMask(const uint8_t *keys) {
 
 static int HFASafeRead(uintptr_t address, void *output, size_t length) {
     if (!address || !output || !length) return 0;
-    mach_vm_size_t copied = 0;
-    kern_return_t result = mach_vm_read_overwrite(
-        mach_task_self(), (mach_vm_address_t)address,
-        (mach_vm_size_t)length, (mach_vm_address_t)output, &copied);
+    vm_size_t copied = 0;
+    kern_return_t result = vm_read_overwrite(
+        mach_task_self(), (vm_address_t)address,
+        (vm_size_t)length, (vm_address_t)output, &copied);
     return result == KERN_SUCCESS && copied == length;
 }
 
