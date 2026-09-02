@@ -14,6 +14,7 @@ struct ContentView: View {
                 filesSection
                 actionSection
                 if let app = model.prepared?.appInfo { resultSection(app) }
+                if let prepared = model.prepared { patchSection(prepared) }
                 if let error = model.errorMessage { errorSection(error) }
                 if !model.logLines.isEmpty { logSection }
             }
@@ -21,7 +22,7 @@ struct ContentView: View {
             .navigationTitle("HFAPatchIPA")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Text("v1.0.1").font(.caption).foregroundColor(.secondary)
+                    Text("v1.1.0").font(.caption).foregroundColor(.secondary)
                 }
             }
         }
@@ -79,10 +80,19 @@ struct ContentView: View {
             }
             .disabled(!model.canValidate)
 
+            Picker("处理模式", selection: $model.buildMode) {
+                ForEach(PatchBuildMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(model.prepared == nil || model.isBusy)
+
             Button {
                 model.build()
             } label: {
-                Label("注入菜单并生成 IPA", systemImage: "shippingbox")
+                Label(model.buildMode == .menu ? "注入菜单并生成 IPA" : "写死 Patch 并生成 IPA",
+                      systemImage: "shippingbox")
             }
             .disabled(!model.canBuild)
 
@@ -92,6 +102,35 @@ struct ContentView: View {
                 } label: {
                     Label("导出 IPA 和日志", systemImage: "square.and.arrow.up")
                 }
+            }
+        }
+    }
+
+    private func patchSection(_ prepared: PreparedWorkspace) -> some View {
+        Section("Patch 对比") {
+            ForEach(prepared.comparisons) { item in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text(item.title).font(.headline)
+                        Spacer()
+                        Text(item.status.rawValue)
+                            .font(.caption)
+                            .foregroundColor(item.status == .different ? .red :
+                                             (item.status == .enabled ? .orange : .green))
+                    }
+                    Text("\(item.target) + 0x\(String(item.rva, radix: 16).uppercased())")
+                    Text("JSON Original  \(hex(item.jsonOriginal))")
+                    Text("IPA Actual     \(hex(item.actual))")
+                    Text("Enabled        \(hex(item.enabled))")
+                }
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(.vertical, 4)
+            }
+            if prepared.comparisons.contains(where: { $0.status == .different }) {
+                Text("存在未知实际字节。继续时，菜单模式会把 IPA Actual 作为恢复字节；写死模式会直接写入 Enabled。")
+                    .font(.footnote)
+                    .foregroundColor(.orange)
             }
         }
     }
@@ -161,6 +200,10 @@ struct ContentView: View {
         if model.errorMessage != nil { return .red }
         if model.output != nil || model.prepared != nil { return .green }
         return .secondary
+    }
+
+    private func hex(_ data: Data) -> String {
+        data.map { String(format: "%02X", $0) }.joined()
     }
 
 }

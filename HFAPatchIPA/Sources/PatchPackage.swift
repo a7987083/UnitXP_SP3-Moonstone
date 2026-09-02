@@ -16,7 +16,7 @@ struct HFAPatchPackage: Codable {
 
     struct PatchTarget: Codable {
         let image: String
-        let uuid: String
+        let uuid: String?
     }
 
     struct PatchFeature: Codable, Identifiable {
@@ -99,15 +99,9 @@ extension HFAPatchPackage {
             throw HFAPatchPackageError.invalid("配置没有目标模块或功能")
         }
 
-        let hex = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
         for (targetID, target) in targets {
             guard !targetID.isEmpty, !target.image.isEmpty else {
                 throw HFAPatchPackageError.invalid("目标模块名称为空")
-            }
-            let normalized = target.uuid.replacingOccurrences(of: "-", with: "")
-            guard normalized.count == 32,
-                  normalized.unicodeScalars.allSatisfy(hex.contains) else {
-                throw HFAPatchPackageError.invalid("目标 \(targetID) 的 UUID 无效")
             }
         }
 

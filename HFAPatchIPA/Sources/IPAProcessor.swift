@@ -10,6 +10,31 @@ struct GameAppInfo {
     let executableName: String
 }
 
+enum PatchBuildMode: String, CaseIterable, Identifiable {
+    case menu = "菜单灵活开启"
+    case fixed = "写死 Patch"
+    var id: String { rawValue }
+}
+
+enum PatchByteStatus: String {
+    case original = "Original 匹配"
+    case enabled = "已经写入 Enabled"
+    case different = "实际字节不同"
+}
+
+struct PatchComparison: Identifiable {
+    let id = UUID()
+    let featureID: String
+    let title: String
+    let target: String
+    let rva: UInt64
+    let fileOffset: UInt64
+    let jsonOriginal: Data
+    let actual: Data
+    let enabled: Data
+    let status: PatchByteStatus
+}
+
 final class PreparedWorkspace {
     let rootURL: URL
     let payloadURL: URL
@@ -21,6 +46,7 @@ final class PreparedWorkspace {
     let appInfo: GameAppInfo
     let targetFiles: [String: URL]
     let targetSlices: [String: MachOSliceInfo]
+    let comparisons: [PatchComparison]
     let validationLines: [String]
 
     init(rootURL: URL,
@@ -33,6 +59,7 @@ final class PreparedWorkspace {
          appInfo: GameAppInfo,
          targetFiles: [String: URL],
          targetSlices: [String: MachOSliceInfo],
+         comparisons: [PatchComparison],
          validationLines: [String]) {
         self.rootURL = rootURL
         self.payloadURL = payloadURL
@@ -44,6 +71,7 @@ final class PreparedWorkspace {
         self.appInfo = appInfo
         self.targetFiles = targetFiles
         self.targetSlices = targetSlices
+        self.comparisons = comparisons
         self.validationLines = validationLines
     }
 
@@ -107,22 +135,22 @@ final class IPAProcessor {
             for (targetID, target) in config.targets.sorted(by: { $0.key < $1.key }) {
                 let targetURL = try resolveTarget(target, appURL: appURL, executableURL: executableURL)
                 let slices = try MachOInspector.inspect(targetURL)
-                let expectedUUID = Self.normalizeUUID(target.uuid)
                 guard let slice = slices.first(where: {
-                    $0.uuid == expectedUUID && config.package.architectures.contains($0.architecture)
+                    config.package.architectures.contains($0.architecture)
                 }) else {
-                    let found = slices.map { "\($0.architecture):\($0.uuid)" }.joined(separator: ", ")
-                    throw IPAProcessorError.failed("模块 \(target.image) UUID/架构不匹配；实际：\(found)")
+                    let found = slices.map(\.architecture).joined(separator: ", ")
+                    throw IPAProcessorError.failed("模块 \(target.image) 架构不匹配；实际：\(found)")
                 }
                 guard !slice.encrypted else {
                     throw IPAProcessorError.failed("模块 \(target.image) 仍处于加密状态")
                 }
                 targetFiles[targetID] = targetURL
                 targetSlices[targetID] = slice
-                log.append("[TARGET-OK] id=\(targetID) image=\(target.image) arch=\(slice.architecture) uuid=\(slice.uuid)")
+                log.append("[TARGET-OK] id=\(targetID) image=\(target.image) arch=\(slice.architecture)")
             }
 
             var patchCount = 0
+            var comparisons: [PatchComparison] = []
             for feature in config.features {
                 for patch in feature.patches {
                     guard let targetURL = targetFiles[patch.target],
@@ -135,11 +163,20 @@ final class IPAProcessor {
                         throw IPAProcessorError.failed("\(feature.title) RVA 0x\(String(patch.offset.value, radix: 16).uppercased()) 无法转换为文件偏移")
                     }
                     let actual = try MachOInspector.bytes(at: fileOffset, count: original.count, in: targetURL)
-                    guard actual == original else {
-                        throw IPAProcessorError.failed("\(feature.title) 原始字节不匹配：\(patch.target)+0x\(String(patch.offset.value, radix: 16).uppercased()) 期望 \(Self.hex(original))，实际 \(Self.hex(actual))")
-                    }
+                    let enabled = try HFAPatchPackage.bytes(fromHex: patch.enabled)
+                    let status: PatchByteStatus = actual == original ? .original :
+                        (actual == enabled ? .enabled : .different)
+                    comparisons.append(PatchComparison(featureID: feature.id,
+                                                       title: feature.title,
+                                                       target: patch.target,
+                                                       rva: patch.offset.value,
+                                                       fileOffset: fileOffset,
+                                                       jsonOriginal: original,
+                                                       actual: actual,
+                                                       enabled: enabled,
+                                                       status: status))
                     patchCount += 1
-                    log.append("[PATCH-OK] feature=\(feature.id) target=\(patch.target) rva=0x\(String(patch.offset.value, radix: 16).uppercased()) original=\(Self.hex(original))")
+                    log.append("[PATCH-CHECK] feature=\(feature.id) target=\(patch.target) rva=0x\(String(patch.offset.value, radix: 16).uppercased()) jsonOriginal=\(Self.hex(original)) actual=\(Self.hex(actual)) enabled=\(Self.hex(enabled)) status=\(status.rawValue)")
                 }
             }
             log.append("[VALIDATION-OK] features=\(config.features.count) patches=\(patchCount)")
@@ -154,6 +191,7 @@ final class IPAProcessor {
                                      appInfo: info,
                                      targetFiles: targetFiles,
                                      targetSlices: targetSlices,
+                                     comparisons: comparisons,
                                      validationLines: log)
         } catch {
             try? fileManager.removeItem(at: root)
@@ -161,37 +199,45 @@ final class IPAProcessor {
         }
     }
 
-    func build(_ workspace: PreparedWorkspace) throws -> BuildResult {
+    func build(_ workspace: PreparedWorkspace, mode: PatchBuildMode) throws -> BuildResult {
         var log = workspace.validationLines
-        guard let menuURL = Bundle.main.url(forResource: "HFAPatchMenu_v0.1.0", withExtension: "dylib") else {
-            throw IPAProcessorError.failed("工具内缺少 HFAPatchMenu_v0.1.0.dylib")
-        }
-
-        let frameworks = workspace.appURL.appendingPathComponent("Frameworks", isDirectory: true)
-        try fileManager.createDirectory(at: frameworks, withIntermediateDirectories: true)
-        let destinationMenu = frameworks.appendingPathComponent("HFAPatchMenu.dylib")
-        if fileManager.fileExists(atPath: destinationMenu.path) {
-            try fileManager.removeItem(at: destinationMenu)
-        }
-        try fileManager.copyItem(at: menuURL, to: destinationMenu)
-        log.append("[MENU-COPY] Frameworks/HFAPatchMenu.dylib")
-
-        let configDirectory = workspace.appURL.appendingPathComponent("HFAPatch", isDirectory: true)
-        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
-        let destinationConfig = configDirectory.appendingPathComponent("default.hfapatch.json")
-        try workspace.configData.write(to: destinationConfig, options: .atomic)
-        log.append("[CONFIG-COPY] HFAPatch/default.hfapatch.json")
-
-        let executable = workspace.appURL.appendingPathComponent(workspace.appInfo.executableName)
-        let loadPath = "@executable_path/Frameworks/HFAPatchMenu.dylib"
-        let existing = Zsign.listDylibs(appExecutable: executable.path)
-        if !existing.contains(loadPath) {
-            guard Zsign.injectDyLib(appExecutable: executable.path, with: loadPath, weak: false) else {
-                throw IPAProcessorError.failed("LC_LOAD_DYLIB 注入失败，可能是 Load Commands 空间不足")
+        if mode == .fixed {
+            for comparison in workspace.comparisons {
+                guard let targetURL = workspace.targetFiles[comparison.target] else {
+                    throw IPAProcessorError.failed("找不到 Patch 目标：\(comparison.target)")
+                }
+                try Self.write(comparison.enabled, at: comparison.fileOffset, to: targetURL)
+                log.append("[FIXED-PATCH] feature=\(comparison.featureID) target=\(comparison.target) rva=0x\(String(comparison.rva, radix: 16).uppercased()) before=\(Self.hex(comparison.actual)) after=\(Self.hex(comparison.enabled))")
             }
-            log.append("[INJECT-OK] \(loadPath)")
         } else {
-            log.append("[INJECT-SKIP] 菜单已存在")
+            guard let menuURL = Bundle.main.url(forResource: "HFAPatchMenu_v0.2.0", withExtension: "dylib") else {
+                throw IPAProcessorError.failed("工具内缺少 HFAPatchMenu_v0.2.0.dylib")
+            }
+            let frameworks = workspace.appURL.appendingPathComponent("Frameworks", isDirectory: true)
+            try fileManager.createDirectory(at: frameworks, withIntermediateDirectories: true)
+            let destinationMenu = frameworks.appendingPathComponent("HFAPatchMenu.dylib")
+            try? fileManager.removeItem(at: destinationMenu)
+            try fileManager.copyItem(at: menuURL, to: destinationMenu)
+            log.append("[MENU-COPY] Frameworks/HFAPatchMenu.dylib")
+
+            let configDirectory = workspace.appURL.appendingPathComponent("HFAPatch", isDirectory: true)
+            try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+            let destinationConfig = configDirectory.appendingPathComponent("default.hfapatch.json")
+            let adapted = try Self.adaptedConfig(workspace.configData, comparisons: workspace.comparisons)
+            try adapted.write(to: destinationConfig, options: .atomic)
+            log.append("[CONFIG-COPY] actual bytes saved as Original; UUID removed")
+
+            let executable = workspace.appURL.appendingPathComponent(workspace.appInfo.executableName)
+            let loadPath = "@executable_path/Frameworks/HFAPatchMenu.dylib"
+            let existing = Zsign.listDylibs(appExecutable: executable.path)
+            if !existing.contains(loadPath) {
+                guard Zsign.injectDyLib(appExecutable: executable.path, with: loadPath, weak: false) else {
+                    throw IPAProcessorError.failed("LC_LOAD_DYLIB 注入失败，可能是 Load Commands 空间不足")
+                }
+                log.append("[INJECT-OK] \(loadPath)")
+            } else {
+                log.append("[INJECT-SKIP] 菜单已存在")
+            }
         }
 
         guard Zsign.sign(appPath: workspace.appURL.path,
@@ -204,7 +250,8 @@ final class IPAProcessor {
 
         let exportDirectory = try Self.exportDirectory()
         let safeName = Self.safeFilename(workspace.appInfo.name)
-        let filename = "\(safeName)_HFAPatchIPA_v1.0.0_\(Self.safeFilename(workspace.appInfo.shortVersion)).ipa"
+        let modeName = mode == .fixed ? "Fixed" : "Menu"
+        let filename = "\(safeName)_HFAPatchIPA_v1.1.0_\(modeName)_\(Self.safeFilename(workspace.appInfo.shortVersion)).ipa"
         let output = exportDirectory.appendingPathComponent(filename)
         let temporaryZip = workspace.rootURL.appendingPathComponent("Output.zip")
         try? fileManager.removeItem(at: temporaryZip)
@@ -277,8 +324,38 @@ final class IPAProcessor {
         return directory
     }
 
-    private static func normalizeUUID(_ value: String) -> String {
-        value.replacingOccurrences(of: "-", with: "").uppercased()
+    private static func write(_ data: Data, at offset: UInt64, to url: URL) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: offset)
+        try handle.write(contentsOf: data)
+    }
+
+    private static func adaptedConfig(_ source: Data, comparisons: [PatchComparison]) throws -> Data {
+        guard var root = try JSONSerialization.jsonObject(with: source) as? [String: Any],
+              var targets = root["targets"] as? [String: [String: Any]],
+              var features = root["features"] as? [[String: Any]] else {
+            throw IPAProcessorError.failed("无法更新游戏数据包")
+        }
+        for key in Array(targets.keys) {
+            var target = targets[key] ?? [:]
+            target.removeValue(forKey: "uuid")
+            targets[key] = target
+        }
+        var index = 0
+        for featureIndex in features.indices {
+            guard var patches = features[featureIndex]["patches"] as? [[String: Any]] else { continue }
+            for patchIndex in patches.indices where index < comparisons.count {
+                let item = comparisons[index]
+                let restoreBytes = item.status == .enabled ? item.jsonOriginal : item.actual
+                patches[patchIndex]["original"] = hex(restoreBytes)
+                index += 1
+            }
+            features[featureIndex]["patches"] = patches
+        }
+        root["targets"] = targets
+        root["features"] = features
+        return try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
     }
 
     private static func hex(_ data: Data) -> String {

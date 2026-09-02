@@ -14,6 +14,7 @@ final class WorkspaceModel: ObservableObject {
     @Published var status = "请选择已解密 IPA 和游戏数据包"
     @Published var errorMessage: String?
     @Published var logLines: [String] = []
+    @Published var buildMode: PatchBuildMode = .menu
 
     private let processor = IPAProcessor()
 
@@ -81,14 +82,15 @@ final class WorkspaceModel: ObservableObject {
 
     func build() {
         guard let prepared else { return }
+        let mode = buildMode
         isBusy = true
         errorMessage = nil
         output = nil
-        status = "正在注入菜单并生成 IPA…"
+        status = mode == .menu ? "正在注入菜单并生成 IPA…" : "正在写入 Patch 并生成 IPA…"
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try IPAProcessor().build(prepared)
+                    try IPAProcessor().build(prepared, mode: mode)
                 }.value
                 output = result
                 logLines = result.log
