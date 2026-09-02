@@ -1,1 +1,1 @@
-1b6368efaff92bed71f97e9882fc29e760ce3c51dd3a20f7daec43e839dc889c  HFAPatchIPA_v1.0.1_TrollStore.ipa
+3d6ba1b6febfdc95cf91f0e7f8dc7a1bd31705bd673f12980c299890ec51f50d  HFAPatchIPA_v1.1.0_TrollStore.ipa
