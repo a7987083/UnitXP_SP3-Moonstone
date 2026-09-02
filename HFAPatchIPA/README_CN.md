@@ -26,7 +26,7 @@ HFAPatchIPA 不负责寻找功能和地址；HFAMapUniversal 不负责修改 IPA
 
 - XcodeGen
 - marmelroy/Zip 2.1.2+
-- claration/Zsign-Package `package` 分支
+- claration/Zsign-Package Feather 已验证提交 `6ffe703d`
 - 内置 HFAPatchMenu v0.1.0
 
 GitHub Actions 输出 `HFAPatchIPA_v1.0.0_TrollStore.ipa`。

@@ -12,7 +12,7 @@ packages:
     from: 2.1.2
   Zsign:
     url: https://github.com/claration/Zsign-Package.git
-    branch: package
+    revision: 6ffe703df73ef9069adacdbb19d571f11a69a801
 
 targets:
   HFAPatchIPA:
@@ -26,7 +26,7 @@ targets:
       - package: Zip
         product: Zip
       - package: Zsign
-        product: Zsign
+        product: ZsignSwift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hfa.patchipa
