@@ -1,0 +1,50 @@
+name: HFAPatchIPA
+
+options:
+  bundleIdPrefix: com.hfa
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "16.0"
+
+packages:
+  Zip:
+    url: https://github.com/marmelroy/Zip.git
+    from: 2.1.2
+  Zsign:
+    url: https://github.com/claration/Zsign-Package.git
+    branch: package
+
+targets:
+  HFAPatchIPA:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+    dependencies:
+      - package: Zip
+        product: Zip
+      - package: Zsign
+        product: Zsign
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hfa.patchipa
+        PRODUCT_NAME: HFAPatchIPA
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: 5.0
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: HFAPatchIPA
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    scheme:
+      testTargets: []
