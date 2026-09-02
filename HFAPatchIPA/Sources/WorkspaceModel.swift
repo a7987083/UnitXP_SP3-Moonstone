@@ -2,6 +2,26 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum ResourceKind: String, CaseIterable, Identifiable {
+    case ipa = "App"
+    case config = "数据包"
+    case dylib = "动态库"
+    case output = "已生成"
+    var id: String { rawValue }
+    var icon: String {
+        switch self { case .ipa: return "app"; case .config: return "doc.text";
+        case .dylib: return "shippingbox"; case .output: return "checkmark.seal" }
+    }
+}
+
+struct LocalResource: Identifiable {
+    let url: URL
+    let kind: ResourceKind
+    let size: Int64
+    let modified: Date
+    var id: String { url.path }
+}
+
 @MainActor
 final class WorkspaceModel: ObservableObject {
     enum ImportKind: Equatable { case ipa, config, dylib }
@@ -16,8 +36,11 @@ final class WorkspaceModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var logLines: [String] = []
     @Published var buildMode: PatchBuildMode = .menu
+    @Published var resources: [LocalResource] = []
 
     private let processor = IPAProcessor()
+
+    init() { refreshResources() }
 
     var canValidate: Bool { ipaURL != nil && configURL != nil && !isBusy }
     var canBuild: Bool {
@@ -40,6 +63,7 @@ final class WorkspaceModel: ObservableObject {
                 output = nil
                 logLines = []
                 status = ipaURL != nil && configURL != nil ? "文件已就绪，请开始校验" : "请继续选择文件"
+                refreshResources()
             } catch {
                 errorMessage = error.localizedDescription
                 status = "导入失败"
@@ -102,6 +126,7 @@ final class WorkspaceModel: ObservableObject {
                 output = result
                 logLines = result.log
                 status = "生成完成：\(result.ipaURL.lastPathComponent)"
+                refreshResources()
             } catch {
                 errorMessage = error.localizedDescription
                 status = "生成失败"
@@ -116,6 +141,60 @@ final class WorkspaceModel: ObservableObject {
         logLines = []
         errorMessage = nil
         status = ipaURL != nil && configURL != nil ? "文件已就绪，请开始校验" : "请选择已解密 IPA 和游戏数据包"
+    }
+
+    func select(_ resource: LocalResource) {
+        switch resource.kind {
+        case .ipa: ipaURL = resource.url
+        case .config: configURL = resource.url
+        case .dylib: dylibURL = resource.url
+        case .output: break
+        }
+        prepared = nil
+        output = nil
+        status = ipaURL != nil && configURL != nil ? "资源已选择，请进入制作" : "已选择 \(resource.url.lastPathComponent)"
+    }
+
+    func delete(_ resource: LocalResource) {
+        try? FileManager.default.removeItem(at: resource.url)
+        if ipaURL == resource.url { ipaURL = nil }
+        if configURL == resource.url { configURL = nil }
+        if dylibURL == resource.url { dylibURL = nil }
+        refreshResources()
+    }
+
+    func refreshResources() {
+        let manager = FileManager.default
+        let documents = manager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let sources: [(URL, ResourceKind?)] = [
+            (documents.appendingPathComponent("HFAPatchIPA/Imports", isDirectory: true), nil),
+            (documents.appendingPathComponent("HFAPatchIPA/Exports", isDirectory: true), .output)
+        ]
+        var found: [LocalResource] = []
+        for (directory, forcedKind) in sources {
+            try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            let files = (try? manager.contentsOfDirectory(at: directory,
+                                                           includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                                                           options: [.skipsHiddenFiles])) ?? []
+            for url in files where url.pathExtension.lowercased() != "log" {
+                let kind: ResourceKind?
+                if let forcedKind { kind = forcedKind }
+                else {
+                    switch url.pathExtension.lowercased() {
+                    case "ipa": kind = .ipa
+                    case "json", "hfapatch": kind = .config
+                    case "dylib": kind = .dylib
+                    default: kind = nil
+                    }
+                }
+                guard let kind else { continue }
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                found.append(LocalResource(url: url, kind: kind,
+                                           size: Int64(values?.fileSize ?? 0),
+                                           modified: values?.contentModificationDate ?? .distantPast))
+            }
+        }
+        resources = found.sorted { $0.modified > $1.modified }
     }
 
     private static func copyIntoImports(_ source: URL, kind: ImportKind) async throws -> URL {
