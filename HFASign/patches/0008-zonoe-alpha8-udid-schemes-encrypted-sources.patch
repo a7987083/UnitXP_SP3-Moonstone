@@ -1,13 +1,12 @@
 diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
 new file mode 100644
-index 0000000..de418da
+index 0000000..7946b45
 --- /dev/null
 +++ b/Ksign/Backend/Server/UDIDService.swift
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,93 @@
 +import Foundation
 +import UIKit
 +import Vapor
-+import Security
 +
 +final class UDIDService {
 +	static let shared = UDIDService()
@@ -87,15 +86,15 @@ index 0000000..de418da
 +	}
 +
 +	private func decodeCMS(_ data: Data) -> Data? {
-+		var decoder: CMSDecoder?
-+		guard CMSDecoderCreate(&decoder) == errSecSuccess, let decoder else { return nil }
-+		let updateStatus = data.withUnsafeBytes { bytes in
-+			CMSDecoderUpdateMessage(decoder, bytes.baseAddress, data.count)
-+		}
-+		guard updateStatus == errSecSuccess, CMSDecoderFinalizeMessage(decoder) == errSecSuccess else { return nil }
-+		var content: CFData?
-+		guard CMSDecoderCopyContent(decoder, &content) == errSecSuccess else { return nil }
-+		return content as Data?
++		// iOS does not expose Security.framework's macOS-only CMSDecoder API.
++		// The Profile Service response is a DER SignedData envelope whose
++		// encapsulated payload is an XML plist, so isolate that payload safely.
++		let startMarker = Data("<?xml".utf8)
++		let endMarker = Data("</plist>".utf8)
++		guard let start = data.range(of: startMarker),
++			  let end = data.range(of: endMarker, options: .backwards),
++			  start.lowerBound < end.upperBound else { return nil }
++		return data.subdata(in: start.lowerBound..<end.upperBound)
 +	}
 +}
 diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
