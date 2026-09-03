@@ -1,4 +1,4 @@
-From 9f97e5909b8334cfeeac8e22a6213876006903c0 Mon Sep 17 00:00:00 2001
+From e3c37e23bdb9b31616001317c8cf94fa4e58238a Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
 Date: Thu, 3 Sep 2026 23:17:35 +0300
 Subject: [PATCH] Add advanced signing rules native paging and source unlock
@@ -11,10 +11,11 @@ Subject: [PATCH] Add advanced signing rules native paging and source unlock
  .../Signing/Shared/AdvancedRuleViews.swift    |  81 ++++++++++++
  .../Signing/Shared/SigningOptionsView.swift   |  21 ++++
  Ksign/Views/Signing/SigningView.swift         |  34 ++++-
+ .../Apps/Detail/SourceAppsDetailView.swift    |   2 +-
  .../Sources/Apps/DownloadButtonView.swift     |  46 ++++++-
  .../Sources/Apps/SourceAppsCellView.swift     |   2 +-
  Ksign/Views/Sources/Apps/SourceAppsView.swift |   3 +
- 10 files changed, 401 insertions(+), 79 deletions(-)
+ 11 files changed, 402 insertions(+), 80 deletions(-)
  create mode 100644 Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
 
 diff --git a/Ksign/Backend/Observable/OptionsManager.swift b/Ksign/Backend/Observable/OptionsManager.swift
@@ -673,6 +674,19 @@ index 612a69b..0f82ea0 100644
  	
  	@ViewBuilder
  	private func _infoCell<V: View>(_ title: String, desc: String?, @ViewBuilder destination: () -> V) -> some View {
+diff --git a/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift b/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
+index 35be858..b559e53 100644
+--- a/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
++++ b/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
+@@ -57,7 +57,7 @@ struct SourceAppsDetailView: View {
+ 						
+ 						Spacer()
+ 						
+-						DownloadButtonView(app: app)
++						DownloadButtonView(source: source, app: app)
+ 					}
+ 					.lineLimit(2)
+ 					.frame(maxWidth: .infinity, alignment: .leading)
 diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
 index fbe0b6f..e017297 100644
 --- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
