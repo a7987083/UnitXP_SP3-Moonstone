@@ -209,10 +209,18 @@ index 16352fc..c80880d 100644
  	init(app: AppInfoPresentable, options: Options = OptionsManager.shared.options) {
  		self._app = app
 diff --git a/Ksign/Views/Library/LibraryCellView.swift b/Ksign/Views/Library/LibraryCellView.swift
-index c67178e..21229fe 100644
+index c67178e..7633767 100644
 --- a/Ksign/Views/Library/LibraryCellView.swift
 +++ b/Ksign/Views/Library/LibraryCellView.swift
-@@ -24,6 +24,7 @@ struct LibraryCellView: View {
+@@ -8,6 +8,7 @@
+ import SwiftUI
+ import NimbleExtensions
+ import NimbleViews
++import IDeviceSwift
+ 
+ // MARK: - View
+ struct LibraryCellView: View {
+@@ -24,6 +25,7 @@ struct LibraryCellView: View {
  	@Binding var selectedAppDylibsPresenting: AnyApp?
  	@Binding var selectedApps: Set<String>
  	@State private var _showActionSheet = false
@@ -220,7 +228,7 @@ index c67178e..21229fe 100644
  	
  	private var _isSelected: Bool {
  		selectedApps.contains(app.uuid ?? "")
-@@ -167,7 +168,7 @@ extension LibraryCellView {
+@@ -167,7 +169,7 @@ extension LibraryCellView {
  				selectedSigningAppPresenting = AnyApp(base: app)
  			}
  			Button("分享", systemImage: "square.and.arrow.up") {
@@ -229,7 +237,7 @@ index c67178e..21229fe 100644
  			}
  		} else {
  			Button(.localized("安装"), systemImage: "square.and.arrow.down") {
-@@ -194,7 +195,7 @@ extension LibraryCellView {
+@@ -194,7 +196,7 @@ extension LibraryCellView {
  			}
  			
  			Button("分享") {
@@ -238,7 +246,7 @@ index c67178e..21229fe 100644
  			}
  		} else {
  			Button(.localized("签名并安装")) {
-@@ -206,7 +207,7 @@ extension LibraryCellView {
+@@ -206,7 +208,7 @@ extension LibraryCellView {
  			}
  			
  			Button("分享") {
@@ -247,7 +255,7 @@ index c67178e..21229fe 100644
  			}
  		}
  		
-@@ -222,6 +223,34 @@ extension LibraryCellView {
+@@ -222,6 +224,34 @@ extension LibraryCellView {
  			Storage.shared.deleteApp(for: app)
  		}
  	}
@@ -350,12 +358,13 @@ index f3078f2..4b33232 100644
  	}
  }
 diff --git a/Ksign/Views/Signing/SigningProcessView.swift b/Ksign/Views/Signing/SigningProcessView.swift
-index 28a813f..5ba2ebc 100644
+index 28a813f..a15eb5e 100644
 --- a/Ksign/Views/Signing/SigningProcessView.swift
 +++ b/Ksign/Views/Signing/SigningProcessView.swift
-@@ -1,81 +1,103 @@
+@@ -1,81 +1,104 @@
  import SwiftUI
 +import CoreData
++import IDeviceSwift
  
  struct SigningProcessView: View {
      @ObservedObject var manager: OperationProgressManager
@@ -485,7 +494,7 @@ index 28a813f..5ba2ebc 100644
 -        return "正在处理"
 +    private var packageName: String { "\(manager.appName)_\(manager.appVersion).ipa" }
 +    private var logText: String {
-+        let system = "======= 系统 =======\nzonoe \(Bundle.main.version ?? "")\niOS \(UIDevice.current.systemVersion)\n设备型号：\(UIDevice.current.model)"
++        let system = "======= 系统 =======\nzonoe \(Bundle.main.version)\niOS \(UIDevice.current.systemVersion)\n设备型号：\(UIDevice.current.model)"
 +        let app = "======= 应用信息 =======\n软件名称：\(manager.appName)\nBundleId：\(manager.bundleID)\n版本：\(manager.appVersion)\n签名模式：\(manager.signingMode)"
 +        return ([system, app] + manager.entries).joined(separator: "\n")
 +    }
