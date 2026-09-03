@@ -1,0 +1,10 @@
++ git clone https://github.com/Nyasami/Ksign.git HFASignBuild
+Cloning into 'HFASignBuild'...
++ git -C HFASignBuild checkout 03a3a9c86897d79f9faf8106037b9971841d56a0
+HEAD is now at 03a3a9c feat: disable liquid glass for apps on ios 26
++ git -C HFASignBuild apply ../HFASign/patches/0001-Rebrand-Ksign-baseline-as-HFASign-alpha1.patch
++ git -C HFASignBuild apply ../HFASign/patches/0003-HFASign-alpha3-detailed-signing-and-import-fixes.patch
++ git -C HFASignBuild apply ../HFASign/patches/0004-zonoe-alpha4-incremental.patch
++ git -C HFASignBuild apply ../HFASign/patches/0005-zonoe-alpha5-import-resources-signing-ui.patch
++ git -C HFASignBuild apply ../HFASign/patches/0006-zonoe-alpha7-resource-actions-signing-fix.patch
+error: can't open patch '../HFASign/patches/0006-zonoe-alpha7-resource-actions-signing-fix.patch': No such file or directory
