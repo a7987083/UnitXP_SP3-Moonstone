@@ -1,0 +1,468 @@
+467 HFASign/patches/0005-zonoe-alpha5-import-resources-signing-ui.patch
+diff --git a/Ksign/Backend/Observable/OperationProgressManager.swift b/Ksign/Backend/Observable/OperationProgressManager.swift
+index e298de4..b36b6d8 100644
+--- a/Ksign/Backend/Observable/OperationProgressManager.swift
++++ b/Ksign/Backend/Observable/OperationProgressManager.swift
+@@ -17,6 +17,8 @@ final class OperationProgressManager: ObservableObject {
+     @Published var appVersion = ""
+     @Published var signingMode = ""
+     @Published var outputUUID: String?
++    @Published var outputFileName = ""
++    @Published var outputFormat = "ipa"
+     private var keepsVisible = false
+     private var generation = UUID()
+ 
+@@ -67,12 +69,14 @@ final class OperationProgressManager: ObservableObject {
+         }
+     }
+ 
+-    func configure(appName: String, bundleID: String, version: String, mode: String) {
++    func configure(appName: String, bundleID: String, version: String, mode: String, outputFileName: String = "", outputFormat: String = "ipa") {
+         DispatchQueue.main.async {
+             self.appName = appName
+             self.bundleID = bundleID
+             self.appVersion = version
+             self.signingMode = mode
++            self.outputFileName = outputFileName
++            self.outputFormat = outputFormat.lowercased()
+         }
+     }
+ 
+diff --git a/Ksign/Utilities/Handlers/ArchiveHandler.swift b/Ksign/Utilities/Handlers/ArchiveHandler.swift
+index 944847b..0c5fb53 100644
+--- a/Ksign/Utilities/Handlers/ArchiveHandler.swift
++++ b/Ksign/Utilities/Handlers/ArchiveHandler.swift
+@@ -20,10 +20,14 @@ final class ArchiveHandler: NSObject {
+ 	
+ 	private var _app: AppInfoPresentable
+ 	private let _uniqueWorkDir: URL
++	private let _preferredFileName: String?
++	private let _outputExtension: String
+ 	
+-	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) {
++	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel, preferredFileName: String? = nil, outputExtension: String = "ipa") {
+ 		self.viewModel = viewModel
+ 		self._app = app
++		self._preferredFileName = preferredFileName
++		self._outputExtension = outputExtension.lowercased() == "tipa" ? "tipa" : "ipa"
+ 		self._uniqueWorkDir = _fileManager.temporaryDirectory
+ 			.appendingPathComponent("FeatherInstall_\(_uuid)", isDirectory: true)
+ 		
+@@ -71,7 +75,10 @@ final class ArchiveHandler: NSObject {
+ 	}
+ 	
+ 	func moveToArchive(_ package: URL, shouldOpen: Bool = false) async throws -> URL? {
+-		let appendingString = "\(_app.name!)_\(_app.version!)_\(Int(Date().timeIntervalSince1970)).ipa"
++		let fallback = "\(_app.name ?? "App")_\(_app.version ?? "")_\(Int(Date().timeIntervalSince1970))"
++		let requested = (_preferredFileName?.isEmpty == false ? _preferredFileName! : fallback)
++		let base = URL(fileURLWithPath: requested).deletingPathExtension().lastPathComponent
++		let appendingString = "\(base).\(_outputExtension)"
+ 		let dest = _fileManager.archives.appendingPathComponent(appendingString)
+ 		
+ 		try? _fileManager.moveItem(
+diff --git a/Ksign/Utilities/SharedImportCoordinator.swift b/Ksign/Utilities/SharedImportCoordinator.swift
+index 08d1d86..9fea93e 100644
+--- a/Ksign/Utilities/SharedImportCoordinator.swift
++++ b/Ksign/Utilities/SharedImportCoordinator.swift
+@@ -10,21 +10,36 @@ final class SharedImportCoordinator {
+     private init() {}
+ 
+     func receive(_ url: URL) {
++        let accessed = url.startAccessingSecurityScopedResource()
++
++        // URLs received from Files and other apps can become invalid as soon as
++        // the open/share callback returns. Coordinate the read and immediately
++        // stage it inside our own container before doing any asynchronous work.
++        let stagedURL: URL
++        do {
++            stagedURL = try stageIncomingURL(url)
++        } catch {
++            if accessed { url.stopAccessingSecurityScopedResource() }
++            progress.fail("导入失败：\(error.localizedDescription)")
++            return
++        }
++        if accessed { url.stopAccessingSecurityScopedResource() }
++
+         if let lastImport,
+            lastImport.path == url.absoluteString,
+            Date().timeIntervalSince(lastImport.date) < 2 {
++            try? fileManager.removeItem(at: stagedURL)
+             return
+         }
+         lastImport = (url.absoluteString, Date())
+-        let accessed = url.startAccessingSecurityScopedResource()
+ 
+-        let ext = url.pathExtension.lowercased()
++        let ext = stagedURL.pathExtension.lowercased()
+         if ext == "ipa" || ext == "tipa" {
+-            progress.begin("正在导入 IPA", detail: url.lastPathComponent)
++            progress.begin("正在导入 IPA", detail: stagedURL.lastPathComponent)
+             let id = "HFASignImport_\(UUID().uuidString)"
+-            let download = DownloadManager.shared.startArchive(from: url, id: id)
+-            DownloadManager.shared.handlePachageFile(url: url, dl: download) { error in
+-                if accessed { url.stopAccessingSecurityScopedResource() }
++            let download = DownloadManager.shared.startArchive(from: stagedURL, id: id)
++            DownloadManager.shared.handlePachageFile(url: stagedURL, dl: download) { error in
++                try? self.fileManager.removeItem(at: stagedURL)
+                 if let error {
+                     self.progress.fail("导入失败：\(error.localizedDescription)")
+                 } else {
+@@ -35,8 +50,8 @@ final class SharedImportCoordinator {
+         }
+ 
+         let supported = ["zip", "dylib", "framework", "deb", "p12", "mobileprovision"]
+-        guard supported.contains(ext) || url.hasDirectoryPath else {
+-            if accessed { url.stopAccessingSecurityScopedResource() }
++        guard supported.contains(ext) || stagedURL.hasDirectoryPath else {
++            try? fileManager.removeItem(at: stagedURL)
+             progress.fail("暂不支持此文件类型")
+             return
+         }
+@@ -46,18 +61,36 @@ final class SharedImportCoordinator {
+             ? fileManager.tweaks
+             : URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
+         try? fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+-        let destination = destinationDirectory.appendingPathComponent(url.lastPathComponent)
++        let destination = destinationDirectory.appendingPathComponent(stagedURL.lastPathComponent)
+         resolveConflict(for: destination) { choice in
+             guard let choice else {
+-                if accessed { url.stopAccessingSecurityScopedResource() }
++                try? self.fileManager.removeItem(at: stagedURL)
+                 return
+             }
+-            self.copy(url, to: choice) {
+-                if accessed { url.stopAccessingSecurityScopedResource() }
++            self.copy(stagedURL, to: choice) {
++                try? self.fileManager.removeItem(at: stagedURL)
+             }
+         }
+     }
+ 
++    private func stageIncomingURL(_ source: URL) throws -> URL {
++        let directory = fileManager.temporaryDirectory
++            .appendingPathComponent("zonoe-incoming", isDirectory: true)
++            .appendingPathComponent(UUID().uuidString, isDirectory: true)
++        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
++        let destination = directory.appendingPathComponent(source.lastPathComponent)
++        var coordinationError: NSError?
++        var copyError: Error?
++        let coordinator = NSFileCoordinator()
++        coordinator.coordinate(readingItemAt: source, options: [], error: &coordinationError) { readableURL in
++            do { try self.fileManager.copyItem(at: readableURL, to: destination) }
++            catch { copyError = error }
++        }
++        if let coordinationError { throw coordinationError }
++        if let copyError { throw copyError }
++        return destination
++    }
++
+     private func resolveConflict(for destination: URL, completion: @escaping (URL?) -> Void) {
+         guard fileManager.fileExists(atPath: destination.path) else {
+             completion(destination)
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index 3f65bcb..ab263b3 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -25,6 +25,10 @@ struct LibraryView: View {
+ 	@State private var _alertDownloadString: String = "" // for _isDownloadingPresenting
+ 	@State private var _searchText = ""
+ 	@State private var _selectedTab: Int = 0 // 0 for Downloaded, 1 for Signed
++	@State private var _resourceTab: Int = 0 // 0 App, 1 Zip, 2 Dynamic libraries
++	@State private var _resourceFiles: [URL] = []
++	@State private var _selectedResourceFiles: Set<URL> = []
++	@State private var _selectionActionsExpanded = false
+ 	
+ 	// MARK: Edit Mode
+     @State private var _isEditMode: EditMode = .inactive
+@@ -65,6 +69,16 @@ struct LibraryView: View {
+     var body: some View {
+ 		NBNavigationView(.localized("资源")) {
+ 			VStack(spacing: 0) {
++				Picker("资源类型", selection: $_resourceTab) {
++					Text("App").tag(0)
++					Text("Zip").tag(1)
++					Text("动态库").tag(2)
++				}
++				.pickerStyle(.segmented)
++				.padding(.horizontal)
++				.padding(.top, 8)
++
++				if _resourceTab == 0 {
+ 				Picker("", selection: $_selectedTab) {
+ 					Text("未签名").tag(0)
+ 					Text(.localized("已签名应用")).tag(1)
+@@ -72,9 +86,16 @@ struct LibraryView: View {
+ 				.pickerStyle(SegmentedPickerStyle())
+ 				.padding(.horizontal)
+ 				.padding(.vertical, 8)
++				}
+ 				
+ 				NBListAdaptable {
+-					if _selectedTab == 0 {
++					if _resourceTab != 0 {
++						NBSection(_resourceTab == 1 ? "Zip" : "动态库", secondary: _visibleResourceFiles.count.description) {
++							ForEach(_visibleResourceFiles, id: \.self) { file in
++								_resourceFileRow(file)
++							}
++						}
++					} else if _selectedTab == 0 {
+ 						NBSection(
+ 							"未签名",
+ 							secondary: _filteredImportedApps.count.description
+@@ -111,9 +132,10 @@ struct LibraryView: View {
+ 					}
+ 				}
+ 			}
++			.overlay(alignment: .bottomTrailing) { _selectionControl.padding(18) }
+ 			.searchable(text: $_searchText, placement: .platform())
+-            .overlay {
+-                if
++	            .overlay {
++	                if _resourceTab == 0,
+                     _filteredSignedApps.isEmpty,
+                     _filteredImportedApps.isEmpty
+                 {
+@@ -133,9 +155,6 @@ struct LibraryView: View {
+                 }
+             }
+ 			.toolbar {
+-                ToolbarItem(placement: .topBarLeading) {
+-                    EditButton()
+-                }
+                 if _isEditMode.isEditing {
+ 					ToolbarItemGroup(placement: .topBarTrailing) {
+                         if _selectedTab == 0 {
+@@ -244,6 +263,8 @@ struct LibraryView: View {
+                     _selectedInstallAppPresenting = AnyApp(base: app)
+ 				}
+ 			}
++			.onAppear(perform: _reloadResourceFiles)
++			.onChange(of: _resourceTab) { _ in _reloadResourceFiles() }
+         }
+         .onChange(of: _isEditMode) { state in
+             if !state.isEditing {
+@@ -258,6 +279,79 @@ struct LibraryView: View {
+ }
+ 
+ extension LibraryView {
++	private var _visibleResourceFiles: [URL] {
++		_resourceFiles.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
++	}
++
++	private func _reloadResourceFiles() {
++		let fm = FileManager.default
++		let imports = URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
++		let roots = _resourceTab == 1 ? [imports, fm.archives] : [fm.tweaks]
++		_resourceFiles = roots.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] }
++			.filter { url in
++				let ext = url.pathExtension.lowercased()
++				return _resourceTab == 1 ? ext == "zip" : ["dylib", "framework", "deb", "bundle"].contains(ext)
++			}
++			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
++	}
++
++	@ViewBuilder private func _resourceFileRow(_ file: URL) -> some View {
++		Button {
++			guard _isEditMode.isEditing else { return }
++			if _selectedResourceFiles.contains(file) { _selectedResourceFiles.remove(file) } else { _selectedResourceFiles.insert(file) }
++		} label: {
++			HStack(spacing: 12) {
++				Image(systemName: _selectedResourceFiles.contains(file) ? "checkmark.circle.fill" : (_resourceTab == 1 ? "archivebox.fill" : "shippingbox.fill"))
++					.foregroundStyle(_selectedResourceFiles.contains(file) ? Color.accentColor : Color.secondary)
++				Text(file.lastPathComponent).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
++				Button { UIActivityViewController.show(activityItems: [file]) } label: { Image(systemName: "square.and.arrow.up") }
++					.buttonStyle(.plain)
++			}
++		}
++		.buttonStyle(.plain)
++	}
++
++	private var _selectionControl: some View {
++		HStack(spacing: 10) {
++			if _selectionActionsExpanded {
++				Button("全选") { _selectAllVisible() }.buttonStyle(.borderedProminent)
++				if _resourceTab == 0 { Button("签名") { _isBulkSigningPresenting = !_selectedApps.isEmpty }.buttonStyle(.borderedProminent).disabled(_selectedApps.isEmpty) }
++				Button("删除", role: .destructive) { _deleteSelection() }.buttonStyle(.borderedProminent)
++				Button("完成") { _finishSelection() }.buttonStyle(.borderedProminent)
++			}
++			Button("选择") {
++				withAnimation(.snappy) {
++					_selectionActionsExpanded.toggle()
++					_isEditMode = _selectionActionsExpanded ? .active : .inactive
++				}
++			}
++			.buttonStyle(.borderedProminent)
++		}
++	}
++
++	private func _selectAllVisible() {
++		if _resourceTab == 0 {
++			if _selectedTab == 0 {
++				_selectedApps = Set(_filteredImportedApps.compactMap(\.uuid))
++			} else {
++				_selectedApps = Set(_filteredSignedApps.compactMap(\.uuid))
++			}
++		} else { _selectedResourceFiles = Set(_visibleResourceFiles) }
++	}
++
++	private func _deleteSelection() {
++		if _resourceTab == 0 { _bulkDeleteSelectedApps() }
++		else {
++			for url in _selectedResourceFiles { try? FileManager.default.removeItem(at: url) }
++			_selectedResourceFiles.removeAll(); _reloadResourceFiles()
++		}
++	}
++
++	private func _finishSelection() {
++		withAnimation(.snappy) { _selectionActionsExpanded = false; _isEditMode = .inactive }
++		_selectedApps.removeAll(); _selectedResourceFiles.removeAll()
++	}
++
+     @ViewBuilder
+     private func _importActions() -> some View {
+         Button("导入文件", systemImage: "folder") {
+diff --git a/Ksign/Views/Settings/Certificates/CertificatesView.swift b/Ksign/Views/Settings/Certificates/CertificatesView.swift
+index 836fc6a..f1077e6 100644
+--- a/Ksign/Views/Settings/Certificates/CertificatesView.swift
++++ b/Ksign/Views/Settings/Certificates/CertificatesView.swift
+@@ -15,6 +15,7 @@ struct CertificatesView: View {
+ 	
+ 	@State private var _isAddingPresenting = false
+ 	@State private var _isSelectedInfoPresenting: CertificatePair?
++	@State private var _certificateToDelete: CertificatePair?
+ 
+ 	// MARK: Fetch
+ 	@FetchRequest(
+@@ -88,6 +89,13 @@ struct CertificatesView: View {
+ 			CertificatesAddView()
+ 				.presentationDetents([.medium])
+ 		}
++		.alert("删除证书", isPresented: Binding(get: { _certificateToDelete != nil }, set: { if !$0 { _certificateToDelete = nil } })) {
++			Button("取消", role: .cancel) { _certificateToDelete = nil }
++			Button("删除", role: .destructive) {
++				if let cert = _certificateToDelete { Storage.shared.deleteCertificate(for: cert) }
++				_certificateToDelete = nil
++			}
++		} message: { Text("证书及其描述文件将一起删除。") }
+ 	}
+ }
+ 
+@@ -112,6 +120,14 @@ extension CertificatesView {
+ 						lineWidth: 2
+ 					)
+ 			)
++			.overlay(alignment: .topTrailing) {
++				Menu {
++					Button("详细信息", systemImage: "info.circle") { _isSelectedInfoPresenting = cert }
++					Button("删除证书", systemImage: "trash", role: .destructive) { _certificateToDelete = cert }
++				} label: {
++					Image(systemName: "ellipsis.circle.fill").font(.title3).padding(10)
++				}
++			}
+ 			.contextMenu {
+ 				_contextActions(for: cert)
+ 				Divider()
+@@ -133,15 +149,7 @@ extension CertificatesView {
+ 	@ViewBuilder
+ 	private func _actions(for cert: CertificatePair) -> some View {
+ 		Button(role: .destructive) {
+-			if certificates.count == 1 {
+-                UIAlertController.showAlertWithOk(
+-                    title: .localized("You don't want to do this!"),
+-                    message: .localized("You don't want to delete your only certificate, right >.<?"),
+-                    isCancel: true
+-                )
+-            } else {
+-                Storage.shared.deleteCertificate(for: cert)
+-            }
++			_certificateToDelete = cert
+ 		} label: {
+ 			Label(.localized("删除"), systemImage: "trash")
+ 		}
+diff --git a/Ksign/Views/Signing/SigningProcessView.swift b/Ksign/Views/Signing/SigningProcessView.swift
+index a15eb5e..b2a8e74 100644
+--- a/Ksign/Views/Signing/SigningProcessView.swift
++++ b/Ksign/Views/Signing/SigningProcessView.swift
+@@ -75,7 +75,10 @@ struct SigningProcessView: View {
+         }.padding().background(.bar)
+     }
+ 
+-    private var packageName: String { "\(manager.appName)_\(manager.appVersion).ipa" }
++    private var packageName: String {
++        let base = manager.outputFileName.isEmpty ? "\(manager.appName)_\(manager.appVersion)" : URL(fileURLWithPath: manager.outputFileName).deletingPathExtension().lastPathComponent
++        return "\(base).\(manager.outputFormat)"
++    }
+     private var logText: String {
+         let system = "======= 系统 =======\nzonoe \(Bundle.main.version)\niOS \(UIDevice.current.systemVersion)\n设备型号：\(UIDevice.current.model)"
+         let app = "======= 应用信息 =======\n软件名称：\(manager.appName)\nBundleId：\(manager.bundleID)\n版本：\(manager.appVersion)\n签名模式：\(manager.signingMode)"
+@@ -88,7 +91,7 @@ struct SigningProcessView: View {
+         Task {
+             do {
+                 let viewModel = InstallerStatusViewModel(isIdevice: false)
+-                let handler = ArchiveHandler(app: outputApp, viewModel: viewModel)
++                let handler = ArchiveHandler(app: outputApp, viewModel: viewModel, preferredFileName: manager.outputFileName, outputExtension: manager.outputFormat)
+                 try await handler.move()
+                 let archive = try await handler.archive()
+                 let url = try await handler.moveToArchive(archive, shouldOpen: false)
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index a1ede73..c26fa36 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -24,6 +24,8 @@ struct SigningView: View {
+ 	@State private var _isImagePickerPresenting = false
+ 	@State private var _isLogsPresenting = false
+ 	@State private var _isSigning = false
++	@State private var _outputFileName = ""
++	@State private var _outputFormat = "ipa"
+ 	@State private var _selectedPhoto: PhotosPickerItem? = nil
+ 	@State var appIcon: UIImage?
+ 	
+@@ -213,6 +215,15 @@ extension SigningView {
+ 					bindingValue: $_temporaryOptions.appVersion
+ 				)
+ 			}
++			LabeledContent("输出文件名") {
++				TextField("输出文件名", text: $_outputFileName)
++					.multilineTextAlignment(.trailing)
++			}
++			Picker("导出格式", selection: $_outputFormat) {
++				Text("IPA").tag("ipa")
++				Text("TIPA").tag("tipa")
++			}
++			.pickerStyle(.segmented)
+ 		}
+ 	}
+ 	
+@@ -244,12 +255,6 @@ extension SigningView {
+ 					)
+ 				}
+ 				
+-			NavigationLink("添加第三方库") {
+-					SigningFrameworksView(
+-						app: app,
+-						options: $_temporaryOptions.optional()
+-					)
+-				}
+ 			#if NIGHTLY || DEBUG
+ 			NavigationLink("替换 Entitlements") {
+ 					SigningEntitlementsView(
+@@ -257,7 +262,7 @@ extension SigningView {
+ 					)
+ 				}
+ 			#endif
+-			NavigationLink("选择注入插件（\(_temporaryOptions.injectionFiles.count)）") {
++			NavigationLink("添加第三方库（\(_temporaryOptions.injectionFiles.count)）") {
+ 					SigningTweaksView(
+ 						options: $_temporaryOptions
+ 					)
+@@ -316,7 +321,9 @@ extension SigningView {
+ 			appName: _temporaryOptions.appName ?? app.name ?? "未知应用",
+ 			bundleID: _temporaryOptions.appIdentifier ?? app.identifier ?? "未知",
+ 			version: _temporaryOptions.appVersion ?? app.version ?? "未知",
+-			mode: mode
++			mode: mode,
++			outputFileName: _outputFileName,
++			outputFormat: _outputFormat
+ 		)
+ 		_isSigning = true
+ #if DEBUG
