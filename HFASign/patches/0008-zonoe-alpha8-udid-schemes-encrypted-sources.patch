@@ -1,0 +1,419 @@
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+new file mode 100644
+index 0000000..de418da
+--- /dev/null
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -0,0 +1,94 @@
++import Foundation
++import UIKit
++import Vapor
++import Security
++
++final class UDIDService {
++	static let shared = UDIDService()
++	static let didUpdateNotification = Notification.Name("zonoe.didUpdateUDID")
++	static let port = 14302
++	private var server: Application?
++
++	private init() {}
++
++	func start(completion: @escaping (Result<URL, Error>) -> Void) {
++		if server != nil {
++			completion(.success(profileURL))
++			return
++		}
++		do {
++			var environment = Environment(name: "zonoe-udid", arguments: ["zonoe"])
++			let app = Application(environment)
++			app.http.server.configuration.hostname = "127.0.0.1"
++			app.http.server.configuration.port = Self.port
++			app.routes.defaultMaxBodySize = "2mb"
++
++			app.get("profile.mobileconfig") { _ in
++				Response(status: .ok, headers: ["Content-Type": "application/x-apple-aspen-config"], body: .init(data: self.profileData()))
++			}
++			app.post("udid") { req -> Response in
++				guard let buffer = req.body.data else { return Response(status: .badRequest) }
++				var copy = buffer
++				let data = copy.readData(length: copy.readableBytes) ?? Data()
++				guard let udid = self.extractUDID(from: data) else { return Response(status: .badRequest) }
++				UserDefaults.standard.set(udid, forKey: "zonoe.deviceUDID")
++				DispatchQueue.main.async {
++					NotificationCenter.default.post(name: Self.didUpdateNotification, object: udid)
++				}
++				return Response(status: .ok, headers: ["Content-Type": "text/html; charset=utf-8"], body: .init(string: "<html><body style='font-family:-apple-system;text-align:center;padding-top:80px'><h2>UDID 获取成功</h2><p>请返回 zonoe。</p></body></html>"))
++			}
++			try app.server.start()
++			server = app
++			completion(.success(profileURL))
++		} catch {
++			completion(.failure(error))
++		}
++	}
++
++	private var profileURL: URL { URL(string: "http://127.0.0.1:\(Self.port)/profile.mobileconfig")! }
++
++	private func profileData() -> Data {
++		let dictionary: [String: Any] = [
++			"PayloadContent": ["URL": "http://127.0.0.1:\(Self.port)/udid", "DeviceAttributes": ["UDID"]],
++			"PayloadOrganization": "zonoe",
++			"PayloadDisplayName": "获取本机 UDID",
++			"PayloadVersion": 1,
++			"PayloadUUID": UUID().uuidString,
++			"PayloadIdentifier": "com.zonoe.udid.profile-service",
++			"PayloadDescription": "仅用于向本机 zonoe 返回设备 UDID",
++			"PayloadType": "Profile Service"
++		]
++		return (try? PropertyListSerialization.data(fromPropertyList: dictionary, format: .xml, options: 0)) ?? Data()
++	}
++
++	private func extractUDID(from input: Data) -> String? {
++		let candidates = [decodeCMS(input), input].compactMap { $0 }
++		for data in candidates {
++			if let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
++			   let value = findUDID(in: plist) { return value }
++		}
++		return nil
++	}
++
++	private func findUDID(in value: Any) -> String? {
++		if let dict = value as? [String: Any] {
++			if let udid = dict["UDID"] as? String, !udid.isEmpty { return udid }
++			for nested in dict.values { if let result = findUDID(in: nested) { return result } }
++		} else if let array = value as? [Any] {
++			for nested in array { if let result = findUDID(in: nested) { return result } }
++		}
++		return nil
++	}
++
++	private func decodeCMS(_ data: Data) -> Data? {
++		var decoder: CMSDecoder?
++		guard CMSDecoderCreate(&decoder) == errSecSuccess, let decoder else { return nil }
++		let updateStatus = data.withUnsafeBytes { bytes in
++			CMSDecoderUpdateMessage(decoder, bytes.baseAddress, data.count)
++		}
++		guard updateStatus == errSecSuccess, CMSDecoderFinalizeMessage(decoder) == errSecSuccess else { return nil }
++		var content: CFData?
++		guard CMSDecoderCopyContent(decoder, &content) == errSecSuccess else { return nil }
++		return content as Data?
++	}
++}
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+new file mode 100644
+index 0000000..bf081c1
+--- /dev/null
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -0,0 +1,81 @@
++import Foundation
++import AltSourceKit
++import CommonCrypto
++import CryptoKit
++
++final class SourceRepositoryLoader {
++	static let shared = SourceRepositoryLoader()
++	private init() {}
++
++	func fetch(from url: URL, completion: @escaping (Result<ASRepository, Error>) -> Void) {
++		URLSession.shared.dataTask(with: url) { data, _, networkError in
++			var latestError: Error = networkError ?? LoaderError.noData
++			if let data {
++				do {
++					let repository = try self.decode(data)
++					try? self.saveCache(data, for: url)
++					completion(.success(repository)); return
++				} catch { latestError = error }
++			}
++			if let cached = try? Data(contentsOf: self.cacheURL(for: url)), let repository = try? self.decode(cached) {
++				completion(.success(repository))
++			} else { completion(.failure(latestError)) }
++		}.resume()
++	}
++
++	private func cacheURL(for url: URL) -> URL {
++		let digest = SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
++		let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("SourceCache", isDirectory: true)
++		try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
++		return root.appendingPathComponent(digest).appendingPathExtension("json")
++	}
++
++	private func saveCache(_ data: Data, for url: URL) throws { try data.write(to: cacheURL(for: url), options: .atomic) }
++
++	private func decode(_ data: Data) throws -> ASRepository {
++		let decoder = JSONDecoder()
++		if let direct = try? decoder.decode(ASRepository.self, from: data) { return direct }
++		guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
++			  let encrypted = object["appstore"] as? String else { throw LoaderError.unsupportedFormat }
++		var compact = encrypted.trimmingCharacters(in: .whitespacesAndNewlines)
++			.replacingOccurrences(of: "-", with: "+")
++			.replacingOccurrences(of: "_", with: "/")
++		while compact.count % 4 != 0 { compact.append("=") }
++		guard let cipher = Data(base64Encoded: compact, options: [.ignoreUnknownCharacters]) else {
++			throw LoaderError.invalidEncryptedPayload
++		}
++		let plain = try decryptDES(cipher)
++		return try decoder.decode(ASRepository.self, from: plain)
++	}
++
++	private func decryptDES(_ encrypted: Data) throws -> Data {
++		let key = Data("esign_so".utf8)
++		let iv = Data("urce_enc".utf8)
++		var output = Data(count: encrypted.count + kCCBlockSizeDES)
++		var moved = 0
++		let status = output.withUnsafeMutableBytes { outputBytes in
++			encrypted.withUnsafeBytes { inputBytes in
++				key.withUnsafeBytes { keyBytes in
++					iv.withUnsafeBytes { ivBytes in
++						CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmDES), CCOptions(kCCOptionPKCS7Padding), keyBytes.baseAddress, kCCKeySizeDES, ivBytes.baseAddress, inputBytes.baseAddress, encrypted.count, outputBytes.baseAddress, output.count, &moved)
++					}
++				}
++			}
++		}
++		guard status == kCCSuccess else { throw LoaderError.decryptionFailed(status) }
++		output.removeSubrange(moved..<output.count)
++		return output
++	}
++
++	enum LoaderError: LocalizedError {
++		case noData, unsupportedFormat, invalidEncryptedPayload, decryptionFailed(CCCryptorStatus)
++		var errorDescription: String? {
++			switch self {
++			case .noData: return "软件源没有返回数据"
++			case .unsupportedFormat: return "不支持的软件源格式"
++			case .invalidEncryptedPayload: return "全能签 appstore 字段不是有效 Base64"
++			case .decryptionFailed(let status): return "全能签软件源解密失败（\(status)）"
++			}
++		}
++	}
++}
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 65f7e76..0a04609 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -52,20 +52,42 @@ struct FeatherApp: App {
+ 	
+ 	private func _handleURL(_ url: URL) {
+ 		if url.scheme == "zonoe" {
+-			if let fullPath = url.validatedScheme(after: "/source/") {
++			let action = url.host?.lowercased() ?? ""
++			let payload = String(url.absoluteString.dropFirst("zonoe://\(action)/".count)).removingPercentEncoding ?? ""
++			if action == "source", payload.hasPrefix("http://") || payload.hasPrefix("https://") {
++				let fullPath = payload
+ 				FR.handleSource(fullPath) { }
+ 			}
+-			
+-			if
+-				let fullPath = url.validatedScheme(after: "/download/"),
+-				let downloadURL = URL(string: fullPath)
+-			{
++
++			if ["install", "download"].contains(action), let downloadURL = URL(string: payload), ["http", "https"].contains(downloadURL.scheme?.lowercased() ?? "") {
+ 				_ = DownloadManager.shared.startDownload(from: downloadURL, id: "FeatherManualDownload_\(UUID().uuidString)")
+ 			}
++
++			if action == "udid" { _handleUDIDRequest(url) }
+ 		} else {
+ 			SharedImportCoordinator.shared.receive(url)
+ 		}
+ 	}
++
++	private func _handleUDIDRequest(_ url: URL) {
++		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID") ?? ""
++		guard !udid.isEmpty else {
++			UIAlertController.showAlertWithOk(title: "尚未获取 UDID", message: "请先到设置中点击“获取”。")
++			return
++		}
++		let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
++		if let callback = components?.queryItems?.first(where: { $0.name == "callback" })?.value,
++		   var callbackComponents = URLComponents(string: callback) {
++			var items = callbackComponents.queryItems ?? []
++			items.removeAll { $0.name == "udid" }
++			items.append(URLQueryItem(name: "udid", value: udid))
++			callbackComponents.queryItems = items
++			if let target = callbackComponents.url { UIApplication.shared.open(target) }
++		} else {
++			UIPasteboard.general.string = udid
++			UIAlertController.showAlertWithOk(title: "UDID 已复制", message: udid)
++		}
++	}
+ 	
+ }
+ 
+diff --git a/Ksign/Utilities/FR.swift b/Ksign/Utilities/FR.swift
+index 5789ad7..7df4786 100644
+--- a/Ksign/Utilities/FR.swift
++++ b/Ksign/Utilities/FR.swift
+@@ -201,7 +201,7 @@ enum FR {
+ 	) {
+ 		guard let url = URL(string: urlString) else { return }
+ 		
+-		NBFetchService().fetch<ASRepository>(from: url) { (result: Result<ASRepository, Error>) in
++		SourceRepositoryLoader.shared.fetch(from: url) { result in
+ 			switch result {
+ 			case .success(let data):
+ 				let id = data.id ?? url.absoluteString
+diff --git a/Ksign/Utilities/SharedImportCoordinator.swift b/Ksign/Utilities/SharedImportCoordinator.swift
+index 8bbd91f..ae60fac 100644
+--- a/Ksign/Utilities/SharedImportCoordinator.swift
++++ b/Ksign/Utilities/SharedImportCoordinator.swift
+@@ -106,8 +106,8 @@ final class SharedImportCoordinator {
+ 				_ = try archive.extract(entry, to: output)
+ 			}
+ 			let files = (fileManager.enumerator(at: extractionRoot, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? []
+-			guard let p12 = files.first(where: { $0.pathExtension.lowercased() == "p12" }),
+-				  let provision = files.first(where: { $0.pathExtension.lowercased() == "mobileprovision" }) else {
++			guard let p12 = files.first(where: { ["p12", "pfx"].contains($0.pathExtension.lowercased()) }),
++				  let provision = files.first(where: { ["mobileprovision", "provisionprofile"].contains($0.pathExtension.lowercased()) }) else {
+ 				try? fileManager.removeItem(at: extractionRoot)
+ 				return false
+ 			}
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index e2f2fa1..e883cbb 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -132,7 +132,7 @@ struct LibraryView: View {
+ 				if _resourceTab == 0 { _selectionControl.padding(18) }
+ 			}
+ 			.contentShape(Rectangle())
+-			.gesture(
++			.simultaneousGesture(
+ 				DragGesture(minimumDistance: 45).onEnded { value in
+ 					guard abs(value.translation.width) > abs(value.translation.height) else { return }
+ 					withAnimation(.snappy) {
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index 4b33232..c0e890d 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -10,6 +10,8 @@ import NimbleViews
+ 
+ // MARK: - View
+ struct SettingsView: View {
++	@AppStorage("zonoe.deviceUDID") private var _deviceUDID = ""
++	@State private var _isStartingUDID = false
+     @AppStorage("feather.selectedCert") private var _storedSelectedCert: Int = 0
+     @FetchRequest(
+         entity: CertificatePair.entity(),
+@@ -32,6 +34,17 @@ struct SettingsView: View {
+     var body: some View {
+ 		NBNavigationView(.localized("设置")) {
+ 			Form {
++				NBSection("设备") {
++					HStack(spacing: 14) {
++						Image(systemName: "iphone").font(.title2).frame(width: 38, height: 38)
++						VStack(alignment: .leading, spacing: 3) {
++							Text("本机 UDID")
++							Text(_deviceUDID.isEmpty ? "未检测到 UDID" : _deviceUDID).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
++						}
++						Spacer()
++						Button(_isStartingUDID ? "启动中" : "获取") { _startUDID() }.disabled(_isStartingUDID)
++					}
++				}
+ 				_feedback()
+ 				
+ 				Section {
+@@ -61,6 +74,9 @@ struct SettingsView: View {
+                 }
+ 				
+ 				NBSection(.localized("功能")) {
++					NavigationLink(destination: URLSchemeView()) {
++						Label("URL Scheme", systemImage: "link")
++					}
+                     NavigationLink(destination: LogsView(manager: LogsManager.shared)) {
+                         Label(.localized("日志"), systemImage: "apple.terminal")
+                     }
+@@ -95,6 +111,19 @@ struct SettingsView: View {
+ 
+ // MARK: - View extension
+ extension SettingsView {
++	private func _startUDID() {
++		_isStartingUDID = true
++		UDIDService.shared.start { result in
++			DispatchQueue.main.async {
++				_isStartingUDID = false
++				switch result {
++				case .success(let url): UIApplication.shared.open(url)
++				case .failure(let error): UIAlertController.showAlertWithOk(title: "无法启动 UDID 服务", message: error.localizedDescription)
++				}
++			}
++		}
++	}
++
+ 	@ViewBuilder
+ 	private func _feedback() -> some View {
+ 		Section {
+diff --git a/Ksign/Views/Settings/URLSchemeView.swift b/Ksign/Views/Settings/URLSchemeView.swift
+new file mode 100644
+index 0000000..f4e6b06
+--- /dev/null
++++ b/Ksign/Views/Settings/URLSchemeView.swift
+@@ -0,0 +1,34 @@
++import SwiftUI
++import UIKit
++
++struct URLSchemeView: View {
++	var body: some View {
++		List {
++			Section("添加软件源") {
++				endpoint("zonoe://source/[软件源 URL]")
++				Text("打开 zonoe 并添加 AltStore、ESign 或全能签软件源。")
++			}
++			Section("下载并导入") {
++				endpoint("zonoe://install/[文件 URL]")
++				Text("下载 IPA、TIPA 或支持的资源文件。")
++			}
++			Section("读取 UDID") {
++				endpoint("zonoe://udid?callback=[回调 URL]")
++				Text("zonoe 会在回调 URL 中追加 udid 参数；未提供 callback 时复制 UDID。")
++			}
++		}
++		.navigationTitle("URL Scheme")
++		.navigationBarTitleDisplayMode(.inline)
++	}
++
++	private func endpoint(_ value: String) -> some View {
++		Button {
++			UIPasteboard.general.string = value
++		} label: {
++			HStack {
++				Text(value).font(.system(.footnote, design: .monospaced)).foregroundStyle(.primary)
++				Spacer(); Image(systemName: "doc.on.doc")
++			}
++		}
++	}
++}
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index 80d351a..612a69b 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -235,6 +235,10 @@ extension SigningView {
+ 				Text("TIPA").tag("tipa")
+ 			}
+ 			.pickerStyle(.segmented)
++			.onChange(of: _outputFormat) { format in
++				let base = URL(fileURLWithPath: _outputFileName).deletingPathExtension().lastPathComponent
++				_outputFileName = "\(base).\(format)"
++			}
+ 		}
+ 	}
+ 	
+diff --git a/Ksign/Views/Sources/SourcesViewModel.swift b/Ksign/Views/Sources/SourcesViewModel.swift
+index bdc39eb..4627741 100644
+--- a/Ksign/Views/Sources/SourcesViewModel.swift
++++ b/Ksign/Views/Sources/SourcesViewModel.swift
+@@ -16,8 +16,6 @@ final class SourcesViewModel: ObservableObject {
+ 	
+ 	typealias RepositoryDataHandler = Result<ASRepository, Error>
+ 	
+-	private let _dataService = NBFetchService()
+-	
+ 	var isFinished = true
+ 	@Published var sources: [AltSource: ASRepository] = [:]
+ 	
+@@ -50,7 +48,7 @@ final class SourcesViewModel: ObservableObject {
+ 						}
+ 						
+ 						return await withCheckedContinuation { continuation in
+-							self._dataService.fetch(from: url) { (result: RepositoryDataHandler) in
++							SourceRepositoryLoader.shared.fetch(from: url) { result in
+ 								switch result {
+ 								case .success(let repo):
+ 									continuation.resume(returning: (source, repo))
