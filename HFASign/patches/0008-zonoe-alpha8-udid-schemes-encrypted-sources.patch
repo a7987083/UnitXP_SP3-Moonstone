@@ -99,10 +99,10 @@ index 0000000..7946b45
 +}
 diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
 new file mode 100644
-index 0000000..bf081c1
+index 0000000..6dd3dcd
 --- /dev/null
 +++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,82 @@
 +import Foundation
 +import AltSourceKit
 +import CommonCrypto
@@ -156,13 +156,14 @@ index 0000000..bf081c1
 +	private func decryptDES(_ encrypted: Data) throws -> Data {
 +		let key = Data("esign_so".utf8)
 +		let iv = Data("urce_enc".utf8)
-+		var output = Data(count: encrypted.count + kCCBlockSizeDES)
++		let outputCapacity = encrypted.count + kCCBlockSizeDES
++		var output = Data(count: outputCapacity)
 +		var moved = 0
 +		let status = output.withUnsafeMutableBytes { outputBytes in
 +			encrypted.withUnsafeBytes { inputBytes in
 +				key.withUnsafeBytes { keyBytes in
 +					iv.withUnsafeBytes { ivBytes in
-+						CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmDES), CCOptions(kCCOptionPKCS7Padding), keyBytes.baseAddress, kCCKeySizeDES, ivBytes.baseAddress, inputBytes.baseAddress, encrypted.count, outputBytes.baseAddress, output.count, &moved)
++						CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmDES), CCOptions(kCCOptionPKCS7Padding), keyBytes.baseAddress, kCCKeySizeDES, ivBytes.baseAddress, inputBytes.baseAddress, encrypted.count, outputBytes.baseAddress, outputCapacity, &moved)
 +					}
 +				}
 +			}
