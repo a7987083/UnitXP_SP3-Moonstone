@@ -17,7 +17,16 @@ jobs:
           git -C HFASignBuild checkout 03a3a9c86897d79f9faf8106037b9971841d56a0
           git -C HFASignBuild apply ../HFASign/patches/0001-Rebrand-Ksign-baseline-as-HFASign-alpha1.patch
           git -C HFASignBuild apply ../HFASign/patches/0003-HFASign-alpha3-detailed-signing-and-import-fixes.patch
+          git -C HFASignBuild apply ../HFASign/patches/0004-zonoe-alpha4-incremental.patch
           git -C HFASignBuild submodule update --init --recursive
+      - name: Apply zonoe icon
+        run: |
+          curl -L --fail --retry 3 -o /tmp/zonoe-icon.png 'https://app.zonoeios.xyz/uploads/20220704/d042be36ab9f4c73f0c721bccc6ba6c9.png'
+          sips -c 901 901 /tmp/zonoe-icon.png --out /tmp/zonoe-square.png
+          sips -z 1024 1024 /tmp/zonoe-square.png --out /tmp/zonoe-1024.png
+          cp /tmp/zonoe-1024.png HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-default.png
+          cp /tmp/zonoe-1024.png HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-trans.png
+          cp /tmp/zonoe-1024.png 'HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-trans 1.png'
       - name: Install packaging tools
         run: brew install ldid
       - name: Prepare installer assets
@@ -43,13 +52,13 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../HFASign_v3.0.0-alpha3_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha4_TrollStore.ipa
           cd ..
-          shasum -a 256 HFASign_v3.0.0-alpha3_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alpha4_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx HFASign
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist" | grep -qx public.data
@@ -57,13 +66,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/HFASign_v3.0.0-alpha3_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish HFASign v3.0.0-alpha3 IPA [skip ci]"
+          git add -f HFASign/dist/zonoe_v3.0.0-alpha4_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alpha4 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
       - uses: actions/upload-artifact@v4
         with:
-          name: HFASign-v3.0.0-alpha3
+          name: zonoe-v3.0.0-alpha4
           path: |
-            HFASign/dist/HFASign_v3.0.0-alpha3_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alpha4_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error

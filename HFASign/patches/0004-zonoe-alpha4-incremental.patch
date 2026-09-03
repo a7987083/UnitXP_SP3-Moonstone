@@ -1,0 +1,608 @@
+diff --git a/Ksign.xcodeproj/project.pbxproj b/Ksign.xcodeproj/project.pbxproj
+index 080145f..4b8058b 100644
+--- a/Ksign.xcodeproj/project.pbxproj
++++ b/Ksign.xcodeproj/project.pbxproj
+@@ -468,7 +468,7 @@
+ 				);
+ 				GENERATE_INFOPLIST_FILE = YES;
+ 				INFOPLIST_FILE = Ksign/Resources/Info.plist;
+-				INFOPLIST_KEY_CFBundleDisplayName = HFASign;
++				INFOPLIST_KEY_CFBundleDisplayName = zonoe;
+ 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+ 				INFOPLIST_KEY_NSHumanReadableCopyright = "HFASign is based on Ksign and Feather (GPL-3.0)";
+ 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+@@ -534,7 +534,7 @@
+ 				GCC_PREPROCESSOR_DEFINITIONS = "SERVER=1";
+ 				GENERATE_INFOPLIST_FILE = YES;
+ 				INFOPLIST_FILE = Ksign/Resources/Info.plist;
+-				INFOPLIST_KEY_CFBundleDisplayName = HFASign;
++				INFOPLIST_KEY_CFBundleDisplayName = zonoe;
+ 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+ 				INFOPLIST_KEY_NSHumanReadableCopyright = "HFASign is based on Ksign and Feather (GPL-3.0)";
+ 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+diff --git a/Ksign/Backend/Observable/OperationProgressManager.swift b/Ksign/Backend/Observable/OperationProgressManager.swift
+index a267983..e298de4 100644
+--- a/Ksign/Backend/Observable/OperationProgressManager.swift
++++ b/Ksign/Backend/Observable/OperationProgressManager.swift
+@@ -16,11 +16,16 @@ final class OperationProgressManager: ObservableObject {
+     @Published var bundleID = ""
+     @Published var appVersion = ""
+     @Published var signingMode = ""
++    @Published var outputUUID: String?
++    private var keepsVisible = false
++    private var generation = UUID()
+ 
+     private init() {}
+ 
+-    func begin(_ title: String, detail: String = "") {
++    func begin(_ title: String, detail: String = "", keepsVisible: Bool = false) {
+         DispatchQueue.main.async {
++            self.generation = UUID()
++            self.keepsVisible = keepsVisible
+             self.title = title
+             self.detail = detail
+             self.progress = 0
+@@ -29,6 +34,7 @@ final class OperationProgressManager: ObservableObject {
+             self.startedAt = Date()
+             self.finishedAt = nil
+             self.succeeded = nil
++            self.outputUUID = nil
+         }
+     }
+ 
+@@ -47,6 +53,7 @@ final class OperationProgressManager: ObservableObject {
+             self.entries.append("[\(Self.timeFormatter.string(from: Date()))] \(detail)")
+             self.finishedAt = Date()
+             self.succeeded = true
++            self.dismissAutomatically(after: 0.9)
+         }
+     }
+ 
+@@ -56,6 +63,7 @@ final class OperationProgressManager: ObservableObject {
+             self.entries.append("[\(Self.timeFormatter.string(from: Date()))] \(message)")
+             self.finishedAt = Date()
+             self.succeeded = false
++            self.dismissAutomatically(after: 1.8)
+         }
+     }
+ 
+@@ -68,6 +76,10 @@ final class OperationProgressManager: ObservableObject {
+         }
+     }
+ 
++    func setOutput(uuid: String) {
++        DispatchQueue.main.async { self.outputUUID = uuid }
++    }
++
+     func log(_ message: String) {
+         DispatchQueue.main.async {
+             self.entries.append("[\(Self.timeFormatter.string(from: Date()))] \(message)")
+@@ -78,6 +90,15 @@ final class OperationProgressManager: ObservableObject {
+         DispatchQueue.main.async { self.isActive = false }
+     }
+ 
++    private func dismissAutomatically(after delay: TimeInterval) {
++        guard !keepsVisible else { return }
++        let currentGeneration = generation
++        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
++            guard self.generation == currentGeneration else { return }
++            self.isActive = false
++        }
++    }
++
+     var elapsedText: String {
+         guard let startedAt else { return "0.00s" }
+         let end = finishedAt ?? Date()
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index f2b20eb..53ebe0a 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -33,6 +33,9 @@ struct FeatherApp: App {
+ 				VariedTabbarView()
+ 					.environment(\.managedObjectContext, storage.context)
+ 					.onOpenURL(perform: _handleURL)
++					.onReceive(NotificationCenter.default.publisher(for: .init("zonoe.openURL"))) { notification in
++						if let url = notification.object as? URL { _handleURL(url) }
++					}
+ 					.transition(.move(edge: .top).combined(with: .opacity))
+ 			}
+ 			.animation(.smooth, value: downloadManager.manualDownloads.description)
+@@ -48,13 +51,13 @@ struct FeatherApp: App {
+ 	}
+ 	
+ 	private func _handleURL(_ url: URL) {
+-		if url.scheme == "hfasign" {
++		if url.scheme == "zonoe" {
+ 			if let fullPath = url.validatedScheme(after: "/source/") {
+ 				FR.handleSource(fullPath) { }
+ 			}
+ 			
+ 			if
+-				let fullPath = url.validatedScheme(after: "/install/"),
++				let fullPath = url.validatedScheme(after: "/download/"),
+ 				let downloadURL = URL(string: fullPath)
+ 			{
+ 				_ = DownloadManager.shared.startDownload(from: downloadURL, id: "FeatherManualDownload_\(UUID().uuidString)")
+@@ -83,7 +86,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+ #endif
+         if let url = launchOptions?[.url] as? URL {
+             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+-                SharedImportCoordinator.shared.receive(url)
++                if url.isFileURL {
++                    SharedImportCoordinator.shared.receive(url)
++                } else {
++                    NotificationCenter.default.post(name: .init("zonoe.openURL"), object: url)
++                }
+             }
+         }
+         return true
+@@ -94,7 +101,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+         open url: URL,
+         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+     ) -> Bool {
+-        SharedImportCoordinator.shared.receive(url)
++        if url.isFileURL {
++            SharedImportCoordinator.shared.receive(url)
++        } else {
++            NotificationCenter.default.post(name: .init("zonoe.openURL"), object: url)
++        }
+         return true
+     }
+     
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 7d34401..230f03b 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -106,7 +106,7 @@
+ 				<string>AppIcon</string>
+ 			</array>
+ 			<key>CFBundleIconName</key>
+-			<string></string>
++			<string>AppIcon</string>
+ 			<key>UIPrerenderedIcon</key>
+ 			<false/>
+ 		</dict>
+@@ -130,10 +130,10 @@
+ 			<key>CFBundleURLIconFile</key>
+ 			<string>ksign_extension</string>
+ 			<key>CFBundleURLName</key>
+-			<string>com.hfa.sign</string>
++			<string>com.zonoe.sign</string>
+ 			<key>CFBundleURLSchemes</key>
+ 			<array>
+-				<string>hfasign</string>
++				<string>zonoe</string>
+ 			</array>
+ 		</dict>
+ 	</array>
+diff --git a/Ksign/Utilities/FR.swift b/Ksign/Utilities/FR.swift
+index 543d426..5789ad7 100644
+--- a/Ksign/Utilities/FR.swift
++++ b/Ksign/Utilities/FR.swift
+@@ -47,7 +47,7 @@ enum FR {
+ 		certificate: CertificatePair?,
+ 		completion: @escaping (Error?) -> Void
+ 	) {
+-		OperationProgressManager.shared.begin("正在签名", detail: "准备文件")
++		OperationProgressManager.shared.begin("正在签名", detail: "准备文件", keepsVisible: true)
+ 		Task.detached {
+ 			let handler = SigningHandler(app: app, options: options)
+ 			if !options.onlyModify {
+@@ -60,6 +60,7 @@ enum FR {
+ 				try await handler.copy()
+ 				OperationProgressManager.shared.update(0.22, detail: "修改配置并注入")
+ 				try await handler.modify()
++                OperationProgressManager.shared.setOutput(uuid: handler.outputUUID)
+                 try? await handler.clean()
+ 				OperationProgressManager.shared.finish(detail: "签名完成")
+ 				
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+index 16352fc..c80880d 100644
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -28,6 +28,7 @@ final class SigningHandler: NSObject {
+ 	// throw an error
+ 	var appIcon: UIImage?
+ 	var appCertificate: CertificatePair?
++	var outputUUID: String { _uuid }
+ 	
+ 	init(app: AppInfoPresentable, options: Options = OptionsManager.shared.options) {
+ 		self._app = app
+diff --git a/Ksign/Views/Library/LibraryCellView.swift b/Ksign/Views/Library/LibraryCellView.swift
+index c67178e..21229fe 100644
+--- a/Ksign/Views/Library/LibraryCellView.swift
++++ b/Ksign/Views/Library/LibraryCellView.swift
+@@ -24,6 +24,7 @@ struct LibraryCellView: View {
+ 	@Binding var selectedAppDylibsPresenting: AnyApp?
+ 	@Binding var selectedApps: Set<String>
+ 	@State private var _showActionSheet = false
++	@State private var _isSharing = false
+ 	
+ 	private var _isSelected: Bool {
+ 		selectedApps.contains(app.uuid ?? "")
+@@ -167,7 +168,7 @@ extension LibraryCellView {
+ 				selectedSigningAppPresenting = AnyApp(base: app)
+ 			}
+ 			Button("分享", systemImage: "square.and.arrow.up") {
+-				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
++				_share(app)
+ 			}
+ 		} else {
+ 			Button(.localized("安装"), systemImage: "square.and.arrow.down") {
+@@ -194,7 +195,7 @@ extension LibraryCellView {
+ 			}
+ 			
+ 			Button("分享") {
+-				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
++				_share(app)
+ 			}
+ 		} else {
+ 			Button(.localized("签名并安装")) {
+@@ -206,7 +207,7 @@ extension LibraryCellView {
+ 			}
+ 			
+ 			Button("分享") {
+-				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
++				_share(app)
+ 			}
+ 		}
+ 		
+@@ -222,6 +223,34 @@ extension LibraryCellView {
+ 			Storage.shared.deleteApp(for: app)
+ 		}
+ 	}
++
++	private func _share(_ app: AppInfoPresentable) {
++		guard !_isSharing else { return }
++		_isSharing = true
++		OperationProgressManager.shared.begin("正在准备分享", detail: app.name ?? "IPA")
++		Task {
++			do {
++				let viewModel = InstallerStatusViewModel(isIdevice: false)
++				let handler = ArchiveHandler(app: app, viewModel: viewModel)
++				try await handler.move()
++				OperationProgressManager.shared.update(0.35, detail: "正在打包 IPA")
++				let archive = try await handler.archive()
++				guard let sharedURL = try await handler.moveToArchive(archive, shouldOpen: false) else {
++					throw SigningFileHandlerError.appNotFound
++				}
++				await MainActor.run {
++					_isSharing = false
++					OperationProgressManager.shared.finish(detail: "分享文件已生成")
++					UIActivityViewController.show(activityItems: [sharedURL])
++				}
++			} catch {
++				await MainActor.run {
++					_isSharing = false
++					OperationProgressManager.shared.fail("分享失败：\(error.localizedDescription)")
++				}
++			}
++		}
++	}
+ 	
+ 	@ViewBuilder
+ 	private func _buttonActions(for app: AppInfoPresentable) -> some View {
+diff --git a/Ksign/Views/Settings/AppIcon/AppIconView.swift b/Ksign/Views/Settings/AppIcon/AppIconView.swift
+index d91dedb..79d7512 100644
+--- a/Ksign/Views/Settings/AppIcon/AppIconView.swift
++++ b/Ksign/Views/Settings/AppIcon/AppIconView.swift
+@@ -24,8 +24,8 @@ struct AppIconView: View {
+     private let appIcons: [AppIconOption] = [
+         AppIconOption(
+             id: "primary",
+-            title: "Default",
+-            subtitle: "HFASign",
++            title: "默认",
++            subtitle: "zonoe",
+             iconName: "AppIcon",
+             alternateIconName: nil
+         ),
+@@ -38,7 +38,7 @@ struct AppIconView: View {
+     // MARK: Body
+     var body: some View {
+         NBList(.localized("应用图标")) {
+-            NBSection(.localized("Available Icons")) {
++            NBSection("可用图标") {
+                 ForEach(appIcons, id: \.id) { iconOption in
+                     _iconCell(for: iconOption)
+                 }
+@@ -92,15 +92,15 @@ extension AppIconView {
+     private func _changeAppIcon(to iconOption: AppIconOption) {
+         guard selectedIcon != iconOption.alternateIconName else { return }
+         
+-//        guard UIApplication.shared.supportsAlternateIcons else {
+-//            print("Alternate icons are not supported on this device")
+-//            return
+-//        }
++        guard UIApplication.shared.supportsAlternateIcons else {
++            UIAlertController.showAlertWithOk(title: "无法切换图标", message: "当前系统或安装方式不支持备用图标。")
++            return
++        }
+         
+         UIApplication.shared.setAlternateIconName(iconOption.alternateIconName) { error in
+             DispatchQueue.main.async {
+                 if let error = error {
+-                    print("Failed to change app icon: \(error.localizedDescription)")
++                    UIAlertController.showAlertWithOk(title: "切换失败", message: error.localizedDescription)
+                 } else {
+                     self.selectedIcon = iconOption.alternateIconName
+                     print("Successfully changed app icon to: \(iconOption.alternateIconName ?? "primary")")
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index f3078f2..4b33232 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -99,7 +99,7 @@ extension SettingsView {
+ 	private func _feedback() -> some View {
+ 		Section {
+ 			NavigationLink(destination: AboutView()) {
+-                Label("关于 HFASign", systemImage: "info.circle")
++				Label("关于 zonoe", systemImage: "info.circle")
+             }
+ 		}
+ 	}
+@@ -114,7 +114,7 @@ extension SettingsView {
+ 				UIApplication.open(FileManager.default.archives.toSharedDocumentsURL()!)
+ 			}
+ 		} footer: {
+-			Text("除证书外，HFASign 文件都保存在 Documents 目录。")
++			Text("除证书外，zonoe 文件都保存在 Documents 目录。")
+ 		}
+ 	}
+ }
+diff --git a/Ksign/Views/Signing/SigningProcessView.swift b/Ksign/Views/Signing/SigningProcessView.swift
+index 28a813f..5ba2ebc 100644
+--- a/Ksign/Views/Signing/SigningProcessView.swift
++++ b/Ksign/Views/Signing/SigningProcessView.swift
+@@ -1,81 +1,103 @@
+ import SwiftUI
++import CoreData
+ 
+ struct SigningProcessView: View {
+     @ObservedObject var manager: OperationProgressManager
++    var promptInstall = false
+     let close: () -> Void
++    @State private var installApp: AnyApp?
++    @State private var showInstallPrompt = false
++    @State private var isPreparingShare = false
++    @FetchRequest(entity: Signed.entity(), sortDescriptors: [NSSortDescriptor(keyPath: \Signed.date, ascending: false)], animation: .snappy)
++    private var signedApps: FetchedResults<Signed>
++
++    private var outputApp: Signed? {
++        guard let uuid = manager.outputUUID else { return nil }
++        return signedApps.first { $0.uuid == uuid }
++    }
+ 
+     var body: some View {
+         NavigationStack {
+             VStack(spacing: 0) {
+-                VStack(alignment: .leading, spacing: 12) {
+-                    HStack(spacing: 12) {
+-                        Image(systemName: statusIcon)
+-                            .font(.system(size: 38))
+-                            .foregroundStyle(statusColor)
+-                        VStack(alignment: .leading) {
+-                            Text(statusTitle).font(.title2.bold())
+-                            Text(manager.detail).foregroundStyle(.secondary)
+-                        }
+-                        Spacer()
+-                        Text(manager.elapsedText).foregroundStyle(.secondary).monospacedDigit()
+-                    }
+-                    ProgressView(value: manager.progress).tint(statusColor)
+-                    HStack {
+-                        Text("\(Int(manager.progress * 100))%")
+-                        Spacer()
+-                        Text(manager.signingMode)
+-                    }.font(.caption).foregroundStyle(.secondary)
+-                }.padding()
+-
++                header
+                 Divider()
+-
+                 ScrollView {
+-                    VStack(alignment: .leading, spacing: 14) {
+-                        GroupBox("应用信息") {
+-                            infoRow("名称", manager.appName)
+-                            infoRow("Bundle ID", manager.bundleID)
+-                            infoRow("版本", manager.appVersion)
+-                            infoRow("签名模式", manager.signingMode)
+-                        }
+-                        GroupBox("处理日志") {
+-                            LazyVStack(alignment: .leading, spacing: 7) {
+-                                ForEach(Array(manager.entries.enumerated()), id: \.offset) { _, line in
+-                                    Text(line).font(.system(.caption, design: .monospaced))
+-                                        .frame(maxWidth: .infinity, alignment: .leading)
+-                                }
+-                            }
+-                        }
+-                    }.padding()
++                    Text(logText).font(.system(.callout, design: .monospaced))
++                        .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding()
+                 }
++                if manager.succeeded == true { resultBar }
+             }
+-            .navigationTitle("处理进度")
++            .navigationTitle(manager.succeeded == nil ? "正在处理" : "处理完成")
+             .navigationBarTitleDisplayMode(.inline)
+             .toolbar {
+                 if manager.succeeded != nil {
+-                    ToolbarItem(placement: .topBarLeading) {
+-                        Button("关闭") { manager.close(); close() }
+-                    }
+-                }
+-                ToolbarItem(placement: .topBarTrailing) {
+-                    Button { UIActivityViewController.show(activityItems: [manager.entries.joined(separator: "\n")]) } label: {
+-                        Image(systemName: "square.and.arrow.up")
+-                    }
++                    ToolbarItem(placement: .topBarLeading) { Button("关闭") { manager.close(); close() } }
+                 }
+             }
+         }
+         .interactiveDismissDisabled(manager.succeeded == nil)
++        .sheet(item: $installApp) { item in
++            InstallPreviewView(app: item.base).presentationDetents([.height(300)]).presentationDragIndicator(.visible)
++        }
++        .alert("签名完成", isPresented: $showInstallPrompt) {
++            Button("取消", role: .cancel) {}
++            Button("安装") { beginInstall() }
++        } message: { Text("您想现在安装吗？稍后仍可使用下方的“安装”按钮。") }
++        .onChange(of: manager.succeeded) { succeeded in
++            if succeeded == true && promptInstall { showInstallPrompt = true }
++        }
+     }
+ 
+-    private func infoRow(_ key: String, _ value: String) -> some View {
+-        HStack { Text(key).foregroundStyle(.secondary); Spacer(); Text(value).textSelection(.enabled) }
+-            .font(.subheadline).padding(.vertical, 2)
++    private var header: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            HStack(spacing: 12) {
++                Image(systemName: statusIcon).font(.system(size: 38)).foregroundStyle(statusColor)
++                VStack(alignment: .leading, spacing: 3) {
++                    Text(statusTitle).font(.title2.bold())
++                    Text(manager.appName).foregroundStyle(.secondary)
++                }
++                Spacer()
++                Text(manager.elapsedText).foregroundStyle(.secondary).monospacedDigit()
++            }
++            ProgressView(value: manager.progress).tint(statusColor)
++        }.padding()
++    }
++
++    private var resultBar: some View {
++        HStack(spacing: 12) {
++            Text(packageName).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
++            Spacer()
++            Button { shareOutput() } label: { Label(isPreparingShare ? "准备中" : "分享", systemImage: "square.and.arrow.up") }
++                .buttonStyle(.bordered).disabled(isPreparingShare || outputApp == nil)
++            Button { beginInstall() } label: { Label("安装", systemImage: "square.and.arrow.down") }
++                .buttonStyle(.borderedProminent).disabled(outputApp == nil)
++        }.padding().background(.bar)
+     }
+ 
+-    private var statusTitle: String {
+-        if manager.succeeded == true { return "处理完成" }
+-        if manager.succeeded == false { return "处理失败" }
+-        return "正在处理"
++    private var packageName: String { "\(manager.appName)_\(manager.appVersion).ipa" }
++    private var logText: String {
++        let system = "======= 系统 =======\nzonoe \(Bundle.main.version ?? "")\niOS \(UIDevice.current.systemVersion)\n设备型号：\(UIDevice.current.model)"
++        let app = "======= 应用信息 =======\n软件名称：\(manager.appName)\nBundleId：\(manager.bundleID)\n版本：\(manager.appVersion)\n签名模式：\(manager.signingMode)"
++        return ([system, app] + manager.entries).joined(separator: "\n")
++    }
++    private func beginInstall() { if let outputApp { installApp = AnyApp(base: outputApp) } }
++    private func shareOutput() {
++        guard let outputApp, !isPreparingShare else { return }
++        isPreparingShare = true
++        Task {
++            do {
++                let viewModel = InstallerStatusViewModel(isIdevice: false)
++                let handler = ArchiveHandler(app: outputApp, viewModel: viewModel)
++                try await handler.move()
++                let archive = try await handler.archive()
++                let url = try await handler.moveToArchive(archive, shouldOpen: false)
++                await MainActor.run { isPreparingShare = false; if let url { UIActivityViewController.show(activityItems: [url]) } }
++            } catch {
++                await MainActor.run { isPreparingShare = false; UIAlertController.showAlertWithOk(title: "分享失败", message: error.localizedDescription) }
++            }
++        }
+     }
++    private var statusTitle: String { manager.succeeded == true ? "完成" : manager.succeeded == false ? "失败" : manager.detail }
+     private var statusIcon: String { manager.succeeded == true ? "checkmark.circle.fill" : manager.succeeded == false ? "xmark.circle.fill" : "gearshape.2.fill" }
+     private var statusColor: Color { manager.succeeded == true ? .green : manager.succeeded == false ? .red : .accentColor }
+ }
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index 6feb204..a1ede73 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -108,7 +108,7 @@ struct SigningView: View {
+ 					.compatNavigationTransition(id: "showLogs", ns: _namespace)
+ 			}
+ 			.fullScreenCover(isPresented: $_isSigning) {
+-				SigningProcessView(manager: _operationProgress) {
++				SigningProcessView(manager: _operationProgress, promptInstall: signAndInstall) {
+ 					_isSigning = false
+ 					dismiss()
+ 				}
+@@ -177,7 +177,7 @@ struct SigningView: View {
+ extension SigningView {
+ 	@ViewBuilder
+ 	private func _customizationOptions(for app: AppInfoPresentable) -> some View {
+-		NBSection(.localized("自定义")) {
++		NBSection("应用信息") {
+ 			Menu {
+ 				Button(.localized("选择备用图标")) { _isAltPickerPresenting = true }
+ 				Button(.localized("从文件选择")) { _isFilePickerPresenting = true }
+@@ -218,7 +218,7 @@ extension SigningView {
+ 	
+ 	@ViewBuilder
+ 	private func _cert() -> some View {
+-		NBSection(.localized("正在签名")) {
++		NBSection("签名证书") {
+ 			if let cert = _selectedCert() {
+ 				NavigationLink {
+ 					CertificatesView(selectedCert: $_temporaryCertificate)
+@@ -233,41 +233,52 @@ extension SigningView {
+ 	
+ 	@ViewBuilder
+ 	private func _customizationProperties(for app: AppInfoPresentable) -> some View {
+-		NBSection(.localized("高级")) {
+-			DisclosureGroup(.localized("修改")) {
+-				NavigationLink(.localized("已有动态库")) {
++		NBSection("修改应用") {
++			NavigationLink("修改 App 包内文件") {
++				FilesView(directoryURL: Storage.shared.getAppDirectory(for: app) ?? URL.documentsDirectory)
++			}
++			NavigationLink("管理应用插件") {
+ 					SigningDylibView(
+ 						app: app,
+ 						options: $_temporaryOptions.optional()
+ 					)
+ 				}
+ 				
+-				NavigationLink(String.localized("Framework 与插件")) {
++			NavigationLink("添加第三方库") {
+ 					SigningFrameworksView(
+ 						app: app,
+ 						options: $_temporaryOptions.optional()
+ 					)
+ 				}
+-				#if NIGHTLY || DEBUG
+-				NavigationLink(String.localized("权限配置")) {
++			#if NIGHTLY || DEBUG
++			NavigationLink("替换 Entitlements") {
+ 					SigningEntitlementsView(
+ 						bindingValue: $_temporaryOptions.appEntitlementsFile
+ 					)
+ 				}
+-				#endif
+-				NavigationLink(String.localized("插件")) {
++			#endif
++			NavigationLink("选择注入插件（\(_temporaryOptions.injectionFiles.count)）") {
+ 					SigningTweaksView(
+ 						options: $_temporaryOptions
+ 					)
+-				}
+ 			}
+-			
+-			NavigationLink(String.localized("属性")) {
++		}
++
++		NBSection("快捷设置") {
++			Toggle("仅修改配置，不签名", isOn: $_temporaryOptions.onlyModify)
++			Toggle("签名后移除描述文件", isOn: $_temporaryOptions.removeProvisioning)
++			Toggle("开启文件访问", isOn: $_temporaryOptions.fileSharing)
++			Toggle("移除应用跳转", isOn: $_temporaryOptions.removeURLScheme)
++			Toggle("修复越狱依赖", isOn: $_temporaryOptions.experiment_replaceSubstrateWithEllekit)
++		}
++
++		NBSection("更多") {
++			NavigationLink("高级签名选项") {
+ 				Form { SigningOptionsView(
+ 					options: $_temporaryOptions,
+ 					temporaryOptions: _optionsManager.options
+ 				)}
+-				.navigationTitle(.localized("属性"))
++				.navigationTitle("更多设置")
+ 			}
+ 		}
+ 	}
