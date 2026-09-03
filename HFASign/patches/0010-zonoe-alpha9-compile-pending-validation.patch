@@ -1,0 +1,454 @@
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+index 7946b45..978ad6b 100644
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -6,6 +6,7 @@ final class UDIDService {
+ 	static let shared = UDIDService()
+ 	static let didUpdateNotification = Notification.Name("zonoe.didUpdateUDID")
+ 	static let port = 14302
++	static let pendingCallbackKey = "zonoe.pendingUDIDCallback"
+ 	private var server: Application?
+ 
+ 	private init() {}
+@@ -33,6 +34,7 @@ final class UDIDService {
+ 				UserDefaults.standard.set(udid, forKey: "zonoe.deviceUDID")
+ 				DispatchQueue.main.async {
+ 					NotificationCenter.default.post(name: Self.didUpdateNotification, object: udid)
++					self.completePendingCallback(with: udid)
+ 				}
+ 				return Response(status: .ok, headers: ["Content-Type": "text/html; charset=utf-8"], body: .init(string: "<html><body style='font-family:-apple-system;text-align:center;padding-top:80px'><h2>UDID 获取成功</h2><p>请返回 zonoe。</p></body></html>"))
+ 			}
+@@ -44,6 +46,21 @@ final class UDIDService {
+ 		}
+ 	}
+ 
++	func savePendingCallback(_ callback: URL) {
++		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
++	}
++
++	private func completePendingCallback(with udid: String) {
++		guard let value = UserDefaults.standard.string(forKey: Self.pendingCallbackKey),
++			  var components = URLComponents(string: value) else { return }
++		UserDefaults.standard.removeObject(forKey: Self.pendingCallbackKey)
++		var items = components.queryItems ?? []
++		items.removeAll { $0.name.caseInsensitiveCompare("udid") == .orderedSame }
++		items.append(URLQueryItem(name: "udid", value: udid))
++		components.queryItems = items
++		if let callback = components.url { UIApplication.shared.open(callback) }
++	}
++
+ 	private var profileURL: URL { URL(string: "http://127.0.0.1:\(Self.port)/profile.mobileconfig")! }
+ 
+ 	private func profileData() -> Data {
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 89e51c4..9917711 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -2,6 +2,8 @@ import Foundation
+ import AltSourceKit
+ import CommonCrypto
+ import CryptoKit
++import SwiftUI
++import UIKit
+ 
+ final class SourceRepositoryLoader {
+ 	static let shared = SourceRepositoryLoader()
+@@ -9,14 +11,21 @@ final class SourceRepositoryLoader {
+ 
+ 	func fetch(from url: URL, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+ 		let requestURL = urlWithUDID(url)
+-		URLSession.shared.dataTask(with: requestURL) { data, _, networkError in
++		URLSession.shared.dataTask(with: requestURL) { data, response, networkError in
+ 			var latestError: Error = networkError ?? LoaderError.noData
++			if let networkError { self.log(networkError, url: requestURL) }
++			if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
++				latestError = LoaderError.httpStatus(http.statusCode)
++				self.log(latestError, url: requestURL)
++				completion(.failure(latestError)); return
++			}
+ 			if let data {
+ 				do {
++					if self.looksLikeHTML(data) { throw LoaderError.htmlResponse }
+ 					let repository = try self.decode(data)
+ 					try? self.saveCache(data, for: url)
+ 					completion(.success(repository)); return
+-				} catch { latestError = error }
++				} catch { latestError = error; self.log(error, url: requestURL) }
+ 			}
+ 			if let cached = try? Data(contentsOf: self.cacheURL(for: url)), let repository = try? self.decode(cached) {
+ 				completion(.success(repository))
+@@ -24,6 +33,15 @@ final class SourceRepositoryLoader {
+ 		}.resume()
+ 	}
+ 
++	private func looksLikeHTML(_ data: Data) -> Bool {
++		guard let prefix = String(data: data.prefix(512), encoding: .utf8)?.lowercased() else { return false }
++		return prefix.contains("<!doctype html") || prefix.contains("<html")
++	}
++
++	private func log(_ error: Error, url: URL) {
++		print("[SourceRepositoryLoader] \(url.absoluteString): \(error)")
++	}
++
+ 	private func urlWithUDID(_ url: URL) -> URL {
+ 		guard let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID"), !udid.isEmpty,
+ 			  var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+@@ -46,12 +64,14 @@ final class SourceRepositoryLoader {
+ 
+ 	private func decode(_ data: Data) throws -> ASRepository {
+ 		let decoder = JSONDecoder()
+-		let object = try JSONSerialization.jsonObject(with: data)
++		let object: Any
++		do { object = try JSONSerialization.jsonObject(with: data) }
++		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+ 		if let wrapper = object as? [String: Any], let encrypted = wrapper["appstore"] as? String {
+ 			return try decodeEncrypted(encrypted, decoder: decoder)
+ 		}
+ 		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
+-		return try decoder.decode(ASRepository.self, from: normalized)
++		return try decodeRepository(normalized, decoder: decoder)
+ 	}
+ 
+ 	private func decodeEncrypted(_ encrypted: String, decoder: JSONDecoder) throws -> ASRepository {
+@@ -63,9 +83,27 @@ final class SourceRepositoryLoader {
+ 			throw LoaderError.invalidEncryptedPayload
+ 		}
+ 		let plain = try decryptDES(cipher)
+-		let object = try JSONSerialization.jsonObject(with: plain)
++		let object: Any
++		do { object = try JSONSerialization.jsonObject(with: plain) }
++		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+ 		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
+-		return try decoder.decode(ASRepository.self, from: normalized)
++		return try decodeRepository(normalized, decoder: decoder)
++	}
++
++	private func decodeRepository(_ data: Data, decoder: JSONDecoder) throws -> ASRepository {
++		do {
++			let repository = try decoder.decode(ASRepository.self, from: data)
++			guard !repository.apps.isEmpty else { throw LoaderError.emptyApps }
++			return repository
++		} catch let error as DecodingError {
++			let detail: String
++			switch error {
++			case .typeMismatch(_, let context), .valueNotFound(_, let context), .keyNotFound(_, let context), .dataCorrupted(let context):
++				detail = "\(context.codingPath.map(\.stringValue).joined(separator: ".")): \(context.debugDescription)"
++			@unknown default: detail = error.localizedDescription
++			}
++			throw LoaderError.repositoryDecode(detail)
++		} catch { throw error }
+ 	}
+ 
+ 	private func normalizeURLs(_ value: Any, key: String? = nil) -> Any {
+@@ -105,13 +143,118 @@ final class SourceRepositoryLoader {
+ 
+ 	enum LoaderError: LocalizedError {
+ 		case noData, unsupportedFormat, invalidEncryptedPayload, decryptionFailed(CCCryptorStatus)
++		case httpStatus(Int), htmlResponse, invalidJSON(String), repositoryDecode(String), emptyApps
+ 		var errorDescription: String? {
+ 			switch self {
+ 			case .noData: return "软件源没有返回数据"
+ 			case .unsupportedFormat: return "不支持的软件源格式"
+ 			case .invalidEncryptedPayload: return "全能签 appstore 字段不是有效 Base64"
+ 			case .decryptionFailed(let status): return "全能签软件源解密失败（\(status)）"
++			case .httpStatus(let code): return "软件源服务器返回 HTTP \(code)"
++			case .htmlResponse: return "服务器返回了网页，而不是软件源 JSON"
++			case .invalidJSON(let detail): return "JSON 格式错误：\(detail)"
++			case .repositoryDecode(let detail): return "软件源字段解析错误：\(detail)"
++			case .emptyApps: return "软件源不包含 App"
++			}
++		}
++	}
++}
++@MainActor
++final class SourceImportCoordinator: ObservableObject {
++	static let shared = SourceImportCoordinator()
++	@Published var clipboardCandidates: [URL] = []
++	@Published var isShowingClipboardPrompt = false
++	private let changeCountKey = "zonoe.lastClipboardSourceChangeCount"
++
++	func inspectClipboardIfChanged() {
++		let pasteboard = UIPasteboard.general
++		let count = pasteboard.changeCount
++		guard UserDefaults.standard.integer(forKey: changeCountKey) != count else { return }
++		UserDefaults.standard.set(count, forKey: changeCountKey)
++		guard let text = pasteboard.string else { return }
++		let urls = Self.extractURLs(from: text)
++		guard !urls.isEmpty else { return }
++		validateCandidates(urls, index: 0, valid: [])
++	}
++
++	private func validateCandidates(_ urls: [URL], index: Int, valid: [URL]) {
++		guard index < urls.count else {
++			guard !valid.isEmpty else { return }
++			clipboardCandidates = valid
++			isShowingClipboardPrompt = true
++			return
++		}
++		let url = urls[index]
++		SourceRepositoryLoader.shared.fetch(from: url) { result in
++			DispatchQueue.main.async {
++				var next = valid
++				if case .success = result { next.append(url) }
++				self.validateCandidates(urls, index: index + 1, valid: next)
++			}
++		}
++	}
++
++	static func extractURLs(from text: String) -> [URL] {
++		var strings = ASDeobfuscator(with: text).decode()
++		strings.append(text)
++		var seen = Set<String>()
++		var result: [URL] = []
++		let trailing = CharacterSet(charactersIn: "，。；：！？）》】)]}>,.;:!?")
++		for string in strings {
++			guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { continue }
++			let range = NSRange(string.startIndex..., in: string)
++			for match in detector.matches(in: string, options: [], range: range) {
++				guard var raw = match.url?.absoluteString else { continue }
++				raw = raw.trimmingCharacters(in: trailing)
++				guard let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), seen.insert(url.absoluteString).inserted else { continue }
++				result.append(url)
++			}
++		}
++		return result
++	}
++
++	func importSource(_ url: URL, completion: ((Bool) -> Void)? = nil) {
++		if Storage.shared.getSources().contains(where: { $0.sourceURL?.absoluteString == url.absoluteString }) {
++			UIAlertController.showAlertWithOk(title: "提示", message: "该软件源已添加")
++			completion?(false); return
++		}
++		SourceRepositoryLoader.shared.fetch(from: url) { result in
++			DispatchQueue.main.async {
++				switch result {
++				case .success(let repository):
++					let id = repository.id ?? url.absoluteString
++					guard !Storage.shared.sourceExists(id) else {
++						UIAlertController.showAlertWithOk(title: "提示", message: "该软件源已添加")
++						completion?(false); return
++					}
++					Storage.shared.addSource(url, repository: repository, id: id) { error in
++						if let error { UIAlertController.showAlertWithOk(title: "导入失败", message: error.localizedDescription); completion?(false) }
++						else { completion?(true) }
++					}
++				case .failure(let error):
++					UIAlertController.showAlertWithOk(title: "未识别为有效的软件源", message: error.localizedDescription)
++					completion?(false)
++				}
++			}
++		}
++	}
++}
++
++struct SourceClipboardPrompt: View {
++	@ObservedObject var coordinator: SourceImportCoordinator
++	@Environment(\.dismiss) private var dismiss
++	var body: some View {
++		NavigationStack {
++			List(coordinator.clipboardCandidates, id: \.absoluteString) { url in
++				VStack(alignment: .leading, spacing: 10) {
++					Text(url.absoluteString).font(.footnote).textSelection(.enabled)
++					Button("导入") { coordinator.importSource(url) { if $0 && coordinator.clipboardCandidates.count == 1 { dismiss() } } }.buttonStyle(.borderedProminent)
++				}
++				.padding(.vertical, 4)
+ 			}
++			.navigationTitle("检测到软件源")
++			.navigationBarTitleDisplayMode(.inline)
++			.toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+ 		}
+ 	}
+ }
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 9a4d4a6..17ca612 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -12,7 +12,6 @@ import IDeviceSwift
+ 
+ @main
+ struct FeatherApp: App {
+-	@Environment(\.scenePhase) private var scenePhase
+ 	@UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+ 	let heartbeat = HeartbeatManager.shared
+ 	@StateObject var downloadManager = DownloadManager.shared
+@@ -21,6 +20,7 @@ struct FeatherApp: App {
+ 	@StateObject var logsManager = LogsManager.shared
+ 	@StateObject var operationProgress = OperationProgressManager.shared
+ 	@StateObject var sourceImportCoordinator = SourceImportCoordinator.shared
++	@State private var pendingUDIDProfileURL: URL?
+ 	let storage = Storage.shared
+ 
+ 	var body: some Scene {
+@@ -49,12 +49,20 @@ struct FeatherApp: App {
+ 				accentColorManager.updateGlobalTintColor()
+ 				if logsManager.isCapturing { logsManager.startCapture() }
+ 			}
+-			.onChange(of: scenePhase) { newPhase in
+-				if newPhase == .active { sourceImportCoordinator.inspectClipboardIfChanged() }
++			.onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
++				sourceImportCoordinator.inspectClipboardIfChanged()
+ 			}
+ 			.sheet(isPresented: $sourceImportCoordinator.isShowingClipboardPrompt) {
+ 				SourceClipboardPrompt(coordinator: sourceImportCoordinator).presentationDetents([.medium, .large])
+ 			}
++			.sheet(isPresented: Binding(get: { pendingUDIDProfileURL != nil }, set: { if !$0 { pendingUDIDProfileURL = nil } })) {
++				if let url = pendingUDIDProfileURL {
++					UDIDSafariView(url: url) {
++						pendingUDIDProfileURL = nil
++						DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { _openProfileSettings() }
++					}.ignoresSafeArea()
++				}
++			}
+ 		}
+ 	}
+ 	
+@@ -79,13 +87,21 @@ struct FeatherApp: App {
+ 
+ 	private func _handleUDIDRequest(_ url: URL) {
+ 		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID") ?? ""
++		let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
++		let callbackComponents = components?.queryItems?.first(where: { $0.name == "callback" })?.value.flatMap { URLComponents(string: $0) }
+ 		guard !udid.isEmpty else {
+-			UIAlertController.showAlertWithOk(title: "尚未获取 UDID", message: "请先到设置中点击“获取”。")
++			if let callback = callbackComponents?.url { UDIDService.shared.savePendingCallback(callback) }
++			UDIDService.shared.start { result in
++				DispatchQueue.main.async {
++					switch result {
++					case .success(let profileURL): pendingUDIDProfileURL = profileURL
++					case .failure(let error): UIAlertController.showAlertWithOk(title: "无法启动 UDID 服务", message: error.localizedDescription)
++					}
++				}
++			}
+ 			return
+ 		}
+-		let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+-		if let callback = components?.queryItems?.first(where: { $0.name == "callback" })?.value,
+-		   var callbackComponents = URLComponents(string: callback) {
++		if var callbackComponents {
+ 			var items = callbackComponents.queryItems ?? []
+ 			items.removeAll { $0.name == "udid" }
+ 			items.append(URLQueryItem(name: "udid", value: udid))
+@@ -96,6 +112,15 @@ struct FeatherApp: App {
+ 			UIAlertController.showAlertWithOk(title: "UDID 已复制", message: udid)
+ 		}
+ 	}
++
++	private func _openProfileSettings() {
++		let paths = ["prefs:root=General&path=ManagedConfigurationList/PurgatoryInstallRequested", "prefs:root=General&path=ManagedConfigurationList"]
++		func open(_ index: Int) {
++			guard index < paths.count, let url = URL(string: paths[index]) else { return }
++			UIApplication.shared.open(url, options: [:]) { if !$0 { open(index + 1) } }
++		}
++		open(0)
++	}
+ 	
+ }
+ 
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 71a50ff..7c75b5f 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -8,6 +8,11 @@
+ 	<array>
+ 		<string>prefs</string>
+ 	</array>
++	<key>NSAppTransportSecurity</key>
++	<dict>
++		<key>NSAllowsArbitraryLoads</key>
++		<true/>
++	</dict>
+ 	<key>UIFileSharingEnabled</key>
+ 	<true/>
+ 	<key>BGTaskSchedulerPermittedIdentifiers</key>
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index c201902..dca141d 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -410,7 +410,10 @@ private struct ZipContentsView: View {
+ 				if isLoading {
+ 					HStack { Spacer(); ProgressView("正在读取压缩包…"); Spacer() }
+ 				} else if items.isEmpty {
+-					ContentUnavailableView("压缩包为空", systemImage: "archivebox")
++					VStack(spacing: 10) {
++						Image(systemName: "archivebox").font(.largeTitle).foregroundStyle(.secondary)
++						Text("压缩包为空").foregroundStyle(.secondary)
++					}.frame(maxWidth: .infinity)
+ 				} else {
+ 					ForEach(items) { item in
+ 						Button { handle(item) } label: {
+@@ -478,8 +481,7 @@ private struct ZipContentsView: View {
+ 				let selected = archive.filter { $0.path == item.path || (item.isDirectory && $0.path.hasPrefix(prefix)) }
+ 				guard !selected.isEmpty else { throw CocoaError(.fileNoSuchFile) }
+ 				for entry in selected {
+-					let output = root.appendingPathComponent(entry.path)
+-					guard output.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") else { continue }
++					let output = try safeOutputURL(for: entry.path, root: root)
+ 					try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+ 					_ = try archive.extract(entry, to: output)
+ 				}
+@@ -496,6 +498,14 @@ private struct ZipContentsView: View {
+ 		}
+ 	}
+ 
++	private func safeOutputURL(for entryPath: String, root: URL) throws -> URL {
++		guard !entryPath.hasPrefix("/"), !entryPath.hasPrefix("\\") else { throw ZipPreviewError.unsafePath(entryPath) }
++		let output = root.appendingPathComponent(entryPath).standardizedFileURL
++		let rootPath = root.standardizedFileURL.path + "/"
++		guard output.path.hasPrefix(rootPath) else { throw ZipPreviewError.unsafePath(entryPath) }
++		return output
++	}
++
+ 	private func handle(_ item: ZipPreviewItem) { if item.isImportable { importCandidate = item } }
+ 	private func icon(for item: ZipPreviewItem) -> String {
+ 		if item.isDirectory { return "folder.fill" }
+@@ -503,6 +513,13 @@ private struct ZipContentsView: View {
+ 	}
+ }
+ 
++private enum ZipPreviewError: LocalizedError {
++	case unsafePath(String)
++	var errorDescription: String? {
++		switch self { case .unsafePath(let path): return "压缩包包含不安全路径：\(path)" }
++	}
++}
++
+ private struct ZipPreviewItem: Identifiable, Hashable {
+ 	let path: String
+ 	var id: String { path }
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index 7c94238..4cda244 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -7,6 +7,7 @@
+ 
+ import SwiftUI
+ import NimbleViews
++import SafariServices
+ 
+ // MARK: - View
+ struct SettingsView: View {
+@@ -117,6 +118,24 @@ struct SettingsView: View {
+ 			}
+ 	    }
+ }
++struct UDIDSafariView: UIViewControllerRepresentable {
++	let url: URL
++	let onDone: () -> Void
++	func makeCoordinator() -> Coordinator { Coordinator(onDone: onDone) }
++	func makeUIViewController(context: Context) -> SFSafariViewController {
++		let controller = SFSafariViewController(url: url)
++		controller.delegate = context.coordinator
++		controller.dismissButtonStyle = .done
++		return controller
++	}
++	func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
++	final class Coordinator: NSObject, SFSafariViewControllerDelegate {
++		let onDone: () -> Void
++		init(onDone: @escaping () -> Void) { self.onDone = onDone }
++		func safariViewControllerDidFinish(_ controller: SFSafariViewController) { onDone() }
++	}
++}
++
+ 
+ // MARK: - View extension
+ extension SettingsView {
