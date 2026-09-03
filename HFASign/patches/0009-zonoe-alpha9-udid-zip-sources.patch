@@ -1,0 +1,484 @@
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 6dd3dcd..89e51c4 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -8,7 +8,8 @@ final class SourceRepositoryLoader {
+ 	private init() {}
+ 
+ 	func fetch(from url: URL, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+-		URLSession.shared.dataTask(with: url) { data, _, networkError in
++		let requestURL = urlWithUDID(url)
++		URLSession.shared.dataTask(with: requestURL) { data, _, networkError in
+ 			var latestError: Error = networkError ?? LoaderError.noData
+ 			if let data {
+ 				do {
+@@ -23,6 +24,17 @@ final class SourceRepositoryLoader {
+ 		}.resume()
+ 	}
+ 
++	private func urlWithUDID(_ url: URL) -> URL {
++		guard let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID"), !udid.isEmpty,
++			  var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
++		var items = components.queryItems ?? []
++		if let index = items.firstIndex(where: { $0.name.caseInsensitiveCompare("udid") == .orderedSame }) {
++			items[index] = URLQueryItem(name: items[index].name, value: udid)
++		} else { items.append(URLQueryItem(name: "udid", value: udid)) }
++		components.queryItems = items
++		return components.url ?? url
++	}
++
+ 	private func cacheURL(for url: URL) -> URL {
+ 		let digest = SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+ 		let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("SourceCache", isDirectory: true)
+@@ -34,9 +46,15 @@ final class SourceRepositoryLoader {
+ 
+ 	private func decode(_ data: Data) throws -> ASRepository {
+ 		let decoder = JSONDecoder()
+-		if let direct = try? decoder.decode(ASRepository.self, from: data) { return direct }
+-		guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+-			  let encrypted = object["appstore"] as? String else { throw LoaderError.unsupportedFormat }
++		let object = try JSONSerialization.jsonObject(with: data)
++		if let wrapper = object as? [String: Any], let encrypted = wrapper["appstore"] as? String {
++			return try decodeEncrypted(encrypted, decoder: decoder)
++		}
++		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
++		return try decoder.decode(ASRepository.self, from: normalized)
++	}
++
++	private func decodeEncrypted(_ encrypted: String, decoder: JSONDecoder) throws -> ASRepository {
+ 		var compact = encrypted.trimmingCharacters(in: .whitespacesAndNewlines)
+ 			.replacingOccurrences(of: "-", with: "+")
+ 			.replacingOccurrences(of: "_", with: "/")
+@@ -45,7 +63,24 @@ final class SourceRepositoryLoader {
+ 			throw LoaderError.invalidEncryptedPayload
+ 		}
+ 		let plain = try decryptDES(cipher)
+-		return try decoder.decode(ASRepository.self, from: plain)
++		let object = try JSONSerialization.jsonObject(with: plain)
++		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
++		return try decoder.decode(ASRepository.self, from: normalized)
++	}
++
++	private func normalizeURLs(_ value: Any, key: String? = nil) -> Any {
++		if let dictionary = value as? [String: Any] {
++			return dictionary.reduce(into: [String: Any]()) { result, pair in
++				result[pair.key] = normalizeURLs(pair.value, key: pair.key)
++			}
++		}
++		if let array = value as? [Any] {
++			let normalized = array.map { normalizeURLs($0, key: key) }
++			return key?.localizedCaseInsensitiveContains("url") == true ? normalized.filter { !($0 is NSNull) } : normalized
++		}
++		if let string = value as? String, string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
++			  key?.localizedCaseInsensitiveContains("url") == true { return NSNull() }
++		return value
+ 	}
+ 
+ 	private func decryptDES(_ encrypted: Data) throws -> Data {
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 0a04609..9a4d4a6 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -12,6 +12,7 @@ import IDeviceSwift
+ 
+ @main
+ struct FeatherApp: App {
++	@Environment(\.scenePhase) private var scenePhase
+ 	@UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+ 	let heartbeat = HeartbeatManager.shared
+ 	@StateObject var downloadManager = DownloadManager.shared
+@@ -19,6 +20,7 @@ struct FeatherApp: App {
+     @StateObject var extractManager = ExtractManager.shared
+ 	@StateObject var logsManager = LogsManager.shared
+ 	@StateObject var operationProgress = OperationProgressManager.shared
++	@StateObject var sourceImportCoordinator = SourceImportCoordinator.shared
+ 	let storage = Storage.shared
+ 
+ 	var body: some Scene {
+@@ -47,6 +49,12 @@ struct FeatherApp: App {
+ 				accentColorManager.updateGlobalTintColor()
+ 				if logsManager.isCapturing { logsManager.startCapture() }
+ 			}
++			.onChange(of: scenePhase) { newPhase in
++				if newPhase == .active { sourceImportCoordinator.inspectClipboardIfChanged() }
++			}
++			.sheet(isPresented: $sourceImportCoordinator.isShowingClipboardPrompt) {
++				SourceClipboardPrompt(coordinator: sourceImportCoordinator).presentationDetents([.medium, .large])
++			}
+ 		}
+ 	}
+ 	
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 230f03b..71a50ff 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -4,6 +4,10 @@
+ <dict>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+ 	<true/>
++	<key>LSApplicationQueriesSchemes</key>
++	<array>
++		<string>prefs</string>
++	</array>
+ 	<key>UIFileSharingEnabled</key>
+ 	<true/>
+ 	<key>BGTaskSchedulerPermittedIdentifiers</key>
+diff --git a/Ksign/Utilities/FR.swift b/Ksign/Utilities/FR.swift
+index 7df4786..dc222cb 100644
+--- a/Ksign/Utilities/FR.swift
++++ b/Ksign/Utilities/FR.swift
+@@ -200,27 +200,7 @@ enum FR {
+ 		competion: @escaping () -> Void
+ 	) {
+ 		guard let url = URL(string: urlString) else { return }
+-		
+-		SourceRepositoryLoader.shared.fetch(from: url) { result in
+-			switch result {
+-			case .success(let data):
+-				let id = data.id ?? url.absoluteString
+-				
+-				if !Storage.shared.sourceExists(id) {
+-					Storage.shared.addSource(url, repository: data, id: id) { _ in
+-						competion()
+-					}
+-				} else {
+-					DispatchQueue.main.async {
+-						UIAlertController.showAlertWithOk(title: "错误", message: "Repository already added.")
+-					}
+-				}
+-			case .failure(let error):
+-				DispatchQueue.main.async {
+-					UIAlertController.showAlertWithOk(title: "错误", message: error.localizedDescription)
+-				}
+-			}
+-		}
++		Task { @MainActor in SourceImportCoordinator.shared.importSource(url) { if $0 { competion() } } }
+ 	}
+ }
+ 
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index e883cbb..c201902 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -398,82 +398,121 @@ extension LibraryView {
+ private struct ZipContentsView: View {
+ 	@Environment(\.dismiss) private var dismiss
+ 	let archiveURL: URL
+-	@State private var extractionRoot: URL?
+-	@State private var files: [URL] = []
+-	@State private var importCandidate: URL?
++	@State private var items: [ZipPreviewItem] = []
++	@State private var importCandidate: ZipPreviewItem?
+ 	@State private var errorMessage: String?
++	@State private var isLoading = true
++	@State private var isExtracting = false
+ 
+ 	var body: some View {
+ 		NavigationStack {
+ 			List {
+-				if files.isEmpty && errorMessage == nil {
++				if isLoading {
+ 					HStack { Spacer(); ProgressView("正在读取压缩包…"); Spacer() }
++				} else if items.isEmpty {
++					ContentUnavailableView("压缩包为空", systemImage: "archivebox")
+ 				} else {
+-					ForEach(files, id: \.self) { file in
+-						Button { handle(file) } label: {
++					ForEach(items) { item in
++						Button { handle(item) } label: {
+ 							HStack(spacing: 12) {
+-								Image(systemName: icon(for: file)).foregroundStyle(.secondary)
++								Image(systemName: icon(for: item)).foregroundStyle(.secondary)
+ 								VStack(alignment: .leading, spacing: 3) {
+-									Text(relativePath(file)).foregroundStyle(.primary).lineLimit(2)
+-									if isImportable(file) { Text("可导入动态库").font(.caption).foregroundStyle(.blue) }
++									Text(item.path).foregroundStyle(.primary).lineLimit(2)
++									if item.isImportable { Text("可导入动态库").font(.caption).foregroundStyle(.blue) }
+ 								}
+ 								Spacer()
+-								if isImportable(file) { Image(systemName: "square.and.arrow.down") }
++								if item.isImportable { Image(systemName: "square.and.arrow.down") }
+ 							}
+ 						}
+-						.disabled(file.hasDirectoryPath && !isImportable(file))
++						.disabled(!item.isImportable)
+ 					}
+ 				}
+ 			}
+ 			.navigationTitle(archiveURL.lastPathComponent)
+ 			.navigationBarTitleDisplayMode(.inline)
+ 			.toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Label("返回", systemImage: "chevron.left") } } }
+-			.alert("导入动态库", isPresented: Binding(get: { importCandidate != nil }, set: { if !$0 { importCandidate = nil } })) {
++			.overlay { if isExtracting { ProgressView("正在提取…").padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
++			.alert("导入到动态库", isPresented: Binding(get: { importCandidate != nil }, set: { if !$0 { importCandidate = nil } })) {
+ 				Button("取消", role: .cancel) { importCandidate = nil }
+ 				Button("导入") {
+-					if let file = importCandidate { SharedImportCoordinator.shared.receive(file) }
++					if let item = importCandidate { extractAndImport(item) }
+ 					importCandidate = nil
+ 				}
+-			} message: { Text("是否导入“\(importCandidate?.lastPathComponent ?? "")”？") }
++			} message: { Text("是否导入“\(importCandidate?.name ?? "")”？") }
+ 			.alert("读取失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+ 				Button("确定", role: .cancel) {}
+ 			} message: { Text(errorMessage ?? "未知错误") }
+-			.task { extract() }
+-			.onDisappear { if let extractionRoot { try? FileManager.default.removeItem(at: extractionRoot) } }
++			.task { readEntries() }
+ 		}
+ 	}
+ 
+-	private func extract() {
+-		let root = FileManager.default.temporaryDirectory.appendingPathComponent("zonoe-zip-preview/\(UUID().uuidString)", isDirectory: true)
+-		do {
+-			try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+-			let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
+-			for entry in archive {
+-				let output = root.appendingPathComponent(entry.path)
+-				guard output.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") else { continue }
+-				try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+-				_ = try archive.extract(entry, to: output)
++	private func readEntries() {
++		isLoading = true
++		DispatchQueue.global(qos: .userInitiated).async {
++			do {
++				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
++				var paths = Set(archive.map(\.path))
++				let archivedPaths = Array(paths)
++				for path in archivedPaths {
++					let components = path.split(separator: "/")
++					for (index, component) in components.enumerated() where ["framework", "bundle"].contains(URL(fileURLWithPath: String(component)).pathExtension.lowercased()) {
++						paths.insert(components[0...index].joined(separator: "/") + "/")
++					}
++				}
++				let result = paths.map(ZipPreviewItem.init(path:)).sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
++				DispatchQueue.main.async { items = result; isLoading = false }
++			} catch {
++				DispatchQueue.main.async { errorMessage = error.localizedDescription; isLoading = false }
+ 			}
+-			let items = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])?.allObjects as? [URL]) ?? []
+-			DispatchQueue.main.async { extractionRoot = root; files = items.sorted { relativePath($0) < relativePath($1) } }
+-		} catch {
+-			try? FileManager.default.removeItem(at: root)
+-			DispatchQueue.main.async { errorMessage = error.localizedDescription }
+ 		}
+ 	}
+ 
+-	private func relativePath(_ file: URL) -> String {
+-		guard let extractionRoot else { return file.lastPathComponent }
+-		return String(file.path.dropFirst(extractionRoot.path.count + 1))
++	private func extractAndImport(_ item: ZipPreviewItem) {
++		isExtracting = true
++		DispatchQueue.global(qos: .userInitiated).async {
++			let root = FileManager.default.temporaryDirectory.appendingPathComponent("zonoe-zip-import/\(UUID().uuidString)", isDirectory: true)
++			do {
++				try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
++				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
++				let prefix = item.path.hasSuffix("/") ? item.path : item.path + "/"
++				let selected = archive.filter { $0.path == item.path || (item.isDirectory && $0.path.hasPrefix(prefix)) }
++				guard !selected.isEmpty else { throw CocoaError(.fileNoSuchFile) }
++				for entry in selected {
++					let output = root.appendingPathComponent(entry.path)
++					guard output.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") else { continue }
++					try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
++					_ = try archive.extract(entry, to: output)
++				}
++				let target = root.appendingPathComponent(item.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
++				DispatchQueue.main.async {
++					isExtracting = false
++					SharedImportCoordinator.shared.receive(target)
++					NotificationCenter.default.post(name: .init("zonoe.didImportFile"), object: target)
++				}
++			} catch {
++				try? FileManager.default.removeItem(at: root)
++				DispatchQueue.main.async { isExtracting = false; errorMessage = error.localizedDescription }
++			}
++		}
+ 	}
+-	private func isImportable(_ file: URL) -> Bool { ["dylib", "framework", "deb", "bundle"].contains(file.pathExtension.lowercased()) }
+-	private func handle(_ file: URL) { if isImportable(file) { importCandidate = file } }
+-	private func icon(for file: URL) -> String {
+-		if file.hasDirectoryPath { return "folder.fill" }
+-		return isImportable(file) ? "shippingbox.fill" : "doc.fill"
++
++	private func handle(_ item: ZipPreviewItem) { if item.isImportable { importCandidate = item } }
++	private func icon(for item: ZipPreviewItem) -> String {
++		if item.isDirectory { return "folder.fill" }
++		return item.isImportable ? "shippingbox.fill" : "doc.fill"
+ 	}
+ }
+ 
++private struct ZipPreviewItem: Identifiable, Hashable {
++	let path: String
++	var id: String { path }
++	private var cleanPath: String { path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
++	private var ext: String { URL(fileURLWithPath: cleanPath).pathExtension.lowercased() }
++	var name: String { URL(fileURLWithPath: cleanPath).lastPathComponent }
++	var isDirectory: Bool { path.hasSuffix("/") || ["framework", "bundle"].contains(ext) }
++	var isImportable: Bool { ["dylib", "framework", "deb", "bundle"].contains(ext) }
++}
++
+ private struct StandaloneDylibDependenciesView: View {
+ 	@Environment(\.dismiss) private var dismiss
+ 	let fileURL: URL
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index c0e890d..7c94238 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -12,6 +12,7 @@ import NimbleViews
+ struct SettingsView: View {
+ 	@AppStorage("zonoe.deviceUDID") private var _deviceUDID = ""
+ 	@State private var _isStartingUDID = false
++	@State private var _udidProfileURL: URL?
+     @AppStorage("feather.selectedCert") private var _storedSelectedCert: Int = 0
+     @FetchRequest(
+         entity: CertificatePair.entity(),
+@@ -42,9 +43,9 @@ struct SettingsView: View {
+ 							Text(_deviceUDID.isEmpty ? "未检测到 UDID" : _deviceUDID).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+ 						}
+ 						Spacer()
+-						Button(_isStartingUDID ? "启动中" : "获取") { _startUDID() }.disabled(_isStartingUDID)
++							Button(_isStartingUDID ? "启动中" : "获取") { _startUDID() }.disabled(_isStartingUDID)
++						}
+ 					}
+-				}
+ 				_feedback()
+ 				
+ 				Section {
+@@ -52,8 +53,8 @@ struct SettingsView: View {
+                         Label(.localized("应用图标"), systemImage: "app.badge")
+                     }
+ 					NavigationLink(destination: AppearanceView()) {
+-                        Label(.localized("外观"), systemImage: "paintbrush")
+-                    }
++	                        Label(.localized("外观"), systemImage: "paintbrush")
++	                    }
+ 				}
+                 
+                 NBSection(.localized("证书管理")) {
+@@ -104,9 +105,17 @@ struct SettingsView: View {
+                     Text("Reset the applications sources, certificates, apps, and general contents.")
+                 }
+ 
+-            }
+-        }
+-    }
++	            }
++	        }
++			.sheet(isPresented: Binding(get: { _udidProfileURL != nil }, set: { if !$0 { _udidProfileURL = nil } })) {
++				if let url = _udidProfileURL {
++					UDIDSafariView(url: url) {
++						_udidProfileURL = nil
++						DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { _openProfileSettings() }
++					}.ignoresSafeArea()
++				}
++			}
++	    }
+ }
+ 
+ // MARK: - View extension
+@@ -117,11 +126,23 @@ extension SettingsView {
+ 			DispatchQueue.main.async {
+ 				_isStartingUDID = false
+ 				switch result {
+-				case .success(let url): UIApplication.shared.open(url)
++					case .success(let url): _udidProfileURL = url
+ 				case .failure(let error): UIAlertController.showAlertWithOk(title: "无法启动 UDID 服务", message: error.localizedDescription)
+ 				}
++				}
+ 			}
+ 		}
++
++	private func _openProfileSettings() {
++		let paths = [
++			"prefs:root=General&path=ManagedConfigurationList/PurgatoryInstallRequested",
++			"prefs:root=General&path=ManagedConfigurationList"
++		]
++		func open(_ index: Int) {
++			guard index < paths.count, let url = URL(string: paths[index]) else { return }
++			UIApplication.shared.open(url, options: [:]) { success in if !success { open(index + 1) } }
++		}
++		open(0)
+ 	}
+ 
+ 	@ViewBuilder
+diff --git a/Ksign/Views/Sources/SourcesAddView.swift b/Ksign/Views/Sources/SourcesAddView.swift
+index e457a9f..5087ec1 100644
+--- a/Ksign/Views/Sources/SourcesAddView.swift
++++ b/Ksign/Views/Sources/SourcesAddView.swift
+@@ -16,8 +16,6 @@ struct SourcesAddView: View {
+ 	
+ 	typealias RepositoryDataHandler = Result<ASRepository, Error>
+ 	
+-	private let _dataService = NBFetchService()
+-	
+ 	@State private var _isImporting = false
+ 	@State private var _sourceURL = ""
+ 	
+@@ -82,59 +80,16 @@ struct SourcesAddView: View {
+ 	) {
+ 		guard let code else { return }
+ 		
+-		let handler = ASDeobfuscator(with: code)
+-		let repoUrls = handler.decode().compactMap { URL(string: $0) }
++		let repoUrls = SourceImportCoordinator.extractURLs(from: code)
+ 
+ 		guard !repoUrls.isEmpty else { return }
+ 		
+-		actor RepositoryCollector {
+-			private var repositories: [URL: ASRepository] = [:]
+-			
+-			func add(url: URL, repository: ASRepository) {
+-				repositories[url] = repository
+-			}
+-			
+-			func getAllRepositories() -> [URL: ASRepository] {
+-				return repositories
+-			}
+-		}
+-		
+-		let dataService = _dataService
+-		let collector = RepositoryCollector()
+-		
+-		Task {
+-			await withTaskGroup(of: Void.self) { group in
+-				for url in repoUrls {
+-					group.addTask {
+-						await withCheckedContinuation { continuation in
+-							Task { @MainActor in
+-								dataService.fetch<ASRepository>(from: url) { (result: RepositoryDataHandler) in
+-									switch result {
+-									case .success(let data):
+-										Task {
+-											await collector.add(url: url, repository: data)
+-										}
+-									case .failure(let error):
+-										print("Failed to fetch \(url): \(error)")
+-									}
+-									continuation.resume()
+-								}
+-							}
+-						}
+-					}
+-				}
+-				
+-				await group.waitForAll()
+-			}
+-			
+-			let repositories = await collector.getAllRepositories()
+-			
+-			await MainActor.run {
+-				Storage.shared.addSources(repos: repositories) { _ in
+-					competion()
+-				}
+-			}
++		let group = DispatchGroup()
++		var imported = false
++		for url in repoUrls {
++			group.enter()
++			SourceImportCoordinator.shared.importSource(url) { success in imported = imported || success; group.leave() }
+ 		}
++		group.notify(queue: .main) { _isImporting = false; if imported { competion() } }
+ 	}
+ }
+-
