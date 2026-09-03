@@ -19,6 +19,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0003-HFASign-alpha3-detailed-signing-and-import-fixes.patch
           git -C HFASignBuild apply ../HFASign/patches/0004-zonoe-alpha4-incremental.patch
           git -C HFASignBuild apply ../HFASign/patches/0005-zonoe-alpha5-import-resources-signing-ui.patch
+          git -C HFASignBuild apply ../HFASign/patches/0006-zonoe-alpha6-resource-actions-signing-fix.patch
           git -C HFASignBuild submodule update --init --recursive
       - name: Apply zonoe icon
         run: |
@@ -49,7 +50,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           tail -n 1200 HFASign/build.log > HFASign/BUILD_ERROR.txt 2>/dev/null || true
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alpha5 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alpha6 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -63,9 +64,9 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha5_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha6_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alpha5_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alpha6_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
@@ -77,13 +78,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/zonoe_v3.0.0-alpha5_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alpha5 IPA [skip ci]"
+          git add -f HFASign/dist/zonoe_v3.0.0-alpha6_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alpha6 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
       - uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alpha5
+          name: zonoe-v3.0.0-alpha6
           path: |
-            HFASign/dist/zonoe_v3.0.0-alpha5_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alpha6_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
