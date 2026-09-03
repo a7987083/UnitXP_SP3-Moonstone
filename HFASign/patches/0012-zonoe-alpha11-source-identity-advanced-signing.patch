@@ -1,0 +1,299 @@
+From a2421006757bd93661ea82d2feebb84f3fa0a20e Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Thu, 3 Sep 2026 22:15:23 +0300
+Subject: [PATCH] Use URL source identity and rebuild advanced signing options
+
+---
+ .../Sources/SourceRepositoryLoader.swift      |  37 ++++-
+ Ksign/Backend/Storage/Storage+Sources.swift   |  13 +-
+ .../Signing/Shared/SigningOptionsView.swift   | 140 ++++++++----------
+ 3 files changed, 105 insertions(+), 85 deletions(-)
+
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index ae869af..520cdbe 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -265,6 +265,33 @@ final class SourceRepositoryLoader {
+ 		}
+ 	}
+ }
++
++enum SourceURLIdentity {
++	static func normalized(_ url: URL) -> URL {
++		guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
++		components.scheme = components.scheme?.lowercased()
++		components.host = components.host?.lowercased()
++		components.fragment = nil
++		if (components.scheme == "http" && components.port == 80)
++			|| (components.scheme == "https" && components.port == 443) {
++			components.port = nil
++		}
++		while components.percentEncodedPath.count > 1 && components.percentEncodedPath.hasSuffix("/") {
++			components.percentEncodedPath.removeLast()
++		}
++		return components.url ?? url
++	}
++
++	static func localID(for url: URL) -> String {
++		"source-url:\(normalized(url).absoluteString)"
++	}
++
++	static func matches(_ lhs: URL?, _ rhs: URL) -> Bool {
++		guard let lhs else { return false }
++		return normalized(lhs).absoluteString == normalized(rhs).absoluteString
++	}
++}
++
+ @MainActor
+ final class SourceImportCoordinator: ObservableObject {
+ 	static let shared = SourceImportCoordinator()
+@@ -320,20 +347,20 @@ final class SourceImportCoordinator: ObservableObject {
+ 	}
+ 
+ 	func importSource(_ url: URL, completion: ((Bool) -> Void)? = nil) {
+-		if Storage.shared.getSources().contains(where: { $0.sourceURL?.absoluteString == url.absoluteString }) {
++		let sourceURL = SourceURLIdentity.normalized(url)
++		if Storage.shared.getSources().contains(where: { SourceURLIdentity.matches($0.sourceURL, sourceURL) }) {
+ 			UIAlertController.showAlertWithOk(title: "提示", message: "该软件源已添加")
+ 			completion?(false); return
+ 		}
+-		SourceRepositoryLoader.shared.fetch(from: url) { result in
++		SourceRepositoryLoader.shared.fetch(from: sourceURL) { result in
+ 			DispatchQueue.main.async {
+ 				switch result {
+ 				case .success(let repository):
+-					let id = repository.id ?? url.absoluteString
+-					guard !Storage.shared.sourceExists(id) else {
++					guard !Storage.shared.sourceExists(url: sourceURL) else {
+ 						UIAlertController.showAlertWithOk(title: "提示", message: "该软件源已添加")
+ 						completion?(false); return
+ 					}
+-					Storage.shared.addSource(url, repository: repository, id: id) { error in
++					Storage.shared.addSource(sourceURL, repository: repository) { error in
+ 						if let error { UIAlertController.showAlertWithOk(title: "导入失败", message: error.localizedDescription); completion?(false) }
+ 						else { completion?(true) }
+ 					}
+diff --git a/Ksign/Backend/Storage/Storage+Sources.swift b/Ksign/Backend/Storage/Storage+Sources.swift
+index 2a8024a..083e002 100644
+--- a/Ksign/Backend/Storage/Storage+Sources.swift
++++ b/Ksign/Backend/Storage/Storage+Sources.swift
+@@ -52,17 +52,15 @@ extension Storage {
+ 	func addSource(
+ 		_ url: URL,
+ 		repository: ASRepository,
+-		id: String = "",
+ 		deferSave: Bool = false,
+ 		isBuiltIn: Bool = false,
+ 		completion: @escaping (Error?) -> Void
+ 	) {
++		let normalizedURL = SourceURLIdentity.normalized(url)
+ 		addSource(
+-			url,
++			normalizedURL,
+ 			name: repository.name,
+-			identifier: !id.isEmpty
+-						? id
+-						: (repository.id ?? url.absoluteString),
++			identifier: SourceURLIdentity.localID(for: normalizedURL),
+ 			iconURL: repository.currentIconURL,
+ 			deferSave: deferSave,
+ 			isBuiltIn: isBuiltIn,
+@@ -122,4 +120,9 @@ extension Storage {
+ 			return false
+ 		}
+ 	}
++
++	func sourceExists(url: URL) -> Bool {
++		let normalizedURL = SourceURLIdentity.normalized(url)
++		return getSources().contains { SourceURLIdentity.matches($0.sourceURL, normalizedURL) }
++	}
+ }
+diff --git a/Ksign/Views/Signing/Shared/SigningOptionsView.swift b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+index fb486be..91dd34f 100644
+--- a/Ksign/Views/Signing/Shared/SigningOptionsView.swift
++++ b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+@@ -15,63 +15,34 @@ struct SigningOptionsView: View {
+     
+     // MARK: Body
+     var body: some View {
+-        if (temporaryOptions == nil) {
+-            NBSection(.localized("保护")) {
+-                _toggle(.localized("PPQ Protection"),
+-                        systemImage: "shield.fill",
+-                        isOn: $options.ppqProtection,
+-                        temporaryValue: temporaryOptions?.ppqProtection
+-                )
+-                #warning("add dynamic protect (itunes api)")
+-//                _toggle("Dynamic Protection",
+-//                        systemImage: "shield.lefthalf.filled",
+-//                        isOn: $options.dynamicProtection,
+-//                        temporaryValue: temporaryOptions?.dynamicProtection
+-//                )
+-//                    .disabled(!options.ppqProtection)
+-            } footer: {
+-                Text(.localized("Enabling any protection will append a random string to the bundleidentifiers of the apps you sign, this is to ensure your Apple ID does not get flagged by Apple. However, when using a signing service you can ignore this."))
+-            }
+-            Section {
+-                _toggle(.localized("签名后移除原应用"),
+-                        systemImage: "trash",
+-                        isOn: $options.removeApp,
+-                        temporaryValue: temporaryOptions?.removeApp
+-                )
+-            } footer: {
+-                Text(.localized("This will remove app after signed (Downloaded apps)"))
+-            }
+-        } else {
+-            NBSection(.localized("通用")) {
+-                _picker(.localized("外观"),
+-                        systemImage: "paintpalette",
+-                        selection: $options.appAppearance,
+-                        values: Options.appAppearanceValues,
+-                        id: \.description
+-                )
+-                
+-                _picker(.localized("最低系统要求"),
+-                        systemImage: "ruler",
+-                        selection: $options.minimumAppRequirement,
+-                        values: Options.appMinimumAppRequirementValues,
+-                        id: \.description
+-                )
+-            }
+-            Section {
+-                _toggle(.localized("签名后移除原应用"),
+-                        systemImage: "trash",
+-                        isOn: $options.removeApp,
+-                        temporaryValue: temporaryOptions?.removeApp
+-                )
+-                _toggle("仅修改配置，不签名",
+-                        systemImage: "pencil.slash",
+-                        isOn: $options.onlyModify,
+-                        temporaryValue: temporaryOptions?.onlyModify
+-                )
++        NBSection("显示与系统要求") {
++            _stringPicker("主题设置", systemImage: "circle.lefthalf.filled", selection: $options.appAppearance,
++                          values: Options.appAppearanceValues) { value in
++                ["Default": "默认", "Light": "浅色", "Dark": "深色"][value] ?? value
+             }
++            _stringPicker("最低系统要求", systemImage: "iphone", selection: $options.minimumAppRequirement,
++                          values: Options.appMinimumAppRequirementValues) { $0 == "Default" ? "默认" : "iOS \($0)" }
+         }
+-        
+-        NBSection(.localized("应用功能")) {
++
++        NBSection("处理流程") {
++            _toggle("签名后删除原始文件", systemImage: "trash", isOn: $options.removeApp,
++                    temporaryValue: temporaryOptions?.removeApp)
++            _toggle("仅修改配置，不签名", systemImage: "pencil.slash", isOn: $options.onlyModify,
++                    temporaryValue: temporaryOptions?.onlyModify)
++            _toggle("临时签署", systemImage: "signature", isOn: $options.doAdhocSigning,
++                    temporaryValue: temporaryOptions?.doAdhocSigning)
++        } footer: {
++            Text("临时签署使用 Ad-hoc 模式，无需选择证书。")
++        }
++
++        NBSection("安全性") {
++            _toggle("PPQ 保护机制", systemImage: "shield.fill", isOn: $options.ppqProtection,
++                    temporaryValue: temporaryOptions?.ppqProtection)
++        } footer: {
++            Text("开启后会为 Bundle ID 增加随机后缀，降低 Apple ID 被标记的风险。")
++        }
++
++        NBSection("功能") {
+             _toggle(.localized("文件共享"),
+                     systemImage: "folder.badge.person.crop",
+                     isOn: $options.fileSharing,
+@@ -105,7 +76,7 @@ struct SigningOptionsView: View {
+             Text("这些选项会修改应用的运行能力与显示行为")
+         }
+         
+-        NBSection(.localized("移除")) {
++        NBSection("清理") {
+             _toggle(.localized("移除设备限制"),
+                     systemImage: "iphone.slash",
+                     isOn: $options.removeSupportedDevices,
+@@ -133,34 +104,40 @@ struct SigningOptionsView: View {
+             Text("签名或打包前清理原 IPA 中的限制与附加内容")
+         }
+         
+-        Section {
++        NBSection("本地化") {
+             _toggle(.localized("强制本地化"),
+                     systemImage: "character.bubble",
+                     isOn: $options.changeLanguageFilesForCustomDisplayName,
+                     temporaryValue: temporaryOptions?.changeLanguageFilesForCustomDisplayName
+             )
+         } footer: {
+-            Text("强制应用使用自定义显示名称的本地化内容")
++            Text("强制应用使用自定义显示名称的本地化内容。")
+         }
+-        
+-        NBSection(.localized("高级")) {
+-            _toggle("Ad-hoc 临时签署",
+-                    systemImage: "signature",
+-                    isOn: $options.doAdhocSigning,
+-                    temporaryValue: temporaryOptions?.doAdhocSigning
+-            )
++
++        NBSection("越狱") {
++            _toggle("修复越狱依赖", systemImage: "wrench.and.screwdriver",
++                    isOn: $options.experiment_replaceSubstrateWithEllekit,
++                    temporaryValue: temporaryOptions?.experiment_replaceSubstrateWithEllekit)
+         } footer: {
+-            Text("越狱或 TrollStore 场景可使用，无需导入证书")
++            Text("自动修复 LC_LOAD_DYLIB 中 CydiaSubstrate 的指向。")
+         }
+-        
++
++        NBSection("注入") {
++            Picker(selection: $options.injectPath) {
++                ForEach(Options.InjectPath.allCases, id: \.rawValue) { value in
++                    Text(value.rawValue).tag(value)
++                }
++            } label: { Label("注入路径", systemImage: "link") }
++            Picker(selection: $options.injectFolder) {
++                ForEach(Options.InjectFolder.allCases, id: \.rawValue) { value in
++                    Text(value.rawValue).tag(value)
++                }
++            } label: { Label("注入目录", systemImage: "folder") }
++            _toggle("同时注入应用扩展", systemImage: "syringe", isOn: $options.injectIntoExtensions,
++                    temporaryValue: temporaryOptions?.injectIntoExtensions)
++        }
++
+         NBSection("实验性功能") {
+-            _toggle(
+-                .localized("使用 ElleKit 替换 Substrate"),
+-                systemImage: "pencil",
+-                isOn: $options.experiment_replaceSubstrateWithEllekit,
+-                temporaryValue: temporaryOptions?.experiment_replaceSubstrateWithEllekit
+-            )
+-            
+             _toggle(
+                 .localized("启用液态玻璃"),
+                 systemImage: "26.circle",
+@@ -189,9 +166,22 @@ struct SigningOptionsView: View {
+ 				}
+ 			}
+ 		} footer: {
+-			Text(.localized("This option try to disable liquid glass on iOS 26 if the app support it (might not work for all apps)."))
++			Text("根据应用兼容情况启用或禁用 iOS 26 液态玻璃外观。")
+ 		}
+     }
++
++    @ViewBuilder
++    private func _stringPicker(
++        _ title: String,
++        systemImage: String,
++        selection: Binding<String>,
++        values: [String],
++        display: @escaping (String) -> String
++    ) -> some View {
++        Picker(selection: selection) {
++            ForEach(values, id: \.self) { value in Text(display(value)).tag(value) }
++        } label: { Label(title, systemImage: systemImage) }
++    }
+     
+     @ViewBuilder
+     private func _picker<SelectionValue, T>(
+-- 
+2.51.1
+
