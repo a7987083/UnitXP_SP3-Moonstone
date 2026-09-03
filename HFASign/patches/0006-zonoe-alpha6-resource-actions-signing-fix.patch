@@ -1,0 +1,466 @@
+diff --git a/Ksign/Backend/Observable/OptionsManager.swift b/Ksign/Backend/Observable/OptionsManager.swift
+index 177608e..ce433a6 100644
+--- a/Ksign/Backend/Observable/OptionsManager.swift
++++ b/Ksign/Backend/Observable/OptionsManager.swift
+@@ -142,7 +142,7 @@ struct Options: Codable, Equatable {
+ 		ipadFullscreen: false,
+ 		removeSupportedDevices: true,
+ 		removeURLScheme: false,
+-		removeProvisioning: true,
++		removeProvisioning: false,
+ 		removeWatchPlaceholder: false,
+ 		changeLanguageFilesForCustomDisplayName: false,
+ 		doAdhocSigning: false,
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+index c80880d..797c38c 100644
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -118,7 +118,6 @@ final class SigningHandler: NSObject {
+ 		
+ 		if !_options.onlyModify {
+ 			OperationProgressManager.shared.update(0.72, detail: "签名 Framework 与主程序")
+-			let handler = ZsignHandler(appUrl: movedAppPath, options: _options, cert: appCertificate)
+ 			
+ 			if _options.doAdhocSigning {
+ 				OperationProgressManager.shared.log("签名方式：Ad-hoc 临时签署")
+@@ -129,15 +128,12 @@ final class SigningHandler: NSObject {
+ 			} else {
+ 				throw SigningFileHandlerError.missingCertifcate
+ 			}
++			if let error = handler.hadError { throw error }
+ 		}
+ 		OperationProgressManager.shared.update(0.90, detail: "重新打包并保存")
+         try await self.move()
+         try await self.addToDatabase()
+ 		OperationProgressManager.shared.log("已保存到已签名应用库")
+-
+-        if let error = handler.hadError {
+-            throw error
+-        }
+ 	}
+ 	
+ 	func move() async throws {
+diff --git a/Ksign/Utilities/Handlers/ZsignHandler.swift b/Ksign/Utilities/Handlers/ZsignHandler.swift
+index dfc76c0..8c2c733 100644
+--- a/Ksign/Utilities/Handlers/ZsignHandler.swift
++++ b/Ksign/Utilities/Handlers/ZsignHandler.swift
+@@ -52,7 +52,7 @@ final class ZsignHandler {
+             customIdentifier: _options.appIdentifier ?? "",
+             customName: _options.appName ?? "",
+             customVersion: _options.appVersion ?? "",
+-            removeProvision: !_options.removeProvisioning,
++            removeProvision: _options.removeProvisioning,
+             completion: { _, error in
+                 self.hadError = error
+             }
+@@ -67,7 +67,7 @@ final class ZsignHandler {
+ 			customName: _options.appName ?? "",
+ 			customVersion: _options.appVersion ?? "",
+ 			adhoc: true,
+-            removeProvision: !_options.removeProvisioning,
++            removeProvision: _options.removeProvisioning,
+             completion: { _, error in
+                 self.hadError = error
+             }
+diff --git a/Ksign/Utilities/SharedImportCoordinator.swift b/Ksign/Utilities/SharedImportCoordinator.swift
+index 9fea93e..ee879a6 100644
+--- a/Ksign/Utilities/SharedImportCoordinator.swift
++++ b/Ksign/Utilities/SharedImportCoordinator.swift
+@@ -1,5 +1,6 @@
+ import Foundation
+ import UIKit
++import ZIPFoundation
+ 
+ final class SharedImportCoordinator {
+     static let shared = SharedImportCoordinator()
+@@ -34,6 +35,9 @@ final class SharedImportCoordinator {
+         lastImport = (url.absoluteString, Date())
+ 
+         let ext = stagedURL.pathExtension.lowercased()
++		if ext == "zip", importCertificateArchiveIfPresent(stagedURL) {
++			return
++		}
+         if ext == "ipa" || ext == "tipa" {
+             progress.begin("正在导入 IPA", detail: stagedURL.lastPathComponent)
+             let id = "HFASignImport_\(UUID().uuidString)"
+@@ -91,6 +95,43 @@ final class SharedImportCoordinator {
+         return destination
+     }
+ 
++	private func importCertificateArchiveIfPresent(_ archiveURL: URL) -> Bool {
++		let extractionRoot = archiveURL.deletingLastPathComponent().appendingPathComponent("certificate", isDirectory: true)
++		do {
++			try fileManager.createDirectory(at: extractionRoot, withIntermediateDirectories: true)
++			let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
++			for entry in archive {
++				let output = extractionRoot.appendingPathComponent(entry.path)
++				guard output.standardizedFileURL.path.hasPrefix(extractionRoot.standardizedFileURL.path) else { continue }
++				try fileManager.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
++				_ = try archive.extract(entry, to: output)
++			}
++			let files = (fileManager.enumerator(at: extractionRoot, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? []
++			guard let p12 = files.first(where: { $0.pathExtension.lowercased() == "p12" }),
++				  let provision = files.first(where: { $0.pathExtension.lowercased() == "mobileprovision" }) else {
++				try? fileManager.removeItem(at: extractionRoot)
++				return false
++			}
++			DispatchQueue.main.async {
++				UIAlertController.showAlertWithTextBox(title: "导入证书", message: "请输入证书密码，无密码可留空。", textFieldPlaceholder: "密码", textFieldText: "", submit: "导入", cancel: "取消") { password in
++					guard FR.checkPasswordForCertificate(for: p12, with: password, using: provision) else {
++						UIAlertController.showAlertWithOk(title: "导入失败", message: "证书密码不正确。")
++						return
++					}
++					FR.handleCertificateFiles(p12URL: p12, provisionURL: provision, p12Password: password, certificateName: p12.deletingPathExtension().lastPathComponent) { error in
++						try? self.fileManager.removeItem(at: archiveURL.deletingLastPathComponent())
++						if let error { UIAlertController.showAlertWithOk(title: "导入失败", message: error.localizedDescription) }
++						else { UIAlertController.showAlertWithOk(title: "导入成功", message: "证书已添加。") }
++					}
++				}
++			}
++			return true
++		} catch {
++			try? fileManager.removeItem(at: extractionRoot)
++			return false
++		}
++	}
++
+     private func resolveConflict(for destination: URL, completion: @escaping (URL?) -> Void) {
+         guard fileManager.fileExists(atPath: destination.path) else {
+             completion(destination)
+diff --git a/Ksign/Views/Downloader/DownloaderView.swift b/Ksign/Views/Downloader/DownloaderView.swift
+index cdb4702..de1bda5 100644
+--- a/Ksign/Views/Downloader/DownloaderView.swift
++++ b/Ksign/Views/Downloader/DownloaderView.swift
+@@ -20,6 +20,7 @@ struct DownloaderView: View {
+     @State private var showDocumentPicker = false
+     @State private var fileToExport: URL?
+     @State private var _searchText = ""
++    @State private var _isImportingFiles = false
+     
+     private var filteredDownloadItems: [DownloadItem] {
+         let items = downloadManager.finishedItems
+@@ -82,12 +83,9 @@ struct DownloaderView: View {
+             }
+             .searchable(text: $_searchText, placement: .platform())
+             .toolbar {
+-                NBToolbarButton(
+-                    "Add",
+-                    systemImage: "plus",
+-                    placement: .topBarTrailing
+-                ) {
+-                   _addDownload()
++                NBToolbarMenu(systemImage: "plus", style: .icon, placement: .topBarTrailing) {
++                    Button("导入文件", systemImage: "folder") { _isImportingFiles = true }
++                    Button("从网址导入", systemImage: "globe") { _addDownload() }
+                 }
+             }
+             .onChange(of: libraryManager.downloads.count) { _ in
+@@ -102,6 +100,11 @@ struct DownloaderView: View {
+             .sheet(isPresented: $showDocumentPicker) {
+                 documentPickerSheet
+             }
++            .sheet(isPresented: $_isImportingFiles) {
++                FileImporterRepresentableView(allowedContentTypes: [.data, .item, .folder], allowsMultipleSelection: true) { urls in
++                    for url in urls { SharedImportCoordinator.shared.receive(url) }
++                }
++            }
+         }
+     }
+ }
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index ab263b3..ef61e00 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -8,6 +8,7 @@
+ import SwiftUI
+ import CoreData
+ import NimbleViews
++import ZsignSwift
+ 
+ // MARK: - View
+ struct LibraryView: View {
+@@ -29,6 +30,8 @@ struct LibraryView: View {
+ 	@State private var _resourceFiles: [URL] = []
+ 	@State private var _selectedResourceFiles: Set<URL> = []
+ 	@State private var _selectionActionsExpanded = false
++	@State private var _actionFile: URL?
++	@State private var _dependencyFile: URL?
+ 	
+ 	// MARK: Edit Mode
+     @State private var _isEditMode: EditMode = .inactive
+@@ -67,17 +70,8 @@ struct LibraryView: View {
+ 	
+ 	// MARK: Body
+     var body: some View {
+-		NBNavigationView(.localized("资源")) {
++		NBNavigationView("") {
+ 			VStack(spacing: 0) {
+-				Picker("资源类型", selection: $_resourceTab) {
+-					Text("App").tag(0)
+-					Text("Zip").tag(1)
+-					Text("动态库").tag(2)
+-				}
+-				.pickerStyle(.segmented)
+-				.padding(.horizontal)
+-				.padding(.top, 8)
+-
+ 				if _resourceTab == 0 {
+ 				Picker("", selection: $_selectedTab) {
+ 					Text("未签名").tag(0)
+@@ -132,8 +126,9 @@ struct LibraryView: View {
+ 					}
+ 				}
+ 			}
+-			.overlay(alignment: .bottomTrailing) { _selectionControl.padding(18) }
+-			.searchable(text: $_searchText, placement: .platform())
++			.overlay(alignment: .bottomTrailing) {
++				if _resourceTab == 0 && _selectedTab == 0 { _selectionControl.padding(18) }
++			}
+ 	            .overlay {
+ 	                if _resourceTab == 0,
+                     _filteredSignedApps.isEmpty,
+@@ -155,38 +150,24 @@ struct LibraryView: View {
+                 }
+             }
+ 			.toolbar {
+-                if _isEditMode.isEditing {
++				ToolbarItem(placement: .principal) {
++					Picker("", selection: $_resourceTab) {
++						Text("App").tag(0); Text("Zip").tag(1); Text("动态").tag(2)
++					}.pickerStyle(.segmented).frame(width: 250)
++				}
++				if _resourceTab == 0 && _selectedTab == 1 && !_isEditMode.isEditing {
++					ToolbarItem(placement: .topBarTrailing) { Button("选择") { _isEditMode = .active } }
++				}
++				if _resourceTab == 0 && _selectedTab == 1 && _isEditMode.isEditing {
++					ToolbarItem(placement: .topBarLeading) { Button("全选") { _selectAllVisible() } }
+ 					ToolbarItemGroup(placement: .topBarTrailing) {
+-                        if _selectedTab == 0 {
+-                            Button {
+-                                _isBulkSigningPresenting = true
+-                            } label: {
+-                                NBButton(.localized("签名"), systemImage: "signature", style: .icon)
+-                            }
+-                            .disabled(_selectedApps.isEmpty)
+-                        } else {
+-                            Button {
+-                                _isBulkInstallingPresenting = true
+-                            } label: {
+-                                NBButton(.localized("安装"), systemImage: "square.and.arrow.down")
+-                            }
+-                            .disabled(_selectedApps.isEmpty)
+-                        }
+-						Button {
+-							_bulkDeleteSelectedApps()
+-						} label: {
+-							NBButton(.localized("删除"), systemImage: "trash", style: .icon)
+-						}
+-						.disabled(_selectedApps.isEmpty)
++						Button("删除", role: .destructive) { _bulkDeleteSelectedApps() }.disabled(_selectedApps.isEmpty)
++						Button("完成") { _finishSelection() }
++					}
++				} else if _isEditMode.isEditing && _selectedTab == 0 {
++					ToolbarItemGroup(placement: .topBarTrailing) {
++						EmptyView()
+ 					}
+-				} else {
+-					NBToolbarMenu(
+-						systemImage: "plus",
+-						style: .icon,
+-						placement: .topBarTrailing
+-					) {
+-                        _importActions()
+-                    }
+ 				}
+ 			}
+             .environment(\.editMode, $_isEditMode)
+@@ -205,6 +186,17 @@ struct LibraryView: View {
+                 DylibsView(app: app.base)
+ 					.compatNavigationTransition(id: app.base.uuid ?? "", ns: _namespace)
+ 			}
++			.sheet(item: $_dependencyFile) { file in
++				StandaloneDylibDependenciesView(fileURL: file)
++			}
++			.confirmationDialog(_resourceTab == 1 ? "Zip 操作" : "动态库操作", isPresented: Binding(get: { _actionFile != nil }, set: { if !$0 { _actionFile = nil } }), titleVisibility: .visible) {
++				if _resourceTab == 1 { Button("解压") { if let file = _actionFile { _extractResource(file) }; _actionFile = nil } }
++				if _resourceTab == 2 { Button("修改依赖") { _dependencyFile = _actionFile; _actionFile = nil } }
++				Button("分享") { if let file = _actionFile { UIActivityViewController.show(activityItems: [file]) }; _actionFile = nil }
++				Button("重命名") { if let file = _actionFile { _renameResource(file) }; _actionFile = nil }
++				Button("删除", role: .destructive) { if let file = _actionFile { _deleteResource(file) }; _actionFile = nil }
++				Button("取消", role: .cancel) { _actionFile = nil }
++			}
+ 			.fullScreenCover(isPresented: $_isBulkSigningPresenting) {
+ 				BulkSigningView(apps: _selectedApps.compactMap { id in
+ 					(_importedApps.first(where: { $0.uuid == id }) as AppInfoPresentable?)
+@@ -264,7 +256,8 @@ struct LibraryView: View {
+ 				}
+ 			}
+ 			.onAppear(perform: _reloadResourceFiles)
+-			.onChange(of: _resourceTab) { _ in _reloadResourceFiles() }
++			.onChange(of: _resourceTab) { _ in _finishSelection(); _reloadResourceFiles() }
++			.onChange(of: _selectedTab) { _ in _finishSelection() }
+         }
+         .onChange(of: _isEditMode) { state in
+             if !state.isEditing {
+@@ -297,8 +290,7 @@ extension LibraryView {
+ 
+ 	@ViewBuilder private func _resourceFileRow(_ file: URL) -> some View {
+ 		Button {
+-			guard _isEditMode.isEditing else { return }
+-			if _selectedResourceFiles.contains(file) { _selectedResourceFiles.remove(file) } else { _selectedResourceFiles.insert(file) }
++			_actionFile = file
+ 		} label: {
+ 			HStack(spacing: 12) {
+ 				Image(systemName: _selectedResourceFiles.contains(file) ? "checkmark.circle.fill" : (_resourceTab == 1 ? "archivebox.fill" : "shippingbox.fill"))
+@@ -309,23 +301,26 @@ extension LibraryView {
+ 			}
+ 		}
+ 		.buttonStyle(.plain)
++		.swipeActions(edge: .trailing) {
++			Button(role: .destructive) { _deleteResource(file) } label: { Label("删除", systemImage: "trash") }
++			Button { UIActivityViewController.show(activityItems: [file]) } label: { Label("分享", systemImage: "square.and.arrow.up") }.tint(.blue)
++		}
+ 	}
+ 
+ 	private var _selectionControl: some View {
+ 		HStack(spacing: 10) {
+ 			if _selectionActionsExpanded {
+ 				Button("全选") { _selectAllVisible() }.buttonStyle(.borderedProminent)
+-				if _resourceTab == 0 { Button("签名") { _isBulkSigningPresenting = !_selectedApps.isEmpty }.buttonStyle(.borderedProminent).disabled(_selectedApps.isEmpty) }
++				Button("签名") { _isBulkSigningPresenting = !_selectedApps.isEmpty }.buttonStyle(.borderedProminent).disabled(_selectedApps.isEmpty)
+ 				Button("删除", role: .destructive) { _deleteSelection() }.buttonStyle(.borderedProminent)
+ 				Button("完成") { _finishSelection() }.buttonStyle(.borderedProminent)
+-			}
+-			Button("选择") {
++			} else { Button("选择") {
+ 				withAnimation(.snappy) {
+-					_selectionActionsExpanded.toggle()
+-					_isEditMode = _selectionActionsExpanded ? .active : .inactive
++					_selectionActionsExpanded = true
++					_isEditMode = .active
+ 				}
+ 			}
+-			.buttonStyle(.borderedProminent)
++			.buttonStyle(.borderedProminent) }
+ 		}
+ 	}
+ 
+@@ -352,6 +347,32 @@ extension LibraryView {
+ 		_selectedApps.removeAll(); _selectedResourceFiles.removeAll()
+ 	}
+ 
++	private func _deleteResource(_ url: URL) {
++		try? FileManager.default.removeItem(at: url); _reloadResourceFiles()
++	}
++
++	private func _renameResource(_ url: URL) {
++		UIAlertController.showAlertWithTextBox(title: "重命名", message: nil, textFieldPlaceholder: url.lastPathComponent, textFieldText: url.lastPathComponent, submit: "确定", cancel: "取消") { name in
++			let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
++			guard !clean.isEmpty else { return }
++			do { try FileManager.default.moveItem(at: url, to: url.deletingLastPathComponent().appendingPathComponent(clean)); _reloadResourceFiles() }
++			catch { UIAlertController.showAlertWithOk(title: "重命名失败", message: error.localizedDescription) }
++		}
++	}
++
++	private func _extractResource(_ url: URL) {
++		let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey])
++		let item = FileItem(name: url.lastPathComponent, url: url, size: Int64(values?.fileSize ?? 0), creationDate: values?.creationDate, isDirectory: false)
++		let task = ExtractManager.shared.start(fileName: item.name)
++		ExtractionService.extractArchive(item, to: url.deletingLastPathComponent(), progressCallback: { ExtractManager.shared.updateProgress(for: task, progress: $0) }) { result in
++			DispatchQueue.main.async {
++				ExtractManager.shared.finish(item: task)
++				if case .failure(let error) = result { UIAlertController.showAlertWithOk(title: "解压失败", message: error.localizedDescription) }
++				else { _reloadResourceFiles() }
++			}
++		}
++	}
++
+     @ViewBuilder
+     private func _importActions() -> some View {
+         Button("导入文件", systemImage: "folder") {
+@@ -363,6 +384,57 @@ extension LibraryView {
+     }
+ }
+ 
++private struct StandaloneDylibDependenciesView: View {
++	@Environment(\.dismiss) private var dismiss
++	let fileURL: URL
++	@State private var dependencies: [String] = []
++	@State private var editingDependency: String?
++	@State private var replacement = ""
++
++	private var executableURL: URL {
++		if fileURL.pathExtension.lowercased() == "framework", let executable = Bundle(url: fileURL)?.executableURL { return executable }
++		return fileURL
++	}
++
++	var body: some View {
++		NavigationStack {
++			List {
++				Section("Mach-O 依赖") {
++					ForEach(dependencies, id: \.self) { dependency in
++						Button {
++							replacement = dependency; editingDependency = dependency
++						} label: {
++							VStack(alignment: .leading, spacing: 4) {
++								Text(dependency).font(.system(.body, design: .monospaced)).foregroundStyle(.primary)
++								Text("点击修改加载路径").font(.caption).foregroundStyle(.secondary)
++							}
++						}
++					}
++				}
++			}
++			.navigationTitle(fileURL.lastPathComponent)
++			.navigationBarTitleDisplayMode(.inline)
++			.toolbar { ToolbarItem(placement: .topBarLeading) { Button("关闭") { dismiss() } } }
++			.alert("修改依赖", isPresented: Binding(get: { editingDependency != nil }, set: { if !$0 { editingDependency = nil } })) {
++				TextField("新加载路径", text: $replacement)
++				Button("取消", role: .cancel) { editingDependency = nil }
++				Button("保存") {
++					if let old = editingDependency, !replacement.isEmpty {
++						let ok = Zsign.changeDylibPath(appExecutable: executableURL.path, for: old, with: replacement)
++						if !ok { UIAlertController.showAlertWithOk(title: "修改失败", message: "新路径不能比原路径更长，或 Mach-O 不支持修改。") }
++					}
++					editingDependency = nil; load()
++				}
++			}
++			.onAppear(perform: load)
++		}
++	}
++
++	private func load() {
++		dependencies = Zsign.listDylibs(appExecutable: executableURL.path).map { $0 as String }
++	}
++}
++
+ 
+ // MARK: - Extension: View (Edit Mode Functions)
+ extension LibraryView {
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index c26fa36..79df058 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -128,6 +128,10 @@ struct SigningView: View {
+ 			.animation(.smooth, value: _isSigning)
+ 		}
+ 		.onAppear {
++			// Certificate-signed apps need the embedded provisioning profile to install.
++			if !_temporaryOptions.doAdhocSigning && !_temporaryOptions.onlyModify {
++				_temporaryOptions.removeProvisioning = false
++			}
+ 			// ppq protection
+ 			if
+ 				_optionsManager.options.ppqProtection,
+diff --git a/Ksign/Views/TabView/TabEnum.swift b/Ksign/Views/TabView/TabEnum.swift
+index 76c35ba..cc99bcf 100644
+--- a/Ksign/Views/TabView/TabEnum.swift
++++ b/Ksign/Views/TabView/TabEnum.swift
+@@ -20,7 +20,7 @@ enum TabEnum: String, CaseIterable, Hashable {
+ 		switch self {
+ 		case .files:        return "文件"
+ 		case .sources:     	return "软件源"
+-		case .library: 		return "资源"
++		case .library: 		return "App"
+ 		case .settings: 	return "设置"
+ 		case .certificates:	return "证书"
+ 		case .appstore: 	return "应用"
