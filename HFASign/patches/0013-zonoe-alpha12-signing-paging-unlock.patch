@@ -1,21 +1,21 @@
-From 9090af849263176f99f4995cef325243e40171bd Mon Sep 17 00:00:00 2001
+From d18d6c156489205a8af5436a80332c3eb4fd57a7 Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
 Date: Thu, 3 Sep 2026 23:17:35 +0300
 Subject: [PATCH] Add advanced signing rules native paging and source unlock
 
 ---
- Ksign/Backend/Observable/OptionsManager.swift |  57 ++++++++-
- .../Sources/SourceRepositoryLoader.swift      |  92 ++++++++++++--
- Ksign/Utilities/Handlers/SigningHandler.swift |  49 ++++++++
- Ksign/Views/Library/LibraryView.swift         | 118 ++++++++----------
- .../Signing/Shared/AdvancedRuleViews.swift    | 103 +++++++++++++++
- .../Signing/Shared/SigningOptionsView.swift   |  21 ++++
+ Ksign/Backend/Observable/OptionsManager.swift |  57 +++++++-
+ .../Sources/SourceRepositoryLoader.swift      |  92 ++++++++++++-
+ Ksign/Utilities/Handlers/SigningHandler.swift |  49 +++++++
+ Ksign/Views/Library/LibraryView.swift         | 128 +++++++++---------
+ .../Signing/Shared/AdvancedRuleViews.swift    | 103 ++++++++++++++
+ .../Signing/Shared/SigningOptionsView.swift   |  21 +++
  Ksign/Views/Signing/SigningView.swift         |  34 ++++-
  .../Apps/Detail/SourceAppsDetailView.swift    |   2 +-
  .../Sources/Apps/DownloadButtonView.swift     |  46 ++++++-
  .../Sources/Apps/SourceAppsCellView.swift     |   2 +-
  Ksign/Views/Sources/Apps/SourceAppsView.swift |   3 +
- 11 files changed, 445 insertions(+), 82 deletions(-)
+ 11 files changed, 455 insertions(+), 82 deletions(-)
  create mode 100644 Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
 
 diff --git a/Ksign/Backend/Observable/OptionsManager.swift b/Ksign/Backend/Observable/OptionsManager.swift
@@ -318,7 +318,7 @@ index 797c38c..740752a 100644
  	case appNotFound
  	case infoPlistNotFound
 diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
-index fbebb8f..e1bf3cb 100644
+index fbebb8f..51f1a90 100644
 --- a/Ksign/Views/Library/LibraryView.swift
 +++ b/Ksign/Views/Library/LibraryView.swift
 @@ -73,74 +73,15 @@ struct LibraryView: View {
@@ -401,7 +401,7 @@ index fbebb8f..e1bf3cb 100644
  	            .overlay {
  	                if _resourceTab == 0,
                      _filteredSignedApps.isEmpty,
-@@ -283,6 +224,49 @@ struct LibraryView: View {
+@@ -283,6 +224,59 @@ struct LibraryView: View {
  }
  
  extension LibraryView {
@@ -441,17 +441,27 @@ index fbebb8f..e1bf3cb 100644
 +	private func _files(for tab: Int) -> [URL] {
 +		let fm = FileManager.default
 +		let legacyImports = URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
-+		let roots = tab == 1 ? [fm.zipFiles, legacyImports, fm.archives] : [fm.tweaks]
-+		return roots.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] }
-+			.filter { tab == 1 ? $0.pathExtension.lowercased() == "zip" : ["dylib", "framework", "deb", "bundle"].contains($0.pathExtension.lowercased()) }
-+			.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
-+			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
++		let roots: [URL] = tab == 1 ? [fm.zipFiles, legacyImports, fm.archives] : [fm.tweaks]
++		let allowedExtensions: Set<String> = tab == 1 ? ["zip"] : ["dylib", "framework", "deb", "bundle"]
++		var result: [URL] = []
++		for root in roots {
++			let contents = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
++			for url in contents {
++				guard allowedExtensions.contains(url.pathExtension.lowercased()) else { continue }
++				guard _searchText.isEmpty || url.lastPathComponent.localizedCaseInsensitiveContains(_searchText) else { continue }
++				result.append(url)
++			}
++		}
++		result.sort { lhs, rhs in
++			lhs.lastPathComponent.localizedCaseInsensitiveCompare(rhs.lastPathComponent) == .orderedAscending
++		}
++		return result
 +	}
 +
  	private var _visibleResourceFiles: [URL] {
  		_resourceFiles.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
  	}
-@@ -299,12 +283,14 @@ extension LibraryView {
+@@ -299,12 +293,14 @@ extension LibraryView {
  			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
  	}
  
