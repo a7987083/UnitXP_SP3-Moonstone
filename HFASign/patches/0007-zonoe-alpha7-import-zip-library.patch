@@ -1,0 +1,296 @@
+diff --git a/Ksign/Extensions/FileManager/FileManager+documents.swift b/Ksign/Extensions/FileManager/FileManager+documents.swift
+index acbd65d..5cf4e2b 100644
+--- a/Ksign/Extensions/FileManager/FileManager+documents.swift
++++ b/Ksign/Extensions/FileManager/FileManager+documents.swift
+@@ -66,4 +66,9 @@ extension FileManager {
+ 	var tweaks: URL {
+ 		URL.documentsDirectory.appendingPathComponent("App").appendingPathComponent("Tweaks")
+ 	}
++
++	/// Imported ZIP packages shown by the Library's Zip category.
++	var zipFiles: URL {
++		URL.documentsDirectory.appendingPathComponent("App").appendingPathComponent("ZipFile")
++	}
+ }
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 53ebe0a..65f7e76 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -142,7 +142,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
+         let appDirectory = URL.documentsDirectory.appendingPathComponent("App")
+         try? fileManager.createDirectoryIfNeeded(at: appDirectory)
+         
+-		let directories = ["Signed", "Unsigned", "Archives", "Server", "Tweaks"].map {
++		let directories = ["Signed", "Unsigned", "Archives", "Server", "Tweaks", "ZipFile"].map {
+             appDirectory.appendingPathComponent($0)
+         }
+         
+diff --git a/Ksign/Utilities/SharedImportCoordinator.swift b/Ksign/Utilities/SharedImportCoordinator.swift
+index ee879a6..8bbd91f 100644
+--- a/Ksign/Utilities/SharedImportCoordinator.swift
++++ b/Ksign/Utilities/SharedImportCoordinator.swift
+@@ -4,6 +4,7 @@ import ZIPFoundation
+ 
+ final class SharedImportCoordinator {
+     static let shared = SharedImportCoordinator()
++    static let didImportNotification = Notification.Name("zonoe.didImportFile")
+     private let fileManager = FileManager.default
+     private let progress = OperationProgressManager.shared
+     private var lastImport: (path: String, date: Date)?
+@@ -61,9 +62,7 @@ final class SharedImportCoordinator {
+         }
+ 
+         let isTweak = ["dylib", "framework", "deb", "bundle"].contains(ext)
+-        let destinationDirectory = isTweak
+-            ? fileManager.tweaks
+-            : URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
++        let destinationDirectory = isTweak ? fileManager.tweaks : fileManager.zipFiles
+         try? fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+         let destination = destinationDirectory.appendingPathComponent(stagedURL.lastPathComponent)
+         resolveConflict(for: destination) { choice in
+@@ -142,7 +141,7 @@ final class SharedImportCoordinator {
+                 try? self.fileManager.removeItem(at: destination)
+                 completion(destination)
+             }
+-            let keepBoth = UIAlertAction(title: "保留两个", style: .default) { _ in
++            let keepBoth = UIAlertAction(title: "重命名", style: .default) { _ in
+                 completion(self.uniqueURL(for: destination))
+             }
+             UIAlertController.showAlertWithCancel(
+@@ -164,8 +163,11 @@ final class SharedImportCoordinator {
+                 }
+                 let location = ["dylib", "framework", "deb", "bundle"].contains(source.pathExtension.lowercased())
+                     ? "插件目录"
+-                    : "文件区 / Imports"
++                    : "App/ZipFile"
+                 self.progress.finish(detail: "已保存到\(location)")
++                DispatchQueue.main.async {
++                    NotificationCenter.default.post(name: Self.didImportNotification, object: destination)
++                }
+             } catch {
+                 self.progress.fail("导入失败：\(error.localizedDescription)")
+             }
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index ef61e00..e2f2fa1 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -9,6 +9,7 @@ import SwiftUI
+ import CoreData
+ import NimbleViews
+ import ZsignSwift
++import ZIPFoundation
+ 
+ // MARK: - View
+ struct LibraryView: View {
+@@ -32,6 +33,7 @@ struct LibraryView: View {
+ 	@State private var _selectionActionsExpanded = false
+ 	@State private var _actionFile: URL?
+ 	@State private var _dependencyFile: URL?
++	@State private var _zipBrowserFile: URL?
+ 	
+ 	// MARK: Edit Mode
+     @State private var _isEditMode: EditMode = .inactive
+@@ -127,8 +129,18 @@ struct LibraryView: View {
+ 				}
+ 			}
+ 			.overlay(alignment: .bottomTrailing) {
+-				if _resourceTab == 0 && _selectedTab == 0 { _selectionControl.padding(18) }
++				if _resourceTab == 0 { _selectionControl.padding(18) }
+ 			}
++			.contentShape(Rectangle())
++			.gesture(
++				DragGesture(minimumDistance: 45).onEnded { value in
++					guard abs(value.translation.width) > abs(value.translation.height) else { return }
++					withAnimation(.snappy) {
++						if value.translation.width < 0 { _resourceTab = min(2, _resourceTab + 1) }
++						else { _resourceTab = max(0, _resourceTab - 1) }
++					}
++				}
++			)
+ 	            .overlay {
+ 	                if _resourceTab == 0,
+                     _filteredSignedApps.isEmpty,
+@@ -152,19 +164,10 @@ struct LibraryView: View {
+ 			.toolbar {
+ 				ToolbarItem(placement: .principal) {
+ 					Picker("", selection: $_resourceTab) {
+-						Text("App").tag(0); Text("Zip").tag(1); Text("动态").tag(2)
++						Text("App").tag(0); Text("Zip").tag(1); Text("动态库").tag(2)
+ 					}.pickerStyle(.segmented).frame(width: 250)
+ 				}
+-				if _resourceTab == 0 && _selectedTab == 1 && !_isEditMode.isEditing {
+-					ToolbarItem(placement: .topBarTrailing) { Button("选择") { _isEditMode = .active } }
+-				}
+-				if _resourceTab == 0 && _selectedTab == 1 && _isEditMode.isEditing {
+-					ToolbarItem(placement: .topBarLeading) { Button("全选") { _selectAllVisible() } }
+-					ToolbarItemGroup(placement: .topBarTrailing) {
+-						Button("删除", role: .destructive) { _bulkDeleteSelectedApps() }.disabled(_selectedApps.isEmpty)
+-						Button("完成") { _finishSelection() }
+-					}
+-				} else if _isEditMode.isEditing && _selectedTab == 0 {
++				if _isEditMode.isEditing {
+ 					ToolbarItemGroup(placement: .topBarTrailing) {
+ 						EmptyView()
+ 					}
+@@ -189,8 +192,13 @@ struct LibraryView: View {
+ 			.sheet(item: $_dependencyFile) { file in
+ 				StandaloneDylibDependenciesView(fileURL: file)
+ 			}
++			.sheet(item: $_zipBrowserFile) { file in
++				ZipContentsView(archiveURL: file)
++					.presentationDetents([.large])
++					.presentationDragIndicator(.visible)
++			}
+ 			.confirmationDialog(_resourceTab == 1 ? "Zip 操作" : "动态库操作", isPresented: Binding(get: { _actionFile != nil }, set: { if !$0 { _actionFile = nil } }), titleVisibility: .visible) {
+-				if _resourceTab == 1 { Button("解压") { if let file = _actionFile { _extractResource(file) }; _actionFile = nil } }
++				if _resourceTab == 1 { Button("解压并查看") { _zipBrowserFile = _actionFile; _actionFile = nil } }
+ 				if _resourceTab == 2 { Button("修改依赖") { _dependencyFile = _actionFile; _actionFile = nil } }
+ 				Button("分享") { if let file = _actionFile { UIActivityViewController.show(activityItems: [file]) }; _actionFile = nil }
+ 				Button("重命名") { if let file = _actionFile { _renameResource(file) }; _actionFile = nil }
+@@ -256,6 +264,9 @@ struct LibraryView: View {
+ 				}
+ 			}
+ 			.onAppear(perform: _reloadResourceFiles)
++			.onReceive(NotificationCenter.default.publisher(for: SharedImportCoordinator.didImportNotification)) { _ in
++				_reloadResourceFiles()
++			}
+ 			.onChange(of: _resourceTab) { _ in _finishSelection(); _reloadResourceFiles() }
+ 			.onChange(of: _selectedTab) { _ in _finishSelection() }
+         }
+@@ -278,8 +289,8 @@ extension LibraryView {
+ 
+ 	private func _reloadResourceFiles() {
+ 		let fm = FileManager.default
+-		let imports = URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
+-		let roots = _resourceTab == 1 ? [imports, fm.archives] : [fm.tweaks]
++		let legacyImports = URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
++		let roots = _resourceTab == 1 ? [fm.zipFiles, legacyImports, fm.archives] : [fm.tweaks]
+ 		_resourceFiles = roots.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] }
+ 			.filter { url in
+ 				let ext = url.pathExtension.lowercased()
+@@ -384,6 +395,85 @@ extension LibraryView {
+     }
+ }
+ 
++private struct ZipContentsView: View {
++	@Environment(\.dismiss) private var dismiss
++	let archiveURL: URL
++	@State private var extractionRoot: URL?
++	@State private var files: [URL] = []
++	@State private var importCandidate: URL?
++	@State private var errorMessage: String?
++
++	var body: some View {
++		NavigationStack {
++			List {
++				if files.isEmpty && errorMessage == nil {
++					HStack { Spacer(); ProgressView("正在读取压缩包…"); Spacer() }
++				} else {
++					ForEach(files, id: \.self) { file in
++						Button { handle(file) } label: {
++							HStack(spacing: 12) {
++								Image(systemName: icon(for: file)).foregroundStyle(.secondary)
++								VStack(alignment: .leading, spacing: 3) {
++									Text(relativePath(file)).foregroundStyle(.primary).lineLimit(2)
++									if isImportable(file) { Text("可导入动态库").font(.caption).foregroundStyle(.blue) }
++								}
++								Spacer()
++								if isImportable(file) { Image(systemName: "square.and.arrow.down") }
++							}
++						}
++						.disabled(file.hasDirectoryPath && !isImportable(file))
++					}
++				}
++			}
++			.navigationTitle(archiveURL.lastPathComponent)
++			.navigationBarTitleDisplayMode(.inline)
++			.toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Label("返回", systemImage: "chevron.left") } } }
++			.alert("导入动态库", isPresented: Binding(get: { importCandidate != nil }, set: { if !$0 { importCandidate = nil } })) {
++				Button("取消", role: .cancel) { importCandidate = nil }
++				Button("导入") {
++					if let file = importCandidate { SharedImportCoordinator.shared.receive(file) }
++					importCandidate = nil
++				}
++			} message: { Text("是否导入“\(importCandidate?.lastPathComponent ?? "")”？") }
++			.alert("读取失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
++				Button("确定", role: .cancel) {}
++			} message: { Text(errorMessage ?? "未知错误") }
++			.task { extract() }
++			.onDisappear { if let extractionRoot { try? FileManager.default.removeItem(at: extractionRoot) } }
++		}
++	}
++
++	private func extract() {
++		let root = FileManager.default.temporaryDirectory.appendingPathComponent("zonoe-zip-preview/\(UUID().uuidString)", isDirectory: true)
++		do {
++			try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
++			let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
++			for entry in archive {
++				let output = root.appendingPathComponent(entry.path)
++				guard output.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") else { continue }
++				try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
++				_ = try archive.extract(entry, to: output)
++			}
++			let items = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])?.allObjects as? [URL]) ?? []
++			DispatchQueue.main.async { extractionRoot = root; files = items.sorted { relativePath($0) < relativePath($1) } }
++		} catch {
++			try? FileManager.default.removeItem(at: root)
++			DispatchQueue.main.async { errorMessage = error.localizedDescription }
++		}
++	}
++
++	private func relativePath(_ file: URL) -> String {
++		guard let extractionRoot else { return file.lastPathComponent }
++		return String(file.path.dropFirst(extractionRoot.path.count + 1))
++	}
++	private func isImportable(_ file: URL) -> Bool { ["dylib", "framework", "deb", "bundle"].contains(file.pathExtension.lowercased()) }
++	private func handle(_ file: URL) { if isImportable(file) { importCandidate = file } }
++	private func icon(for file: URL) -> String {
++		if file.hasDirectoryPath { return "folder.fill" }
++		return isImportable(file) ? "shippingbox.fill" : "doc.fill"
++	}
++}
++
+ private struct StandaloneDylibDependenciesView: View {
+ 	@Environment(\.dismiss) private var dismiss
+ 	let fileURL: URL
+diff --git a/Ksign/Views/Signing/Shared/SigningFrameworksView.swift b/Ksign/Views/Signing/Shared/SigningFrameworksView.swift
+index 21e2269..bbcbcdb 100644
+--- a/Ksign/Views/Signing/Shared/SigningFrameworksView.swift
++++ b/Ksign/Views/Signing/Shared/SigningFrameworksView.swift
+@@ -13,8 +13,8 @@ struct SigningFrameworksView: View {
+ 	@State private var _frameworks: [String] = []
+ 	@State private var _plugins: [String] = []
+ 	
+-	private let _frameworksPath: String = .localized("Framework")
+-	private let _pluginsPath: String = .localized("PlugIns")
++	private let _frameworksPath = "Frameworks"
++	private let _pluginsPath = "PlugIns"
+ 	
+ 	var app: AppInfoPresentable
+ 	@Binding var options: Options?
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index 79df058..80d351a 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -72,6 +72,8 @@ struct SigningView: View {
+ 				_cert()
+ 				_customizationProperties(for: app)
+ 			}
++			.scrollDismissesKeyboard(.interactively)
++			.onTapGesture { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+ 			.disabled(_isSigning)
+ 			.safeAreaInset(edge: .bottom) {
+ 				if !_isSigning {
+@@ -128,6 +130,11 @@ struct SigningView: View {
+ 			.animation(.smooth, value: _isSigning)
+ 		}
+ 		.onAppear {
++			if _outputFileName.isEmpty {
++				let name = (app.name ?? "App").replacingOccurrences(of: "/", with: "-")
++				let version = app.version.map { "_\($0)" } ?? ""
++				_outputFileName = "\(name)\(version).\(_outputFormat)"
++			}
+ 			// Certificate-signed apps need the embedded provisioning profile to install.
+ 			if !_temporaryOptions.doAdhocSigning && !_temporaryOptions.onlyModify {
+ 				_temporaryOptions.removeProvisioning = false
