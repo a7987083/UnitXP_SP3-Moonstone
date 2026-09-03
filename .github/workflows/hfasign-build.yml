@@ -25,8 +25,8 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0006-zonoe-alpha6-resource-actions-signing-fix.patch
           git -C HFASignBuild apply ../HFASign/patches/0007-zonoe-alpha7-import-zip-library.patch
           git -C HFASignBuild apply ../HFASign/patches/0008-zonoe-alpha8-udid-schemes-encrypted-sources.patch
-          git -C HFASignBuild apply ../HFASign/patches/0009-zonoe-alpha10-udid-zip-sources.patch
-          git -C HFASignBuild apply ../HFASign/patches/0010-zonoe-alpha10-compile-pending-validation.patch
+          git -C HFASignBuild apply ../HFASign/patches/0009-zonoe-alpha9-udid-zip-sources.patch
+          git -C HFASignBuild apply ../HFASign/patches/0010-zonoe-alpha9-compile-pending-validation.patch
           git -C HFASignBuild apply ../HFASign/patches/0011-zonoe-alpha10-source-zip-udid-fixes.patch
           git -C HFASignBuild submodule update --init --recursive
       - name: Apply zonoe icon
