@@ -15,6 +15,7 @@ jobs:
       - name: Prepare pinned Ksign source
         run: |
           set -euxo pipefail
+          exec > >(tee HFASign/prepare.log) 2>&1
           git clone https://github.com/Nyasami/Ksign.git HFASignBuild
           git -C HFASignBuild checkout 03a3a9c86897d79f9faf8106037b9971841d56a0
           git -C HFASignBuild apply ../HFASign/patches/0001-Rebrand-Ksign-baseline-as-HFASign-alpha1.patch
@@ -51,7 +52,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          tail -n 1200 HFASign/build.log > HFASign/BUILD_ERROR.txt 2>/dev/null || true
+          { tail -n 500 HFASign/prepare.log 2>/dev/null; tail -n 1200 HFASign/build.log 2>/dev/null; } > HFASign/BUILD_ERROR.txt || true
           git add -f HFASign/BUILD_ERROR.txt
           git commit -m "Publish zonoe alpha7 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
