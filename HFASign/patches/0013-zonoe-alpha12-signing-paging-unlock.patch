@@ -1,21 +1,21 @@
-From e3c37e23bdb9b31616001317c8cf94fa4e58238a Mon Sep 17 00:00:00 2001
+From a17e48cfad5f4ce8f2b5e5996a87bc02bdf952ac Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
 Date: Thu, 3 Sep 2026 23:17:35 +0300
 Subject: [PATCH] Add advanced signing rules native paging and source unlock
 
 ---
  Ksign/Backend/Observable/OptionsManager.swift |  57 ++++++++-
- .../Sources/SourceRepositoryLoader.swift      |  70 ++++++++++-
+ .../Sources/SourceRepositoryLoader.swift      |  92 ++++++++++++--
  Ksign/Utilities/Handlers/SigningHandler.swift |  49 ++++++++
- Ksign/Views/Library/LibraryView.swift         | 117 ++++++++----------
- .../Signing/Shared/AdvancedRuleViews.swift    |  81 ++++++++++++
+ Ksign/Views/Library/LibraryView.swift         | 118 ++++++++----------
+ .../Signing/Shared/AdvancedRuleViews.swift    |  97 ++++++++++++++
  .../Signing/Shared/SigningOptionsView.swift   |  21 ++++
  Ksign/Views/Signing/SigningView.swift         |  34 ++++-
  .../Apps/Detail/SourceAppsDetailView.swift    |   2 +-
  .../Sources/Apps/DownloadButtonView.swift     |  46 ++++++-
  .../Sources/Apps/SourceAppsCellView.swift     |   2 +-
  Ksign/Views/Sources/Apps/SourceAppsView.swift |   3 +
- 11 files changed, 402 insertions(+), 80 deletions(-)
+ 11 files changed, 439 insertions(+), 82 deletions(-)
  create mode 100644 Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
 
 diff --git a/Ksign/Backend/Observable/OptionsManager.swift b/Ksign/Backend/Observable/OptionsManager.swift
@@ -101,10 +101,10 @@ index ce433a6..c7f989d 100644
  	var localizedDescription: String { get }
  }
 diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
-index 520cdbe..8e00938 100644
+index 520cdbe..720f7ae 100644
 --- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
 +++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
-@@ -5,8 +5,52 @@ import CryptoKit
+@@ -5,8 +5,53 @@ import CryptoKit
  import SwiftUI
  import UIKit
  
@@ -154,10 +154,11 @@ index 520cdbe..8e00938 100644
  	static let shared = SourceRepositoryLoader()
 +	private let metadataLock = NSLock()
 +	private var metadataBySource: [String: SourceAccessMetadata] = [:]
++	private var sourceURLByRepositoryID: [String: URL] = [:]
  	private init() {}
  
  	func fetch(from url: URL, completion: @escaping (Result<ASRepository, Error>) -> Void) {
-@@ -22,12 +66,12 @@ final class SourceRepositoryLoader {
+@@ -22,12 +67,12 @@ final class SourceRepositoryLoader {
  			if let data {
  				do {
  					if self.looksLikeHTML(data) { throw LoaderError.htmlResponse }
@@ -172,7 +173,7 @@ index 520cdbe..8e00938 100644
  				completion(.success(repository))
  			} else { completion(.failure(latestError)) }
  		}.resume()
-@@ -62,19 +106,26 @@ final class SourceRepositoryLoader {
+@@ -62,19 +107,34 @@ final class SourceRepositoryLoader {
  
  	private func saveCache(_ data: Data, for url: URL) throws { try data.write(to: cacheURL(for: url), options: .atomic) }
  
@@ -181,6 +182,12 @@ index 520cdbe..8e00938 100644
 +		guard let sourceURL else { return nil }
 +		metadataLock.lock(); defer { metadataLock.unlock() }
 +		return metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString]
++	}
++
++	func sourceURL(for repository: ASRepository) -> URL? {
++		guard let id = repository.id else { return nil }
++		metadataLock.lock(); defer { metadataLock.unlock() }
++		return sourceURLByRepositoryID[id]
 +	}
 +
 +	private func decode(_ data: Data, sourceURL: URL) throws -> ASRepository {
@@ -194,7 +201,10 @@ index 520cdbe..8e00938 100644
  		}
 +		captureMetadata(object, for: sourceURL)
  		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
- 		return try decodeRepository(normalized, decoder: decoder)
+-		return try decodeRepository(normalized, decoder: decoder)
++		let repository = try decodeRepository(normalized, decoder: decoder)
++		registerSourceURL(sourceURL, for: repository)
++		return repository
  	}
  
 -	private func decodeEncrypted(_ encrypted: String, decoder: JSONDecoder) throws -> ASRepository {
@@ -202,26 +212,34 @@ index 520cdbe..8e00938 100644
  		var compact = encrypted.trimmingCharacters(in: .whitespacesAndNewlines)
  			.replacingOccurrences(of: "-", with: "+")
  			.replacingOccurrences(of: "_", with: "/")
-@@ -86,10 +137,19 @@ final class SourceRepositoryLoader {
+@@ -86,8 +146,26 @@ final class SourceRepositoryLoader {
  		let object: Any
  		do { object = try JSONSerialization.jsonObject(with: plain) }
  		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
 +		captureMetadata(object, for: sourceURL)
  		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
- 		return try decodeRepository(normalized, decoder: decoder)
- 	}
- 
+-		return try decodeRepository(normalized, decoder: decoder)
++		let repository = try decodeRepository(normalized, decoder: decoder)
++		registerSourceURL(sourceURL, for: repository)
++		return repository
++	}
++
++	private func registerSourceURL(_ sourceURL: URL, for repository: ASRepository) {
++		guard let id = repository.id else { return }
++		metadataLock.lock()
++		sourceURLByRepositoryID[id] = sourceURL
++		metadataLock.unlock()
++	}
++
 +	private func captureMetadata(_ object: Any, for sourceURL: URL) {
 +		guard let dictionary = object as? [String: Any] else { return }
 +		let pay = (dictionary["payURL"] as? String).flatMap(tolerantURLString)
 +		let unlock = (dictionary["unlockURL"] as? String).flatMap(tolerantURLString)
 +		let metadata = SourceAccessMetadata(payURL: pay.flatMap(URL.init(string:)), unlockURL: unlock.flatMap(URL.init(string:)))
 +		metadataLock.lock(); metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString] = metadata; metadataLock.unlock()
-+	}
-+
+ 	}
+ 
  	private func decodeRepository(_ data: Data, decoder: JSONDecoder) throws -> ASRepository {
- 		do {
- 			let repository = try decoder.decode(ASRepository.self, from: data)
 diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
 index 797c38c..740752a 100644
 --- a/Ksign/Utilities/Handlers/SigningHandler.swift
@@ -300,7 +318,7 @@ index 797c38c..740752a 100644
  	case appNotFound
  	case infoPlistNotFound
 diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
-index fbebb8f..99d3f02 100644
+index fbebb8f..e1bf3cb 100644
 --- a/Ksign/Views/Library/LibraryView.swift
 +++ b/Ksign/Views/Library/LibraryView.swift
 @@ -73,74 +73,15 @@ struct LibraryView: View {
@@ -383,7 +401,7 @@ index fbebb8f..99d3f02 100644
  	            .overlay {
  	                if _resourceTab == 0,
                      _filteredSignedApps.isEmpty,
-@@ -283,6 +224,48 @@ struct LibraryView: View {
+@@ -283,6 +224,49 @@ struct LibraryView: View {
  }
  
  extension LibraryView {
@@ -410,11 +428,12 @@ index fbebb8f..99d3f02 100644
 +			.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
 +	}
 +
-+	private func _fileResourcePage(tab: Int) -> some View {
-+		let files = _files(for: tab)
-+		return NBListAdaptable {
-+			NBSection(tab == 1 ? "Zip" : "动态库", secondary: files.count.description) {
-+				ForEach(files, id: \.self) { file in _resourceFileRow(file, tab: tab) }
++	@ViewBuilder private func _fileResourcePage(tab: Int) -> some View {
++		NBListAdaptable {
++			NBSection(tab == 1 ? "Zip" : "动态库", secondary: _files(for: tab).count.description) {
++				ForEach(_files(for: tab), id: \.self) { file in
++					_resourceFileRow(file, tab: tab)
++				}
 +			}
 +		}
 +	}
@@ -432,7 +451,7 @@ index fbebb8f..99d3f02 100644
  	private var _visibleResourceFiles: [URL] {
  		_resourceFiles.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
  	}
-@@ -299,12 +282,14 @@ extension LibraryView {
+@@ -299,12 +283,14 @@ extension LibraryView {
  			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
  	}
  
@@ -451,10 +470,10 @@ index fbebb8f..99d3f02 100644
  				Button { UIActivityViewController.show(activityItems: [file]) } label: { Image(systemName: "square.and.arrow.up") }
 diff --git a/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift b/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
 new file mode 100644
-index 0000000..7b51cd2
+index 0000000..b4c2095
 --- /dev/null
 +++ b/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,97 @@
 +import SwiftUI
 +
 +struct PackageNameRuleView: View {
@@ -477,8 +496,11 @@ index 0000000..7b51cd2
 +					ForEach(PackageNameRule.Separator.allCases) { Text($0.title).tag($0) }
 +				}.onChange(of: draft.separator) { _ in save() }
 +			}
-+			Section("预览") { Text(preview).font(.system(.body, design: .monospaced)).textSelection(.enabled) }
-+		} footer: { Text("未选择规则时沿用原文件名；手动修改输出文件名会覆盖本次规则。") }
++			Section {
++				Text(preview).font(.system(.body, design: .monospaced)).textSelection(.enabled)
++			} header: { Text("预览") } footer: {
++				Text("未选择规则时沿用原文件名；手动修改输出文件名会覆盖本次规则。")
++			}
 +		.navigationTitle("打包名字规则")
 +		.toolbar { EditButton() }
 +		.onAppear { draft = rule ?? PackageNameRule() }
@@ -501,7 +523,15 @@ index 0000000..7b51cd2
 +		List {
 +			ForEach($draft) { $item in
 +				Button { editing = item } label: {
-+					HStack { Toggle("", isOn: $item.isEnabled).labelsHidden(); VStack(alignment: .leading) { Text(item.keyPath.isEmpty ? "未设置 Key Path" : item.keyPath); Text("\(item.type.rawValue) · \(item.value)").font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
++					HStack {
++						Toggle("", isOn: $item.isEnabled).labelsHidden()
++						VStack(alignment: .leading) {
++							Text(item.keyPath.isEmpty ? "未设置 Key Path" : item.keyPath)
++							Text(item.type.rawValue + " · " + item.value).font(.caption).foregroundStyle(.secondary)
++						}
++						Spacer()
++						Image(systemName: "chevron.right").foregroundStyle(.tertiary)
++					}
 +				}.foregroundStyle(.primary)
 +			}
 +			.onDelete { draft.remove(atOffsets: $0); save() }
@@ -530,7 +560,12 @@ index 0000000..7b51cd2
 +				Picker("类型", selection: $rule.type) { ForEach(PlistMutationRule.ValueType.allCases) { Text($0.rawValue).tag($0) } }
 +				TextEditor(text: $rule.value).frame(minHeight: 120)
 +				Toggle("启用", isOn: $rule.isEnabled)
-+			} footer: { Text(rule.type == .array || rule.type == .dictionary ? "Array / Dictionary 使用 JSON 格式。Data 使用 Base64。" : "Bool 支持 true/false，Number 支持整数和小数。") }
++				Section {
++					EmptyView()
++				} footer: {
++					Text(rule.type == .array || rule.type == .dictionary ? "Array / Dictionary 使用 JSON 格式。Data 使用 Base64。" : "Bool 支持 true/false，Number 支持整数和小数。")
++				}
++			}
 +			.navigationTitle("编辑规则").navigationBarTitleDisplayMode(.inline)
 +			.toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { save(rule); dismiss() }.disabled(rule.keyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } }
 +		}
@@ -688,7 +723,7 @@ index 35be858..b559e53 100644
  					.lineLimit(2)
  					.frame(maxWidth: .infinity, alignment: .leading)
 diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
-index fbe0b6f..e017297 100644
+index fbe0b6f..ef9fdf6 100644
 --- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
 +++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
 @@ -9,13 +9,20 @@ import SwiftUI
@@ -738,7 +773,7 @@ index fbe0b6f..e017297 100644
 +		.alert("解锁失败", isPresented: Binding(get: { unlockError != nil }, set: { if !$0 { unlockError = nil } })) { Button("确定", role: .cancel) {} } message: { Text(unlockError ?? "未知错误") }
 +	}
 +
-+	private var sourceURL: URL? { source.sourceURL }
++	private var sourceURL: URL? { SourceRepositoryLoader.shared.sourceURL(for: source) }
 +	private func openPurchase() {
 +		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else { unlockError = "该软件源未提供解锁码获取地址"; return }
 +		if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { purchaseURL = url } else { UIApplication.shared.open(url) }
