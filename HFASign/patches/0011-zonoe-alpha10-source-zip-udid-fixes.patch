@@ -1,0 +1,461 @@
+From a253e3438fdde9fc08a293bcadf7f7ffda4ee430 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Thu, 3 Sep 2026 21:41:25 +0300
+Subject: [PATCH] Fix tolerant source URLs ZIP paths and UDID settings flow
+
+---
+ Ksign/Backend/Server/UDIDService.swift        |  48 +++++++
+ .../Sources/SourceRepositoryLoader.swift      | 120 +++++++++++++++++-
+ Ksign/FeatherApp.swift                        |  15 +--
+ Ksign/Utilities/SharedImportCoordinator.swift |   6 +-
+ Ksign/Views/Library/LibraryView.swift         |  82 +++++++++---
+ Ksign/Views/Settings/SettingsView.swift       |  22 ++--
+ 6 files changed, 244 insertions(+), 49 deletions(-)
+
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+index 978ad6b..3116923 100644
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -50,6 +50,54 @@ final class UDIDService {
+ 		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
+ 	}
+ 
++	func openProfileSettings() {
++		let candidates = [
++			"prefs:root=General&path=ManagedConfigurationList/PurgatoryInstallRequested",
++			"prefs:root=General&path=ManagedConfigurationList",
++			"App-Prefs:root=General&path=ManagedConfigurationList/PurgatoryInstallRequested",
++			"App-Prefs:root=General&path=ManagedConfigurationList"
++		]
++		DispatchQueue.main.async { self.openProfileSettings(candidates, at: 0) }
++	}
++
++	private func openProfileSettings(_ candidates: [String], at index: Int) {
++		guard index < candidates.count, let url = URL(string: candidates[index]) else {
++			showProfileSettingsFallback()
++			return
++		}
++		UIApplication.shared.open(url, options: [:]) { success in
++			DispatchQueue.main.async {
++				if !success { self.openProfileSettings(candidates, at: index + 1) }
++			}
++		}
++	}
++
++	private func showProfileSettingsFallback() {
++		let alert = UIAlertController(
++			title: "描述文件已下载",
++			message: "请前往“设置 → 通用 → VPN 与设备管理”，安装“获取本机 UDID”。",
++			preferredStyle: .alert
++		)
++		alert.addAction(UIAlertAction(title: "取消", style: .cancel))
++		alert.addAction(UIAlertAction(title: "打开设置", style: .default) { _ in
++			guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
++			UIApplication.shared.open(url)
++		})
++		guard let presenter = topViewController() else { return }
++		presenter.present(alert, animated: true)
++	}
++
++	private func topViewController(from controller: UIViewController? = nil) -> UIViewController? {
++		let root = controller ?? UIApplication.shared.connectedScenes
++			.compactMap { $0 as? UIWindowScene }
++			.flatMap(\.windows)
++			.first(where: \.isKeyWindow)?.rootViewController
++		if let navigation = root as? UINavigationController { return topViewController(from: navigation.visibleViewController) }
++		if let tab = root as? UITabBarController { return topViewController(from: tab.selectedViewController) }
++		if let presented = root?.presentedViewController { return topViewController(from: presented) }
++		return root
++	}
++
+ 	private func completePendingCallback(with udid: String) {
+ 		guard let value = UserDefaults.standard.string(forKey: Self.pendingCallbackKey),
+ 			  var components = URLComponents(string: value) else { return }
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 9917711..ae869af 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -106,19 +106,125 @@ final class SourceRepositoryLoader {
+ 		} catch { throw error }
+ 	}
+ 
+-	private func normalizeURLs(_ value: Any, key: String? = nil) -> Any {
++	private func normalizeURLs(_ value: Any, key: String? = nil, path: String = "") -> Any {
+ 		if let dictionary = value as? [String: Any] {
+ 			return dictionary.reduce(into: [String: Any]()) { result, pair in
+-				result[pair.key] = normalizeURLs(pair.value, key: pair.key)
++				let childPath = path.isEmpty ? pair.key : "\(path).\(pair.key)"
++				result[pair.key] = normalizeURLs(pair.value, key: pair.key, path: childPath)
+ 			}
+ 		}
+ 		if let array = value as? [Any] {
+-			let normalized = array.map { normalizeURLs($0, key: key) }
+-			return key?.localizedCaseInsensitiveContains("url") == true ? normalized.filter { !($0 is NSNull) } : normalized
++			let normalized = array.enumerated().map {
++				normalizeURLs($0.element, key: key, path: "\(path)[\($0.offset)]")
++			}
++			return isURLKey(key) ? normalized.filter { !($0 is NSNull) } : normalized
++		}
++		guard let string = value as? String, isURLKey(key) else { return value }
++		if let result = tolerantURLString(string) {
++			if result != string {
++				logNormalization(path: path, raw: string, result: result, action: "normalized")
++			}
++			return result
++		}
++		logNormalization(path: path, raw: string, result: nil, action: "dropped")
++		return NSNull()
++	}
++
++	private func isURLKey(_ key: String?) -> Bool {
++		key?.range(of: "url", options: [.caseInsensitive, .diacriticInsensitive]) != nil
++	}
++
++	private func tolerantURLString(_ raw: String) -> String? {
++		let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
++		guard !trimmed.isEmpty else { return nil }
++		if let components = URLComponents(string: trimmed),
++		   let scheme = components.scheme, !scheme.isEmpty,
++		   let url = components.url {
++			return url.absoluteString
++		}
++		guard let repaired = repairURLString(trimmed),
++			  let components = URLComponents(string: repaired),
++			  let scheme = components.scheme, !scheme.isEmpty,
++			  let url = components.url else { return nil }
++		return url.absoluteString
++	}
++
++	private func repairURLString(_ raw: String) -> String? {
++		guard let colon = raw.firstIndex(of: ":") else { return nil }
++		let scheme = String(raw[..<colon])
++		guard scheme.range(of: "^[A-Za-z][A-Za-z0-9+.-]*$", options: .regularExpression) != nil else { return nil }
++		var remainder = String(raw[raw.index(after: colon)...])
++		var fragment: String?
++		if let hash = remainder.firstIndex(of: "#") {
++			fragment = String(remainder[remainder.index(after: hash)...])
++			remainder = String(remainder[..<hash])
++		}
++		var query: String?
++		if let question = remainder.firstIndex(of: "?") {
++			query = String(remainder[remainder.index(after: question)...])
++			remainder = String(remainder[..<question])
++		}
++
++		var repaired = scheme + ":"
++		if remainder.hasPrefix("//") {
++			let hierarchical = String(remainder.dropFirst(2))
++			let slash = hierarchical.firstIndex(of: "/")
++			let authority = slash.map { String(hierarchical[..<$0]) } ?? hierarchical
++			let path = slash.map { String(hierarchical[$0...]) } ?? ""
++			guard !authority.isEmpty else { return nil }
++			repaired += "//" + percentEncode(authority, allowed: authorityAllowed)
++			repaired += percentEncode(path, allowed: pathAllowed)
++		} else {
++			repaired += percentEncode(remainder, allowed: pathAllowed)
++		}
++		if let query { repaired += "?" + percentEncode(query, allowed: queryAllowed) }
++		if let fragment { repaired += "#" + percentEncode(fragment, allowed: fragmentAllowed) }
++		return repaired
++	}
++
++	private var authorityAllowed: CharacterSet {
++		CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@[]")
++	}
++
++	private var pathAllowed: CharacterSet {
++		CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@/")
++	}
++
++	private var queryAllowed: CharacterSet {
++		CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@/?")
++	}
++
++	private var fragmentAllowed: CharacterSet { queryAllowed }
++
++	private func percentEncode(_ value: String, allowed: CharacterSet) -> String {
++		var result = ""
++		var index = value.startIndex
++		while index < value.endIndex {
++			if value[index] == "%" {
++				let first = value.index(after: index)
++				if first < value.endIndex {
++					let second = value.index(after: first)
++					if second < value.endIndex,
++					   "0123456789abcdefABCDEF".contains(value[first]),
++					   "0123456789abcdefABCDEF".contains(value[second]) {
++						result.append(contentsOf: value[index...second])
++						index = value.index(after: second)
++						continue
++					}
++				}
++			}
++			let next = value.index(after: index)
++			let token = String(value[index..<next])
++			result += token.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
++			index = next
+ 		}
+-		if let string = value as? String, string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+-			  key?.localizedCaseInsensitiveContains("url") == true { return NSNull() }
+-		return value
++		return result
++	}
++
++	private func logNormalization(path: String, raw: String, result: String?, action: String) {
++#if DEBUG
++		print("[SourceNormalizer] path: \(path)\nraw: \(raw)\nresult: \(result ?? "nil")\naction: \(action)")
++#endif
+ 	}
+ 
+ 	private func decryptDES(_ encrypted: Data) throws -> Data {
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 17ca612..6eaba81 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -21,6 +21,7 @@ struct FeatherApp: App {
+ 	@StateObject var operationProgress = OperationProgressManager.shared
+ 	@StateObject var sourceImportCoordinator = SourceImportCoordinator.shared
+ 	@State private var pendingUDIDProfileURL: URL?
++	@State private var isStartingUDID = false
+ 	let storage = Storage.shared
+ 
+ 	var body: some Scene {
+@@ -59,7 +60,7 @@ struct FeatherApp: App {
+ 				if let url = pendingUDIDProfileURL {
+ 					UDIDSafariView(url: url) {
+ 						pendingUDIDProfileURL = nil
+-						DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { _openProfileSettings() }
++						DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { UDIDService.shared.openProfileSettings() }
+ 					}.ignoresSafeArea()
+ 				}
+ 			}
+@@ -91,8 +92,11 @@ struct FeatherApp: App {
+ 		let callbackComponents = components?.queryItems?.first(where: { $0.name == "callback" })?.value.flatMap { URLComponents(string: $0) }
+ 		guard !udid.isEmpty else {
+ 			if let callback = callbackComponents?.url { UDIDService.shared.savePendingCallback(callback) }
++			guard !isStartingUDID, pendingUDIDProfileURL == nil else { return }
++			isStartingUDID = true
+ 			UDIDService.shared.start { result in
+ 				DispatchQueue.main.async {
++					isStartingUDID = false
+ 					switch result {
+ 					case .success(let profileURL): pendingUDIDProfileURL = profileURL
+ 					case .failure(let error): UIAlertController.showAlertWithOk(title: "无法启动 UDID 服务", message: error.localizedDescription)
+@@ -113,15 +117,6 @@ struct FeatherApp: App {
+ 		}
+ 	}
+ 
+-	private func _openProfileSettings() {
+-		let paths = ["prefs:root=General&path=ManagedConfigurationList/PurgatoryInstallRequested", "prefs:root=General&path=ManagedConfigurationList"]
+-		func open(_ index: Int) {
+-			guard index < paths.count, let url = URL(string: paths[index]) else { return }
+-			UIApplication.shared.open(url, options: [:]) { if !$0 { open(index + 1) } }
+-		}
+-		open(0)
+-	}
+-	
+ }
+ 
+ class AppDelegate: NSObject, UIApplicationDelegate {
+diff --git a/Ksign/Utilities/SharedImportCoordinator.swift b/Ksign/Utilities/SharedImportCoordinator.swift
+index ae60fac..a5689b7 100644
+--- a/Ksign/Utilities/SharedImportCoordinator.swift
++++ b/Ksign/Utilities/SharedImportCoordinator.swift
+@@ -81,7 +81,8 @@ final class SharedImportCoordinator {
+             .appendingPathComponent("zonoe-incoming", isDirectory: true)
+             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+-        let destination = directory.appendingPathComponent(source.lastPathComponent)
++		let sourceIsDirectory = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
++		let destination = directory.appendingPathComponent(source.lastPathComponent, isDirectory: sourceIsDirectory)
+         var coordinationError: NSError?
+         var copyError: Error?
+         let coordinator = NSFileCoordinator()
+@@ -156,7 +157,8 @@ final class SharedImportCoordinator {
+         progress.begin("正在导入文件", detail: source.lastPathComponent)
+         DispatchQueue.global(qos: .userInitiated).async {
+             do {
+-                if source.hasDirectoryPath {
++				let sourceIsDirectory = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
++				if sourceIsDirectory {
+                     try self.fileManager.copyItem(at: source, to: destination)
+                 } else {
+                     try self.copyFileWithProgress(source, to: destination)
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index dca141d..fbebb8f 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -454,7 +454,11 @@ private struct ZipContentsView: View {
+ 		DispatchQueue.global(qos: .userInitiated).async {
+ 			do {
+ 				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
+-				var paths = Set(archive.map(\.path))
++				var paths = Set<String>()
++				for entry in archive where entry.type != .symlink {
++					guard let relativePath = safeArchiveRelativePath(entry.path) else { continue }
++					paths.insert(entry.type == .directory ? relativePath + "/" : relativePath)
++				}
+ 				let archivedPaths = Array(paths)
+ 				for path in archivedPaths {
+ 					let components = path.split(separator: "/")
+@@ -477,19 +481,33 @@ private struct ZipContentsView: View {
+ 			do {
+ 				try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+ 				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
+-				let prefix = item.path.hasSuffix("/") ? item.path : item.path + "/"
+-				let selected = archive.filter { $0.path == item.path || (item.isDirectory && $0.path.hasPrefix(prefix)) }
++				let itemPath = item.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
++				let prefix = itemPath + "/"
++				var selected: [(entry: ZIPFoundation.Entry, relativePath: String)] = []
++				for entry in archive {
++					guard let relativePath = safeArchiveRelativePath(entry.path) else {
++						if item.isDirectory && looselyNormalizedArchivePath(entry.path).hasPrefix(prefix) {
++							throw ZipPreviewError.unsafePath(entry.path)
++						}
++						continue
++					}
++					let matches = relativePath == itemPath || (item.isDirectory && relativePath.hasPrefix(prefix))
++					guard matches else { continue }
++					guard entry.type != .symlink else { throw ZipPreviewError.symbolicLink(entry.path) }
++					selected.append((entry, relativePath))
++				}
+ 				guard !selected.isEmpty else { throw CocoaError(.fileNoSuchFile) }
+-				for entry in selected {
+-					let output = try safeOutputURL(for: entry.path, root: root)
++				for selectedEntry in selected {
++					let output = try safeOutputURL(for: selectedEntry.relativePath, root: root)
+ 					try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+-					_ = try archive.extract(entry, to: output)
++					_ = try archive.extract(selectedEntry.entry, to: output)
+ 				}
+-				let target = root.appendingPathComponent(item.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
++				let target = try safeOutputURL(for: itemPath, root: root)
++				let importTarget = item.isDirectory ? URL(fileURLWithPath: target.path, isDirectory: true) : target
+ 				DispatchQueue.main.async {
+ 					isExtracting = false
+-					SharedImportCoordinator.shared.receive(target)
+-					NotificationCenter.default.post(name: .init("zonoe.didImportFile"), object: target)
++					SharedImportCoordinator.shared.receive(importTarget)
++					try? FileManager.default.removeItem(at: root)
+ 				}
+ 			} catch {
+ 				try? FileManager.default.removeItem(at: root)
+@@ -498,11 +516,40 @@ private struct ZipContentsView: View {
+ 		}
+ 	}
+ 
+-	private func safeOutputURL(for entryPath: String, root: URL) throws -> URL {
+-		guard !entryPath.hasPrefix("/"), !entryPath.hasPrefix("\\") else { throw ZipPreviewError.unsafePath(entryPath) }
+-		let output = root.appendingPathComponent(entryPath).standardizedFileURL
+-		let rootPath = root.standardizedFileURL.path + "/"
+-		guard output.path.hasPrefix(rootPath) else { throw ZipPreviewError.unsafePath(entryPath) }
++	private func safeArchiveRelativePath(_ raw: String) -> String? {
++		guard !raw.isEmpty, !raw.contains("\0") else { return nil }
++		let slashPath = raw.replacingOccurrences(of: "\\", with: "/")
++		let lowercased = slashPath.lowercased()
++		guard !slashPath.hasPrefix("/"), !slashPath.hasPrefix("//"), !lowercased.hasPrefix("file://") else { return nil }
++		if slashPath.range(of: "^[A-Za-z]:($|/)", options: .regularExpression) != nil { return nil }
++
++		var components: [String] = []
++		for component in slashPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init) {
++			switch component {
++			case ".": continue
++			case "..":
++				guard !components.isEmpty else { return nil }
++				components.removeLast()
++			default: components.append(component)
++			}
++		}
++		guard !components.isEmpty else { return nil }
++		return components.joined(separator: "/")
++	}
++
++	private func looselyNormalizedArchivePath(_ raw: String) -> String {
++		var path = raw.replacingOccurrences(of: "\\", with: "/")
++		while path.hasPrefix("./") { path.removeFirst(2) }
++		while path.contains("//") { path = path.replacingOccurrences(of: "//", with: "/") }
++		return path
++	}
++
++	private func safeOutputURL(for relativePath: String, root: URL) throws -> URL {
++		guard let normalizedPath = safeArchiveRelativePath(relativePath) else { throw ZipPreviewError.unsafePath(relativePath) }
++		let standardizedRoot = root.standardizedFileURL
++		let output = standardizedRoot.appendingPathComponent(normalizedPath).standardizedFileURL
++		let rootBoundary = standardizedRoot.path.hasSuffix("/") ? standardizedRoot.path : standardizedRoot.path + "/"
++		guard output.path.hasPrefix(rootBoundary) else { throw ZipPreviewError.unsafePath(relativePath) }
+ 		return output
+ 	}
+ 
+@@ -514,9 +561,12 @@ private struct ZipContentsView: View {
+ }
+ 
+ private enum ZipPreviewError: LocalizedError {
+-	case unsafePath(String)
++	case unsafePath(String), symbolicLink(String)
+ 	var errorDescription: String? {
+-		switch self { case .unsafePath(let path): return "压缩包包含不安全路径：\(path)" }
++		switch self {
++		case .unsafePath(let path): return "压缩包包含不安全路径：\(path)"
++		case .symbolicLink(let path): return "为安全起见，不能导入符号链接：\(path)"
++		}
+ 	}
+ }
+ 
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index 4cda244..b071057 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -112,7 +112,7 @@ struct SettingsView: View {
+ 				if let url = _udidProfileURL {
+ 					UDIDSafariView(url: url) {
+ 						_udidProfileURL = nil
+-						DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { _openProfileSettings() }
++						DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { UDIDService.shared.openProfileSettings() }
+ 					}.ignoresSafeArea()
+ 				}
+ 			}
+@@ -131,8 +131,13 @@ struct UDIDSafariView: UIViewControllerRepresentable {
+ 	func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+ 	final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+ 		let onDone: () -> Void
++		private var didFinish = false
+ 		init(onDone: @escaping () -> Void) { self.onDone = onDone }
+-		func safariViewControllerDidFinish(_ controller: SFSafariViewController) { onDone() }
++		func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
++			guard !didFinish else { return }
++			didFinish = true
++			controller.dismiss(animated: true) { self.onDone() }
++		}
+ 	}
+ }
+ 
+@@ -140,6 +145,7 @@ struct UDIDSafariView: UIViewControllerRepresentable {
+ // MARK: - View extension
+ extension SettingsView {
+ 	private func _startUDID() {
++		guard !_isStartingUDID, _udidProfileURL == nil else { return }
+ 		_isStartingUDID = true
+ 		UDIDService.shared.start { result in
+ 			DispatchQueue.main.async {
+@@ -152,18 +158,6 @@ extension SettingsView {
+ 			}
+ 		}
+ 
+-	private func _openProfileSettings() {
+-		let paths = [
+-			"prefs:root=General&path=ManagedConfigurationList/PurgatoryInstallRequested",
+-			"prefs:root=General&path=ManagedConfigurationList"
+-		]
+-		func open(_ index: Int) {
+-			guard index < paths.count, let url = URL(string: paths[index]) else { return }
+-			UIApplication.shared.open(url, options: [:]) { success in if !success { open(index + 1) } }
+-		}
+-		open(0)
+-	}
+-
+ 	@ViewBuilder
+ 	private func _feedback() -> some View {
+ 		Section {
+-- 
+2.51.1
+
