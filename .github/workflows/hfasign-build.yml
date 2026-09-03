@@ -22,7 +22,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0003-HFASign-alpha3-detailed-signing-and-import-fixes.patch
           git -C HFASignBuild apply ../HFASign/patches/0004-zonoe-alpha4-incremental.patch
           git -C HFASignBuild apply ../HFASign/patches/0005-zonoe-alpha5-import-resources-signing-ui.patch
-          git -C HFASignBuild apply ../HFASign/patches/0006-zonoe-alpha7-resource-actions-signing-fix.patch
+          git -C HFASignBuild apply ../HFASign/patches/0006-zonoe-alpha6-resource-actions-signing-fix.patch
           git -C HFASignBuild apply ../HFASign/patches/0007-zonoe-alpha7-import-zip-library.patch
           git -C HFASignBuild submodule update --init --recursive
       - name: Apply zonoe icon
