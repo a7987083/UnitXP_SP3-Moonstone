@@ -1,4 +1,4 @@
-From a17e48cfad5f4ce8f2b5e5996a87bc02bdf952ac Mon Sep 17 00:00:00 2001
+From 9090af849263176f99f4995cef325243e40171bd Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
 Date: Thu, 3 Sep 2026 23:17:35 +0300
 Subject: [PATCH] Add advanced signing rules native paging and source unlock
@@ -8,14 +8,14 @@ Subject: [PATCH] Add advanced signing rules native paging and source unlock
  .../Sources/SourceRepositoryLoader.swift      |  92 ++++++++++++--
  Ksign/Utilities/Handlers/SigningHandler.swift |  49 ++++++++
  Ksign/Views/Library/LibraryView.swift         | 118 ++++++++----------
- .../Signing/Shared/AdvancedRuleViews.swift    |  97 ++++++++++++++
+ .../Signing/Shared/AdvancedRuleViews.swift    | 103 +++++++++++++++
  .../Signing/Shared/SigningOptionsView.swift   |  21 ++++
  Ksign/Views/Signing/SigningView.swift         |  34 ++++-
  .../Apps/Detail/SourceAppsDetailView.swift    |   2 +-
  .../Sources/Apps/DownloadButtonView.swift     |  46 ++++++-
  .../Sources/Apps/SourceAppsCellView.swift     |   2 +-
  Ksign/Views/Sources/Apps/SourceAppsView.swift |   3 +
- 11 files changed, 439 insertions(+), 82 deletions(-)
+ 11 files changed, 445 insertions(+), 82 deletions(-)
  create mode 100644 Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
 
 diff --git a/Ksign/Backend/Observable/OptionsManager.swift b/Ksign/Backend/Observable/OptionsManager.swift
@@ -470,10 +470,10 @@ index fbebb8f..e1bf3cb 100644
  				Button { UIActivityViewController.show(activityItems: [file]) } label: { Image(systemName: "square.and.arrow.up") }
 diff --git a/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift b/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
 new file mode 100644
-index 0000000..b4c2095
+index 0000000..66b01f9
 --- /dev/null
 +++ b/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,103 @@
 +import SwiftUI
 +
 +struct PackageNameRuleView: View {
@@ -501,6 +501,7 @@ index 0000000..b4c2095
 +			} header: { Text("预览") } footer: {
 +				Text("未选择规则时沿用原文件名；手动修改输出文件名会覆盖本次规则。")
 +			}
++		}
 +		.navigationTitle("打包名字规则")
 +		.toolbar { EditButton() }
 +		.onAppear { draft = rule ?? PackageNameRule() }
@@ -536,7 +537,12 @@ index 0000000..b4c2095
 +			}
 +			.onDelete { draft.remove(atOffsets: $0); save() }
 +			.onMove { draft.move(fromOffsets: $0, toOffset: $1); save() }
-+		} footer: { Text("支持点分隔 Key Path 和数组下标；规则在标准修改后执行，因此可以覆盖名称、Bundle ID 等值。") }
++			Section {
++				EmptyView()
++			} footer: {
++				Text("支持点分隔 Key Path 和数组下标；规则在标准修改后执行，因此可以覆盖名称、Bundle ID 等值。")
++			}
++		}
 +		.navigationTitle("Info.plist 规则")
 +		.toolbar { ToolbarItemGroup(placement: .topBarTrailing) { EditButton(); Button { editing = PlistMutationRule() } label: { Image(systemName: "plus") } } }
 +		.sheet(item: $editing) { item in PlistRuleEditor(rule: item) { updated in
