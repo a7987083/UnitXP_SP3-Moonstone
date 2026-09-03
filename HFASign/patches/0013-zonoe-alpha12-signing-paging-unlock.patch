@@ -1,0 +1,788 @@
+From 9f97e5909b8334cfeeac8e22a6213876006903c0 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Thu, 3 Sep 2026 23:17:35 +0300
+Subject: [PATCH] Add advanced signing rules native paging and source unlock
+
+---
+ Ksign/Backend/Observable/OptionsManager.swift |  57 ++++++++-
+ .../Sources/SourceRepositoryLoader.swift      |  70 ++++++++++-
+ Ksign/Utilities/Handlers/SigningHandler.swift |  49 ++++++++
+ Ksign/Views/Library/LibraryView.swift         | 117 ++++++++----------
+ .../Signing/Shared/AdvancedRuleViews.swift    |  81 ++++++++++++
+ .../Signing/Shared/SigningOptionsView.swift   |  21 ++++
+ Ksign/Views/Signing/SigningView.swift         |  34 ++++-
+ .../Sources/Apps/DownloadButtonView.swift     |  46 ++++++-
+ .../Sources/Apps/SourceAppsCellView.swift     |   2 +-
+ Ksign/Views/Sources/Apps/SourceAppsView.swift |   3 +
+ 10 files changed, 401 insertions(+), 79 deletions(-)
+ create mode 100644 Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
+
+diff --git a/Ksign/Backend/Observable/OptionsManager.swift b/Ksign/Backend/Observable/OptionsManager.swift
+index ce433a6..c7f989d 100644
+--- a/Ksign/Backend/Observable/OptionsManager.swift
++++ b/Ksign/Backend/Observable/OptionsManager.swift
+@@ -123,6 +123,13 @@ struct Options: Codable, Equatable {
+ 	var injectPath: InjectPath
+ 	/// Inject folder (i.e. `Frameworks/`)
+ 	var injectFolder: InjectFolder
++	/// Optional advanced packaging and mutation settings. Optional keeps old saved Options decodable.
++	var packageNameRule: PackageNameRule?
++	var plistRules: [PlistMutationRule]?
++	var autoInstallAfterSigning: Bool?
++	var keychainIsolation: Bool?
++	var fixDarkIcon: Bool?
++	var fixWhiteIcon: Bool?
+ 	// default
+ 	static let defaultOptions = Options(
+ 		appAppearance: "Default",
+@@ -161,7 +168,13 @@ struct Options: Codable, Equatable {
+         saveAppStoreDownloadsToDownloadsFolder: true,
+ 		injectIntoExtensions: true,
+ 		injectPath: .executable_path,
+-		injectFolder: .frameworks
++		injectFolder: .frameworks,
++		packageNameRule: nil,
++		plistRules: nil,
++		autoInstallAfterSigning: false,
++		keychainIsolation: false,
++		fixDarkIcon: false,
++		fixWhiteIcon: false
+ 	)
+ 	// extraction library values
+ 	static let extractionLibraryValues = ["Zip", "ZIPFoundation"]
+@@ -187,6 +200,48 @@ struct Options: Codable, Equatable {
+ 	}
+ }
+ 
++struct PackageNameRule: Codable, Equatable {
++	var components: [Component] = []
++	var separator: Separator = .underscore
++
++	enum Component: String, Codable, CaseIterable, Identifiable {
++		case name, version, bundleID, certificate, timestamp
++		var id: String { rawValue }
++		var title: String {
++			switch self { case .name: return "名称"; case .version: return "版本号"; case .bundleID: return "Bundle ID"; case .certificate: return "证书名称"; case .timestamp: return "时间戳" }
++		}
++	}
++	enum Separator: String, Codable, CaseIterable, Identifiable {
++		case underscore = "_", hyphen = "-", space = " ", none = ""
++		var id: String { rawValue }
++		var title: String { rawValue.isEmpty ? "无" : rawValue == " " ? "空格" : rawValue }
++	}
++
++	func fileName(name: String, version: String, bundleID: String, certificate: String, date: Date = Date()) -> String? {
++		guard !components.isEmpty else { return nil }
++		let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd_HHmmss"
++		let values = components.map { component -> String in
++			switch component { case .name: return name; case .version: return version; case .bundleID: return bundleID; case .certificate: return certificate; case .timestamp: return formatter.string(from: date) }
++		}
++		let invalid = CharacterSet(charactersIn: "/\\:*?\"<>|\n\r\t")
++		return values.map { $0.components(separatedBy: invalid).joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines) }
++			.filter { !$0.isEmpty }.joined(separator: separator.rawValue)
++	}
++}
++
++struct PlistMutationRule: Codable, Equatable, Identifiable {
++	var id = UUID()
++	var keyPath = ""
++	var type: ValueType = .string
++	var value = ""
++	var isEnabled = true
++
++	enum ValueType: String, Codable, CaseIterable, Identifiable {
++		case string = "String", bool = "Bool", number = "Number", array = "Array", dictionary = "Dictionary", data = "Data"
++		var id: String { rawValue }
++	}
++}
++
+ protocol LocalizedDescribable {
+ 	var localizedDescription: String { get }
+ }
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 520cdbe..8e00938 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -5,8 +5,52 @@ import CryptoKit
+ import SwiftUI
+ import UIKit
+ 
++struct SourceAccessMetadata: Equatable {
++	let payURL: URL?
++	let unlockURL: URL?
++}
++
++final class SourceUnlockService {
++	static let shared = SourceUnlockService()
++	private init() {}
++
++	func unlock(sourceURL: URL, code: String, completion: @escaping (Result<String, Error>) -> Void) {
++		guard let metadata = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL), let endpoint = metadata.unlockURL else {
++			completion(.failure(UnlockError.missingEndpoint)); return
++		}
++		guard let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID"), !udid.isEmpty else {
++			completion(.failure(UnlockError.missingUDID)); return
++		}
++		let cleanCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
++		guard !cleanCode.isEmpty else { completion(.failure(UnlockError.emptyCode)); return }
++		guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { completion(.failure(UnlockError.invalidEndpoint)); return }
++		var items = components.queryItems ?? []
++		items.removeAll { ["udid", "code"].contains($0.name.lowercased()) }
++		items.append(URLQueryItem(name: "udid", value: udid)); items.append(URLQueryItem(name: "code", value: cleanCode)); components.queryItems = items
++		guard let url = components.url else { completion(.failure(UnlockError.invalidEndpoint)); return }
++		URLSession.shared.dataTask(with: url) { data, response, error in
++			if let error { completion(.failure(error)); return }
++			if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) { completion(.failure(UnlockError.http(http.statusCode))); return }
++			guard let data else { completion(.failure(UnlockError.invalidResponse)); return }
++			let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
++			let message = (object?["msg"] as? String) ?? (object?["message"] as? String) ?? String(data: data, encoding: .utf8) ?? ""
++			let success = message.lowercased().contains("success") || message.lowercased().contains("ok") || message.contains("成功") || (object?["success"] as? Bool == true)
++			completion(success ? .success(message) : .failure(UnlockError.server(message.isEmpty ? "解锁失败" : message)))
++		}.resume()
++	}
++
++	enum UnlockError: LocalizedError {
++		case missingEndpoint, missingUDID, emptyCode, invalidEndpoint, invalidResponse, http(Int), server(String)
++		var errorDescription: String? { switch self {
++		case .missingEndpoint: return "该软件源未提供解锁接口"; case .missingUDID: return "请先在设置中获取本机 UDID"; case .emptyCode: return "请输入解锁码"; case .invalidEndpoint: return "软件源解锁接口无效"; case .invalidResponse: return "解锁服务器没有返回有效数据"; case .http(let code): return "解锁服务器返回 HTTP \(code)"; case .server(let message): return message
++		} }
++	}
++}
++
+ final class SourceRepositoryLoader {
+ 	static let shared = SourceRepositoryLoader()
++	private let metadataLock = NSLock()
++	private var metadataBySource: [String: SourceAccessMetadata] = [:]
+ 	private init() {}
+ 
+ 	func fetch(from url: URL, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+@@ -22,12 +66,12 @@ final class SourceRepositoryLoader {
+ 			if let data {
+ 				do {
+ 					if self.looksLikeHTML(data) { throw LoaderError.htmlResponse }
+-					let repository = try self.decode(data)
++					let repository = try self.decode(data, sourceURL: url)
+ 					try? self.saveCache(data, for: url)
+ 					completion(.success(repository)); return
+ 				} catch { latestError = error; self.log(error, url: requestURL) }
+ 			}
+-			if let cached = try? Data(contentsOf: self.cacheURL(for: url)), let repository = try? self.decode(cached) {
++			if let cached = try? Data(contentsOf: self.cacheURL(for: url)), let repository = try? self.decode(cached, sourceURL: url) {
+ 				completion(.success(repository))
+ 			} else { completion(.failure(latestError)) }
+ 		}.resume()
+@@ -62,19 +106,26 @@ final class SourceRepositoryLoader {
+ 
+ 	private func saveCache(_ data: Data, for url: URL) throws { try data.write(to: cacheURL(for: url), options: .atomic) }
+ 
+-	private func decode(_ data: Data) throws -> ASRepository {
++	func accessMetadata(for sourceURL: URL?) -> SourceAccessMetadata? {
++		guard let sourceURL else { return nil }
++		metadataLock.lock(); defer { metadataLock.unlock() }
++		return metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString]
++	}
++
++	private func decode(_ data: Data, sourceURL: URL) throws -> ASRepository {
+ 		let decoder = JSONDecoder()
+ 		let object: Any
+ 		do { object = try JSONSerialization.jsonObject(with: data) }
+ 		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+ 		if let wrapper = object as? [String: Any], let encrypted = wrapper["appstore"] as? String {
+-			return try decodeEncrypted(encrypted, decoder: decoder)
++			return try decodeEncrypted(encrypted, decoder: decoder, sourceURL: sourceURL)
+ 		}
++		captureMetadata(object, for: sourceURL)
+ 		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
+ 		return try decodeRepository(normalized, decoder: decoder)
+ 	}
+ 
+-	private func decodeEncrypted(_ encrypted: String, decoder: JSONDecoder) throws -> ASRepository {
++	private func decodeEncrypted(_ encrypted: String, decoder: JSONDecoder, sourceURL: URL) throws -> ASRepository {
+ 		var compact = encrypted.trimmingCharacters(in: .whitespacesAndNewlines)
+ 			.replacingOccurrences(of: "-", with: "+")
+ 			.replacingOccurrences(of: "_", with: "/")
+@@ -86,10 +137,19 @@ final class SourceRepositoryLoader {
+ 		let object: Any
+ 		do { object = try JSONSerialization.jsonObject(with: plain) }
+ 		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
++		captureMetadata(object, for: sourceURL)
+ 		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
+ 		return try decodeRepository(normalized, decoder: decoder)
+ 	}
+ 
++	private func captureMetadata(_ object: Any, for sourceURL: URL) {
++		guard let dictionary = object as? [String: Any] else { return }
++		let pay = (dictionary["payURL"] as? String).flatMap(tolerantURLString)
++		let unlock = (dictionary["unlockURL"] as? String).flatMap(tolerantURLString)
++		let metadata = SourceAccessMetadata(payURL: pay.flatMap(URL.init(string:)), unlockURL: unlock.flatMap(URL.init(string:)))
++		metadataLock.lock(); metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString] = metadata; metadataLock.unlock()
++	}
++
+ 	private func decodeRepository(_ data: Data, decoder: JSONDecoder) throws -> ASRepository {
+ 		do {
+ 			let repository = try decoder.decode(ASRepository.self, from: data)
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+index 797c38c..740752a 100644
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -197,6 +197,11 @@ extension SigningHandler {
+ 		if options.removeURLScheme { infoDictionary.removeObject(forKey: "CFBundleURLTypes") }
+ 		if options.experiment_supportLiquidGlass {infoDictionary.removeObject(forKey: "UIDesignRequiresCompatibility") }
+ 		if options.experiment_disableLiquidGlass { infoDictionary.setObject(true, forKey: "UIDesignRequiresCompatibility" as NSCopying) }	
++		if options.fixDarkIcon == true { infoDictionary.removeObject(forKey: "UIPrerenderedIcon") }
++		if options.fixWhiteIcon == true {
++			infoDictionary.removeObject(forKey: "CFBundleIconName")
++			infoDictionary.removeObject(forKey: "UIPrerenderedIcon")
++		}
+ 		
+ 		// these are for picker arrays, we check if the default option is named "默认" before applying
+ 		if options.appAppearance != Options.defaultOptions.appAppearance {
+@@ -220,9 +225,46 @@ extension SigningHandler {
+ 				infoDictionary.setObject(customVersion, forKey: "CFBundleVersion" as NSCopying)
+ 			}
+ 		}
++
++		for rule in (options.plistRules ?? []).filter(\.isEnabled) {
++			do { try applyPlistRule(rule, to: infoDictionary) }
++			catch { throw PlistMutationError.invalidRule(rule.keyPath, error.localizedDescription) }
++		}
+ 		
+ 		try infoDictionary.write(to: app.appendingPathComponent("Info.plist"))
+ 	}
++
++	private func applyPlistRule(_ rule: PlistMutationRule, to root: NSMutableDictionary) throws {
++		let path = rule.keyPath.trimmingCharacters(in: .whitespacesAndNewlines)
++		guard !path.isEmpty else { throw PlistMutationError.invalidValue("Key Path 为空") }
++		let value: Any
++		switch rule.type {
++		case .string: value = rule.value
++		case .bool:
++			guard let bool = Bool(rule.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else { throw PlistMutationError.invalidValue("Bool 必须是 true 或 false") }
++			value = bool
++		case .number:
++			guard let number = NumberFormatter().number(from: rule.value) else { throw PlistMutationError.invalidValue("Number 格式错误") }
++			value = number
++		case .data:
++			guard let data = Data(base64Encoded: rule.value.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw PlistMutationError.invalidValue("Data 必须是 Base64") }
++			value = data
++		case .array, .dictionary:
++			guard let data = rule.value.data(using: .utf8) else { throw PlistMutationError.invalidValue("JSON 编码错误") }
++			let json = try JSONSerialization.jsonObject(with: data)
++			guard (rule.type == .array && json is [Any]) || (rule.type == .dictionary && json is [String: Any]) else { throw PlistMutationError.invalidValue("值与所选类型不符") }
++			value = json
++		}
++		let components = path.split(separator: ".").map(String.init)
++		guard let last = components.last else { throw PlistMutationError.invalidValue("Key Path 无效") }
++		var dictionary = root
++		for key in components.dropLast() {
++			if let existing = dictionary[key] as? NSMutableDictionary { dictionary = existing }
++			else if let existing = dictionary[key] as? [String: Any] { let mutable = NSMutableDictionary(dictionary: existing); dictionary[key] = mutable; dictionary = mutable }
++			else { let mutable = NSMutableDictionary(); dictionary[key] = mutable; dictionary = mutable }
++		}
++		dictionary[last] = value
++	}
+ 	
+ 	private func _modifyDict(using infoDictionary: NSMutableDictionary, for image: UIImage, to app: URL) async throws {
+ 		let imageSizes = [
+@@ -357,6 +399,13 @@ extension SigningHandler {
+     }
+ }
+ 
++private enum PlistMutationError: LocalizedError {
++	case invalidValue(String), invalidRule(String, String)
++	var errorDescription: String? {
++		switch self { case .invalidValue(let message): return message; case .invalidRule(let key, let message): return "Info.plist 规则 \(key) 失败：\(message)" }
++	}
++}
++
+ enum SigningFileHandlerError: Error, LocalizedError {
+ 	case appNotFound
+ 	case infoPlistNotFound
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index fbebb8f..99d3f02 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -73,74 +73,15 @@ struct LibraryView: View {
+ 	// MARK: Body
+     var body: some View {
+ 		NBNavigationView("") {
+-			VStack(spacing: 0) {
+-				if _resourceTab == 0 {
+-				Picker("", selection: $_selectedTab) {
+-					Text("未签名").tag(0)
+-					Text(.localized("已签名应用")).tag(1)
+-				}
+-				.pickerStyle(SegmentedPickerStyle())
+-				.padding(.horizontal)
+-				.padding(.vertical, 8)
+-				}
+-				
+-				NBListAdaptable {
+-					if _resourceTab != 0 {
+-						NBSection(_resourceTab == 1 ? "Zip" : "动态库", secondary: _visibleResourceFiles.count.description) {
+-							ForEach(_visibleResourceFiles, id: \.self) { file in
+-								_resourceFileRow(file)
+-							}
+-						}
+-					} else if _selectedTab == 0 {
+-						NBSection(
+-							"未签名",
+-							secondary: _filteredImportedApps.count.description
+-						) {
+-							ForEach(_filteredImportedApps, id: \.uuid) { app in
+-								LibraryCellView(
+-									app: app,
+-									selectedInfoAppPresenting: $_selectedInfoAppPresenting,
+-									selectedSigningAppPresenting: $_selectedSigningAppPresenting,
+-									selectedInstallAppPresenting: $_selectedInstallAppPresenting,
+-									selectedAppDylibsPresenting: $_selectedAppDylibsPresenting,
+-									selectedApps: $_selectedApps
+-								)
+-								.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+-							}
+-						}
+-					} else {
+-						NBSection(
+-							.localized("已签名应用"),
+-							secondary: _filteredSignedApps.count.description
+-						) {
+-							ForEach(_filteredSignedApps, id: \.uuid) { app in
+-								LibraryCellView(
+-									app: app,
+-									selectedInfoAppPresenting: $_selectedInfoAppPresenting,
+-									selectedSigningAppPresenting: $_selectedSigningAppPresenting,
+-									selectedInstallAppPresenting: $_selectedInstallAppPresenting,
+-									selectedAppDylibsPresenting: $_selectedAppDylibsPresenting,
+-									selectedApps: $_selectedApps
+-								)
+-								.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+-							}
+-						}
+-					}
+-				}
++			TabView(selection: $_resourceTab) {
++				_appResourcePage.tag(0)
++				_fileResourcePage(tab: 1).tag(1)
++				_fileResourcePage(tab: 2).tag(2)
+ 			}
++			.tabViewStyle(.page(indexDisplayMode: .never))
+ 			.overlay(alignment: .bottomTrailing) {
+ 				if _resourceTab == 0 { _selectionControl.padding(18) }
+ 			}
+-			.contentShape(Rectangle())
+-			.simultaneousGesture(
+-				DragGesture(minimumDistance: 45).onEnded { value in
+-					guard abs(value.translation.width) > abs(value.translation.height) else { return }
+-					withAnimation(.snappy) {
+-						if value.translation.width < 0 { _resourceTab = min(2, _resourceTab + 1) }
+-						else { _resourceTab = max(0, _resourceTab - 1) }
+-					}
+-				}
+-			)
+ 	            .overlay {
+ 	                if _resourceTab == 0,
+                     _filteredSignedApps.isEmpty,
+@@ -283,6 +224,48 @@ struct LibraryView: View {
+ }
+ 
+ extension LibraryView {
++	private var _appResourcePage: some View {
++		VStack(spacing: 0) {
++			Picker("", selection: $_selectedTab) { Text("未签名").tag(0); Text(.localized("已签名应用")).tag(1) }
++				.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
++			NBListAdaptable {
++				if _selectedTab == 0 {
++					NBSection("未签名", secondary: _filteredImportedApps.count.description) {
++						ForEach(_filteredImportedApps, id: \.uuid) { app in _appRow(app) }
++					}
++				} else {
++					NBSection(.localized("已签名应用"), secondary: _filteredSignedApps.count.description) {
++						ForEach(_filteredSignedApps, id: \.uuid) { app in _appRow(app) }
++					}
++				}
++			}
++		}
++	}
++
++	@ViewBuilder private func _appRow(_ app: AppInfoPresentable) -> some View {
++		LibraryCellView(app: app, selectedInfoAppPresenting: $_selectedInfoAppPresenting, selectedSigningAppPresenting: $_selectedSigningAppPresenting, selectedInstallAppPresenting: $_selectedInstallAppPresenting, selectedAppDylibsPresenting: $_selectedAppDylibsPresenting, selectedApps: $_selectedApps)
++			.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
++	}
++
++	private func _fileResourcePage(tab: Int) -> some View {
++		let files = _files(for: tab)
++		return NBListAdaptable {
++			NBSection(tab == 1 ? "Zip" : "动态库", secondary: files.count.description) {
++				ForEach(files, id: \.self) { file in _resourceFileRow(file, tab: tab) }
++			}
++		}
++	}
++
++	private func _files(for tab: Int) -> [URL] {
++		let fm = FileManager.default
++		let legacyImports = URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
++		let roots = tab == 1 ? [fm.zipFiles, legacyImports, fm.archives] : [fm.tweaks]
++		return roots.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] }
++			.filter { tab == 1 ? $0.pathExtension.lowercased() == "zip" : ["dylib", "framework", "deb", "bundle"].contains($0.pathExtension.lowercased()) }
++			.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
++			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
++	}
++
+ 	private var _visibleResourceFiles: [URL] {
+ 		_resourceFiles.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
+ 	}
+@@ -299,12 +282,14 @@ extension LibraryView {
+ 			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+ 	}
+ 
+-	@ViewBuilder private func _resourceFileRow(_ file: URL) -> some View {
++	@ViewBuilder private func _resourceFileRow(_ file: URL, tab: Int? = nil) -> some View {
++		let rowTab = tab ?? _resourceTab
+ 		Button {
++			_resourceTab = rowTab
+ 			_actionFile = file
+ 		} label: {
+ 			HStack(spacing: 12) {
+-				Image(systemName: _selectedResourceFiles.contains(file) ? "checkmark.circle.fill" : (_resourceTab == 1 ? "archivebox.fill" : "shippingbox.fill"))
++				Image(systemName: _selectedResourceFiles.contains(file) ? "checkmark.circle.fill" : (rowTab == 1 ? "archivebox.fill" : "shippingbox.fill"))
+ 					.foregroundStyle(_selectedResourceFiles.contains(file) ? Color.accentColor : Color.secondary)
+ 				Text(file.lastPathComponent).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+ 				Button { UIActivityViewController.show(activityItems: [file]) } label: { Image(systemName: "square.and.arrow.up") }
+diff --git a/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift b/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
+new file mode 100644
+index 0000000..7b51cd2
+--- /dev/null
++++ b/Ksign/Views/Signing/Shared/AdvancedRuleViews.swift
+@@ -0,0 +1,81 @@
++import SwiftUI
++
++struct PackageNameRuleView: View {
++	@Binding var rule: PackageNameRule?
++	let previewValues: (name: String, version: String, bundleID: String, certificate: String)
++	@State private var draft = PackageNameRule()
++
++	var body: some View {
++		List {
++			Section("组合字段（按选择顺序）") {
++				ForEach(PackageNameRule.Component.allCases) { component in
++					Button { toggle(component) } label: {
++						HStack { Text(component.title); Spacer(); if draft.components.contains(component) { Image(systemName: "checkmark.circle.fill") } }
++					}.foregroundStyle(.primary)
++				}
++				.onMove { draft.components.move(fromOffsets: $0, toOffset: $1); save() }
++			}
++			Section("连接符") {
++				Picker("连接符", selection: $draft.separator) {
++					ForEach(PackageNameRule.Separator.allCases) { Text($0.title).tag($0) }
++				}.onChange(of: draft.separator) { _ in save() }
++			}
++			Section("预览") { Text(preview).font(.system(.body, design: .monospaced)).textSelection(.enabled) }
++		} footer: { Text("未选择规则时沿用原文件名；手动修改输出文件名会覆盖本次规则。") }
++		.navigationTitle("打包名字规则")
++		.toolbar { EditButton() }
++		.onAppear { draft = rule ?? PackageNameRule() }
++	}
++
++	private var preview: String { (draft.fileName(name: previewValues.name, version: previewValues.version, bundleID: previewValues.bundleID, certificate: previewValues.certificate) ?? previewValues.name) + ".ipa" }
++	private func toggle(_ component: PackageNameRule.Component) {
++		if let index = draft.components.firstIndex(of: component) { draft.components.remove(at: index) } else { draft.components.append(component) }
++		save()
++	}
++	private func save() { rule = draft.components.isEmpty ? nil : draft }
++}
++
++struct PlistRulesView: View {
++	@Binding var rules: [PlistMutationRule]?
++	@State private var draft: [PlistMutationRule] = []
++	@State private var editing: PlistMutationRule?
++
++	var body: some View {
++		List {
++			ForEach($draft) { $item in
++				Button { editing = item } label: {
++					HStack { Toggle("", isOn: $item.isEnabled).labelsHidden(); VStack(alignment: .leading) { Text(item.keyPath.isEmpty ? "未设置 Key Path" : item.keyPath); Text("\(item.type.rawValue) · \(item.value)").font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
++				}.foregroundStyle(.primary)
++			}
++			.onDelete { draft.remove(atOffsets: $0); save() }
++			.onMove { draft.move(fromOffsets: $0, toOffset: $1); save() }
++		} footer: { Text("支持点分隔 Key Path 和数组下标；规则在标准修改后执行，因此可以覆盖名称、Bundle ID 等值。") }
++		.navigationTitle("Info.plist 规则")
++		.toolbar { ToolbarItemGroup(placement: .topBarTrailing) { EditButton(); Button { editing = PlistMutationRule() } label: { Image(systemName: "plus") } } }
++		.sheet(item: $editing) { item in PlistRuleEditor(rule: item) { updated in
++			if let index = draft.firstIndex(where: { $0.id == updated.id }) { draft[index] = updated } else { draft.append(updated) }
++			save()
++		} }
++		.onAppear { draft = rules ?? [] }
++		.onChange(of: draft) { _ in save() }
++	}
++	private func save() { rules = draft.isEmpty ? nil : draft }
++}
++
++private struct PlistRuleEditor: View {
++	@Environment(\.dismiss) private var dismiss
++	@State var rule: PlistMutationRule
++	let save: (PlistMutationRule) -> Void
++	var body: some View {
++		NavigationStack {
++			Form {
++				TextField("Key Path，例如 CFBundleDisplayName", text: $rule.keyPath).textInputAutocapitalization(.never).autocorrectionDisabled()
++				Picker("类型", selection: $rule.type) { ForEach(PlistMutationRule.ValueType.allCases) { Text($0.rawValue).tag($0) } }
++				TextEditor(text: $rule.value).frame(minHeight: 120)
++				Toggle("启用", isOn: $rule.isEnabled)
++			} footer: { Text(rule.type == .array || rule.type == .dictionary ? "Array / Dictionary 使用 JSON 格式。Data 使用 Base64。" : "Bool 支持 true/false，Number 支持整数和小数。") }
++			.navigationTitle("编辑规则").navigationBarTitleDisplayMode(.inline)
++			.toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { save(rule); dismiss() }.disabled(rule.keyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } }
++		}
++	}
++}
+diff --git a/Ksign/Views/Signing/Shared/SigningOptionsView.swift b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+index 91dd34f..6a28810 100644
+--- a/Ksign/Views/Signing/Shared/SigningOptionsView.swift
++++ b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+@@ -15,6 +15,16 @@ struct SigningOptionsView: View {
+     
+     // MARK: Body
+     var body: some View {
++		NBSection("自动替换规则") {
++			NavigationLink("打包文件名生成规则") {
++				PackageNameRuleView(rule: $options.packageNameRule, previewValues: ("AppDemo", "1.0", "com.example.demo", "Certificate"))
++			}
++			NavigationLink("添加或替换 Info.plist（\(options.plistRules?.count ?? 0)）") {
++				PlistRulesView(rules: $options.plistRules)
++			}
++			NavigationLink("自动添加动态库（\(options.injectionFiles.count)）") { SigningTweaksView(options: $options) }
++		}
++
+         NBSection("显示与系统要求") {
+             _stringPicker("主题设置", systemImage: "circle.lefthalf.filled", selection: $options.appAppearance,
+                           values: Options.appAppearanceValues) { value in
+@@ -31,6 +41,7 @@ struct SigningOptionsView: View {
+                     temporaryValue: temporaryOptions?.onlyModify)
+             _toggle("临时签署", systemImage: "signature", isOn: $options.doAdhocSigning,
+                     temporaryValue: temporaryOptions?.doAdhocSigning)
++			_toggleOptional("签名完成后自动安装", systemImage: "square.and.arrow.down", value: $options.autoInstallAfterSigning)
+         } footer: {
+             Text("临时签署使用 Ad-hoc 模式，无需选择证书。")
+         }
+@@ -38,6 +49,7 @@ struct SigningOptionsView: View {
+         NBSection("安全性") {
+             _toggle("PPQ 保护机制", systemImage: "shield.fill", isOn: $options.ppqProtection,
+                     temporaryValue: temporaryOptions?.ppqProtection)
++			_toggleOptional("钥匙串隔离", systemImage: "key", value: $options.keychainIsolation)
+         } footer: {
+             Text("开启后会为 Bundle ID 增加随机后缀，降低 Apple ID 被标记的风险。")
+         }
+@@ -153,6 +165,11 @@ struct SigningOptionsView: View {
+             Text(.localized("This option force converts apps to try to use the new liquid glass redesign iOS 26 introduced, this may not work for all applications due to differing frameworks."))
+         }
+ 
++		NBSection("图标修复") {
++			_toggleOptional("修复深色图标", systemImage: "moon.circle", value: $options.fixDarkIcon)
++			_toggleOptional("修复白色图标", systemImage: "sun.max.circle", value: $options.fixWhiteIcon)
++		}
++
+ 		Section {
+ 			_toggle(
+ 				"禁用液态玻璃",
+@@ -219,4 +236,8 @@ struct SigningOptionsView: View {
+             }
+         }
+     }
++
++	@ViewBuilder private func _toggleOptional(_ title: String, systemImage: String, value: Binding<Bool?>) -> some View {
++		Toggle(isOn: Binding(get: { value.wrappedValue ?? false }, set: { value.wrappedValue = $0 })) { Label(title, systemImage: systemImage) }
++	}
+ }
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index 612a69b..0f82ea0 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -25,6 +25,7 @@ struct SigningView: View {
+ 	@State private var _isLogsPresenting = false
+ 	@State private var _isSigning = false
+ 	@State private var _outputFileName = ""
++	@State private var _didManuallyEditOutputName = false
+ 	@State private var _outputFormat = "ipa"
+ 	@State private var _selectedPhoto: PhotosPickerItem? = nil
+ 	@State var appIcon: UIImage?
+@@ -112,7 +113,7 @@ struct SigningView: View {
+ 					.compatNavigationTransition(id: "showLogs", ns: _namespace)
+ 			}
+ 			.fullScreenCover(isPresented: $_isSigning) {
+-				SigningProcessView(manager: _operationProgress, promptInstall: signAndInstall) {
++			SigningProcessView(manager: _operationProgress, promptInstall: signAndInstall || (_temporaryOptions.autoInstallAfterSigning ?? false)) {
+ 					_isSigning = false
+ 					dismiss()
+ 				}
+@@ -131,9 +132,7 @@ struct SigningView: View {
+ 		}
+ 		.onAppear {
+ 			if _outputFileName.isEmpty {
+-				let name = (app.name ?? "App").replacingOccurrences(of: "/", with: "-")
+-				let version = app.version.map { "_\($0)" } ?? ""
+-				_outputFileName = "\(name)\(version).\(_outputFormat)"
++				_refreshGeneratedOutputName()
+ 			}
+ 			// Certificate-signed apps need the embedded provisioning profile to install.
+ 			if !_temporaryOptions.doAdhocSigning && !_temporaryOptions.onlyModify {
+@@ -229,6 +228,7 @@ extension SigningView {
+ 			LabeledContent("输出文件名") {
+ 				TextField("输出文件名", text: $_outputFileName)
+ 					.multilineTextAlignment(.trailing)
++					.onChange(of: _outputFileName) { _ in _didManuallyEditOutputName = true }
+ 			}
+ 			Picker("导出格式", selection: $_outputFormat) {
+ 				Text("IPA").tag("ipa")
+@@ -293,6 +293,18 @@ extension SigningView {
+ 		}
+ 
+ 		NBSection("更多") {
++			NavigationLink("打包名字规则") {
++				PackageNameRuleView(rule: $_temporaryOptions.packageNameRule, previewValues: (
++					_temporaryOptions.appName ?? app.name ?? "App",
++					_temporaryOptions.appVersion ?? app.version ?? "",
++					_temporaryOptions.appIdentifier ?? app.identifier ?? "",
++					_selectedCert()?.nickname ?? "AdHoc"
++				))
++				.onDisappear { if !_didManuallyEditOutputName { _refreshGeneratedOutputName() } }
++			}
++			NavigationLink("添加或替换 Info.plist（\(_temporaryOptions.plistRules?.count ?? 0)）") {
++				PlistRulesView(rules: $_temporaryOptions.plistRules)
++			}
+ 			NavigationLink("高级签名选项") {
+ 				Form { SigningOptionsView(
+ 					options: $_temporaryOptions,
+@@ -302,6 +314,20 @@ extension SigningView {
+ 			}
+ 		}
+ 	}
++
++	private func _refreshGeneratedOutputName() {
++		let fallbackName = (app.name ?? "App").replacingOccurrences(of: "/", with: "-")
++		let fallbackVersion = app.version.map { "_\($0)" } ?? ""
++		let generated = _temporaryOptions.packageNameRule?.fileName(
++			name: _temporaryOptions.appName ?? app.name ?? "App",
++			version: _temporaryOptions.appVersion ?? app.version ?? "",
++			bundleID: _temporaryOptions.appIdentifier ?? app.identifier ?? "",
++			certificate: _selectedCert()?.nickname ?? "AdHoc"
++		)
++		_didManuallyEditOutputName = false
++		_outputFileName = "\(generated ?? fallbackName + fallbackVersion).\(_outputFormat)"
++		_didManuallyEditOutputName = false
++	}
+ 	
+ 	@ViewBuilder
+ 	private func _infoCell<V: View>(_ title: String, desc: String?, @ViewBuilder destination: () -> V) -> some View {
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+index fbe0b6f..e017297 100644
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -9,13 +9,20 @@ import SwiftUI
+ import Combine
+ import AltSourceKit
+ import NimbleViews
++import SafariServices
+ 
+ struct DownloadButtonView: View {
++	let source: ASRepository
+ 	let app: ASRepository.App
+ 	@ObservedObject private var downloadManager = DownloadManager.shared
+ 
+ 	@State private var downloadProgress: Double = 0
+ 	@State private var cancellable: AnyCancellable?
++	@State private var showUnlock = false
++	@State private var unlockCode = ""
++	@State private var purchaseURL: URL?
++	@State private var unlockError: String?
++	@State private var isUnlocking = false
+ 
+ 	var body: some View {
+ 		ZStack {
+@@ -42,9 +49,9 @@ struct DownloadButtonView: View {
+ 				Button {
+ 					if let url = app.currentDownloadUrl {
+ 						_ = downloadManager.startDownload(from: url, id: app.currentUniqueId)
+-					}
++					} else { showUnlock = true }
+ 				} label: {
+-					Text(.localized("获取"))
++					Text(app.currentDownloadUrl == nil ? "解锁" : .localized("获取"))
+ 						.lineLimit(0)
+ 						.font(.headline.bold())
+ 						.foregroundStyle(Color.accentColor)
+@@ -63,6 +70,35 @@ struct DownloadButtonView: View {
+ 			setupObserver()
+ 		}
+ 		.animation(.easeInOut(duration: 0.3), value: downloadManager.getDownload(by: app.currentUniqueId) != nil)
++		.alert("解锁 \(app.currentName)", isPresented: $showUnlock) {
++			TextField("请输入解锁码", text: $unlockCode)
++			Button("取消", role: .cancel) { unlockCode = "" }
++			Button("获取解锁码") { openPurchase() }
++			Button(isUnlocking ? "解锁中…" : "解锁") { unlock() }.disabled(isUnlocking || unlockCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
++		} message: { Text("输入卡密后将使用本机 UDID 向该软件源验证。") }
++		.sheet(isPresented: Binding(get: { purchaseURL != nil }, set: { if !$0 { purchaseURL = nil } })) { if let purchaseURL { SafariPurchaseView(url: purchaseURL) } }
++		.alert("解锁失败", isPresented: Binding(get: { unlockError != nil }, set: { if !$0 { unlockError = nil } })) { Button("确定", role: .cancel) {} } message: { Text(unlockError ?? "未知错误") }
++	}
++
++	private var sourceURL: URL? { source.sourceURL }
++	private func openPurchase() {
++		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else { unlockError = "该软件源未提供解锁码获取地址"; return }
++		if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { purchaseURL = url } else { UIApplication.shared.open(url) }
++	}
++	private func unlock() {
++		guard let sourceURL else { unlockError = "无法确定软件源地址"; return }
++		isUnlocking = true
++		SourceUnlockService.shared.unlock(sourceURL: sourceURL, code: unlockCode) { result in
++			DispatchQueue.main.async {
++				isUnlocking = false
++				switch result {
++				case .success:
++					unlockCode = ""
++					SourceRepositoryLoader.shared.fetch(from: sourceURL) { _ in DispatchQueue.main.async { NotificationCenter.default.post(name: NSNotification.Name("zonoe.sourceUnlocked"), object: sourceURL) } }
++				case .failure(let error): unlockError = error.localizedDescription
++				}
++			}
++		}
+ 	}
+ 
+ 	private func setupObserver() {
+@@ -83,3 +119,9 @@ struct DownloadButtonView: View {
+ 		}
+ 	}
+ }
++
++private struct SafariPurchaseView: UIViewControllerRepresentable {
++	let url: URL
++	func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
++	func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
++}
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+index e352ec9..36c426f 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+@@ -37,7 +37,7 @@ struct SourceAppsCellView: View {
+                         }
+                     }
+                 }
+-                DownloadButtonView(app: app)
++                DownloadButtonView(source: source, app: app)
+             }
+             
+             if
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsView.swift b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+index 1c8186f..e797c00 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+@@ -152,6 +152,9 @@ struct SourceAppsView: View {
+             }
+             _sortOption = SortOption(rawValue: _sortOptionRawValue) ?? .default
+         }
++		.onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("zonoe.sourceUnlocked"))) { _ in
++			Task { await viewModel.fetchSources(_allSources, refresh: true) }
++		}
+         .onChange(of: viewModel.isFinished) { _ in
+             _load()
+         }
+-- 
+2.51.1
+
