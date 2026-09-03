@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha12 advanced signing rules, native paging and source unlock - build 1
+# alpha12 advanced signing rules, native paging and source unlock - build 2
 
 on:
   push:
