@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha12 advanced signing rules, native paging and source unlock - build 3
+# alpha12 advanced signing rules, native paging and source unlock - build 4
 
 on:
   push:
@@ -58,7 +58,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          { tail -n 500 HFASign/prepare.log 2>/dev/null; tail -n 1200 HFASign/build.log 2>/dev/null; } > HFASign/BUILD_ERROR.txt || true
+          {
+            echo "=== workflow diagnostics ==="
+            pwd
+            ls -la HFASign || true
+            echo "=== prepare.log ==="
+            tail -n 500 HFASign/prepare.log 2>&1 || true
+            echo "=== build.log ==="
+            tail -n 1200 HFASign/build.log 2>&1 || true
+          } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
           git commit -m "Publish zonoe alpha12 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
