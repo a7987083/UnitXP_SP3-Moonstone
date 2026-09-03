@@ -37,10 +37,20 @@ jobs:
         run: xcodebuild -resolvePackageDependencies -project HFASignBuild/Ksign.xcodeproj -scheme Ksign
       - name: Build unsigned app
         run: |
+          set -o pipefail
           xcodebuild -project HFASignBuild/Ksign.xcodeproj -scheme Ksign \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath HFASignBuild/build -skipPackagePluginValidation \
-            SWIFT_VERSION=5 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+            SWIFT_VERSION=5 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee HFASign/build.log
+      - name: Publish build diagnostics
+        if: failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tail -n 1200 HFASign/build.log > HFASign/BUILD_ERROR.txt 2>/dev/null || true
+          git add -f HFASign/BUILD_ERROR.txt
+          git commit -m "Publish zonoe alpha5 build diagnostics [skip ci]" || true
+          git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
           app="HFASignBuild/build/Build/Products/Release-iphoneos/Ksign.app"
