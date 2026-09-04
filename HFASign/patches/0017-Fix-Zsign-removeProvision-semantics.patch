@@ -1,0 +1,25 @@
+From cb6f07144e5ebc6b69f5783221053a5da5bd2b89 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Fri, 4 Sep 2026 10:15:46 -0400
+Subject: [PATCH] Fix removeProvision semantics when embedding profiles
+
+---
+ src/bundle.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/bundle.cpp b/src/bundle.cpp
+index 46af12f..b7b277e 100644
+--- a/src/bundle.cpp
++++ b/src/bundle.cpp
+@@ -535,7 +535,7 @@ bool ZBundle::SignFolder(ZSignAsset* pSignAsset,
+ 
+ 	ZFile::RemoveFileV("%s/embedded.mobileprovision", m_strAppFolder.c_str());
+ 	if (!pSignAsset->m_strProvData.empty()) {
+-		if (excludeProvisioning) {
++		if (!excludeProvisioning) {
+ 			if (!ZFile::WriteFileV(pSignAsset->m_strProvData, "%s/embedded.mobileprovision", m_strAppFolder.c_str())) { // embedded.mobileprovision
+ 				ZLog::ErrorV(">>> Can't write embedded.mobileprovision!\n");
+ 				return false;
+-- 
+2.51.1
+
