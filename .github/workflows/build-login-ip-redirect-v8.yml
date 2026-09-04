@@ -1,0 +1,52 @@
+name: Build LoginIPRedirect v8
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-ip-redirect-v8
+    paths:
+      - 'loginipredirect/**'
+      - 'logintcppayload/vendor/**'
+      - '.github/workflows/build-login-ip-redirect-v8.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify LoginIPRedirect v8
+        run: |
+          set -euxo pipefail
+          cd loginipredirect
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginIPRedirect_v8_43.242.203.214_HFAMap187.dylib"
+          cp .theos/obj/LoginIPRedirect.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "LoginIPRedirect v8"
+          strings "$out" | grep -q "118.145.146.208"
+          strings "$out" | grep -q "43.242.203.214"
+          strings "$out" | grep -q "LoginIPRedirect_v8.log"
+          strings "$out" | grep -q "REDIRECT fd="
+          strings "$out" | grep -q "CONNECT-RESULT"
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginIPRedirect-v8-43.242.203.214-HFAMap187
+          path: loginipredirect/dist/*
