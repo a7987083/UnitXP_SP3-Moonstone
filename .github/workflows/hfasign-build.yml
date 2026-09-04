@@ -34,11 +34,11 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0015-Fix-alpha12-signing-and-import-regressions.patch
           git -C HFASignBuild apply ../HFASign/patches/0016-zonoe-alpha15-signing-navigation-unlock.patch
           git -C HFASignBuild apply ../HFASign/patches/0019-Import-ZsignSwift-for-signature-validation.patch
-          git -C HFASignBuild apply ../HFASign/patches/0020-zonoe-alpha16-restore-signing-flow.patch
-          git -C HFASignBuild apply ../HFASign/patches/0021-zonoe-alpha16-source-unlock-state.patch
-          git -C HFASignBuild apply ../HFASign/patches/0022-zonoe-alpha16-udid-profile-completion.patch
-          git -C HFASignBuild apply ../HFASign/patches/0023-zonoe-alpha16-signing-interactive-back.patch
-          git -C HFASignBuild apply ../HFASign/patches/0024-zonoe-alpha16-remove-sign-and-install.patch
+          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0020-zonoe-alpha16-restore-signing-flow.patch)
+          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0021-zonoe-alpha16-source-unlock-state.patch)
+          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0022-zonoe-alpha16-udid-profile-completion.patch)
+          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0023-zonoe-alpha16-signing-interactive-back.patch)
+          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0024-zonoe-alpha16-remove-sign-and-install.patch)
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
