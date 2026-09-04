@@ -1,0 +1,51 @@
+name: Build LoginTCPFullFrame v8
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-tcp-fullframe-v8
+    paths:
+      - 'logintcpfullframe/**'
+      - '.github/workflows/build-login-tcp-fullframe-v8.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify LoginTCPFullFrame v8
+        run: |
+          set -euxo pipefail
+          cd logintcpfullframe
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginTCPFullFrame_v8_HFAMap187.dylib"
+          cp .theos/obj/LoginTCPFullFrame.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "Login TCP FullFrame v8"
+          strings "$out" | grep -q "118.145.146.208"
+          strings "$out" | grep -q "LoginTCPFull_v8"
+          strings "$out" | grep -q "read-only-full-frame"
+          strings "$out" | grep -q "sendto"
+          strings "$out" | grep -q "recvfrom"
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginTCPFullFrame-v8-HFAMap187
+          path: logintcpfullframe/dist/*
