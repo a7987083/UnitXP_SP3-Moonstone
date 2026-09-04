@@ -1,0 +1,300 @@
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -4,4 +4,9 @@
+ 	let legacyKey: String?
+ }
+ 
++struct SourceAppAccessMetadata: Equatable {
++	let isNeedLock: Bool?
++	let appType: Int?
++}
++
+ final class SourceUnlockService {
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -1,24 +1,42 @@
+ 			let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+ 			let message = (object?["msg"] as? String) ?? (object?["message"] as? String) ?? ""
+-			if let legacyKey = metadata.legacyKey?.trimmingCharacters(in: .whitespacesAndNewlines), !legacyKey.isEmpty {
++			let legacyKey = metadata.legacyKey?.trimmingCharacters(in: .whitespacesAndNewlines)
++			let isLegacy = legacyKey?.isEmpty == false
++			if let legacyKey, !legacyKey.isEmpty {
+ 				let expected = self.md5(legacyKey + udid)
+-				let actual = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
++				let bodyText = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
++				let actual: String
++				if let value = object?["data"] as? String {
++					actual = value.trimmingCharacters(in: .whitespacesAndNewlines)
++				} else if object == nil {
++					actual = bodyText
++				} else {
++					actual = ""
++				}
+ 				guard actual.caseInsensitiveCompare(expected) == .orderedSame else {
+-					completion(.failure(UnlockError.verificationFailed)); return
++					completion(.failure(UnlockError.server(message.isEmpty ? "解锁校验失败" : message))); return
+ 				}
++				self.markLegacyGrant(sourceURL: sourceURL, appIdentifier: appIdentifier, appName: appName, udid: udid)
+ 			}
+-			// Modern responses are acknowledgements only. The freshly fetched source,
+-			// with this UDID, is the sole authority for whether the app is unlocked.
++
+ 			SourceRepositoryLoader.shared.fetch(from: sourceURL, allowCachedFallback: false) { result in
+ 				switch result {
+-				case .success(let repository):
+-					let unlocked = repository.apps.contains { candidate in
+-						let sameApp = appIdentifier.map { identifier in identifier == candidate.id }
+-							?? (candidate.currentName == appName)
+-						return sameApp && candidate.currentDownloadUrl != nil
++				case .success:
++					if isLegacy {
++						completion(.success(message)); return
+ 					}
+-					if unlocked { completion(.success(message)) }
+-					else { completion(.failure(UnlockError.server(message.isEmpty ? "服务器尚未确认解锁" : message))) }
++					let access = SourceRepositoryLoader.shared.appAccessMetadata(
++						for: sourceURL,
++						appIdentifier: appIdentifier,
++						appName: appName
++					)
++					let explicitlyUnlocked = access?.isNeedLock == false
++					let acknowledged = object?["success"] as? Bool == true
++					if explicitlyUnlocked || (access?.isNeedLock == nil && acknowledged) {
++						completion(.success(message))
++					} else {
++						completion(.failure(UnlockError.server(message.isEmpty ? "服务器尚未确认解锁" : message)))
++					}
+ 				case .failure(let error): completion(.failure(error))
+ 				}
+ 			}
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -1,3 +1,20 @@
++	func hasLegacyGrant(sourceURL: URL, appIdentifier: String?, appName: String) -> Bool {
++		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++		guard !udid.isEmpty else { return false }
++		return UserDefaults.standard.bool(forKey: legacyGrantKey(sourceURL: sourceURL, appIdentifier: appIdentifier, appName: appName, udid: udid))
++	}
++
++	private func markLegacyGrant(sourceURL: URL, appIdentifier: String?, appName: String, udid: String) {
++		UserDefaults.standard.set(true, forKey: legacyGrantKey(sourceURL: sourceURL, appIdentifier: appIdentifier, appName: appName, udid: udid))
++	}
++
++	private func legacyGrantKey(sourceURL: URL, appIdentifier: String?, appName: String, udid: String) -> String {
++		let identity = appIdentifier?.isEmpty == false ? "id:\(appIdentifier!)" : "name:\(appName)"
++		let raw = "\(SourceURLIdentity.normalized(sourceURL).absoluteString)\n\(udid)\n\(identity)"
++		let digest = SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined()
++		return "zonoe.sourceUnlock.\(digest)"
++	}
++
+ 	private func md5(_ value: String) -> String {
+ 		let data = Data(value.utf8)
+ 		var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -2,4 +2,5 @@
+ 	static let shared = SourceRepositoryLoader()
+ 	private let metadataLock = NSLock()
+ 	private var metadataBySource: [String: SourceAccessMetadata] = [:]
++	private var appAccessBySource: [String: [String: SourceAppAccessMetadata]] = [:]
+ 	private init() {}
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -4,4 +4,12 @@
+ 		return metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString]
+ 	}
+ 
++	func appAccessMetadata(for sourceURL: URL, appIdentifier: String?, appName: String) -> SourceAppAccessMetadata? {
++		let sourceKey = SourceURLIdentity.normalized(sourceURL).absoluteString
++		metadataLock.lock(); defer { metadataLock.unlock() }
++		guard let apps = appAccessBySource[sourceKey] else { return nil }
++		if let appIdentifier, !appIdentifier.isEmpty, let value = apps["id:\(appIdentifier)"] { return value }
++		return apps["name:\(appName)"]
++	}
++
+ 	private func decode(_ data: Data, sourceURL: URL) throws -> ASRepository {
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -5,7 +5,46 @@
+ 		let unlock = ((dictionary["unlockURL"] as? String) ?? (legacy?["url"] as? String)).flatMap(tolerantURLString)
+ 		let key = (legacy?["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+ 		let metadata = SourceAccessMetadata(payURL: pay.flatMap(URL.init(string:)), unlockURL: unlock.flatMap(URL.init(string:)), legacyKey: key?.isEmpty == false ? key : nil)
+-		metadataLock.lock(); metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString] = metadata; metadataLock.unlock()
++
++		var appMetadata: [String: SourceAppAccessMetadata] = [:]
++		if let apps = dictionary["apps"] as? [[String: Any]] {
++			for app in apps {
++				let identifier = (app["bundleIdentifier"] as? String) ?? (app["identifier"] as? String)
++				let name = (app["name"] as? String) ?? ""
++				let needLock = boolValue(app["isNeedlock"] ?? app["isNeedLock"] ?? app["lock"])
++				let appType = intValue(app["appType"])
++				guard needLock != nil || appType != nil else { continue }
++				let value = SourceAppAccessMetadata(isNeedLock: needLock, appType: appType)
++				if let identifier, !identifier.isEmpty { appMetadata["id:\(identifier)"] = value }
++				if !name.isEmpty { appMetadata["name:\(name)"] = value }
++			}
++		}
++
++		let sourceKey = SourceURLIdentity.normalized(sourceURL).absoluteString
++		metadataLock.lock()
++		metadataBySource[sourceKey] = metadata
++		appAccessBySource[sourceKey] = appMetadata
++		metadataLock.unlock()
++	}
++
++	private func boolValue(_ value: Any?) -> Bool? {
++		if let value = value as? Bool { return value }
++		if let value = value as? NSNumber { return value.intValue != 0 }
++		if let value = value as? String {
++			switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
++			case "1", "true", "yes": return true
++			case "0", "false", "no": return false
++			default: return nil
++			}
++		}
++		return nil
++	}
++
++	private func intValue(_ value: Any?) -> Int? {
++		if let value = value as? Int { return value }
++		if let value = value as? NSNumber { return value.intValue }
++		if let value = value as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
++		return nil
+ 	}
+ 
+ 	private func repositoryObject(from object: Any) -> Any {
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,4 +1,5 @@
+ 	@State private var purchaseURL: URL?
+ 	@State private var unlockError: String?
+ 	@State private var isUnlocking = false
++	@State private var unlockStateVersion = 0
+ 	private let pendingUnlockSourceKey = "zonoe.pendingSourceUnlockURL"
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,6 +1,11 @@
+ 				Button {
+-					if let url = app.currentDownloadUrl {
++					if isSourceLocked {
++						unlockError = nil
++						showUnlockActions = true
++					} else if let url = app.currentDownloadUrl {
+ 						_ = downloadManager.startDownload(from: url, id: app.currentUniqueId)
+-					} else { showUnlockActions = true }
++					} else {
++						showUnlockActions = true
++					}
+ 				} label: {
+-					Text(app.currentDownloadUrl == nil ? "解锁" : .localized("获取"))
++					Text(isSourceLocked ? "解锁" : .localized("获取"))
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,13 +1,14 @@
+ 		.sheet(isPresented: $showUnlockCode) {
+-			UnlockCodePrompt(code: $unlockCode, isValidating: isUnlocking) {
++			UnlockCodePrompt(code: $unlockCode, isValidating: isUnlocking, errorMessage: unlockError) {
+ 				guard !isUnlocking else { return }
+ 				unlockCode = ""
++				unlockError = nil
++				isUnlocking = false
+ 				showUnlockCode = false
+ 			} onConfirm: {
+ 				unlock()
+ 			}
+-			.presentationDetents([.height(230)])
++			.presentationDetents([.height(unlockError == nil ? 230 : 280)])
+ 			.interactiveDismissDisabled(isUnlocking)
+ 		}
+ 		.sheet(isPresented: Binding(get: { purchaseURL != nil }, set: { if !$0 { purchaseURL = nil } })) { if let purchaseURL { SafariPurchaseView(url: purchaseURL) } }
+-		.alert("解锁失败", isPresented: Binding(get: { unlockError != nil }, set: { if !$0 { unlockError = nil } })) { Button("确定", role: .cancel) {} } message: { Text(unlockError ?? "未知错误") }
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,3 +1,13 @@
++	private var isSourceLocked: Bool {
++		_ = unlockStateVersion
++		if let access = SourceRepositoryLoader.shared.appAccessMetadata(for: sourceURL, appIdentifier: app.id, appName: app.currentName),
++		   let needLock = access.isNeedLock {
++			if !needLock { return false }
++			return !SourceUnlockService.shared.hasLegacyGrant(sourceURL: sourceURL, appIdentifier: app.id, appName: app.currentName)
++		}
++		return app.currentDownloadUrl == nil
++	}
++
+ 	private func openPurchase() {
+ 		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else { unlockError = "该软件源未提供解锁码获取地址"; return }
+ 		if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { purchaseURL = url } else { UIApplication.shared.open(url) }
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,4 +1,6 @@
+ 	private func beginUsingUnlockCode() {
++		unlockError = nil
++		showUnlockActions = false
+ 		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+ 		guard !udid.isEmpty else {
+ 			UserDefaults.standard.set(SourceURLIdentity.normalized(sourceURL).absoluteString, forKey: pendingUnlockSourceKey)
+@@ -6,5 +8,5 @@
+ 			NotificationCenter.default.post(name: UDIDService.requestNotification, object: nil)
+ 			return
+ 		}
+-		showUnlockCode = true
++		DispatchQueue.main.async { showUnlockCode = true }
+ 	}
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,4 +1,6 @@
+ 		UserDefaults.standard.removeObject(forKey: pendingUnlockSourceKey)
+ 		UserDefaults.standard.removeObject(forKey: pendingUnlockAppKey)
+-		showUnlockCode = true
++		unlockError = nil
++		showUnlockActions = false
++		DispatchQueue.main.async { showUnlockCode = true }
+ 	}
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,7 +1,10 @@
+ 				switch result {
+ 				case .success:
+ 					unlockCode = ""
++					unlockError = nil
++					unlockStateVersion &+= 1
+ 					showUnlockCode = false
+ 					NotificationCenter.default.post(name: NSNotification.Name("zonoe.sourceUnlocked"), object: sourceURL)
+-				case .failure(let error): unlockError = error.localizedDescription
++				case .failure(let error):
++					unlockError = error.localizedDescription
+ 				}
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -1,6 +1,7 @@
+ private struct UnlockCodePrompt: View {
+ 	@Binding var code: String
+ 	let isValidating: Bool
++	let errorMessage: String?
+ 	let onCancel: () -> Void
+ 	let onConfirm: () -> Void
+ 
+@@ -10,4 +11,9 @@
+ 			TextField("输入解锁码", text: $code)
+ 				.textFieldStyle(.roundedBorder)
+ 				.disabled(isValidating)
++			if let errorMessage, !errorMessage.isEmpty {
++				Text("解锁失败：\(errorMessage)")
++					.font(.footnote)
++					.foregroundStyle(.red)
++			}
+ 			if isValidating {
