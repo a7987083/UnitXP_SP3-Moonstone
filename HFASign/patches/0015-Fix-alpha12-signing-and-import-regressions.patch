@@ -1,0 +1,521 @@
+From 1ae441a58879c8dc9135d1dd77823446d39f296e Mon Sep 17 00:00:00 2001
+From: Codex Local <codex-local@example.invalid>
+Date: Fri, 4 Sep 2026 05:52:01 -0400
+Subject: [PATCH] Fix alpha12 signing and import regressions
+
+---
+ Ksign/FeatherApp.swift                        |   2 +-
+ Ksign/Resources/Info.plist                    |  15 ++
+ Ksign/Utilities/Handlers/SigningHandler.swift |  43 ++++++
+ Ksign/Utilities/Handlers/ZsignHandler.swift   |   4 +-
+ Ksign/Utilities/SharedImportCoordinator.swift |   2 +-
+ Ksign/Views/Library/LibraryView.swift         | 130 +++++++++++++-----
+ .../Certificates/CertificatesAddView.swift    |   6 +-
+ Ksign/Views/Settings/SettingsView.swift       |   4 +-
+ Ksign/Views/Signing/SigningView.swift         |   8 +-
+ .../Sources/Apps/DownloadButtonView.swift     |  17 ++-
+ 10 files changed, 181 insertions(+), 50 deletions(-)
+
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 6eaba81..744e0e3 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -60,7 +60,7 @@ struct FeatherApp: App {
+ 				if let url = pendingUDIDProfileURL {
+ 					UDIDSafariView(url: url) {
+ 						pendingUDIDProfileURL = nil
+-						DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { UDIDService.shared.openProfileSettings() }
++						UDIDService.shared.openProfileSettings()
+ 					}.ignoresSafeArea()
+ 				}
+ 			}
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 7c75b5f..2b7d659 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -33,6 +33,21 @@
+ 				<string>public.data</string>
+ 			</array>
+ 		</dict>
++		<dict>
++			<key>CFBundleTypeName</key>
++			<string>Frameworks and Bundles</string>
++			<key>CFBundleTypeRole</key>
++			<string>Editor</string>
++			<key>LSHandlerRank</key>
++			<string>Owner</string>
++			<key>LSItemContentTypes</key>
++			<array>
++				<string>com.apple.framework</string>
++				<string>com.apple.bundle</string>
++				<string>public.directory</string>
++				<string>public.folder</string>
++			</array>
++		</dict>
+ 		<dict>
+ 			<key>CFBundleTypeIconFile</key>
+ 			<string>ksign_extension</string>
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+index 740752a..981f9d8 100644
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -129,6 +129,7 @@ final class SigningHandler: NSObject {
+ 				throw SigningFileHandlerError.missingCertifcate
+ 			}
+ 			if let error = handler.hadError { throw error }
++			if !_options.doAdhocSigning { try validateCertificateSignedApp(movedAppPath) }
+ 		}
+ 		OperationProgressManager.shared.update(0.90, detail: "重新打包并保存")
+         try await self.move()
+@@ -344,6 +345,36 @@ extension SigningHandler {
+ 		let provisioningFilePath = app.appendingPathComponent("embedded.mobileprovision")
+ 		try _fileManager.removeFileIfNeeded(at: provisioningFilePath)
+ 	}
++
++	private func validateCertificateSignedApp(_ app: URL) throws {
++		let provisionURL = app.appendingPathComponent("embedded.mobileprovision")
++		let codeResourcesURL = app.appendingPathComponent("_CodeSignature/CodeResources")
++		guard fileExistsAndIsNotEmpty(provisionURL) else { throw SigningFileHandlerError.missingEmbeddedProvision }
++		guard fileExistsAndIsNotEmpty(codeResourcesURL) else { throw SigningFileHandlerError.missingCodeResources }
++		guard let bundle = Bundle(url: app),
++			let bundleID = bundle.bundleIdentifier,
++			let executableURL = bundle.executableURL,
++			fileExistsAndIsNotEmpty(executableURL) else { throw SigningFileHandlerError.missingSignedExecutable }
++		guard let provision = CertificateReader(provisionURL).decoded,
++			let applicationIdentifier = provision.Entitlements?["application-identifier"]?.value as? String,
++			isBundleIdentifier(bundleID, allowedBy: applicationIdentifier) else {
++			throw SigningFileHandlerError.provisioningIdentifierMismatch
++		}
++		OperationProgressManager.shared.log("签名结构校验通过：描述文件、CodeResources、Bundle ID")
++	}
++
++	private func fileExistsAndIsNotEmpty(_ url: URL) -> Bool {
++		guard _fileManager.fileExists(atPath: url.path) else { return false }
++		let values = try? url.resourceValues(forKeys: [.fileSizeKey])
++		return (values?.fileSize ?? 0) > 0
++	}
++
++	private func isBundleIdentifier(_ bundleID: String, allowedBy applicationIdentifier: String) -> Bool {
++		let allowed = applicationIdentifier.split(separator: ".", maxSplits: 1).dropFirst().first.map(String.init) ?? applicationIdentifier
++		if allowed == "*" { return true }
++		if allowed.hasSuffix("*") { return bundleID.hasPrefix(String(allowed.dropLast())) }
++		return bundleID == allowed
++	}
+ 	
+ 	private func _inject(for app: URL, with tweaks: [URL], with options: Options) async throws {
+ 		let handler = TweakHandler(app: app, with: tweaks, options: options)
+@@ -409,6 +440,10 @@ private enum PlistMutationError: LocalizedError {
+ enum SigningFileHandlerError: Error, LocalizedError {
+ 	case appNotFound
+ 	case infoPlistNotFound
++	case missingEmbeddedProvision
++	case missingCodeResources
++	case missingSignedExecutable
++	case provisioningIdentifierMismatch
+ 	case missingCertifcate
+ 	case disinjectFailed
+ 	case signFailed
+@@ -419,6 +454,14 @@ enum SigningFileHandlerError: Error, LocalizedError {
+ 			return "Unable to locate bundle path."
+ 		case .infoPlistNotFound:
+ 			return "Unable to locate info.plist path."
++		case .missingEmbeddedProvision:
++			return "签名结果缺少 embedded.mobileprovision，已停止生成不可安装的 IPA。"
++		case .missingCodeResources:
++			return "签名结果缺少 _CodeSignature/CodeResources。"
++		case .missingSignedExecutable:
++			return "签名结果缺少有效的主程序文件。"
++		case .provisioningIdentifierMismatch:
++			return "签名后的 Bundle ID 与描述文件 application-identifier 不匹配。"
+ 		case .missingCertifcate:
+ 			return "No certificate was specified."
+ 		case .disinjectFailed:
+diff --git a/Ksign/Utilities/Handlers/ZsignHandler.swift b/Ksign/Utilities/Handlers/ZsignHandler.swift
+index 8c2c733..c9fc7fb 100644
+--- a/Ksign/Utilities/Handlers/ZsignHandler.swift
++++ b/Ksign/Utilities/Handlers/ZsignHandler.swift
+@@ -52,7 +52,9 @@ final class ZsignHandler {
+             customIdentifier: _options.appIdentifier ?? "",
+             customName: _options.appName ?? "",
+             customVersion: _options.appVersion ?? "",
+-            removeProvision: _options.removeProvisioning,
++			// A certificate-signed IPA must retain the newly embedded profile.
++			// The user option is only meaningful for ad-hoc/modify-only output.
++            removeProvision: false,
+             completion: { _, error in
+                 self.hadError = error
+             }
+diff --git a/Ksign/Utilities/SharedImportCoordinator.swift b/Ksign/Utilities/SharedImportCoordinator.swift
+index a5689b7..0a02f97 100644
+--- a/Ksign/Utilities/SharedImportCoordinator.swift
++++ b/Ksign/Utilities/SharedImportCoordinator.swift
+@@ -54,7 +54,7 @@ final class SharedImportCoordinator {
+             return
+         }
+ 
+-        let supported = ["zip", "dylib", "framework", "deb", "p12", "mobileprovision"]
++        let supported = ["zip", "dylib", "framework", "bundle", "deb", "p12", "pfx", "mobileprovision", "provisionprofile"]
+         guard supported.contains(ext) || stagedURL.hasDirectoryPath else {
+             try? fileManager.removeItem(at: stagedURL)
+             progress.fail("暂不支持此文件类型")
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index 51f1a90..30c080a 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -28,7 +28,8 @@ struct LibraryView: View {
+ 	@State private var _searchText = ""
+ 	@State private var _selectedTab: Int = 0 // 0 for Downloaded, 1 for Signed
+ 	@State private var _resourceTab: Int = 0 // 0 App, 1 Zip, 2 Dynamic libraries
+-	@State private var _resourceFiles: [URL] = []
++	@State private var _zipResourceFiles: [URL] = []
++	@State private var _tweakResourceFiles: [URL] = []
+ 	@State private var _selectedResourceFiles: Set<URL> = []
+ 	@State private var _selectionActionsExpanded = false
+ 	@State private var _actionFile: URL?
+@@ -73,12 +74,21 @@ struct LibraryView: View {
+ 	// MARK: Body
+     var body: some View {
+ 		NBNavigationView("") {
+-			TabView(selection: $_resourceTab) {
+-				_appResourcePage.tag(0)
+-				_fileResourcePage(tab: 1).tag(1)
+-				_fileResourcePage(tab: 2).tag(2)
++			Group {
++				if _resourceTab == 0 { _appResourcePage }
++				else if _resourceTab == 1 { _fileResourcePage(tab: 1) }
++				else { _fileResourcePage(tab: 2) }
+ 			}
+-			.tabViewStyle(.page(indexDisplayMode: .never))
++			.contentShape(Rectangle())
++			.simultaneousGesture(
++				DragGesture(minimumDistance: 45).onEnded { value in
++					guard abs(value.translation.width) > abs(value.translation.height) else { return }
++					withAnimation(.snappy) {
++						if value.translation.width < 0 { _resourceTab = min(2, _resourceTab + 1) }
++						else { _resourceTab = max(0, _resourceTab - 1) }
++					}
++				}
++			)
+ 			.overlay(alignment: .bottomTrailing) {
+ 				if _resourceTab == 0 { _selectionControl.padding(18) }
+ 			}
+@@ -258,38 +268,23 @@ extension LibraryView {
+ 	}
+ 
+ 	private func _files(for tab: Int) -> [URL] {
+-		let fm = FileManager.default
+-		let legacyImports = URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
+-		let roots: [URL] = tab == 1 ? [fm.zipFiles, legacyImports, fm.archives] : [fm.tweaks]
+-		let allowedExtensions: Set<String> = tab == 1 ? ["zip"] : ["dylib", "framework", "deb", "bundle"]
+-		var result: [URL] = []
+-		for root in roots {
+-			let contents = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+-			for url in contents {
+-				guard allowedExtensions.contains(url.pathExtension.lowercased()) else { continue }
+-				guard _searchText.isEmpty || url.lastPathComponent.localizedCaseInsensitiveContains(_searchText) else { continue }
+-				result.append(url)
+-			}
+-		}
+-		result.sort { lhs, rhs in
+-			lhs.lastPathComponent.localizedCaseInsensitiveCompare(rhs.lastPathComponent) == .orderedAscending
+-		}
+-		return result
++		let source = tab == 1 ? _zipResourceFiles : _tweakResourceFiles
++		return source.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
+ 	}
+ 
+ 	private var _visibleResourceFiles: [URL] {
+-		_resourceFiles.filter { _searchText.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(_searchText) }
++		_files(for: _resourceTab)
+ 	}
+ 
+ 	private func _reloadResourceFiles() {
+ 		let fm = FileManager.default
+ 		let legacyImports = URL.documentsDirectory.appendingPathComponent("Imports", isDirectory: true)
+-		let roots = _resourceTab == 1 ? [fm.zipFiles, legacyImports, fm.archives] : [fm.tweaks]
+-		_resourceFiles = roots.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] }
+-			.filter { url in
+-				let ext = url.pathExtension.lowercased()
+-				return _resourceTab == 1 ? ext == "zip" : ["dylib", "framework", "deb", "bundle"].contains(ext)
+-			}
++		_zipResourceFiles = [fm.zipFiles, legacyImports, fm.archives]
++			.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] }
++			.filter { $0.pathExtension.lowercased() == "zip" }
++			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
++		_tweakResourceFiles = ((try? fm.contentsOfDirectory(at: fm.tweaks, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
++			.filter { ["dylib", "framework", "deb", "bundle"].contains($0.pathExtension.lowercased()) }
+ 			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+ 	}
+ 
+@@ -399,6 +394,8 @@ private struct ZipContentsView: View {
+ 	@State private var errorMessage: String?
+ 	@State private var isLoading = true
+ 	@State private var isExtracting = false
++	@State private var certificateImport: ZipCertificateImport?
++	@State private var certificateImportRoot: URL?
+ 
+ 	var body: some View {
+ 		NavigationStack {
+@@ -417,7 +414,7 @@ private struct ZipContentsView: View {
+ 								Image(systemName: icon(for: item)).foregroundStyle(.secondary)
+ 								VStack(alignment: .leading, spacing: 3) {
+ 									Text(item.path).foregroundStyle(.primary).lineLimit(2)
+-									if item.isImportable { Text("可导入动态库").font(.caption).foregroundStyle(.blue) }
++									if item.isImportable { Text(item.importDescription).font(.caption).foregroundStyle(.blue) }
+ 								}
+ 								Spacer()
+ 								if item.isImportable { Image(systemName: "square.and.arrow.down") }
+@@ -431,13 +428,19 @@ private struct ZipContentsView: View {
+ 			.navigationBarTitleDisplayMode(.inline)
+ 			.toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Label("返回", systemImage: "chevron.left") } } }
+ 			.overlay { if isExtracting { ProgressView("正在提取…").padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
+-			.alert("导入到动态库", isPresented: Binding(get: { importCandidate != nil }, set: { if !$0 { importCandidate = nil } })) {
++			.alert(importCandidate?.importTitle ?? "导入", isPresented: Binding(get: { importCandidate != nil }, set: { if !$0 { importCandidate = nil } })) {
+ 				Button("取消", role: .cancel) { importCandidate = nil }
+ 				Button("导入") {
+ 					if let item = importCandidate { extractAndImport(item) }
+ 					importCandidate = nil
+ 				}
+ 			} message: { Text("是否导入“\(importCandidate?.name ?? "")”？") }
++			.sheet(item: $certificateImport, onDismiss: {
++				if let root = certificateImportRoot { try? FileManager.default.removeItem(at: root) }
++				certificateImportRoot = nil
++			}) { item in
++				CertificatesAddView(p12URL: item.p12URL, provisionURL: item.provisionURL)
++			}
+ 			.alert("读取失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+ 				Button("确定", role: .cancel) {}
+ 			} message: { Text(errorMessage ?? "未知错误") }
+@@ -452,7 +455,7 @@ private struct ZipContentsView: View {
+ 				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
+ 				var paths = Set<String>()
+ 				for entry in archive where entry.type != .symlink {
+-					guard let relativePath = safeArchiveRelativePath(entry.path) else { continue }
++					guard let relativePath = safeArchiveRelativePath(decodedArchivePath(entry)) else { continue }
+ 					paths.insert(entry.type == .directory ? relativePath + "/" : relativePath)
+ 				}
+ 				let archivedPaths = Array(paths)
+@@ -479,15 +482,21 @@ private struct ZipContentsView: View {
+ 				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
+ 				let itemPath = item.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+ 				let prefix = itemPath + "/"
++				let parentPath = (itemPath as NSString).deletingLastPathComponent
+ 				var selected: [(entry: ZIPFoundation.Entry, relativePath: String)] = []
+ 				for entry in archive {
+-					guard let relativePath = safeArchiveRelativePath(entry.path) else {
+-						if item.isDirectory && looselyNormalizedArchivePath(entry.path).hasPrefix(prefix) {
+-							throw ZipPreviewError.unsafePath(entry.path)
++					let decodedPath = decodedArchivePath(entry)
++					guard let relativePath = safeArchiveRelativePath(decodedPath) else {
++						if item.isDirectory && looselyNormalizedArchivePath(decodedPath).hasPrefix(prefix) {
++							throw ZipPreviewError.unsafePath(decodedPath)
+ 						}
+ 						continue
+ 					}
+-					let matches = relativePath == itemPath || (item.isDirectory && relativePath.hasPrefix(prefix))
++					let entryParent = (relativePath as NSString).deletingLastPathComponent
++					let isSiblingProvision = item.isCertificate
++						&& entryParent == parentPath
++						&& ["mobileprovision", "provisionprofile"].contains(URL(fileURLWithPath: relativePath).pathExtension.lowercased())
++					let matches = relativePath == itemPath || (item.isDirectory && relativePath.hasPrefix(prefix)) || isSiblingProvision
+ 					guard matches else { continue }
+ 					guard entry.type != .symlink else { throw ZipPreviewError.symbolicLink(entry.path) }
+ 					selected.append((entry, relativePath))
+@@ -502,6 +511,15 @@ private struct ZipContentsView: View {
+ 				let importTarget = item.isDirectory ? URL(fileURLWithPath: target.path, isDirectory: true) : target
+ 				DispatchQueue.main.async {
+ 					isExtracting = false
++					if item.isCertificate {
++						let provisionPath = selected.map { $0.relativePath }.first {
++							["mobileprovision", "provisionprofile"].contains(URL(fileURLWithPath: $0).pathExtension.lowercased())
++						}
++						let provisionURL = provisionPath.flatMap { try? safeOutputURL(for: $0, root: root) }
++						certificateImportRoot = root
++						certificateImport = ZipCertificateImport(p12URL: importTarget, provisionURL: provisionURL)
++						return
++					}
+ 					SharedImportCoordinator.shared.receive(importTarget)
+ 					try? FileManager.default.removeItem(at: root)
+ 				}
+@@ -540,6 +558,30 @@ private struct ZipContentsView: View {
+ 		return path
+ 	}
+ 
++	private func decodedArchivePath(_ entry: ZIPFoundation.Entry) -> String {
++		let standard = entry.path
++		let gb18030 = entry.path(using: String.Encoding(rawValue: 0x80000632))
++		guard !gb18030.isEmpty,
++			containsCJK(gb18030),
++			!containsCJK(standard),
++			looksLikeLegacyMojibake(standard) else { return standard }
++		return gb18030
++	}
++
++	private func containsCJK(_ value: String) -> Bool {
++		value.unicodeScalars.contains { scalar in
++			(0x3400...0x9FFF).contains(scalar.value) || (0xF900...0xFAFF).contains(scalar.value)
++		}
++	}
++
++	private func looksLikeLegacyMojibake(_ value: String) -> Bool {
++		value.unicodeScalars.contains { scalar in
++			(0x0080...0x00FF).contains(scalar.value)
++				|| (0x0370...0x03FF).contains(scalar.value)
++				|| (0x2500...0x259F).contains(scalar.value)
++		}
++	}
++
+ 	private func safeOutputURL(for relativePath: String, root: URL) throws -> URL {
+ 		guard let normalizedPath = safeArchiveRelativePath(relativePath) else { throw ZipPreviewError.unsafePath(relativePath) }
+ 		let standardizedRoot = root.standardizedFileURL
+@@ -552,6 +594,8 @@ private struct ZipContentsView: View {
+ 	private func handle(_ item: ZipPreviewItem) { if item.isImportable { importCandidate = item } }
+ 	private func icon(for item: ZipPreviewItem) -> String {
+ 		if item.isDirectory { return "folder.fill" }
++		if item.isApp { return "app.fill" }
++		if item.isCertificate { return "person.text.rectangle.fill" }
+ 		return item.isImportable ? "shippingbox.fill" : "doc.fill"
+ 	}
+ }
+@@ -573,7 +617,17 @@ private struct ZipPreviewItem: Identifiable, Hashable {
+ 	private var ext: String { URL(fileURLWithPath: cleanPath).pathExtension.lowercased() }
+ 	var name: String { URL(fileURLWithPath: cleanPath).lastPathComponent }
+ 	var isDirectory: Bool { path.hasSuffix("/") || ["framework", "bundle"].contains(ext) }
+-	var isImportable: Bool { ["dylib", "framework", "deb", "bundle"].contains(ext) }
++	var isApp: Bool { ["ipa", "tipa"].contains(ext) }
++	var isCertificate: Bool { ["p12", "pfx"].contains(ext) }
++	var isImportable: Bool { ["dylib", "framework", "deb", "bundle", "ipa", "tipa", "p12", "pfx"].contains(ext) }
++	var importTitle: String { isCertificate ? "导入证书" : isApp ? "导入 IPA" : "导入到动态库" }
++	var importDescription: String { isCertificate ? "可导入证书" : isApp ? "可导入 App" : "可导入动态库" }
++}
++
++private struct ZipCertificateImport: Identifiable {
++	let id = UUID()
++	let p12URL: URL
++	let provisionURL: URL?
+ }
+ 
+ private struct StandaloneDylibDependenciesView: View {
+diff --git a/Ksign/Views/Settings/Certificates/CertificatesAddView.swift b/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
+index 1996ae1..b21da0c 100644
+--- a/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
++++ b/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
+@@ -28,6 +28,11 @@ struct CertificatesAddView: View {
+ 	@State private var _isPasswordAlertPresenting = false
+ 	@State private var _errorMessage: String = ""
+ 	@State private var _isErrorPresenting = false
++
++	init(p12URL: URL? = nil, provisionURL: URL? = nil) {
++		__p12URL = State(initialValue: p12URL)
++		__provisionURL = State(initialValue: provisionURL)
++	}
+ 	
+ 	var saveButtonDisabled: Bool {
+ 		if _isFromKsign {
+@@ -151,4 +156,3 @@ extension CertificatesAddView {
+ }
+ 
+ 
+-
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index b071057..13f2bc0 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -112,7 +112,7 @@ struct SettingsView: View {
+ 				if let url = _udidProfileURL {
+ 					UDIDSafariView(url: url) {
+ 						_udidProfileURL = nil
+-						DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { UDIDService.shared.openProfileSettings() }
++						UDIDService.shared.openProfileSettings()
+ 					}.ignoresSafeArea()
+ 				}
+ 			}
+@@ -136,7 +136,7 @@ struct UDIDSafariView: UIViewControllerRepresentable {
+ 		func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+ 			guard !didFinish else { return }
+ 			didFinish = true
+-			controller.dismiss(animated: true) { self.onDone() }
++			onDone()
+ 		}
+ 	}
+ }
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index 0f82ea0..436a6cc 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -287,6 +287,7 @@ extension SigningView {
+ 		NBSection("快捷设置") {
+ 			Toggle("仅修改配置，不签名", isOn: $_temporaryOptions.onlyModify)
+ 			Toggle("签名后移除描述文件", isOn: $_temporaryOptions.removeProvisioning)
++				.disabled(!_temporaryOptions.doAdhocSigning && !_temporaryOptions.onlyModify)
+ 			Toggle("开启文件访问", isOn: $_temporaryOptions.fileSharing)
+ 			Toggle("移除应用跳转", isOn: $_temporaryOptions.removeURLScheme)
+ 			Toggle("修复越狱依赖", isOn: $_temporaryOptions.experiment_replaceSubstrateWithEllekit)
+@@ -353,6 +354,11 @@ extension SigningView {
+ 			return
+ 		}
+ 
++		var signingOptions = _temporaryOptions
++		if !signingOptions.doAdhocSigning && !signingOptions.onlyModify {
++			signingOptions.removeProvisioning = false
++		}
++
+ 		let generator = UIImpactFeedbackGenerator(style: .light)
+ 		generator.impactOccurred()
+ 		let mode = _temporaryOptions.onlyModify
+@@ -372,7 +378,7 @@ extension SigningView {
+ #endif
+ 		FR.signPackageFile(
+ 			app,
+-			using: _temporaryOptions,
++			using: signingOptions,
+ 			icon: appIcon,
+ 			certificate: _selectedCert()
+ 		) { [self] error in
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+index 95ea759..133ad6e 100644
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -19,7 +19,8 @@ struct DownloadButtonView: View {
+ 
+ 	@State private var downloadProgress: Double = 0
+ 	@State private var cancellable: AnyCancellable?
+-	@State private var showUnlock = false
++	@State private var showUnlockActions = false
++	@State private var showUnlockCode = false
+ 	@State private var unlockCode = ""
+ 	@State private var purchaseURL: URL?
+ 	@State private var unlockError: String?
+@@ -50,7 +51,7 @@ struct DownloadButtonView: View {
+ 				Button {
+ 					if let url = app.currentDownloadUrl {
+ 						_ = downloadManager.startDownload(from: url, id: app.currentUniqueId)
+-					} else { showUnlock = true }
++					} else { showUnlockActions = true }
+ 				} label: {
+ 					Text(app.currentDownloadUrl == nil ? "解锁" : .localized("获取"))
+ 						.lineLimit(0)
+@@ -71,11 +72,17 @@ struct DownloadButtonView: View {
+ 			setupObserver()
+ 		}
+ 		.animation(.easeInOut(duration: 0.3), value: downloadManager.getDownload(by: app.currentUniqueId) != nil)
+-		.alert("解锁 \(app.currentName)", isPresented: $showUnlock) {
++		.confirmationDialog("解锁 \(app.currentName)", isPresented: $showUnlockActions, titleVisibility: .visible) {
++			Button("获取解锁码") { openPurchase() }
++			Button("使用解锁码") { showUnlockCode = true }
++			Button("取消", role: .cancel) {}
++		} message: {
++			Text("已有卡密请选择“使用解锁码”。")
++		}
++		.alert("使用解锁码", isPresented: $showUnlockCode) {
+ 			TextField("请输入解锁码", text: $unlockCode)
+ 			Button("取消", role: .cancel) { unlockCode = "" }
+-			Button("获取解锁码") { openPurchase() }
+-			Button(isUnlocking ? "解锁中…" : "解锁") { unlock() }.disabled(isUnlocking || unlockCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
++			Button(isUnlocking ? "验证中…" : "使用解锁码") { unlock() }.disabled(isUnlocking || unlockCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+ 		} message: { Text("输入卡密后将使用本机 UDID 向该软件源验证。") }
+ 		.sheet(isPresented: Binding(get: { purchaseURL != nil }, set: { if !$0 { purchaseURL = nil } })) { if let purchaseURL { SafariPurchaseView(url: purchaseURL) } }
+ 		.alert("解锁失败", isPresented: Binding(get: { unlockError != nil }, set: { if !$0 { unlockError = nil } })) { Button("确定", role: .cancel) {} } message: { Text(unlockError ?? "未知错误") }
+-- 
+2.51.1
+

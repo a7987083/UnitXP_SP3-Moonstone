@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha13 source URL identity fix - build 1
+# alpha14 signing and import regression fixes - build 1
 
 on:
   push:
@@ -31,6 +31,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0012-zonoe-alpha11-source-identity-advanced-signing.patch
           git -C HFASignBuild apply ../HFASign/patches/0013-zonoe-alpha12-signing-paging-unlock.patch
           git -C HFASignBuild apply ../HFASign/patches/0014-Fix-source-unlock-URL-identity-collisions.patch
+          git -C HFASignBuild apply ../HFASign/patches/0015-Fix-alpha12-signing-and-import-regressions.patch
           git -C HFASignBuild submodule update --init --recursive
       - name: Apply zonoe icon
         run: |
@@ -69,7 +70,7 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alpha13 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alpha14 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -83,9 +84,9 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha13_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha14_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alpha13_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alpha14_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
@@ -93,17 +94,18 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist" | grep -qx public.data
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:1:LSItemContentTypes:0' "$plist" | grep -qx com.apple.framework
       - name: Publish alpha IPA
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/zonoe_v3.0.0-alpha13_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alpha13 IPA [skip ci]"
+          git add -f HFASign/dist/zonoe_v3.0.0-alpha14_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alpha14 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
       - uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alpha13
+          name: zonoe-v3.0.0-alpha14
           path: |
-            HFASign/dist/zonoe_v3.0.0-alpha13_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alpha14_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
