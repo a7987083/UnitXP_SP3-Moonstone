@@ -1,0 +1,199 @@
+From 90dc43c473d3ebb12ccc984a9417d2f970bb7c5d Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 01:36:24 +0200
+Subject: [PATCH 27/29] Fix layered SigningView interactive back
+
+---
+ Ksign/Views/Library/LibraryView.swift | 13 +++--
+ Ksign/Views/Signing/SigningView.swift | 84 +++++++++++++++++----------
+ 2 files changed, 61 insertions(+), 36 deletions(-)
+
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index ecea5ca..dcfb160 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -73,6 +73,7 @@ struct LibraryView: View {
+ 	
+ 	// MARK: Body
+     var body: some View {
++		ZStack {
+ 		NBNavigationView("") {
+ 			TabView(selection: $_resourceTab) {
+ 				_appResourcePage.tag(0)
+@@ -123,10 +124,6 @@ struct LibraryView: View {
+ 				InstallPreviewView(app: app.base, isSharing: app.archive)
+ 					.presentationDetents([.height(200)])
+ 					.presentationDragIndicator(.visible)			}
+-			.fullScreenCover(item: $_selectedSigningAppPresenting) { app in
+-				SigningView(app: app.base, signAndInstall: app.signAndInstall)
+-					.compatNavigationTransition(id: app.base.uuid ?? "", ns: _namespace)
+-			}
+ 			.fullScreenCover(item: $_selectedAppDylibsPresenting) { app in
+                 DylibsView(app: app.base)
+ 					.compatNavigationTransition(id: app.base.uuid ?? "", ns: _namespace)
+@@ -221,6 +218,14 @@ struct LibraryView: View {
+                 }
+             }
+         }
++			if let app = _selectedSigningAppPresenting {
++				SigningView(app: app.base, signAndInstall: app.signAndInstall) {
++					_selectedSigningAppPresenting = nil
++				}
++				.background(Color(uiColor: .systemBackground).ignoresSafeArea())
++				.zIndex(1)
++			}
++		}
+     }
+ }
+ 
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index f80b3df..eec54e9 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -11,8 +11,8 @@ import NimbleViews
+ 
+ // MARK: - View
+ struct SigningView: View {
+-	@Environment(\.dismiss) var dismiss
+ 	@Namespace var _namespace
++	private let onDismiss: () -> Void
+ 
+ 	@StateObject private var _optionsManager = OptionsManager.shared
+ 	@StateObject private var _operationProgress = OperationProgressManager.shared
+@@ -30,6 +30,7 @@ struct SigningView: View {
+ 	@State private var _selectedPhoto: PhotosPickerItem? = nil
+ 	@FocusState private var _isOutputNameFocused: Bool
+ 	@State private var _rootDragOffset: CGFloat = 0
++	@State private var _isInteractiveBack = false
+ 	@State var appIcon: UIImage?
+ 	
+ 	var signAndInstall: Bool = false
+@@ -60,9 +61,10 @@ struct SigningView: View {
+ 	
+ 	var app: AppInfoPresentable
+ 	
+-	init(app: AppInfoPresentable, signAndInstall: Bool = false) {
++	init(app: AppInfoPresentable, signAndInstall: Bool = false, onDismiss: @escaping () -> Void = {}) {
+ 		self.app = app
+ 		self.signAndInstall = signAndInstall
++		self.onDismiss = onDismiss
+ 		let storedCert = UserDefaults.standard.integer(forKey: "feather.selectedCert")
+ 		__temporaryCertificate = State(initialValue: storedCert)
+ 	}
+@@ -76,35 +78,8 @@ struct SigningView: View {
+ 				_customizationProperties(for: app)
+ 			}
+ 			.scrollDismissesKeyboard(.interactively)
++			.scrollDisabled(_isInteractiveBack)
+ 			.disabled(_isSigning)
+-			.overlay(alignment: .leading) {
+-				Color.clear
+-					.frame(width: 22)
+-					.contentShape(Rectangle())
+-					.gesture(
+-						DragGesture(minimumDistance: 4)
+-							.onChanged { value in
+-								guard value.translation.width > 0,
+-									  abs(value.translation.width) > abs(value.translation.height) else { return }
+-								_rootDragOffset = value.translation.width
+-							}
+-							.onEnded { value in
+-								let isHorizontal = value.translation.width > 0 &&
+-									abs(value.translation.width) > abs(value.translation.height)
+-								let predicted = max(value.translation.width, value.predictedEndTranslation.width)
+-								if isHorizontal && (value.translation.width > 90 || predicted > 180) {
+-									withAnimation(.easeOut(duration: 0.16)) {
+-										_rootDragOffset = UIScreen.main.bounds.width
+-									}
+-									DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { dismiss() }
+-								} else {
+-									withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+-										_rootDragOffset = 0
+-									}
+-								}
+-							}
+-					)
+-			}
+ 			.safeAreaInset(edge: .bottom) {
+ 				if !_isSigning {
+ 					Button() {
+@@ -115,7 +90,9 @@ struct SigningView: View {
+ 				}
+ 			}
+ 			.toolbar {
+-				NBToolbarButton(role: .dismiss)
++				NBToolbarButton(.localized("Dismiss"), systemImage: "chevron.left") {
++					_dismissRoot()
++				}
+ 				
+ 				NBToolbarButton(
+ 					.localized("重置"),
+@@ -144,7 +121,7 @@ struct SigningView: View {
+ 			.fullScreenCover(isPresented: $_isSigning) {
+ 			SigningProcessView(manager: _operationProgress, promptInstall: signAndInstall || (_temporaryOptions.autoInstallAfterSigning ?? false)) {
+ 					_isSigning = false
+-					dismiss()
++					_dismissRoot()
+ 				}
+ 			}
+ 			.onChange(of: _selectedPhoto) { newValue in
+@@ -159,6 +136,13 @@ struct SigningView: View {
+ 			}
+ 			.animation(.smooth, value: _isSigning)
+ 		}
++		.overlay(alignment: .leading) {
++			Color.clear
++				.frame(width: 22)
++				.frame(maxHeight: .infinity)
++				.contentShape(Rectangle())
++				.gesture(_interactiveBackGesture)
++		}
+ 		.offset(x: _rootDragOffset)
+ 		.onAppear {
+ 			if _outputFileName.isEmpty {
+@@ -209,6 +193,42 @@ struct SigningView: View {
+ 			}
+ 		}
+     }
++
++	private var _interactiveBackGesture: some Gesture {
++		DragGesture(minimumDistance: 4)
++			.onChanged { value in
++				guard !_isSigning else { return }
++				if !_isInteractiveBack {
++					guard value.translation.width > 0,
++						  abs(value.translation.width) > abs(value.translation.height) else { return }
++					_isInteractiveBack = true
++				}
++				_rootDragOffset = max(0, value.translation.width)
++			}
++			.onEnded { value in
++				guard _isInteractiveBack else { return }
++				let predicted = max(value.translation.width, value.predictedEndTranslation.width)
++				if value.translation.width > 90 || predicted > 180 {
++					withAnimation(.easeOut(duration: 0.16)) {
++						_rootDragOffset = UIScreen.main.bounds.width
++					}
++					DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { _dismissRoot() }
++				} else {
++					withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
++						_rootDragOffset = 0
++					}
++					DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
++						_isInteractiveBack = false
++					}
++				}
++			}
++	}
++
++	private func _dismissRoot() {
++		_rootDragOffset = 0
++		_isInteractiveBack = false
++		onDismiss()
++	}
+ }
+ 
+ // MARK: - Extension: View
+-- 
+2.51.1
+

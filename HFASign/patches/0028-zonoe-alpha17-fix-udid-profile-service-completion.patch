@@ -1,0 +1,194 @@
+From 1fe5d68158686734331384388857b2d3bf22ca32 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 01:36:24 +0200
+Subject: [PATCH 28/29] Fix UDID Profile Service completion
+
+---
+ Ksign/Backend/Server/UDIDService.swift    | 53 +++++++----------------
+ Ksign/FeatherApp.swift                    | 13 +++++-
+ Ksign/Resources/UDIDComplete.mobileconfig | 22 ++++++++++
+ Ksign/Resources/UDIDRequest.mobileconfig  | 31 +++++++++++++
+ 4 files changed, 79 insertions(+), 40 deletions(-)
+ create mode 100644 Ksign/Resources/UDIDComplete.mobileconfig
+ create mode 100644 Ksign/Resources/UDIDRequest.mobileconfig
+
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+index 56b0181..1825646 100644
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -25,14 +25,10 @@ final class UDIDService {
+ 			app.routes.defaultMaxBodySize = "2mb"
+ 
+ 			app.get("profile.mobileconfig") { _ in
+-				Response(status: .ok, headers: ["Content-Type": "application/x-apple-aspen-config"], body: .init(data: self.profileData()))
+-			}
+-			app.get("done") { _ in
+-				Response(
+-					status: .ok,
+-					headers: ["Content-Type": "text/html; charset=utf-8"],
+-					body: .init(string: self.completionPage())
+-				)
++				guard let data = self.bundledProfile(named: "UDIDRequest") else {
++					return Response(status: .internalServerError)
++				}
++				return Response(status: .ok, headers: ["Content-Type": "application/x-apple-aspen-config"], body: .init(data: data))
+ 			}
+ 			app.post("udid") { req -> Response in
+ 				guard let buffer = req.body.data else { return Response(status: .badRequest) }
+@@ -44,10 +40,14 @@ final class UDIDService {
+ 					NotificationCenter.default.post(name: Self.didUpdateNotification, object: udid)
+ 					self.completePendingCallback(with: udid)
+ 				}
+-				// Profile Service POST completion must not use a temporary 302 redirect.
+-				// A permanent redirect is the established UDID-only completion flow and
+-				// lets Settings finish the transaction instead of waiting until timeout.
+-				return Response(status: .movedPermanently, headers: ["Location": "/done"])
++				guard let completionProfile = self.bundledProfile(named: "UDIDComplete") else {
++					return Response(status: .internalServerError)
++				}
++				return Response(
++					status: .ok,
++					headers: ["Content-Type": "application/x-apple-aspen-config"],
++					body: .init(data: completionProfile)
++				)
+ 			}
+ 			try app.server.start()
+ 			server = app
+@@ -122,32 +122,9 @@ final class UDIDService {
+ 
+ 	private var profileURL: URL { URL(string: "http://127.0.0.1:\(Self.port)/profile.mobileconfig")! }
+ 
+-	private func completionPage() -> String {
+-		"""
+-		<!doctype html><html><head><meta charset="utf-8">
+-		<meta name="viewport" content="width=device-width,initial-scale=1">
+-		<meta http-equiv="refresh" content="1;url=zonoe://udid-complete">
+-		<title>UDID 获取成功</title></head>
+-		<body style="font-family:-apple-system;text-align:center;padding:72px 24px">
+-		<h2>UDID 获取成功</h2><p>正在返回 zonoe…</p>
+-		<p><a style="display:inline-block;padding:12px 20px" href="zonoe://udid-complete">返回 zonoe</a></p>
+-		<script>setTimeout(function(){location.replace('zonoe://udid-complete')},100)</script>
+-		</body></html>
+-		"""
+-	}
+-
+-	private func profileData() -> Data {
+-		let dictionary: [String: Any] = [
+-			"PayloadContent": ["URL": "http://127.0.0.1:\(Self.port)/udid", "DeviceAttributes": ["UDID"]],
+-			"PayloadOrganization": "zonoe",
+-			"PayloadDisplayName": "获取本机 UDID",
+-			"PayloadVersion": 1,
+-			"PayloadUUID": UUID().uuidString,
+-			"PayloadIdentifier": "com.zonoe.udid.profile-service",
+-			"PayloadDescription": "仅用于向本机 zonoe 返回设备 UDID",
+-			"PayloadType": "Profile Service"
+-		]
+-		return (try? PropertyListSerialization.data(fromPropertyList: dictionary, format: .xml, options: 0)) ?? Data()
++	private func bundledProfile(named name: String) -> Data? {
++		guard let url = Bundle.main.url(forResource: name, withExtension: "mobileconfig") else { return nil }
++		return try? Data(contentsOf: url)
+ 	}
+ 
+ 	private func extractUDID(from input: Data) -> String? {
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index d646d9f..41da40e 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -58,6 +58,10 @@ struct FeatherApp: App {
+ 			.onReceive(NotificationCenter.default.publisher(for: UDIDService.requestNotification)) { _ in
+ 				_startUDIDFlow()
+ 			}
++			.onReceive(NotificationCenter.default.publisher(for: UDIDService.didUpdateNotification)) { notification in
++				guard let udid = notification.object as? String, !udid.isEmpty else { return }
++				_finishUDIDPresentation(udid: udid)
++			}
+ 			.sheet(isPresented: $sourceImportCoordinator.isShowingClipboardPrompt) {
+ 				SourceClipboardPrompt(coordinator: sourceImportCoordinator).presentationDetents([.medium, .large])
+ 			}
+@@ -110,11 +114,16 @@ struct FeatherApp: App {
+ 	private func _completeUDIDFlowIfNeeded(forceNotification: Bool = false) {
+ 		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID") ?? ""
+ 		guard !udid.isEmpty else { return }
++		let shouldNotify = forceNotification || udid != lastObservedUDID
++		_finishUDIDPresentation(udid: udid)
++		guard shouldNotify else { return }
++		NotificationCenter.default.post(name: UDIDService.didUpdateNotification, object: udid)
++	}
++
++	private func _finishUDIDPresentation(udid: String) {
+ 		pendingUDIDProfileURL = nil
+ 		isStartingUDID = false
+-		guard forceNotification || udid != lastObservedUDID else { return }
+ 		lastObservedUDID = udid
+-		NotificationCenter.default.post(name: UDIDService.didUpdateNotification, object: udid)
+ 	}
+ 
+ 	private func _handleUDIDRequest(_ url: URL) {
+diff --git a/Ksign/Resources/UDIDComplete.mobileconfig b/Ksign/Resources/UDIDComplete.mobileconfig
+new file mode 100644
+index 0000000..554b0ce
+--- /dev/null
++++ b/Ksign/Resources/UDIDComplete.mobileconfig
+@@ -0,0 +1,22 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>PayloadContent</key>
++	<array/>
++	<key>PayloadDescription</key>
++	<string>完成 zonoe 设备识别</string>
++	<key>PayloadDisplayName</key>
++	<string>zonoe UDID 获取完成</string>
++	<key>PayloadIdentifier</key>
++	<string>com.zonoe.udid.complete</string>
++	<key>PayloadOrganization</key>
++	<string>zonoe</string>
++	<key>PayloadType</key>
++	<string>Configuration</string>
++	<key>PayloadUUID</key>
++	<string>F06C8D36-A220-4E02-AE47-2BA34D3580F1</string>
++	<key>PayloadVersion</key>
++	<integer>1</integer>
++</dict>
++</plist>
+diff --git a/Ksign/Resources/UDIDRequest.mobileconfig b/Ksign/Resources/UDIDRequest.mobileconfig
+new file mode 100644
+index 0000000..f369684
+--- /dev/null
++++ b/Ksign/Resources/UDIDRequest.mobileconfig
+@@ -0,0 +1,31 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>PayloadContent</key>
++	<dict>
++		<key>URL</key>
++		<string>http://127.0.0.1:14302/udid</string>
++		<key>DeviceAttributes</key>
++		<array>
++			<string>UDID</string>
++			<string>VERSION</string>
++			<string>PRODUCT</string>
++		</array>
++	</dict>
++	<key>PayloadOrganization</key>
++	<string>zonoe</string>
++	<key>PayloadDisplayName</key>
++	<string>获取本机 UDID</string>
++	<key>PayloadVersion</key>
++	<integer>1</integer>
++	<key>PayloadUUID</key>
++	<string>DB52BA6B-675E-498F-91C2-B34864608494</string>
++	<key>PayloadIdentifier</key>
++	<string>com.zonoe.udid.profile-service</string>
++	<key>PayloadDescription</key>
++	<string>仅用于向本机 zonoe 返回设备信息</string>
++	<key>PayloadType</key>
++	<string>Profile Service</string>
++</dict>
++</plist>
+-- 
+2.51.1
+

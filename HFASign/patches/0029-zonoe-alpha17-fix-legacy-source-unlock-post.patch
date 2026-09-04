@@ -1,0 +1,122 @@
+From d12e92869fbd6aad59382641e6318d4d77a05af9 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 01:36:24 +0200
+Subject: [PATCH 29/29] Fix legacy source unlock grants
+
+---
+ .../Sources/SourceRepositoryLoader.swift      | 46 ++++++++++++++++---
+ .../Sources/Apps/DownloadButtonView.swift     | 11 +++++
+ 2 files changed, 51 insertions(+), 6 deletions(-)
+
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 41bf554..80a8b27 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -49,7 +49,6 @@ final class SourceUnlockService {
+ 			let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+ 			let message = (object?["msg"] as? String) ?? (object?["message"] as? String) ?? ""
+ 			let legacyKey = metadata.legacyKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+-			var legacyVerified = false
+ 			if let legacyKey, !legacyKey.isEmpty {
+ 				let expected = self.md5(legacyKey + udid)
+ 				let bodyText = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+@@ -62,9 +61,16 @@ final class SourceUnlockService {
+ 					actual = ""
+ 				}
+ 				guard actual.caseInsensitiveCompare(expected) == .orderedSame else {
+-					completion(.failure(UnlockError.verificationFailed)); return
++					completion(.failure(UnlockError.server(message.isEmpty ? "解锁校验失败" : message))); return
+ 				}
+-				legacyVerified = true
++				self.markLegacyGrant(
++					sourceURL: sourceURL,
++					appIdentifier: appIdentifier,
++					appName: appName,
++					udid: udid
++				)
++				completion(.success(message))
++				return
+ 			}
+ 
+ 			SourceRepositoryLoader.shared.fetch(from: sourceURL, allowCachedFallback: false) { result in
+@@ -79,7 +85,7 @@ final class SourceUnlockService {
+ 					// successful redemption and exposes downloadURL only when the
+ 					// supplied UDID is authorised.  Its `code` and `msg` fields are
+ 					// not authoritative (several failure replies also use code 0).
+-					if access?.isUnlocked == true || (legacyVerified && access?.hasDownloadURL == true) {
++					if access?.isUnlocked == true {
+ 						completion(.success(message))
+ 					} else {
+ 						completion(.failure(UnlockError.server(message.isEmpty ? "服务器尚未确认解锁" : message)))
+@@ -90,6 +96,34 @@ final class SourceUnlockService {
+ 		}.resume()
+ 	}
+ 
++	func hasLegacyGrant(sourceURL: URL, appIdentifier: String?, appName: String, udid: String) -> Bool {
++		UserDefaults.standard.bool(forKey: legacyGrantKey(
++			sourceURL: sourceURL,
++			appIdentifier: appIdentifier,
++			appName: appName,
++			udid: udid
++		))
++	}
++
++	private func markLegacyGrant(sourceURL: URL, appIdentifier: String?, appName: String, udid: String) {
++		UserDefaults.standard.set(true, forKey: legacyGrantKey(
++			sourceURL: sourceURL,
++			appIdentifier: appIdentifier,
++			appName: appName,
++			udid: udid
++		))
++	}
++
++	private func legacyGrantKey(sourceURL: URL, appIdentifier: String?, appName: String, udid: String) -> String {
++		let source = SourceURLIdentity.normalized(sourceURL).absoluteString
++		let identifier = appIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
++		let app = (identifier?.isEmpty == false ? identifier : nil)
++			?? "name:\(appName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
++		let identity = "\(source)\n\(app)\n\(udid.trimmingCharacters(in: .whitespacesAndNewlines))"
++		let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
++		return "zonoe.legacySourceGrant.\(digest)"
++	}
++
+ 	private func md5(_ value: String) -> String {
+ 		let data = Data(value.utf8)
+ 		var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+@@ -100,9 +134,9 @@ final class SourceUnlockService {
+ 	}
+ 
+ 	enum UnlockError: LocalizedError {
+-		case missingEndpoint, missingUDID, emptyCode, invalidEndpoint, invalidResponse, verificationFailed, http(Int), server(String)
++		case missingEndpoint, missingUDID, emptyCode, invalidEndpoint, invalidResponse, http(Int), server(String)
+ 		var errorDescription: String? { switch self {
+-		case .missingEndpoint: return "该软件源未提供解锁接口"; case .missingUDID: return "请先获取本机 UDID"; case .emptyCode: return "请输入解锁码"; case .invalidEndpoint: return "软件源解锁接口无效"; case .invalidResponse: return "解锁服务器没有返回有效数据"; case .verificationFailed: return "解锁校验失败"; case .http(let code): return "解锁服务器返回 HTTP \(code)"; case .server(let message): return message
++		case .missingEndpoint: return "该软件源未提供解锁接口"; case .missingUDID: return "请先获取本机 UDID"; case .emptyCode: return "请输入解锁码"; case .invalidEndpoint: return "软件源解锁接口无效"; case .invalidResponse: return "解锁服务器没有返回有效数据"; case .http(let code): return "解锁服务器返回 HTTP \(code)"; case .server(let message): return message
+ 		} }
+ 	}
+ }
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+index a93496c..3e691e1 100644
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -114,6 +114,17 @@ struct DownloadButtonView: View {
+ 	}
+ 
+ 	private var isSourceLocked: Bool {
++		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++		if SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.legacyKey != nil,
++		   !udid.isEmpty,
++		   SourceUnlockService.shared.hasLegacyGrant(
++			sourceURL: sourceURL,
++			appIdentifier: app.id,
++			appName: app.currentName,
++			udid: udid
++		   ) {
++			return false
++		}
+ 		if let access = SourceRepositoryLoader.shared.appAccessMetadata(
+ 			for: sourceURL,
+ 			appIdentifier: app.id,
+-- 
+2.51.1
+
