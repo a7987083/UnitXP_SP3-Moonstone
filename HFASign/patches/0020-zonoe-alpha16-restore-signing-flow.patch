@@ -125,7 +125,10 @@ diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/Signing
 diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
 --- a/Ksign/Views/Signing/SigningView.swift
 +++ b/Ksign/Views/Signing/SigningView.swift
-@@ -1,6 +1,3 @@
+@@ -372,10 +372,7 @@ extension SigningView {
+ 			return
+ 		}
+ 
 -		var signingOptions = _temporaryOptions
 -		if !signingOptions.doAdhocSigning && !signingOptions.onlyModify {
 -			signingOptions.removeProvisioning = false
@@ -133,3 +136,4 @@ diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/Signing
 +		let signingOptions = _temporaryOptions
  
  		let generator = UIImpactFeedbackGenerator(style: .light)
+ 		generator.impactOccurred()
