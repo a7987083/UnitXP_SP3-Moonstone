@@ -1,0 +1,588 @@
+From 920e4e839bfec7e30f04ad47f76f3bb9c50fc8b8 Mon Sep 17 00:00:00 2001
+From: Codex <codex@example.invalid>
+Date: Fri, 4 Sep 2026 12:58:51 -0400
+Subject: [PATCH] Implement zonoe alpha16 regressions
+
+---
+ Ksign/Backend/Server/UDIDService.swift        |   5 +-
+ .../Sources/SourceRepositoryLoader.swift      | 105 ++++++++++++++--
+ Ksign/Utilities/Handlers/SigningHandler.swift |  14 ++-
+ Ksign/Utilities/Handlers/ZsignHandler.swift   |  31 ++---
+ Ksign/Views/Library/LibraryCellView.swift     |   4 -
+ Ksign/Views/Signing/SigningView.swift         |  35 ++++--
+ .../Sources/Apps/DownloadButtonView.swift     | 114 ++++++++++++++----
+ 7 files changed, 227 insertions(+), 81 deletions(-)
+
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+index b941d04..56b0181 100644
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -44,7 +44,10 @@ final class UDIDService {
+ 					NotificationCenter.default.post(name: Self.didUpdateNotification, object: udid)
+ 					self.completePendingCallback(with: udid)
+ 				}
+-				return Response(status: .found, headers: ["Location": "/done"])
++				// Profile Service POST completion must not use a temporary 302 redirect.
++				// A permanent redirect is the established UDID-only completion flow and
++				// lets Settings finish the transaction instead of waiting until timeout.
++				return Response(status: .movedPermanently, headers: ["Location": "/done"])
+ 			}
+ 			try app.server.start()
+ 			server = app
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 2388655..41bf554 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -11,6 +11,16 @@ struct SourceAccessMetadata: Equatable {
+ 	let legacyKey: String?
+ }
+ 
++struct SourceAppAccessMetadata: Equatable {
++	let requiresUnlock: Bool?
++	let hasDownloadURL: Bool
++
++	var isUnlocked: Bool? {
++		guard let requiresUnlock else { return nil }
++		return !requiresUnlock || hasDownloadURL
++	}
++}
++
+ final class SourceUnlockService {
+ 	static let shared = SourceUnlockService()
+ 	private init() {}
+@@ -38,25 +48,42 @@ final class SourceUnlockService {
+ 			guard let data else { completion(.failure(UnlockError.invalidResponse)); return }
+ 			let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+ 			let message = (object?["msg"] as? String) ?? (object?["message"] as? String) ?? ""
+-			if let legacyKey = metadata.legacyKey?.trimmingCharacters(in: .whitespacesAndNewlines), !legacyKey.isEmpty {
++			let legacyKey = metadata.legacyKey?.trimmingCharacters(in: .whitespacesAndNewlines)
++			var legacyVerified = false
++			if let legacyKey, !legacyKey.isEmpty {
+ 				let expected = self.md5(legacyKey + udid)
+-				let actual = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
++				let bodyText = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
++				let actual: String
++				if let value = object?["data"] as? String {
++					actual = value.trimmingCharacters(in: .whitespacesAndNewlines)
++				} else if object == nil {
++					actual = bodyText
++				} else {
++					actual = ""
++				}
+ 				guard actual.caseInsensitiveCompare(expected) == .orderedSame else {
+ 					completion(.failure(UnlockError.verificationFailed)); return
+ 				}
++				legacyVerified = true
+ 			}
+-			// Modern responses are acknowledgements only. The freshly fetched source,
+-			// with this UDID, is the sole authority for whether the app is unlocked.
++
+ 			SourceRepositoryLoader.shared.fetch(from: sourceURL, allowCachedFallback: false) { result in
+ 				switch result {
+-				case .success(let repository):
+-					let unlocked = repository.apps.contains { candidate in
+-						let sameApp = appIdentifier.map { identifier in identifier == candidate.id }
+-							?? (candidate.currentName == appName)
+-						return sameApp && candidate.currentDownloadUrl != nil
++				case .success:
++					let access = SourceRepositoryLoader.shared.appAccessMetadata(
++						for: sourceURL,
++						appIdentifier: appIdentifier,
++						appName: appName
++					)
++					// The confirmed modern backend keeps `lock == 1` after a
++					// successful redemption and exposes downloadURL only when the
++					// supplied UDID is authorised.  Its `code` and `msg` fields are
++					// not authoritative (several failure replies also use code 0).
++					if access?.isUnlocked == true || (legacyVerified && access?.hasDownloadURL == true) {
++						completion(.success(message))
++					} else {
++						completion(.failure(UnlockError.server(message.isEmpty ? "服务器尚未确认解锁" : message)))
+ 					}
+-					if unlocked { completion(.success(message)) }
+-					else { completion(.failure(UnlockError.server(message.isEmpty ? "服务器尚未确认解锁" : message))) }
+ 				case .failure(let error): completion(.failure(error))
+ 				}
+ 			}
+@@ -84,6 +111,7 @@ final class SourceRepositoryLoader {
+ 	static let shared = SourceRepositoryLoader()
+ 	private let metadataLock = NSLock()
+ 	private var metadataBySource: [String: SourceAccessMetadata] = [:]
++	private var appAccessBySource: [String: [String: SourceAppAccessMetadata]] = [:]
+ 	private init() {}
+ 
+ 	func fetch(from url: URL, allowCachedFallback: Bool = true, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+@@ -147,6 +175,14 @@ final class SourceRepositoryLoader {
+ 		return metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString]
+ 	}
+ 
++	func appAccessMetadata(for sourceURL: URL, appIdentifier: String?, appName: String) -> SourceAppAccessMetadata? {
++		let sourceKey = SourceURLIdentity.normalized(sourceURL).absoluteString
++		metadataLock.lock(); defer { metadataLock.unlock() }
++		guard let apps = appAccessBySource[sourceKey] else { return nil }
++		if let appIdentifier, !appIdentifier.isEmpty, let value = apps["id:\(appIdentifier)"] { return value }
++		return apps["name:\(appName)"]
++	}
++
+ 	private func decode(_ data: Data, sourceURL: URL) throws -> ASRepository {
+ 		let decoder = JSONDecoder()
+ 		let object: Any
+@@ -184,7 +220,52 @@ final class SourceRepositoryLoader {
+ 		let unlock = ((dictionary["unlockURL"] as? String) ?? (legacy?["url"] as? String)).flatMap(tolerantURLString)
+ 		let key = (legacy?["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+ 		let metadata = SourceAccessMetadata(payURL: pay.flatMap(URL.init(string:)), unlockURL: unlock.flatMap(URL.init(string:)), legacyKey: key?.isEmpty == false ? key : nil)
+-		metadataLock.lock(); metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString] = metadata; metadataLock.unlock()
++
++		var appMetadata: [String: SourceAppAccessMetadata] = [:]
++		if let apps = dictionary["apps"] as? [[String: Any]] {
++			for app in apps {
++				let identifier = (app["bundleIdentifier"] as? String) ?? (app["identifier"] as? String)
++				let name = (app["name"] as? String) ?? ""
++				let requiresUnlock = boolValue(app["isNeedlock"] ?? app["isNeedLock"] ?? app["lock"])
++				let hasDownloadURL = appHasDownloadURL(app)
++				guard requiresUnlock != nil || hasDownloadURL else { continue }
++				let value = SourceAppAccessMetadata(requiresUnlock: requiresUnlock, hasDownloadURL: hasDownloadURL)
++				if let identifier, !identifier.isEmpty { appMetadata["id:\(identifier)"] = value }
++				if !name.isEmpty { appMetadata["name:\(name)"] = value }
++			}
++		}
++
++		let sourceKey = SourceURLIdentity.normalized(sourceURL).absoluteString
++		metadataLock.lock()
++		metadataBySource[sourceKey] = metadata
++		appAccessBySource[sourceKey] = appMetadata
++		metadataLock.unlock()
++	}
++
++	private func boolValue(_ value: Any?) -> Bool? {
++		if let value = value as? Bool { return value }
++		if let value = value as? NSNumber { return value.intValue != 0 }
++		if let value = value as? String {
++			switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
++			case "1", "true", "yes": return true
++			case "0", "false", "no": return false
++			default: return nil
++			}
++		}
++		return nil
++	}
++
++	private func appHasDownloadURL(_ app: [String: Any]) -> Bool {
++		if hasNonemptyURLString(app["downloadURL"] ?? app["downloadUrl"]) { return true }
++		guard let versions = app["versions"] as? [[String: Any]] else { return false }
++		return versions.contains { version in
++			hasNonemptyURLString(version["downloadURL"] ?? version["downloadUrl"])
++		}
++	}
++
++	private func hasNonemptyURLString(_ value: Any?) -> Bool {
++		guard let value = value as? String else { return false }
++		return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+ 	}
+ 
+ 	private func repositoryObject(from object: Any) -> Any {
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+index 77b6bdd..d36d2ea 100644
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -91,8 +91,12 @@ final class SigningHandler: NSObject {
+ 		}
+ 
+ 		if !_options.onlyModify && !_options.doAdhocSigning {
+-			try validateSigningInputs(for: movedAppPath)
+-			OperationProgressManager.shared.log("证书、描述文件与 Bundle ID 前置校验通过")
++			do {
++				try validateSigningInputs(for: movedAppPath)
++				OperationProgressManager.shared.log("签名前诊断通过：证书、描述文件与 Bundle ID")
++			} catch {
++				OperationProgressManager.shared.log("签名前诊断警告：\(error.localizedDescription)")
++			}
+ 		}
+ 		
+         try await _removeCodeSignature(for: movedAppPath)
+@@ -134,7 +138,11 @@ final class SigningHandler: NSObject {
+ 			} else {
+ 				throw SigningFileHandlerError.missingCertifcate
+ 			}
+-			if !_options.doAdhocSigning { try validateCertificateSignedApp(movedAppPath) }
++			if let error = handler.hadError { throw error }
++			if !_options.doAdhocSigning {
++				do { try validateCertificateSignedApp(movedAppPath) }
++				catch { OperationProgressManager.shared.log("签名结果诊断警告：\(error.localizedDescription)") }
++			}
+ 		}
+ 		OperationProgressManager.shared.update(0.90, detail: "重新打包并保存")
+         try await self.move()
+diff --git a/Ksign/Utilities/Handlers/ZsignHandler.swift b/Ksign/Utilities/Handlers/ZsignHandler.swift
+index e5ea2b9..8e9df4a 100644
+--- a/Ksign/Utilities/Handlers/ZsignHandler.swift
++++ b/Ksign/Utilities/Handlers/ZsignHandler.swift
+@@ -10,6 +10,7 @@ import ZsignSwift
+ import UIKit
+ 
+ final class ZsignHandler {
++	var hadError: Error?
+ 	private var _appUrl: URL
+ 	private var _options: Options
+ 	private var _certificate: CertificatePair?
+@@ -44,10 +45,7 @@ final class ZsignHandler {
+ 		let provisionURL = Storage.shared.getFile(.provision, from: cert)
+ 		let p12URL = Storage.shared.getFile(.certificate, from: cert)
+ 		guard let provisionURL, let p12URL else { throw SigningFileHandlerError.signFailed }
+-		var callbackInvoked = false
+-		var callbackSucceeded = false
+-		var callbackError: Error?
+-        let accepted = Zsign.sign(
++        let _ = Zsign.sign(
+             appPath: _appUrl.relativePath,
+             provisionPath: provisionURL.path,
+             p12Path: p12URL.path,
+@@ -56,24 +54,15 @@ final class ZsignHandler {
+             customIdentifier: _options.appIdentifier ?? "",
+             customName: _options.appName ?? "",
+             customVersion: _options.appVersion ?? "",
+-			// A certificate-signed IPA must retain the newly embedded profile.
+-			// The user option is only meaningful for ad-hoc/modify-only output.
+-            removeProvision: false,
+-			completion: { success, error in
+-				callbackInvoked = true
+-				callbackSucceeded = success
+-				callbackError = error
++            removeProvision: _options.removeProvisioning,
++			completion: { _, error in
++				self.hadError = error
+             }
+         )
+-		guard accepted else { throw callbackError ?? SigningFileHandlerError.signFailed }
+-		guard callbackInvoked, callbackSucceeded else { throw callbackError ?? SigningFileHandlerError.signFailed }
+ 	}
+ 	
+ 	func adhocSign() async throws {
+-		var callbackInvoked = false
+-		var callbackSucceeded = false
+-		var callbackError: Error?
+-        let accepted = Zsign.sign(
++        let _ = Zsign.sign(
+ 			appPath: _appUrl.relativePath,
+ 			entitlementsPath: _options.appEntitlementsFile?.path ?? "",
+ 			customIdentifier: _options.appIdentifier ?? "",
+@@ -81,13 +70,9 @@ final class ZsignHandler {
+ 			customVersion: _options.appVersion ?? "",
+ 			adhoc: true,
+             removeProvision: _options.removeProvisioning,
+-			completion: { success, error in
+-				callbackInvoked = true
+-				callbackSucceeded = success
+-				callbackError = error
++			completion: { _, error in
++				self.hadError = error
+             }
+         )
+-		guard accepted else { throw callbackError ?? SigningFileHandlerError.signFailed }
+-		guard callbackInvoked, callbackSucceeded else { throw callbackError ?? SigningFileHandlerError.signFailed }
+ 	}
+ }
+diff --git a/Ksign/Views/Library/LibraryCellView.swift b/Ksign/Views/Library/LibraryCellView.swift
+index 7633767..3a112b7 100644
+--- a/Ksign/Views/Library/LibraryCellView.swift
++++ b/Ksign/Views/Library/LibraryCellView.swift
+@@ -199,10 +199,6 @@ extension LibraryCellView {
+ 				_share(app)
+ 			}
+ 		} else {
+-			Button(.localized("签名并安装")) {
+-				selectedSigningAppPresenting = AnyApp(base: app, signAndInstall: true)
+-			}
+-			
+ 			Button(.localized("签名")) {
+ 				selectedSigningAppPresenting = AnyApp(base: app)
+ 			}
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index 05ee8e3..f80b3df 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -29,6 +29,7 @@ struct SigningView: View {
+ 	@State private var _outputFormat = "ipa"
+ 	@State private var _selectedPhoto: PhotosPickerItem? = nil
+ 	@FocusState private var _isOutputNameFocused: Bool
++	@State private var _rootDragOffset: CGFloat = 0
+ 	@State var appIcon: UIImage?
+ 	
+ 	var signAndInstall: Bool = false
+@@ -81,11 +82,26 @@ struct SigningView: View {
+ 					.frame(width: 22)
+ 					.contentShape(Rectangle())
+ 					.gesture(
+-						DragGesture(minimumDistance: 12)
+-							.onEnded { value in
+-								guard value.translation.width > 70,
++						DragGesture(minimumDistance: 4)
++							.onChanged { value in
++								guard value.translation.width > 0,
+ 									  abs(value.translation.width) > abs(value.translation.height) else { return }
+-								dismiss()
++								_rootDragOffset = value.translation.width
++							}
++							.onEnded { value in
++								let isHorizontal = value.translation.width > 0 &&
++									abs(value.translation.width) > abs(value.translation.height)
++								let predicted = max(value.translation.width, value.predictedEndTranslation.width)
++								if isHorizontal && (value.translation.width > 90 || predicted > 180) {
++									withAnimation(.easeOut(duration: 0.16)) {
++										_rootDragOffset = UIScreen.main.bounds.width
++									}
++									DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { dismiss() }
++								} else {
++									withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
++										_rootDragOffset = 0
++									}
++								}
+ 							}
+ 					)
+ 			}
+@@ -143,14 +159,11 @@ struct SigningView: View {
+ 			}
+ 			.animation(.smooth, value: _isSigning)
+ 		}
++		.offset(x: _rootDragOffset)
+ 		.onAppear {
+ 			if _outputFileName.isEmpty {
+ 				_refreshGeneratedOutputName()
+ 			}
+-			// Certificate-signed apps need the embedded provisioning profile to install.
+-			if !_temporaryOptions.doAdhocSigning && !_temporaryOptions.onlyModify {
+-				_temporaryOptions.removeProvisioning = false
+-			}
+ 			// ppq protection
+ 			if
+ 				_optionsManager.options.ppqProtection,
+@@ -303,7 +316,6 @@ extension SigningView {
+ 		NBSection("快捷设置") {
+ 			Toggle("仅修改配置，不签名", isOn: $_temporaryOptions.onlyModify)
+ 			Toggle("签名后移除描述文件", isOn: $_temporaryOptions.removeProvisioning)
+-				.disabled(!_temporaryOptions.doAdhocSigning && !_temporaryOptions.onlyModify)
+ 			Toggle("开启文件访问", isOn: $_temporaryOptions.fileSharing)
+ 			Toggle("移除应用跳转", isOn: $_temporaryOptions.removeURLScheme)
+ 			Toggle("修复越狱依赖", isOn: $_temporaryOptions.experiment_replaceSubstrateWithEllekit)
+@@ -370,10 +382,7 @@ extension SigningView {
+ 			return
+ 		}
+ 
+-		var signingOptions = _temporaryOptions
+-		if !signingOptions.doAdhocSigning && !signingOptions.onlyModify {
+-			signingOptions.removeProvisioning = false
+-		}
++		let signingOptions = _temporaryOptions
+ 
+ 		let generator = UIImpactFeedbackGenerator(style: .light)
+ 		generator.impactOccurred()
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+index 63473b2..a93496c 100644
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -12,6 +12,13 @@ import NimbleViews
+ import SafariServices
+ 
+ struct DownloadButtonView: View {
++	private enum UnlockFlowState: Equatable {
++		case idle
++		case showingActions
++		case showingPrompt
++		case validating
++	}
++
+ 	let source: ASRepository
+ 	let sourceURL: URL
+ 	let app: ASRepository.App
+@@ -19,12 +26,10 @@ struct DownloadButtonView: View {
+ 
+ 	@State private var downloadProgress: Double = 0
+ 	@State private var cancellable: AnyCancellable?
+-	@State private var showUnlockActions = false
+-	@State private var showUnlockCode = false
++	@State private var unlockFlow: UnlockFlowState = .idle
+ 	@State private var unlockCode = ""
+ 	@State private var purchaseURL: URL?
+ 	@State private var unlockError: String?
+-	@State private var isUnlocking = false
+ 	private let pendingUnlockSourceKey = "zonoe.pendingSourceUnlockURL"
+ 	private let pendingUnlockAppKey = "zonoe.pendingSourceUnlockApp"
+ 	private var unlockAppIdentity: String { app.id ?? "name:\(app.currentName)" }
+@@ -52,11 +57,15 @@ struct DownloadButtonView: View {
+ 				.compatTransition()
+ 			} else {
+ 				Button {
+-					if let url = app.currentDownloadUrl {
++					if isSourceLocked {
++						resetUnlockFlow(to: .showingActions)
++					} else if let url = app.currentDownloadUrl {
+ 						_ = downloadManager.startDownload(from: url, id: app.currentUniqueId)
+-					} else { showUnlockActions = true }
++					} else {
++						resetUnlockFlow(to: .showingActions)
++					}
+ 				} label: {
+-					Text(app.currentDownloadUrl == nil ? "解锁" : .localized("获取"))
++					Text(isSourceLocked ? "解锁" : .localized("获取"))
+ 						.lineLimit(0)
+ 						.font(.headline.bold())
+ 						.foregroundStyle(Color.accentColor)
+@@ -78,37 +87,81 @@ struct DownloadButtonView: View {
+ 			setupObserver()
+ 		}
+ 		.animation(.easeInOut(duration: 0.3), value: downloadManager.getDownload(by: app.currentUniqueId) != nil)
+-		.confirmationDialog("解锁 \(app.currentName)", isPresented: $showUnlockActions, titleVisibility: .visible) {
+-			Button("获取解锁码") { openPurchase() }
++		.confirmationDialog("解锁 \(app.currentName)", isPresented: unlockActionsPresented, titleVisibility: .visible) {
++			Button("获取解锁码") {
++				unlockFlow = .idle
++				openPurchase()
++			}
+ 			Button("使用解锁码") { beginUsingUnlockCode() }
+-			Button("取消", role: .cancel) {}
++			Button("取消", role: .cancel) { resetUnlockFlow() }
+ 		} message: {
+ 			Text("已有卡密请选择“使用解锁码”。")
+ 		}
+-		.sheet(isPresented: $showUnlockCode) {
+-			UnlockCodePrompt(code: $unlockCode, isValidating: isUnlocking) {
+-				guard !isUnlocking else { return }
+-				unlockCode = ""
+-				showUnlockCode = false
++		.sheet(isPresented: unlockPromptPresented) {
++			UnlockCodePrompt(code: $unlockCode, isValidating: unlockFlow == .validating, errorMessage: unlockError) {
++				guard unlockFlow != .validating else { return }
++				resetUnlockFlow()
+ 			} onConfirm: {
+ 				unlock()
+ 			}
+-			.presentationDetents([.height(230)])
+-			.interactiveDismissDisabled(isUnlocking)
++			.presentationDetents([.height(unlockError == nil ? 230 : 280)])
++			.interactiveDismissDisabled(unlockFlow == .validating)
+ 		}
+ 		.sheet(isPresented: Binding(get: { purchaseURL != nil }, set: { if !$0 { purchaseURL = nil } })) { if let purchaseURL { SafariPurchaseView(url: purchaseURL) } }
+-		.alert("解锁失败", isPresented: Binding(get: { unlockError != nil }, set: { if !$0 { unlockError = nil } })) { Button("确定", role: .cancel) {} } message: { Text(unlockError ?? "未知错误") }
+ 		.onReceive(NotificationCenter.default.publisher(for: UDIDService.didUpdateNotification)) { _ in
+ 			resumePendingUnlockIfPossible()
+ 		}
+ 	}
+ 
++	private var isSourceLocked: Bool {
++		if let access = SourceRepositoryLoader.shared.appAccessMetadata(
++			for: sourceURL,
++			appIdentifier: app.id,
++			appName: app.currentName
++		), let isUnlocked = access.isUnlocked {
++			return !isUnlocked
++		}
++		return app.currentDownloadUrl == nil
++	}
++
++	private var unlockActionsPresented: Binding<Bool> {
++		Binding(
++			get: { unlockFlow == .showingActions },
++			set: { presented in
++				if presented { unlockFlow = .showingActions }
++				else if unlockFlow == .showingActions { unlockFlow = .idle }
++			}
++		)
++	}
++
++	private var unlockPromptPresented: Binding<Bool> {
++		Binding(
++			get: { unlockFlow == .showingPrompt || unlockFlow == .validating },
++			set: { presented in
++				if presented, unlockFlow == .idle { unlockFlow = .showingPrompt }
++				else if !presented, unlockFlow != .validating { resetUnlockFlow() }
++			}
++		)
++	}
++
++	private func resetUnlockFlow(to state: UnlockFlowState = .idle) {
++		unlockCode = ""
++		unlockError = nil
++		unlockFlow = state
++	}
++
+ 	private func openPurchase() {
+-		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else { unlockError = "该软件源未提供解锁码获取地址"; return }
++		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else {
++			unlockError = "该软件源未提供解锁码获取地址"
++			DispatchQueue.main.async { unlockFlow = .showingPrompt }
++			return
++		}
+ 		if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { purchaseURL = url } else { UIApplication.shared.open(url) }
+ 	}
+ 
+ 	private func beginUsingUnlockCode() {
++		unlockError = nil
++		unlockFlow = .idle
+ 		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+ 		guard !udid.isEmpty else {
+ 			UserDefaults.standard.set(SourceURLIdentity.normalized(sourceURL).absoluteString, forKey: pendingUnlockSourceKey)
+@@ -116,7 +169,7 @@ struct DownloadButtonView: View {
+ 			NotificationCenter.default.post(name: UDIDService.requestNotification, object: nil)
+ 			return
+ 		}
+-		showUnlockCode = true
++		DispatchQueue.main.async { unlockFlow = .showingPrompt }
+ 	}
+ 
+ 	private func resumePendingUnlockIfPossible() {
+@@ -128,21 +181,26 @@ struct DownloadButtonView: View {
+ 			  pendingApp == unlockAppIdentity else { return }
+ 		UserDefaults.standard.removeObject(forKey: pendingUnlockSourceKey)
+ 		UserDefaults.standard.removeObject(forKey: pendingUnlockAppKey)
+-		showUnlockCode = true
++		unlockError = nil
++		unlockFlow = .idle
++		DispatchQueue.main.async { unlockFlow = .showingPrompt }
+ 	}
+ 
+ 	private func unlock() {
+-		guard !isUnlocking else { return }
+-		isUnlocking = true
++		guard unlockFlow != .validating else { return }
++		unlockError = nil
++		unlockFlow = .validating
+ 		SourceUnlockService.shared.unlock(sourceURL: sourceURL, appIdentifier: app.id, appName: app.currentName, code: unlockCode) { result in
+ 			DispatchQueue.main.async {
+-				isUnlocking = false
+ 				switch result {
+ 				case .success:
+ 					unlockCode = ""
+-					showUnlockCode = false
++					unlockError = nil
++					unlockFlow = .idle
+ 					NotificationCenter.default.post(name: NSNotification.Name("zonoe.sourceUnlocked"), object: sourceURL)
+-				case .failure(let error): unlockError = error.localizedDescription
++				case .failure(let error):
++					unlockError = error.localizedDescription
++					unlockFlow = .showingPrompt
+ 				}
+ 			}
+ 		}
+@@ -170,6 +228,7 @@ struct DownloadButtonView: View {
+ private struct UnlockCodePrompt: View {
+ 	@Binding var code: String
+ 	let isValidating: Bool
++	let errorMessage: String?
+ 	let onCancel: () -> Void
+ 	let onConfirm: () -> Void
+ 
+@@ -179,6 +238,11 @@ private struct UnlockCodePrompt: View {
+ 			TextField("输入解锁码", text: $code)
+ 				.textFieldStyle(.roundedBorder)
+ 				.disabled(isValidating)
++			if let errorMessage, !errorMessage.isEmpty {
++				Text("解锁失败：\(errorMessage)")
++					.font(.footnote)
++					.foregroundStyle(.red)
++			}
+ 			if isValidating {
+ 				HStack(spacing: 8) { ProgressView(); Text("验证中…") }
+ 					.frame(maxWidth: .infinity)
+-- 
+2.51.1
+

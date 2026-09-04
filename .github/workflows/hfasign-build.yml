@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha16 restore signing flow, source unlock, UDID completion and interactive back
+# alpha16 consolidated fixes based on the published alpha15 patch stack
 
 on:
   push:
@@ -34,24 +34,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0015-Fix-alpha12-signing-and-import-regressions.patch
           git -C HFASignBuild apply ../HFASign/patches/0016-zonoe-alpha15-signing-navigation-unlock.patch
           git -C HFASignBuild apply ../HFASign/patches/0019-Import-ZsignSwift-for-signature-validation.patch
-          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0020-zonoe-alpha16-restore-signing-flow.patch)
-
-          set +e
-          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0021-zonoe-alpha16-source-unlock-state.patch)
-          source_unlock_patch_status=$?
-          set -e
-          test "$source_unlock_patch_status" -eq 1
-          test -f HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej
-          test -f HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
-          test "$(grep -c '^@@' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej)" -eq 1
-          test "$(grep -c '^@@' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej)" -eq 1
-          rm -f HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej \
-                HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
-          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0025-zonoe-alpha16-source-unlock-context-completion.patch)
-
-          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0022-zonoe-alpha16-udid-profile-completion.patch)
-          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0023-zonoe-alpha16-signing-interactive-back.patch)
-          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0024-zonoe-alpha16-remove-sign-and-install.patch)
+          git -C HFASignBuild apply ../HFASign/patches/0026-zonoe-alpha16-consolidated-fixes.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
