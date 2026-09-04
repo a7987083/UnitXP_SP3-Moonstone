@@ -20,12 +20,12 @@
 成功产物：
 
 ```text
-Artifact: zonoe-v3.0.0-alpha12
-HFASign/dist/zonoe_v3.0.0-alpha12_TrollStore.ipa
+Artifact: zonoe-v3.0.0-alpha13
+HFASign/dist/zonoe_v3.0.0-alpha13_TrollStore.ipa
 HFASign/dist/SHA256SUMS.txt
 ```
 
-最近成功运行：<https://github.com/a7987083/UnitXP_SP3-Moonstone/actions/runs/33810234557>
+最近成功运行：<https://github.com/a7987083/UnitXP_SP3-Moonstone/actions/runs/33852628767>
 
 ## 本地重建补丁树
 
@@ -51,6 +51,7 @@ git -C HFASignBuild apply ../HFASign/patches/0010-zonoe-alpha9-compile-pending-v
 git -C HFASignBuild apply ../HFASign/patches/0011-zonoe-alpha10-source-zip-udid-fixes.patch
 git -C HFASignBuild apply ../HFASign/patches/0012-zonoe-alpha11-source-identity-advanced-signing.patch
 git -C HFASignBuild apply ../HFASign/patches/0013-zonoe-alpha12-signing-paging-unlock.patch
+git -C HFASignBuild apply ../HFASign/patches/0014-Fix-source-unlock-URL-identity-collisions.patch
 
 git -C HFASignBuild submodule update --init --recursive
 ```
@@ -117,7 +118,7 @@ Workflow 做法：
 
 ## 修改后如何生成下一补丁
 
-推荐在干净的、已应用 0001～0012 的 Ksign 工作树上开发下一阶段，并把一个逻辑阶段集中成 `0014-...patch`，不要直接改旧 patch，除非是修复 alpha12 本身且能证明不会破坏可追踪性。
+推荐在干净的、已应用 0001、0003～0014 的 Ksign 工作树上开发下一阶段，并把一个逻辑阶段集中成 `0015-...patch`，不要直接改旧 patch，除非是修复 alpha13 本身且能证明不会破坏可追踪性。
 
 示例：
 
@@ -126,24 +127,23 @@ git status --short
 git diff --check
 git add Ksign Ksign.xcodeproj
 git commit -m 'Describe the next zonoe change'
-git format-patch -1 --stdout > ../HFASign/patches/0014-description.patch
+git format-patch -1 --stdout > ../HFASign/patches/0015-description.patch
 ```
 
-随后把 `0014` 加到 workflow 的 `git apply` 列表，并先在全新 clone 上逐个 `git apply --check`。
+随后把 `0015` 加到 workflow 的 `git apply` 列表，并先在全新 clone 上逐个 `git apply --check`。
 
 ## 发布前检查
 
 ```bash
-shasum -a 256 HFASign/dist/zonoe_v3.0.0-alpha12_TrollStore.ipa
+shasum -a 256 HFASign/dist/zonoe_v3.0.0-alpha13_TrollStore.ipa
 git status --short
 git log -5 --oneline
 ```
 
-预期 alpha12 SHA-256：
+预期 alpha13 SHA-256：
 
 ```text
-1542128d46df495652c4dd93a9318c42754f746f607e756a49af3ec36dd93559
+bfb6e5f96a9b5d7804f10e2e27c03b35087d0318fd8c9f7824d20d33c7fdaaf1
 ```
 
 不要仅看 `HFASign/BUILD_ERROR.txt` 判断成败；应查看最新 GitHub Actions run 的 `conclusion`。
-

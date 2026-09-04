@@ -18,7 +18,7 @@
 | P1 | 不同第三方 App 分享导入兼容性不一致 | 已扩展 document type 和统一导入入口，但来源 App 的 security-scoped/URL 生命周期不同 | `SharedImportCoordinator`、`FR`、`FeatherApp` | 需来源矩阵 |
 | P1 | 解锁服务响应 schema 不统一 | 当前兼容 bool success 和文本 success/ok/成功，其他字段需按实际服务器响应适配 | `SourceUnlockService.unlock` | 需实服验证 |
 | P1 | 高级 Plist 规则复杂类型边界 | Array/Dictionary/Data 的输入解析、数组下标和错误 key path 尚无完整真机测试矩阵 | `SigningHandler.applyPlistRule`、`AdvancedRuleViews` | CI 已编译，待验收 |
-| P2 | `BUILD_ERROR.txt` 留在成功分支 | 这是历史失败诊断，不代表 alpha12 当前失败 | `HFASign/BUILD_ERROR.txt` | 文档说明即可 |
+| P2 | `BUILD_ERROR.txt` 留在成功分支 | 这是历史失败诊断，不代表当前 alpha13 失败 | `HFASign/BUILD_ERROR.txt` | 文档说明即可 |
 | P2 | 源树可能存在未加入 target 的重复定义文件 | 有旧 `SourceImportCoordinator.swift` 和历史 UDID Safari 文件；当前成功构建证明 target 未同时编译冲突定义 | project membership / patch stack | 清理前先确认 |
 
 ## 已确认结果
@@ -26,11 +26,13 @@
 ### CI / 产物
 
 - `macos-26` GitHub Actions Run 33810234557：成功。
+- `macos-26` GitHub Actions Run 33852628767：alpha13 成功。
 - Release iphoneos generic build：成功。
 - ldid 处理 App 主二进制和 Frameworks：成功。
 - TrollStore IPA 打包：成功。
 - 元数据检查通过：显示名 `zonoe`、Bundle ID `com.hfa.sign`、版本 `3.0.0`、文件导入 UTI `public.data`。
-- IPA SHA-256：`1542128d46df495652c4dd93a9318c42754f746f607e756a49af3ec36dd93559`。
+- alpha12 IPA SHA-256：`1542128d46df495652c4dd93a9318c42754f746f607e756a49af3ec36dd93559`。
+- alpha13 IPA SHA-256：`bfb6e5f96a9b5d7804f10e2e27c03b35087d0318fd8c9f7824d20d33c7fdaaf1`。
 
 ### 尚不能宣称的结果
 
@@ -38,7 +40,7 @@
 - 不能宣称私有 Settings URL 在所有 iOS 16～26 都直达描述文件安装页。
 - 不能宣称 App 被挂起后 localhost 一定持续在线。
 - 不能宣称所有第三方全能签服务器都使用相同解锁响应格式。
-- 不能宣称 alpha12 所有高级签名组合已经真机逐项通过。
+- 不能宣称 alpha13 所有高级签名组合已经真机逐项通过。
 
 ## 历史失败构建与原因
 

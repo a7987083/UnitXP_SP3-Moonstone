@@ -7,12 +7,12 @@
 | 项目 | 当前值 |
 |---|---|
 | 产品名称 | zonoe（工程历史名 HFASign v3，基于 Ksign/Feather） |
-| 产品版本 | `3.0.0-alpha12` |
+| 产品版本 | `3.0.0-alpha13` |
 | 仓库 | `a7987083/UnitXP_SP3-Moonstone` |
 | 开发分支 | `work/hfapatchipa-ksign-v3` |
-| 本文编写前分支 HEAD | `af52f2a797e501aa2afcb9812d90bc04f356d5b6` |
-| 最后确认可编译的代码基线 | `6570b905017b4751efd20b3edb80c260ba954c32` |
-| 成品发布提交 | `af52f2a797e501aa2afcb9812d90bc04f356d5b6` |
+| 原始交接提交 | `aa0c685d218b8d7b6e9f91dbe9a167aded5265fb` |
+| 最后确认可编译的代码基线 | `3b5c00a35e0b3dd458231ca7df45ab14caa82b01` |
+| 成品发布提交 | `989c1d1dcfb606e4036deb4cd727d29747d35ea2` |
 | 上游 Ksign 固定提交 | `03a3a9c86897d79f9faf8106037b9971841d56a0` |
 | App 显示名 | `zonoe` |
 | Bundle ID | `com.hfa.sign` |
@@ -20,20 +20,20 @@
 | 最低系统 | iOS 16.0 |
 | 许可证 | GPL-3.0（沿用 Ksign/Feather） |
 
-交接文档提交后，分支 HEAD 会变为提交信息为 `docs: add complete HFASign v3 project handoff` 的新提交；功能源码和 alpha12 IPA 仍以 `6570b90` / `af52f2a` 为稳定基线。
+alpha13 在 alpha12 稳定基线上增量修复同 `repository.identifier` 多源时的解锁 URL 串用问题；功能源码和 IPA 分别以 `3b5c00a` / `989c1d1` 为稳定基线。
 
 ## 2. 最近一次成功构建与产物
 
 - GitHub Actions workflow：`Build HFASign v3 alpha`
 - Workflow 文件：`.github/workflows/hfasign-build.yml`
-- 成功 Run：[#46 / 33810234557](https://github.com/a7987083/UnitXP_SP3-Moonstone/actions/runs/33810234557)
-- 触发提交：`6570b905017b4751efd20b3edb80c260ba954c32`
+- 成功 Run：[33852628767](https://github.com/a7987083/UnitXP_SP3-Moonstone/actions/runs/33852628767)
+- 触发提交：`3b5c00a35e0b3dd458231ca7df45ab14caa82b01`
 - 状态：`completed / success`
-- 开始：2026-09-03 21:52:15 UTC
-- 完成：2026-09-03 22:05:28 UTC
-- Actions Artifact 名称：`zonoe-v3.0.0-alpha12`
-- 仓库内 IPA：`HFASign/dist/zonoe_v3.0.0-alpha12_TrollStore.ipa`
-- SHA-256：`1542128d46df495652c4dd93a9318c42754f746f607e756a49af3ec36dd93559`
+- 开始：2026-09-04 08:16:16 UTC
+- 完成：2026-09-04 08:24:48 UTC
+- Actions Artifact 名称：`zonoe-v3.0.0-alpha13`
+- 仓库内 IPA：`HFASign/dist/zonoe_v3.0.0-alpha13_TrollStore.ipa`
+- SHA-256：`bfb6e5f96a9b5d7804f10e2e27c03b35087d0318fd8c9f7824d20d33c7fdaaf1`
 - 校验文件：`HFASign/dist/SHA256SUMS.txt`
 
 该成功只证明 macOS/Xcode Release 编译、打包、ldid 签名和 workflow 内元数据检查通过，不等于全部功能已经在真机逐项验收。
@@ -54,7 +54,7 @@
 | 路径 | 用途 |
 |---|---|
 | `.github/workflows/hfasign-build.yml` | 唯一权威的 CI 构建、打包、发布流程 |
-| `HFASign/patches/0001...0013` | 从 Ksign 固定基线演进到 alpha12 的补丁链 |
+| `HFASign/patches/0001...0014` | 从 Ksign 固定基线演进到 alpha13 的补丁链 |
 | `HFASign/dist/` | 历代 IPA 和当前 SHA256 |
 | `HFASign/README.md` | 项目基础说明、上游与许可证 |
 | `HFASign/BUILD_ERROR.txt` | 历史失败构建的诊断文件；成功后未自动清空，不代表当前仍失败 |
@@ -62,7 +62,7 @@
 
 ### 3.2 补丁应用顺序
 
-Workflow 当前应用：`0001`、`0003`、`0004`、`0005`、`0006`、`0007`、`0008`、`0009`、`0010`、`0011`、`0012`、`0013`。
+Workflow 当前应用：`0001`、`0003`、`0004`、`0005`、`0006`、`0007`、`0008`、`0009`、`0010`、`0011`、`0012`、`0013`、`0014`。
 
 `0002-HFASign-alpha2-import-progress-and-Chinese.patch` **故意不应用**。后续补丁已经承接/覆盖相关改动；把 0002 加回会造成上下文冲突或重复修改。除非重新整理整条 patch stack，否则不要改变该顺序。
 
@@ -141,7 +141,7 @@ Workflow 当前应用：`0001`、`0003`、`0004`、`0005`、`0006`、`0007`、`0
 
 注意：上游还留有旧文件 `Ksign/Backend/Sources/SourceImportCoordinator.swift`，alpha12 实际有效实现位于 `SourceRepositoryLoader.swift` 内并由补丁/project 状态决定。接手前必须用 `xcodebuild` 或 `project.pbxproj` 确认真正参与 target 的文件，不能同时启用两个同名 class。
 
-### 4.5 软件源付费/卡密解锁（alpha12）
+### 4.5 软件源付费/卡密解锁（alpha12～alpha13）
 
 | 功能 | 核心实现 |
 |---|---|
@@ -172,11 +172,11 @@ Workflow 当前应用：`0001`、`0003`、`0004`、`0005`、`0006`、`0007`、`0
 
 这些项目不能在交接时写成“已实机稳定”：
 
-1. **完整 alpha12 真机回归**：当前确认的是 CI 编译和 IPA 产出；高级签名组合、Plist 各数据类型、自动动态库注入、自动安装需逐项测试。
+1. **完整 alpha13 真机回归**：当前确认的是 CI 编译和 IPA 产出；高级签名组合、Plist 各数据类型、自动动态库注入、自动安装需逐项测试。
 2. **UDID 私有 Settings URL**：`prefs:`/`App-Prefs:` 属于非公开行为，不同 iOS 版本可能只打开设置首页；fallback 已有，但目标页跳转必须在目标 iOS 真机验证。
 3. **后台 localhost 存活**：从内置 Safari 到设置安装期间 App 可能挂起，`127.0.0.1:14302` 是否持续接受 POST 受 iOS 生命周期限制，必须真机验证。不能承诺系统一定让普通 App 长期后台运行服务。
 4. **软件源卡密解锁协议差异**：当前 success 判定兼容 `success=true`、`success/ok/成功` 文本；不同服务端若返回其他 schema 需基于真实响应增量适配。
-5. **同 repository.id 的解锁上下文**：本地源存储已经按 URL 区分，但 alpha12 的 `sourceURLByRepositoryID[id]` 仍可能被两个相同 repository ID 的不同 URL 覆盖。下载/解锁 UI 应继续显式传递原始 source URL，避免依赖 repository ID 反查。
+5. **同 repository.id 双源回归**：alpha13 已删除 `sourceURLByRepositoryID`，改为 UI 全链路显式携带原始 Source URL；仍需两个同 ID 源的真机回归。
 6. **ZIP 临时目录清理时机**：需确认 `SharedImportCoordinator.receive()` 已完成实际复制后再清理，避免异步竞争。
 7. **分享导入兼容性**：历史反馈是“某些 App 分享可导入、某些失败”；已做 public.data/document type 和共享入口改造，但尚无覆盖不同来源 App 的完整矩阵。
 8. **签名后 IPA 安装失败历史问题**：签名链已经多轮修正并可打包，但证书类型、entitlements、provisioning、设备 UDID 的组合仍需用真实证书/设备验收。
@@ -219,9 +219,9 @@ Workflow 当前应用：`0001`、`0003`、`0004`、`0005`、`0006`、`0007`、`0
 
 ## 8. 下一步接手入口
 
-下一次开发不应先添加新功能，而应从 alpha12 真机验收开始：
+下一次开发不应先添加新功能，而应从 alpha13 真机验收开始：
 
-1. 安装 `HFASign/dist/zonoe_v3.0.0-alpha12_TrollStore.ipa`，按 `docs/TODO.md` P0 矩阵测试。
+1. 安装 `HFASign/dist/zonoe_v3.0.0-alpha13_TrollStore.ipa`，按 `docs/TODO.md` P0 矩阵测试。
 2. 若高级签名异常，优先检查：
    - `Ksign/Views/Signing/SigningView.swift`
    - `Ksign/Views/Signing/Shared/SigningOptionsView.swift`
@@ -231,7 +231,7 @@ Workflow 当前应用：`0001`、`0003`、`0004`、`0005`、`0006`、`0007`、`0
 3. 若 ZIP 导入异常，检查 `LibraryView.swift` 的 `ZipContentsView.extractAndImport`、`safeArchiveRelativePath`、`safeOutputURL` 与 `SharedImportCoordinator.receive` 生命周期。
 4. 若 UDID 异常，检查 `UDIDService.start/profileData/openProfileSettings/handlePendingCallback` 以及 `SettingsView._startUDID` / `UDIDSafariView.Coordinator`。
 5. 若软件源异常，统一从 `SourceRepositoryLoader.fetch/decode/normalizeURLs` 跟踪；不要绕过 Loader。
-6. 若同 identifier 双源解锁串源，删除对 `sourceURLByRepositoryID` 的依赖，让 `SourceAppsView`、Cell、Detail、DownloadButton 全链路显式携带 `Source.sourceURL`。
+6. 同 identifier 双源的代码修复已进入 alpha13；下一步用两个返回相同 ID、不同 `unlockURL` 的源做真机回归。
 
 ## 9. 给新 ChatGPT 的最小接手规则
 
@@ -248,5 +248,4 @@ sed -n '1,260p' docs/TODO.md
 sed -n '1,260p' docs/BUILD.md
 ```
 
-然后确认最新 Actions 状态和 alpha12 IPA SHA256。除非用户明确要求，否则不要立即重写架构或开发新功能。
-
+然后确认最新 Actions 状态和 alpha13 IPA SHA256。除非用户明确要求，否则不要立即重写架构或开发新功能。

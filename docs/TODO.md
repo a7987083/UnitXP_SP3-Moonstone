@@ -1,10 +1,10 @@
 # zonoe / HFASign v3 待办清单
 
-本清单以 `3.0.0-alpha12` 为基线。优先做验证和缺陷修复，不先扩展新功能。
+本清单以 `3.0.0-alpha13` 为基线。优先做验证和缺陷修复，不先扩展新功能。
 
 ## P0：发布阻断级
 
-- [ ] 在目标 iPhone/iPad 通过 TrollStore 安装 alpha12，确认启动、资源页、设置页无崩溃。
+- [ ] 在目标 iPhone/iPad 通过 TrollStore 安装 alpha13，确认启动、资源页、设置页无崩溃。
 - [ ] 使用真实 IPA + 真实证书执行普通签名，确认签名产物可安装、可启动。
 - [ ] 分别验证 IPA/TIPA 输出、分享和安装按钮。
 - [ ] 验证从“文件”及至少 3 个第三方 App 分享 IPA/ZIP/dylib/p12 到 zonoe，记录失败来源和 URL context。
@@ -15,7 +15,7 @@
 - [ ] 验证 UDID：内置 Safari → Done → 设置 fallback → 安装 profile → POST → UI 更新。
 - [ ] 验证外部 `zonoe://udid?callback=...` 无 UDID 时 pending callback 完整闭环。
 
-## P1：alpha12 新功能验收
+## P1：alpha12～alpha13 新功能验收
 
 - [ ] 打包名规则：名称/版本/Bundle ID/证书/时间戳单选与多选组合。
 - [ ] 拖动排序、下划线/连字符/空格/无分隔符、预览与实际文件名一致。
