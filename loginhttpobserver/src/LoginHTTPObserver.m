@@ -3,17 +3,34 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
+#define MAX_DELEGATE_HOOKS 32
+#define MAX_CAPTURE_BYTES (256 * 1024)
+
+typedef struct {
+    Class cls;
+    IMP responseIMP;
+    IMP dataIMP;
+    IMP completeIMP;
+    BOOL responseHooked;
+    BOOL dataHooked;
+    BOOL completeHooked;
+} DelegateHook;
+
 static UIWindow *gWindow;
 static UIButton *gFloatButton;
 static UIView *gPanel;
 static UITextView *gTextView;
 static UILabel *gStatusLabel;
 static NSMutableArray *gEvents;
+static NSMutableDictionary *gTaskStates;
 static NSString *gLogPath;
 static BOOL gUIReady = NO;
 static BOOL gHooksInstalled = NO;
 static NSInteger gHookDelayTicks = 0;
 static unsigned long long gSeq = 0;
+static unsigned long long gDelegateResponses = 0;
+static DelegateHook gDelegateHooks[MAX_DELEGATE_HOOKS];
+static NSUInteger gDelegateHookCount = 0;
 
 static IMP gDataTaskReqIMP;
 static IMP gDataTaskReqCompletionIMP;
@@ -49,6 +66,11 @@ static NSString *DataPreview(NSData *data, NSUInteger limit) {
     return [NSString stringWithFormat:@"<binary hex=%@>", hex];
 }
 
+static BOOL IsTargetURL(NSString *url) {
+    if (!url.length) return NO;
+    return [url containsString:@"118.145.146.208"] || [url containsString:@"/master/GM/"];
+}
+
 static void AppendFile(NSString *line) {
     if (!gLogPath || !line) return;
     @synchronized([NSFileHandle class]) {
@@ -67,8 +89,8 @@ static void RefreshUI(void) {
     gTextView.text = text;
     NSRange r = NSMakeRange(text.length, 0);
     if (text.length) [gTextView scrollRangeToVisible:r];
-    gStatusLabel.text = [NSString stringWithFormat:@"HTTP observer: %@   events=%llu\nLog: Documents/LoginHTTPTrace.log",
-                         gHooksInstalled ? @"ACTIVE" : @"WAITING", gSeq];
+    gStatusLabel.text = [NSString stringWithFormat:@"HTTP v6: %@  events=%llu  delegate-resp=%llu\nLog: Documents/LoginHTTPTrace_v6.log",
+                         gHooksInstalled ? @"ACTIVE" : @"WAITING", gSeq, gDelegateResponses];
 }
 
 static void PushEvent(NSString *summary, NSString *detail) {
@@ -80,7 +102,7 @@ static void PushEvent(NSString *summary, NSString *detail) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!gEvents) gEvents = [[NSMutableArray alloc] init];
         [gEvents addObject:line];
-        if (gEvents.count > 24) [gEvents removeObjectAtIndex:0];
+        if (gEvents.count > 30) [gEvents removeObjectAtIndex:0];
         RefreshUI();
     });
 }
@@ -93,7 +115,7 @@ static NSString *RequestDetail(NSURLRequest *req) {
     NSData *body = req.HTTPBody;
     if (body.length) {
         if (s.length) [s appendString:@" | "];
-        [s appendFormat:@"body=%@", DataPreview(body, 2048)];
+        [s appendFormat:@"body=%@", DataPreview(body, 4096)];
     }
     return s;
 }
@@ -102,29 +124,200 @@ static void LogRequest(NSURLRequest *req, NSString *source) {
     if (!req) return;
     NSString *method = req.HTTPMethod.length ? req.HTTPMethod : @"GET";
     NSString *url = req.URL.absoluteString ?: @"(null-url)";
-    NSString *tag = [url containsString:@"118.145.146.208"] ? @" TARGET" : @"";
+    NSString *tag = IsTargetURL(url) ? @" TARGET" : @"";
     PushEvent([NSString stringWithFormat:@"REQ%@ %@ %@ [%@]", tag, method, url, source ?: @"?"], RequestDetail(req));
 }
 
 static void LogURL(NSURL *url, NSString *source) {
     if (!url) return;
     NSString *u = url.absoluteString ?: @"(null-url)";
-    NSString *tag = [u containsString:@"118.145.146.208"] ? @" TARGET" : @"";
+    NSString *tag = IsTargetURL(u) ? @" TARGET" : @"";
     PushEvent([NSString stringWithFormat:@"URL%@ %@ [%@]", tag, u, source ?: @"?"], @"");
 }
 
 static void LogResponse(NSURLResponse *resp, NSData *data, NSError *err, NSString *source) {
     NSInteger status = 0;
-    if ([resp isKindOfClass:[NSHTTPURLResponse class]]) status = [(NSHTTPURLResponse *)resp statusCode];
+    NSDictionary *headers = nil;
+    if ([resp isKindOfClass:[NSHTTPURLResponse class]]) {
+        status = [(NSHTTPURLResponse *)resp statusCode];
+        headers = [(NSHTTPURLResponse *)resp allHeaderFields];
+    }
     NSString *url = resp.URL.absoluteString ?: @"(null-url)";
-    NSString *tag = [url containsString:@"118.145.146.208"] ? @" TARGET" : @"";
+    NSString *tag = IsTargetURL(url) ? @" TARGET" : @"";
     NSMutableString *detail = [NSMutableString string];
-    if (err) [detail appendFormat:@"error=%@", err];
+    if (headers.count) [detail appendFormat:@"headers=%@", headers];
+    if (err) {
+        if (detail.length) [detail appendString:@" | "];
+        [detail appendFormat:@"error=%@", err];
+    }
     if (data.length) {
         if (detail.length) [detail appendString:@" | "];
-        [detail appendFormat:@"response=%@", DataPreview(data, 4096)];
+        [detail appendFormat:@"response=%@", DataPreview(data, 65536)];
     }
     PushEvent([NSString stringWithFormat:@"RESP%@ status=%ld %@ [%@]", tag, (long)status, url, source ?: @"?"], detail);
+}
+
+static NSString *TaskKey(NSURLSession *session, NSURLSessionTask *task) {
+    if (!session || !task) return nil;
+    return [NSString stringWithFormat:@"%p:%lu", session, (unsigned long)task.taskIdentifier];
+}
+
+static NSMutableDictionary *MakeTaskState(NSURLRequest *req) {
+    NSMutableDictionary *state = [NSMutableDictionary dictionary];
+    NSString *url = req.URL.absoluteString ?: @"";
+    NSString *method = req.HTTPMethod.length ? req.HTTPMethod : @"GET";
+    [state setObject:url forKey:@"url"];
+    [state setObject:method forKey:@"method"];
+    [state setObject:[NSMutableData data] forKey:@"data"];
+    [state setObject:@0 forKey:@"chunks"];
+    [state setObject:@0 forKey:@"truncated"];
+    return state;
+}
+
+static NSMutableDictionary *EnsureTaskState(NSURLSession *session, NSURLSessionTask *task) {
+    if (!session || !task) return nil;
+    NSURLRequest *req = task.currentRequest ?: task.originalRequest;
+    NSString *url = req.URL.absoluteString ?: task.response.URL.absoluteString ?: @"";
+    if (!IsTargetURL(url)) return nil;
+    NSString *key = TaskKey(session, task);
+    if (!key) return nil;
+    @synchronized(gTaskStates) {
+        NSMutableDictionary *state = [gTaskStates objectForKey:key];
+        if (!state) {
+            state = MakeTaskState(req ?: [NSURLRequest requestWithURL:task.response.URL]);
+            [gTaskStates setObject:state forKey:key];
+        }
+        return state;
+    }
+}
+
+static void RegisterTask(NSURLSession *session, NSURLSessionTask *task, NSURLRequest *req) {
+    if (!session || !task || !req) return;
+    NSString *url = req.URL.absoluteString ?: @"";
+    if (!IsTargetURL(url)) return;
+    NSString *key = TaskKey(session, task);
+    if (!key) return;
+    @synchronized(gTaskStates) {
+        if (![gTaskStates objectForKey:key]) [gTaskStates setObject:MakeTaskState(req) forKey:key];
+    }
+    PushEvent([NSString stringWithFormat:@"TRACK TARGET task=%lu %@ %@", (unsigned long)task.taskIdentifier,
+               req.HTTPMethod.length ? req.HTTPMethod : @"GET", url], @"delegate body capture armed");
+}
+
+static DelegateHook *FindDelegateHook(Class cls) {
+    if (!cls) return NULL;
+    for (NSUInteger i = 0; i < gDelegateHookCount; i++) if (gDelegateHooks[i].cls == cls) return &gDelegateHooks[i];
+    return NULL;
+}
+
+static IMP InstallDelegateMethod(Class cls, SEL sel, IMP hook) {
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m) return NULL;
+    IMP old = method_getImplementation(m);
+    const char *types = method_getTypeEncoding(m);
+    if (class_addMethod(cls, sel, hook, types)) return old;
+    Method own = class_getInstanceMethod(cls, sel);
+    if (!own) return NULL;
+    return method_setImplementation(own, hook);
+}
+
+typedef void (*DidReceiveResponseFn)(id, SEL, NSURLSession *, NSURLSessionDataTask *, NSURLResponse *, void (^)(NSURLSessionResponseDisposition));
+typedef void (*DidReceiveDataFn)(id, SEL, NSURLSession *, NSURLSessionDataTask *, NSData *);
+typedef void (*DidCompleteFn)(id, SEL, NSURLSession *, NSURLSessionTask *, NSError *);
+
+static void HookDelegateDidReceiveResponse(id self, SEL _cmd, NSURLSession *session, NSURLSessionDataTask *task,
+                                           NSURLResponse *response, void (^completionHandler)(NSURLSessionResponseDisposition)) {
+    NSMutableDictionary *state = EnsureTaskState(session, task);
+    if (state) {
+        NSInteger status = 0;
+        NSDictionary *headers = nil;
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            status = [(NSHTTPURLResponse *)response statusCode];
+            headers = [(NSHTTPURLResponse *)response allHeaderFields];
+        }
+        [state setObject:@(status) forKey:@"status"];
+        if (response.URL.absoluteString.length) [state setObject:response.URL.absoluteString forKey:@"url"];
+        PushEvent([NSString stringWithFormat:@"DELEGATE RESPONSE TARGET task=%lu status=%ld %@",
+                   (unsigned long)task.taskIdentifier, (long)status, response.URL.absoluteString ?: @""],
+                  headers.count ? [NSString stringWithFormat:@"headers=%@", headers] : @"");
+    }
+    DelegateHook *h = FindDelegateHook(object_getClass(self));
+    if (h && h->responseIMP) ((DidReceiveResponseFn)h->responseIMP)(self, _cmd, session, task, response, completionHandler);
+}
+
+static void HookDelegateDidReceiveData(id self, SEL _cmd, NSURLSession *session, NSURLSessionDataTask *task, NSData *data) {
+    NSMutableDictionary *state = EnsureTaskState(session, task);
+    if (state && data.length) {
+        @synchronized(gTaskStates) {
+            NSMutableData *buffer = [state objectForKey:@"data"];
+            NSUInteger room = buffer.length < MAX_CAPTURE_BYTES ? (MAX_CAPTURE_BYTES - buffer.length) : 0;
+            NSUInteger take = MIN(room, data.length);
+            if (take) [buffer appendData:[data subdataWithRange:NSMakeRange(0, take)]];
+            if (take < data.length) [state setObject:@1 forKey:@"truncated"];
+            NSUInteger chunks = [[state objectForKey:@"chunks"] unsignedIntegerValue] + 1;
+            [state setObject:@(chunks) forKey:@"chunks"];
+        }
+    }
+    DelegateHook *h = FindDelegateHook(object_getClass(self));
+    if (h && h->dataIMP) ((DidReceiveDataFn)h->dataIMP)(self, _cmd, session, task, data);
+}
+
+static void HookDelegateDidComplete(id self, SEL _cmd, NSURLSession *session, NSURLSessionTask *task, NSError *error) {
+    NSMutableDictionary *state = EnsureTaskState(session, task);
+    if (state) {
+        NSString *key = TaskKey(session, task);
+        NSData *body = nil;
+        NSString *url = nil;
+        NSString *method = nil;
+        NSUInteger chunks = 0;
+        BOOL truncated = NO;
+        NSInteger status = 0;
+        @synchronized(gTaskStates) {
+            body = [[[state objectForKey:@"data"] copy] autorelease];
+            url = [[[state objectForKey:@"url"] copy] autorelease];
+            method = [[[state objectForKey:@"method"] copy] autorelease];
+            chunks = [[state objectForKey:@"chunks"] unsignedIntegerValue];
+            truncated = [[state objectForKey:@"truncated"] boolValue];
+            status = [[state objectForKey:@"status"] integerValue];
+            if (!status && [task.response isKindOfClass:[NSHTTPURLResponse class]]) status = [(NSHTTPURLResponse *)task.response statusCode];
+            if (key) [gTaskStates removeObjectForKey:key];
+        }
+        gDelegateResponses++;
+        NSMutableString *detail = [NSMutableString stringWithFormat:@"method=%@ chunks=%lu bytes=%lu%@",
+                                   method ?: @"GET", (unsigned long)chunks, (unsigned long)body.length,
+                                   truncated ? @" capture-truncated" : @""];
+        if (error) [detail appendFormat:@" | error=%@", error];
+        if (body.length) [detail appendFormat:@" | response=%@", DataPreview(body, 65536)];
+        PushEvent([NSString stringWithFormat:@"DELEGATE COMPLETE TARGET task=%lu status=%ld %@",
+                   (unsigned long)task.taskIdentifier, (long)status, url ?: @""], detail);
+    }
+    DelegateHook *h = FindDelegateHook(object_getClass(self));
+    if (h && h->completeIMP) ((DidCompleteFn)h->completeIMP)(self, _cmd, session, task, error);
+}
+
+static void InstallDelegateHooksForSession(NSURLSession *session) {
+    id delegate = session.delegate;
+    if (!delegate) return;
+    Class cls = object_getClass(delegate);
+    if (!cls || FindDelegateHook(cls) || gDelegateHookCount >= MAX_DELEGATE_HOOKS) return;
+
+    DelegateHook *h = &gDelegateHooks[gDelegateHookCount++];
+    memset(h, 0, sizeof(*h));
+    h->cls = cls;
+
+    SEL responseSel = @selector(URLSession:dataTask:didReceiveResponse:completionHandler:);
+    SEL dataSel = @selector(URLSession:dataTask:didReceiveData:);
+    SEL completeSel = @selector(URLSession:task:didCompleteWithError:);
+
+    h->responseIMP = InstallDelegateMethod(cls, responseSel, (IMP)HookDelegateDidReceiveResponse);
+    h->dataIMP = InstallDelegateMethod(cls, dataSel, (IMP)HookDelegateDidReceiveData);
+    h->completeIMP = InstallDelegateMethod(cls, completeSel, (IMP)HookDelegateDidComplete);
+    h->responseHooked = h->responseIMP != NULL;
+    h->dataHooked = h->dataIMP != NULL;
+    h->completeHooked = h->completeIMP != NULL;
+
+    PushEvent([NSString stringWithFormat:@"DELEGATE-HOOK class=%@ response=%d data=%d complete=%d",
+               NSStringFromClass(cls), h->responseHooked, h->dataHooked, h->completeHooked], @"");
 }
 
 typedef NSURLSessionDataTask *(*DataTaskReqFn)(id, SEL, NSURLRequest *);
@@ -138,12 +331,16 @@ typedef NSData *(*SyncRequestFn)(id, SEL, NSURLRequest *, NSURLResponse **, NSEr
 typedef void (*AsyncRequestFn)(id, SEL, NSURLRequest *, NSOperationQueue *, void (^)(NSURLResponse *, NSData *, NSError *));
 
 static NSURLSessionDataTask *HookDataTaskWithRequest(id self, SEL _cmd, NSURLRequest *req) {
+    InstallDelegateHooksForSession((NSURLSession *)self);
     LogRequest(req, @"NSURLSession dataTaskWithRequest");
-    return ((DataTaskReqFn)gDataTaskReqIMP)(self, _cmd, req);
+    NSURLSessionDataTask *task = ((DataTaskReqFn)gDataTaskReqIMP)(self, _cmd, req);
+    RegisterTask((NSURLSession *)self, task, req);
+    return task;
 }
 
 static NSURLSessionDataTask *HookDataTaskWithRequestCompletion(id self, SEL _cmd, NSURLRequest *req,
                                                                void (^completion)(NSData *, NSURLResponse *, NSError *)) {
+    InstallDelegateHooksForSession((NSURLSession *)self);
     LogRequest(req, @"NSURLSession dataTaskWithRequest:completion");
     void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *resp, NSError *err) {
         LogResponse(resp, data, err, @"NSURLSession completion");
@@ -153,12 +350,16 @@ static NSURLSessionDataTask *HookDataTaskWithRequestCompletion(id self, SEL _cmd
 }
 
 static NSURLSessionDataTask *HookDataTaskWithURL(id self, SEL _cmd, NSURL *url) {
+    InstallDelegateHooksForSession((NSURLSession *)self);
     LogURL(url, @"NSURLSession dataTaskWithURL");
-    return ((DataTaskURLFn)gDataTaskURLIMP)(self, _cmd, url);
+    NSURLSessionDataTask *task = ((DataTaskURLFn)gDataTaskURLIMP)(self, _cmd, url);
+    if (url) RegisterTask((NSURLSession *)self, task, [NSURLRequest requestWithURL:url]);
+    return task;
 }
 
 static NSURLSessionDataTask *HookDataTaskWithURLCompletion(id self, SEL _cmd, NSURL *url,
                                                            void (^completion)(NSData *, NSURLResponse *, NSError *)) {
+    InstallDelegateHooksForSession((NSURLSession *)self);
     LogURL(url, @"NSURLSession dataTaskWithURL:completion");
     void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *resp, NSError *err) {
         LogResponse(resp, data, err, @"NSURLSession URL completion");
@@ -168,15 +369,17 @@ static NSURLSessionDataTask *HookDataTaskWithURLCompletion(id self, SEL _cmd, NS
 }
 
 static NSURLSessionUploadTask *HookUploadWithRequestData(id self, SEL _cmd, NSURLRequest *req, NSData *body) {
+    InstallDelegateHooksForSession((NSURLSession *)self);
     LogRequest(req, @"NSURLSession uploadTaskWithRequest");
-    if (body.length) PushEvent([NSString stringWithFormat:@"UPLOAD body-bytes=%lu", (unsigned long)body.length], DataPreview(body, 2048));
+    if (body.length) PushEvent([NSString stringWithFormat:@"UPLOAD body-bytes=%lu", (unsigned long)body.length], DataPreview(body, 4096));
     return ((UploadReqDataFn)gUploadReqDataIMP)(self, _cmd, req, body);
 }
 
 static NSURLSessionUploadTask *HookUploadWithRequestDataCompletion(id self, SEL _cmd, NSURLRequest *req, NSData *body,
                                                                    void (^completion)(NSData *, NSURLResponse *, NSError *)) {
+    InstallDelegateHooksForSession((NSURLSession *)self);
     LogRequest(req, @"NSURLSession uploadTaskWithRequest:completion");
-    if (body.length) PushEvent([NSString stringWithFormat:@"UPLOAD body-bytes=%lu", (unsigned long)body.length], DataPreview(body, 2048));
+    if (body.length) PushEvent([NSString stringWithFormat:@"UPLOAD body-bytes=%lu", (unsigned long)body.length], DataPreview(body, 4096));
     void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *resp, NSError *err) {
         LogResponse(resp, data, err, @"NSURLSession upload completion");
         if (completion) completion(data, resp, err);
@@ -185,9 +388,7 @@ static NSURLSessionUploadTask *HookUploadWithRequestDataCompletion(id self, SEL 
 }
 
 static void HookMutableSetURL(id self, SEL _cmd, NSURL *url) {
-    if (url.absoluteString.length && ([url.absoluteString containsString:@"118.145.146.208"] || [url.absoluteString containsString:@"/master/GM/"])) {
-        LogURL(url, @"NSMutableURLRequest setURL");
-    }
+    if (url.absoluteString.length && IsTargetURL(url.absoluteString)) LogURL(url, @"NSMutableURLRequest setURL");
     ((SetURLFn)gMutableSetURLIMP)(self, _cmd, url);
 }
 
@@ -237,7 +438,8 @@ static void InstallHTTPHooks(void) {
     installed += InstallOneClass([NSURLConnection class], @selector(sendSynchronousRequest:returningResponse:error:), (IMP)HookSyncRequest, &gSyncRequestIMP);
     installed += InstallOneClass([NSURLConnection class], @selector(sendAsynchronousRequest:queue:completionHandler:), (IMP)HookAsyncRequest, &gAsyncRequestIMP);
     gHooksInstalled = installed > 0;
-    PushEvent([NSString stringWithFormat:@"HOOKS installed=%lu delayed-after-UI", (unsigned long)installed], @"No connect/getaddrinfo interpose. Read-only HTTP observation.");
+    PushEvent([NSString stringWithFormat:@"HOOKS v6 installed=%lu delayed-after-UI", (unsigned long)installed],
+              @"Read-only. Delegate response/data/complete hooks are installed lazily per NSURLSession delegate class.");
 }
 
 @interface LoginHTTPObserverTarget : NSObject
@@ -266,19 +468,20 @@ static void InstallHTTPHooks(void) {
     if (gUIReady || !w) return;
     gWindow = w;
     gEvents = [[NSMutableArray alloc] init];
+    gTaskStates = [[NSMutableDictionary alloc] init];
 
     gFloatButton = [UIButton buttonWithType:UIButtonTypeCustom];
     gFloatButton.frame = CGRectMake(18, 165, 58, 52);
     gFloatButton.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.94];
     gFloatButton.layer.cornerRadius = 26;
-    [gFloatButton setTitle:@"HTTP" forState:UIControlStateNormal];
-    gFloatButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [gFloatButton setTitle:@"HTTP6" forState:UIControlStateNormal];
+    gFloatButton.titleLabel.font = [UIFont boldSystemFontOfSize:11];
     [gFloatButton addTarget:self action:@selector(tap:) forControlEvents:UIControlEventTouchUpInside];
     UIPanGestureRecognizer *bp = [[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panButton:)] autorelease];
     [gFloatButton addGestureRecognizer:bp];
     [w addSubview:gFloatButton];
 
-    gPanel = [[[UIView alloc] initWithFrame:CGRectMake(52, 82, 360, 360)] autorelease];
+    gPanel = [[[UIView alloc] initWithFrame:CGRectMake(52, 82, 360, 380)] autorelease];
     gPanel.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.97];
     gPanel.layer.cornerRadius = 14;
     UIPanGestureRecognizer *pp = [[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panPanel:)] autorelease];
@@ -289,7 +492,7 @@ static void InstallHTTPHooks(void) {
     title.textColor = [UIColor whiteColor];
     title.numberOfLines = 2;
     title.font = [UIFont boldSystemFontOfSize:16];
-    title.text = @"Login HTTP Observer v5\nDelayed after HFAMap-style UI ready";
+    title.text = @"Login HTTP Observer v6\nDelegate Response Capture";
     [gPanel addSubview:title];
 
     gStatusLabel = [[[UILabel alloc] initWithFrame:CGRectMake(12, 54, 336, 42)] autorelease];
@@ -298,7 +501,7 @@ static void InstallHTTPHooks(void) {
     gStatusLabel.font = [UIFont systemFontOfSize:11];
     [gPanel addSubview:gStatusLabel];
 
-    gTextView = [[[UITextView alloc] initWithFrame:CGRectMake(10, 100, 340, 250)] autorelease];
+    gTextView = [[[UITextView alloc] initWithFrame:CGRectMake(10, 100, 340, 270)] autorelease];
     gTextView.backgroundColor = [UIColor colorWithWhite:0.015 alpha:1];
     gTextView.textColor = [UIColor colorWithWhite:0.92 alpha:1];
     gTextView.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightRegular];
@@ -310,7 +513,7 @@ static void InstallHTTPHooks(void) {
     [w addSubview:gPanel];
     gUIReady = YES;
     gHookDelayTicks = 2;
-    PushEvent(@"UI-READY; HTTP hooks will install after delay", @"");
+    PushEvent(@"UI-READY; v6 HTTP hooks will install after delay", @"");
     RefreshUI();
 }
 
@@ -365,8 +568,8 @@ static void InstallHTTPHooks(void) {
 __attribute__((constructor)) static void LoginHTTPObserverInit(void) {
     @autoreleasepool {
         NSString *home = NSHomeDirectory();
-        if (home.length) gLogPath = [[home stringByAppendingPathComponent:@"Documents/LoginHTTPTrace.log"] retain];
-        AppendFile(@"\n[LoginHTTPObserver v5] loaded; waiting for UI before hooks");
+        if (home.length) gLogPath = [[home stringByAppendingPathComponent:@"Documents/LoginHTTPTrace_v6.log"] retain];
+        AppendFile(@"\n[LoginHTTPObserver v6 Delegate Response Capture] loaded; waiting for UI before hooks");
         dispatch_async(dispatch_get_main_queue(), ^{
             LoginHTTPObserverTarget *t = [LoginHTTPObserverTarget shared];
             [NSTimer scheduledTimerWithTimeInterval:0.5 target:t selector:@selector(tick:) userInfo:nil repeats:YES];
