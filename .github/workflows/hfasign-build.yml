@@ -43,10 +43,8 @@ jobs:
           test "$source_unlock_patch_status" -eq 1
           test -f HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej
           test -f HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
-          grep -q 'func hasLegacyGrant' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej
-          grep -q 'if isSourceLocked' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
-          grep -q 'UnlockCodePrompt(code:.*errorMessage' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
-          grep -q 'private var isSourceLocked' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
+          test "$(grep -c '^@@' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej)" -eq 1
+          test "$(grep -c '^@@' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej)" -eq 3
           rm -f HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej \
                 HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
           (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0025-zonoe-alpha16-source-unlock-context-completion.patch)
