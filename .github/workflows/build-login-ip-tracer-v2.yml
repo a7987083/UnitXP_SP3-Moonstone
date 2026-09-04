@@ -1,0 +1,53 @@
+name: Build LoginIPTracer v2 HFAMap187
+
+on:
+  push:
+    branches:
+      - feature/login-ip-tracer-dylib-v2-hfamap187
+    paths:
+      - 'loginiptracer/**'
+      - '.github/workflows/build-login-ip-tracer-v2.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify LoginIPTracer v2
+        run: |
+          set -euxo pipefail
+          cd loginiptracer
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginIPTracer_v2_HFAMap187.dylib"
+          cp .theos/obj/LoginIPTracer.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          strings "$out" | grep -q "LoginIPTracer v2 HFAMap187"
+          strings "$out" | grep -q "HFAMap 1.8.7 injection shell"
+          strings "$out" | grep -q "\[CAPTURE-START\]"
+          strings "$out" | grep -q "\[PEER\]"
+          strings "$out" | grep -q "LoginIPTrace.log"
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginIPTracer-v2-HFAMap187
+          path: |
+            loginiptracer/dist/LoginIPTracer_v2_HFAMap187.dylib
+            loginiptracer/dist/SHA256.txt
+          if-no-files-found: error
