@@ -1,0 +1,24 @@
+From 710e6e17c8aa0cb20500c34373e51384958b83df Mon Sep 17 00:00:00 2001
+From: Codex <codex@local.invalid>
+Date: Fri, 4 Sep 2026 10:35:19 -0400
+Subject: [PATCH] Import ZsignSwift for signature validation
+
+---
+ Ksign/Utilities/Handlers/SigningHandler.swift | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+index 292d3f6..77b6bdd 100644
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -7,6 +7,7 @@
+ 
+ import Foundation
+ import Zsign
++import ZsignSwift
+ import UIKit
+ import OSLog
+ 
+-- 
+2.51.1
+

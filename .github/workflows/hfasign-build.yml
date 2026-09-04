@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha15 signing, navigation, source unlock, UDID and ZIP fixes - build 1
+# alpha15 signing, navigation, source unlock, UDID and ZIP fixes - build 2
 
 on:
   push:
@@ -33,6 +33,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0014-Fix-source-unlock-URL-identity-collisions.patch
           git -C HFASignBuild apply ../HFASign/patches/0015-Fix-alpha12-signing-and-import-regressions.patch
           git -C HFASignBuild apply ../HFASign/patches/0016-zonoe-alpha15-signing-navigation-unlock.patch
+          git -C HFASignBuild apply ../HFASign/patches/0019-Import-ZsignSwift-for-signature-validation.patch
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
       - name: Apply zonoe icon
