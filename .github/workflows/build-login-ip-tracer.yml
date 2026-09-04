@@ -1,0 +1,49 @@
+name: Build LoginIPTracer dylib
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-ip-tracer-dylib-v1
+    paths:
+      - 'LoginIPTracer/**'
+      - '.github/workflows/build-login-ip-tracer.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CLANG="$(xcrun --sdk iphoneos --find clang)"
+          mkdir -p output
+
+          "$CLANG" \
+            -isysroot "$SDK" \
+            -arch arm64 \
+            -miphoneos-version-min=14.0 \
+            -fobjc-arc \
+            -fblocks \
+            -dynamiclib \
+            -framework Foundation \
+            -Wl,-install_name,@rpath/LoginIPTracer.dylib \
+            -o output/LoginIPTracer.dylib \
+            LoginIPTracer/LoginIPTracer.mm
+
+          codesign --force --sign - --timestamp=none output/LoginIPTracer.dylib
+          file output/LoginIPTracer.dylib
+          otool -L output/LoginIPTracer.dylib
+          shasum -a 256 output/LoginIPTracer.dylib | tee output/SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginIPTracer-arm64
+          path: output/*
