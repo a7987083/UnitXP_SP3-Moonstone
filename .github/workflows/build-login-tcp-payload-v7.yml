@@ -1,0 +1,51 @@
+name: Build LoginTCPPayload v7
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-tcp-payload-v7
+    paths:
+      - 'logintcppayload/**'
+      - '.github/workflows/build-login-tcp-payload-v7.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify LoginTCPPayload v7
+        run: |
+          set -euxo pipefail
+          cd logintcppayload
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginTCPPayload_v7_HFAMap187.dylib"
+          cp .theos/obj/LoginTCPPayload.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "LoginTCPPayload v7"
+          strings "$out" | grep -q "Login TCP Payload Observer v7"
+          strings "$out" | grep -q "118.145.146.208"
+          strings "$out" | grep -q "LoginTCPPayload_v7.log"
+          strings "$out" | grep -q "sendto"
+          strings "$out" | grep -q "recvfrom"
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginTCPPayload-v7-HFAMap187
+          path: logintcppayload/dist/*
