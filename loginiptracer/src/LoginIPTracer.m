@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -7,6 +8,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+ * LoginIPTracer v3 Timeline
+ * Injection/UI lifecycle intentionally follows the proven HFAMap v1.8.7 shell:
+ * constructor -> NSObject target -> NSTimer -> wait for UIWindow -> floating button.
+ * No connect/getaddrinfo interpose and no network hook is installed.
+ * Socket inspection only runs after the user presses Start Capture.
+ */
 
 typedef unsigned long size_t_hfa;
 typedef unsigned long long u64;
@@ -34,11 +42,31 @@ extern void objc_registerClassPair(Class);
 #define M5(r,o,s,t,a,u,b,v,c,w,d,x,e) ((r(*)(id,SEL,t,u,v,w,x))objc_msgSend)((id)(o),sel_registerName(s),(a),(b),(c),(d),(e))
 #define TOUCHUP (1ULL<<6)
 
+#define MAX_CONN 256
+#define MAX_FD_SCAN 1024
+
+typedef struct {
+    int used;
+    int active;
+    int present;
+    int fd;
+    int type;
+    unsigned int seq;
+    char local[128];
+    char remote[128];
+    char kind[24];
+    double firstSeen;
+    double lastSeen;
+} ConnEntry;
+
 static id gTarget=0,gButton=0,gPanel=0,gWindow=0,gStatus=0,gAction=0;
 static int gMade=0,gCapturing=0,gTickPhase=0;
 static char gLogPath[768];
-static char gSeen[128][128];
-static unsigned int gSeenCount=0;
+static ConnEntry gConn[MAX_CONN];
+static unsigned int gConnSeq=0,gNewCount=0,gGoneCount=0;
+static double gCaptureStart=0.0;
+static char gLastEndpoint[128];
+static char gLastMarker[48];
 
 static id ns(const char*s){
     Class c=objc_getClass("NSString");
@@ -48,6 +76,17 @@ static id ns(const char*s){
 static id color(double r,double g,double b,double a){
     Class c=objc_getClass("UIColor");
     return c?M4(id,(id)c,"colorWithRed:green:blue:alpha:",double,r,double,g,double,b,double,a):0;
+}
+
+static double now_sec(void){
+    struct timeval tv;
+    if(gettimeofday(&tv,0)!=0)return 0.0;
+    return (double)tv.tv_sec + ((double)tv.tv_usec/1000000.0);
+}
+
+static double rel_sec(double t){
+    if(gCaptureStart<=0.0||t<gCaptureStart)return 0.0;
+    return t-gCaptureStart;
 }
 
 static void logf0(const char*fmt,...){
@@ -66,7 +105,7 @@ static void initlog(void){
     char*h=getenv("HOME");
     if(!h)return;
     snprintf(gLogPath,sizeof(gLogPath),"%s/Documents/LoginIPTrace.log",h);
-    logf0("\n[LoginIPTracer v2 HFAMap187] loaded pid=%d\n",getpid());
+    logf0("\n[LoginIPTracer v3 Timeline HFAMap187] loaded pid=%d epoch=%.3f\n",getpid(),now_sec());
 }
 
 static void copyc(char*d,const char*s,size_t_hfa cap){
@@ -82,11 +121,28 @@ static int ceq(const char*a,const char*b){
     return *a==0&&*b==0;
 }
 
-static int seen_endpoint(const char*s){
-    if(!s||!*s)return 1;
-    for(unsigned int i=0;i<gSeenCount;i++)if(ceq(gSeen[i],s))return 1;
-    if(gSeenCount<128){copyc(gSeen[gSeenCount],s,sizeof(gSeen[gSeenCount]));gSeenCount++;}
-    return 0;
+static const char* addr_kind(const struct sockaddr*sa){
+    if(!sa)return "unknown";
+    if(sa->sa_family==AF_INET){
+        const struct sockaddr_in*a=(const struct sockaddr_in*)sa;
+        unsigned long ip=(unsigned long)ntohl(a->sin_addr.s_addr);
+        unsigned int b1=(unsigned int)((ip>>24)&255);
+        unsigned int b2=(unsigned int)((ip>>16)&255);
+        if(b1==127)return "loopback";
+        if(b1==10)return "private";
+        if(b1==172&&b2>=16&&b2<=31)return "private";
+        if(b1==192&&b2==168)return "private";
+        if(b1==169&&b2==254)return "linklocal";
+        if(b1==198&&(b2==18||b2==19))return "benchmark/fake";
+        return "public";
+    }
+    if(sa->sa_family==AF_INET6){
+        const struct sockaddr_in6*a=(const struct sockaddr_in6*)sa;
+        static const unsigned char loop[16]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if(memcmp(&a->sin6_addr,loop,16)==0)return "loopback";
+        return "ipv6";
+    }
+    return "other";
 }
 
 static int format_addr(const struct sockaddr*sa,char*out,size_t_hfa cap){
@@ -111,10 +167,63 @@ static int format_addr(const struct sockaddr*sa,char*out,size_t_hfa cap){
 static void settext(id l,const char*s){if(l)M1(void,l,"setText:",id,ns(s));}
 static void settitle(id b,const char*s){if(b)M2(void,b,"setTitle:forState:",id,ns(s),u64,0);}
 
+static ConnEntry* find_active(int fd,const char*remote){
+    for(unsigned int i=0;i<MAX_CONN;i++){
+        ConnEntry*e=&gConn[i];
+        if(e->used&&e->active&&e->fd==fd&&ceq(e->remote,remote))return e;
+    }
+    return 0;
+}
+
+static ConnEntry* alloc_entry(void){
+    for(unsigned int i=0;i<MAX_CONN;i++)if(!gConn[i].used)return &gConn[i];
+    for(unsigned int i=0;i<MAX_CONN;i++)if(!gConn[i].active)return &gConn[i];
+    return 0;
+}
+
+static unsigned int active_count(void){
+    unsigned int n=0;
+    for(unsigned int i=0;i<MAX_CONN;i++)if(gConn[i].used&&gConn[i].active)n++;
+    return n;
+}
+
+static void update_status(void){
+    if(!gStatus)return;
+    char s[512];
+    if(gCapturing){
+        snprintf(s,sizeof(s),
+            "Capturing: +%.1fs   active=%u\nNEW=%u  GONE=%u\nLast: %s\nStage: %s\nLog: Documents/LoginIPTrace.log",
+            rel_sec(now_sec()),active_count(),gNewCount,gGoneCount,
+            gLastEndpoint[0]?gLastEndpoint:"(none)",
+            gLastMarker[0]?gLastMarker:"(none)");
+    }else{
+        snprintf(s,sizeof(s),
+            "Stopped. NEW=%u GONE=%u\nLast: %s\nLog: Documents/LoginIPTrace.log",
+            gNewCount,gGoneCount,gLastEndpoint[0]?gLastEndpoint:"(none)");
+    }
+    settext(gStatus,s);
+}
+
+static void log_new_conn(ConnEntry*e,double t){
+    if(!e)return;
+    logf0("[NEW] +%.3fs seq=%u fd=%d type=%d kind=%s local=%s remote=%s\n",
+          rel_sec(t),e->seq,e->fd,e->type,e->kind,e->local[0]?e->local:"?",e->remote);
+}
+
+static void log_gone_conn(ConnEntry*e,double t,const char*reason){
+    if(!e)return;
+    double dur=t-e->firstSeen;
+    if(dur<0)dur=0;
+    logf0("[GONE] +%.3fs seq=%u fd=%d duration=%.3fs kind=%s remote=%s reason=%s\n",
+          rel_sec(t),e->seq,e->fd,dur,e->kind,e->remote,reason?reason:"not-present");
+}
+
 static void scan_sockets(void){
-    unsigned int found=0;
-    char last[128]={0};
-    for(int fd=0;fd<1024;fd++){
+    if(!gCapturing)return;
+    double t=now_sec();
+    for(unsigned int i=0;i<MAX_CONN;i++)if(gConn[i].used&&gConn[i].active)gConn[i].present=0;
+
+    for(int fd=0;fd<MAX_FD_SCAN;fd++){
         struct sockaddr_storage peer;
         socklen_t plen=(socklen_t)sizeof(peer);
         memset(&peer,0,sizeof(peer));
@@ -135,18 +244,49 @@ static void scan_sockets(void){
         if(getsockname(fd,(struct sockaddr*)&local,&llen)==0)
             format_addr((const struct sockaddr*)&local,localText,sizeof(localText));
 
-        if(!seen_endpoint(remote)){
-            found++;
-            copyc(last,remote,sizeof(last));
-            logf0("[PEER] fd=%d type=%d local=%s remote=%s\n",fd,type,localText[0]?localText:"?",remote);
+        ConnEntry*e=find_active(fd,remote);
+        if(!e){
+            e=alloc_entry();
+            if(!e)continue;
+            memset(e,0,sizeof(*e));
+            e->used=1;e->active=1;e->present=1;e->fd=fd;e->type=type;
+            e->seq=++gConnSeq;e->firstSeen=t;e->lastSeen=t;
+            copyc(e->remote,remote,sizeof(e->remote));
+            copyc(e->local,localText,sizeof(e->local));
+            copyc(e->kind,addr_kind((const struct sockaddr*)&peer),sizeof(e->kind));
+            copyc(gLastEndpoint,remote,sizeof(gLastEndpoint));
+            gNewCount++;
+            log_new_conn(e,t);
+        }else{
+            e->present=1;e->lastSeen=t;e->type=type;
+            if(localText[0])copyc(e->local,localText,sizeof(e->local));
         }
     }
 
-    if(found&&gStatus){
-        char s[320];
-        snprintf(s,sizeof(s),"Capturing...\nNew endpoint: %s\nLog: Documents/LoginIPTrace.log",last);
-        settext(gStatus,s);
+    for(unsigned int i=0;i<MAX_CONN;i++){
+        ConnEntry*e=&gConn[i];
+        if(e->used&&e->active&&!e->present){
+            log_gone_conn(e,t,"closed-or-reused");
+            e->active=0;
+            gGoneCount++;
+        }
     }
+    update_status();
+}
+
+static void mark_stage(const char*name){
+    if(!name)return;
+    if(!gCapturing){
+        logf0("[MARK-SKIP] %s capture-not-running epoch=%.3f\n",name,now_sec());
+        settext(gStatus,"Start Capture first, then add stage markers.");
+        return;
+    }
+    double t=now_sec();
+    copyc(gLastMarker,name,sizeof(gLastMarker));
+    logf0("[MARK] +%.3fs %s active=%u new=%u gone=%u\n",
+          rel_sec(t),name,active_count(),gNewCount,gGoneCount);
+    scan_sockets();
+    update_status();
 }
 
 static id win(void){
@@ -172,6 +312,18 @@ static id mklabel(CGRect r,double fs){
     Class fc=objc_getClass("UIFont");
     if(fc)M1(void,l,"setFont:",id,M1(id,(id)fc,"systemFontOfSize:",double,fs));
     return l;
+}
+
+static id mkbutton(id parent,CGRect frame,const char*title,const char*action,double r,double g,double b){
+    Class bc=objc_getClass("UIButton");
+    if(!bc)return 0;
+    id x=M0(id,(id)bc,"alloc");
+    x=M1(id,x,"initWithFrame:",CGRect,frame);
+    settitle(x,title);
+    M1(void,x,"setBackgroundColor:",id,color(r,g,b,1));
+    M3(void,x,"addTarget:action:forControlEvents:",id,gTarget,SEL,sel_registerName(action),u64,TOUCHUP);
+    M1(void,parent,"addSubview:",id,x);
+    return x;
 }
 
 static void pan(id self,SEL c,id g){
@@ -209,20 +361,36 @@ static void panelpan(id self,SEL c,id g){
 static void capture(id self,SEL c,id sender){
     (void)self;(void)c;(void)sender;
     if(!gCapturing){
+        memset(gConn,0,sizeof(gConn));
+        gConnSeq=0;gNewCount=0;gGoneCount=0;gTickPhase=0;
+        gLastEndpoint[0]=0;gLastMarker[0]=0;
+        gCaptureStart=now_sec();
         gCapturing=1;
-        gSeenCount=0;
-        memset(gSeen,0,sizeof(gSeen));
         settitle(gAction,"Stop Capture");
-        settext(gStatus,"Capturing active sockets...\nNow perform login / server selection.\nLog: Documents/LoginIPTrace.log");
-        logf0("[CAPTURE-START]\n");
+        logf0("[CAPTURE-START] epoch=%.3f\n",gCaptureStart);
         scan_sockets();
+        update_status();
     }else{
+        double t=now_sec();
+        scan_sockets();
+        for(unsigned int i=0;i<MAX_CONN;i++){
+            ConnEntry*e=&gConn[i];
+            if(e->used&&e->active){
+                logf0("[ACTIVE-AT-STOP] +%.3fs seq=%u fd=%d duration=%.3fs kind=%s remote=%s\n",
+                      rel_sec(t),e->seq,e->fd,t-e->firstSeen,e->kind,e->remote);
+            }
+        }
+        logf0("[CAPTURE-STOP] +%.3fs new=%u gone=%u active=%u\n",
+              rel_sec(t),gNewCount,gGoneCount,active_count());
         gCapturing=0;
         settitle(gAction,"Start Capture");
-        settext(gStatus,"Capture stopped.\nCheck Documents/LoginIPTrace.log");
-        logf0("[CAPTURE-STOP] unique=%u\n",gSeenCount);
+        update_status();
     }
 }
+
+static void markLogin(id self,SEL c,id sender){(void)self;(void)c;(void)sender;mark_stage("LOGIN");}
+static void markServerList(id self,SEL c,id sender){(void)self;(void)c;(void)sender;mark_stage("SERVER_LIST");}
+static void markEnterGame(id self,SEL c,id sender){(void)self;(void)c;(void)sender;mark_stage("ENTER_GAME");}
 
 static void tap(id self,SEL c,id s){
     (void)self;(void)c;(void)s;
@@ -255,7 +423,7 @@ static void mkui(id w){
     gButton=b;
 
     id p=M0(id,(id)vc,"alloc");
-    p=M1(id,p,"initWithFrame:",CGRect,((CGRect){{70,90},{330,250}}));
+    p=M1(id,p,"initWithFrame:",CGRect,((CGRect){{70,55},{330,390}}));
     M1(void,p,"setBackgroundColor:",id,color(.055,.06,.075,.97));
     ly=M0(id,p,"layer");
     if(ly)M1(void,ly,"setCornerRadius:",double,14);
@@ -266,26 +434,23 @@ static void mkui(id w){
         M1(void,p,"addGestureRecognizer:",id,pg);
     }
 
-    id h=mklabel((CGRect){{14,10},{302,52}},18);
-    settext(h,"Login IP Tracer v2\nHFAMap 1.8.7 injection shell");
+    id h=mklabel((CGRect){{14,8},{302,48}},17);
+    settext(h,"Login IP Tracer v3 Timeline\nHFAMap 1.8.7 injection shell");
     M1(void,p,"addSubview:",id,h);
 
-    id a=M0(id,(id)bc,"alloc");
-    a=M1(id,a,"initWithFrame:",CGRect,((CGRect){{14,76},{302,44}}));
-    settitle(a,"Start Capture");
-    M1(void,a,"setBackgroundColor:",id,color(.18,.32,.62,1));
-    M3(void,a,"addTarget:action:forControlEvents:",id,gTarget,SEL,sel_registerName("capture:"),u64,TOUCHUP);
-    M1(void,p,"addSubview:",id,a);
-    gAction=a;
+    gAction=mkbutton(p,(CGRect){{14,64},{302,42}},"Start Capture","capture:",.18,.32,.62);
+    mkbutton(p,(CGRect){{14,116},{94,38}},"MARK LOGIN","markLogin:",.20,.40,.28);
+    mkbutton(p,(CGRect){{118,116},{94,38}},"SERVER LIST","markServerList:",.36,.30,.18);
+    mkbutton(p,(CGRect){{222,116},{94,38}},"ENTER GAME","markEnterGame:",.42,.22,.22);
 
-    gStatus=mklabel((CGRect){{14,136},{302,94}},11);
-    settext(gStatus,"Press Start Capture, then login and select a server.\nNo connect/getaddrinfo hook is installed.");
+    gStatus=mklabel((CGRect){{14,166},{302,205}},11);
+    settext(gStatus,"1. Start Capture\n2. Before tapping login: MARK LOGIN\n3. When server list appears: SERVER LIST\n4. Before entering game: ENTER GAME\n\nRecords NEW/GONE + duration + IP:Port.\nNo connect/getaddrinfo hook is installed.");
     M1(void,p,"addSubview:",id,gStatus);
 
     M1(void,p,"setHidden:",BOOL,1);
     M1(void,w,"addSubview:",id,p);
     gPanel=p;gWindow=w;gMade=1;
-    logf0("[UI-READY]\n");
+    logf0("[UI-READY] epoch=%.3f\n",now_sec());
 }
 
 static void tick(id self,SEL c,id timer){
@@ -312,17 +477,19 @@ __attribute__((constructor)) static void init(void){
     initlog();
     Class base=objc_getClass("NSObject");
     if(!base)return;
-    Class c=objc_allocateClassPair(base,"LoginIPTracerTarget187",0);
-    if(!c)c=objc_getClass("LoginIPTracerTarget187");
+    Class c=objc_allocateClassPair(base,"LoginIPTracerTarget187Timeline",0);
+    if(!c)c=objc_getClass("LoginIPTracerTarget187Timeline");
     if(!c)return;
     class_addMethod(c,sel_registerName("tick:"),(IMP)tick,"v@:@");
     class_addMethod(c,sel_registerName("tap:"),(IMP)tap,"v@:@");
     class_addMethod(c,sel_registerName("pan:"),(IMP)pan,"v@:@");
     class_addMethod(c,sel_registerName("panelpan:"),(IMP)panelpan,"v@:@");
     class_addMethod(c,sel_registerName("capture:"),(IMP)capture,"v@:@");
+    class_addMethod(c,sel_registerName("markLogin:"),(IMP)markLogin,"v@:@");
+    class_addMethod(c,sel_registerName("markServerList:"),(IMP)markServerList,"v@:@");
+    class_addMethod(c,sel_registerName("markEnterGame:"),(IMP)markEnterGame,"v@:@");
     objc_registerClassPair(c);
     gTarget=M0(id,(id)c,"new");
     Class t=objc_getClass("NSTimer");
-    if(t&&gTarget)
-        M5(id,(id)t,"scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:",double,.5,id,gTarget,SEL,sel_registerName("tick:"),id,(id)0,BOOL,1);
+    if(t&&gTarget)M5(id,(id)t,"scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:",double,.5,id,gTarget,SEL,sel_registerName("tick:"),id,(id)0,BOOL,1);
 }
