@@ -1,0 +1,12 @@
+diff --git a/Ksign/Views/Library/LibraryCellView.swift b/Ksign/Views/Library/LibraryCellView.swift
+--- a/Ksign/Views/Library/LibraryCellView.swift
++++ b/Ksign/Views/Library/LibraryCellView.swift
+@@ -1,8 +1,4 @@
+ 		} else {
+-			Button(.localized("Sign & Install")) {
+-				selectedSigningAppPresenting = AnyApp(base: app, signAndInstall: true)
+-			}
+-			
+ 			Button(.localized("Sign")) {
+ 				selectedSigningAppPresenting = AnyApp(base: app)
+ 			}
