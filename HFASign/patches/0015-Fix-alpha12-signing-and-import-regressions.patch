@@ -1,4 +1,4 @@
-From 1ae441a58879c8dc9135d1dd77823446d39f296e Mon Sep 17 00:00:00 2001
+From f2ef9e2385b4b0192a3161fa99fdd22db9e18338 Mon Sep 17 00:00:00 2001
 From: Codex Local <codex-local@example.invalid>
 Date: Fri, 4 Sep 2026 05:52:01 -0400
 Subject: [PATCH] Fix alpha12 signing and import regressions
@@ -9,12 +9,12 @@ Subject: [PATCH] Fix alpha12 signing and import regressions
  Ksign/Utilities/Handlers/SigningHandler.swift |  43 ++++++
  Ksign/Utilities/Handlers/ZsignHandler.swift   |   4 +-
  Ksign/Utilities/SharedImportCoordinator.swift |   2 +-
- Ksign/Views/Library/LibraryView.swift         | 130 +++++++++++++-----
+ Ksign/Views/Library/LibraryView.swift         | 145 +++++++++++++-----
  .../Certificates/CertificatesAddView.swift    |   6 +-
  Ksign/Views/Settings/SettingsView.swift       |   4 +-
  Ksign/Views/Signing/SigningView.swift         |   8 +-
- .../Sources/Apps/DownloadButtonView.swift     |  17 ++-
- 10 files changed, 181 insertions(+), 50 deletions(-)
+ .../Sources/Apps/DownloadButtonView.swift     |  17 +-
+ 10 files changed, 195 insertions(+), 51 deletions(-)
 
 diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
 index 6eaba81..744e0e3 100644
@@ -159,7 +159,7 @@ index a5689b7..0a02f97 100644
              try? fileManager.removeItem(at: stagedURL)
              progress.fail("暂不支持此文件类型")
 diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
-index 51f1a90..30c080a 100644
+index 51f1a90..5d192a8 100644
 --- a/Ksign/Views/Library/LibraryView.swift
 +++ b/Ksign/Views/Library/LibraryView.swift
 @@ -28,7 +28,8 @@ struct LibraryView: View {
@@ -199,7 +199,7 @@ index 51f1a90..30c080a 100644
  			.overlay(alignment: .bottomTrailing) {
  				if _resourceTab == 0 { _selectionControl.padding(18) }
  			}
-@@ -258,38 +268,23 @@ extension LibraryView {
+@@ -258,39 +268,37 @@ extension LibraryView {
  	}
  
  	private func _files(for tab: Int) -> [URL] {
@@ -238,16 +238,31 @@ index 51f1a90..30c080a 100644
 -				let ext = url.pathExtension.lowercased()
 -				return _resourceTab == 1 ? ext == "zip" : ["dylib", "framework", "deb", "bundle"].contains(ext)
 -			}
-+		_zipResourceFiles = [fm.zipFiles, legacyImports, fm.archives]
-+			.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] }
-+			.filter { $0.pathExtension.lowercased() == "zip" }
-+			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
-+		_tweakResourceFiles = ((try? fm.contentsOfDirectory(at: fm.tweaks, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
-+			.filter { ["dylib", "framework", "deb", "bundle"].contains($0.pathExtension.lowercased()) }
- 			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+-			.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
++		var zipFiles: [URL] = []
++		let zipRoots: [URL] = [fm.zipFiles, legacyImports, fm.archives]
++		for root in zipRoots {
++			let contents = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
++			for url in contents where url.pathExtension.lowercased() == "zip" { zipFiles.append(url) }
++		}
++		zipFiles.sort { lhs, rhs in
++			lhs.lastPathComponent.localizedCaseInsensitiveCompare(rhs.lastPathComponent) == .orderedAscending
++		}
++
++		var tweakFiles: [URL] = []
++		let tweakExtensions: Set<String> = ["dylib", "framework", "deb", "bundle"]
++		let tweakContents = (try? fm.contentsOfDirectory(at: fm.tweaks, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
++		for url in tweakContents where tweakExtensions.contains(url.pathExtension.lowercased()) { tweakFiles.append(url) }
++		tweakFiles.sort { lhs, rhs in
++			lhs.lastPathComponent.localizedCaseInsensitiveCompare(rhs.lastPathComponent) == .orderedAscending
++		}
++
++		_zipResourceFiles = zipFiles
++		_tweakResourceFiles = tweakFiles
  	}
  
-@@ -399,6 +394,8 @@ private struct ZipContentsView: View {
+ 	@ViewBuilder private func _resourceFileRow(_ file: URL, tab: Int? = nil) -> some View {
+@@ -399,6 +407,8 @@ private struct ZipContentsView: View {
  	@State private var errorMessage: String?
  	@State private var isLoading = true
  	@State private var isExtracting = false
@@ -256,7 +271,7 @@ index 51f1a90..30c080a 100644
  
  	var body: some View {
  		NavigationStack {
-@@ -417,7 +414,7 @@ private struct ZipContentsView: View {
+@@ -417,7 +427,7 @@ private struct ZipContentsView: View {
  								Image(systemName: icon(for: item)).foregroundStyle(.secondary)
  								VStack(alignment: .leading, spacing: 3) {
  									Text(item.path).foregroundStyle(.primary).lineLimit(2)
@@ -265,7 +280,7 @@ index 51f1a90..30c080a 100644
  								}
  								Spacer()
  								if item.isImportable { Image(systemName: "square.and.arrow.down") }
-@@ -431,13 +428,19 @@ private struct ZipContentsView: View {
+@@ -431,13 +441,19 @@ private struct ZipContentsView: View {
  			.navigationBarTitleDisplayMode(.inline)
  			.toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Label("返回", systemImage: "chevron.left") } } }
  			.overlay { if isExtracting { ProgressView("正在提取…").padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
@@ -286,7 +301,7 @@ index 51f1a90..30c080a 100644
  			.alert("读取失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
  				Button("确定", role: .cancel) {}
  			} message: { Text(errorMessage ?? "未知错误") }
-@@ -452,7 +455,7 @@ private struct ZipContentsView: View {
+@@ -452,7 +468,7 @@ private struct ZipContentsView: View {
  				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
  				var paths = Set<String>()
  				for entry in archive where entry.type != .symlink {
@@ -295,7 +310,7 @@ index 51f1a90..30c080a 100644
  					paths.insert(entry.type == .directory ? relativePath + "/" : relativePath)
  				}
  				let archivedPaths = Array(paths)
-@@ -479,15 +482,21 @@ private struct ZipContentsView: View {
+@@ -479,15 +495,21 @@ private struct ZipContentsView: View {
  				let archive = try ZIPFoundation.Archive(url: archiveURL, accessMode: .read)
  				let itemPath = item.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
  				let prefix = itemPath + "/"
@@ -321,7 +336,7 @@ index 51f1a90..30c080a 100644
  					guard matches else { continue }
  					guard entry.type != .symlink else { throw ZipPreviewError.symbolicLink(entry.path) }
  					selected.append((entry, relativePath))
-@@ -502,6 +511,15 @@ private struct ZipContentsView: View {
+@@ -502,6 +524,15 @@ private struct ZipContentsView: View {
  				let importTarget = item.isDirectory ? URL(fileURLWithPath: target.path, isDirectory: true) : target
  				DispatchQueue.main.async {
  					isExtracting = false
@@ -337,7 +352,7 @@ index 51f1a90..30c080a 100644
  					SharedImportCoordinator.shared.receive(importTarget)
  					try? FileManager.default.removeItem(at: root)
  				}
-@@ -540,6 +558,30 @@ private struct ZipContentsView: View {
+@@ -540,6 +571,30 @@ private struct ZipContentsView: View {
  		return path
  	}
  
@@ -368,7 +383,7 @@ index 51f1a90..30c080a 100644
  	private func safeOutputURL(for relativePath: String, root: URL) throws -> URL {
  		guard let normalizedPath = safeArchiveRelativePath(relativePath) else { throw ZipPreviewError.unsafePath(relativePath) }
  		let standardizedRoot = root.standardizedFileURL
-@@ -552,6 +594,8 @@ private struct ZipContentsView: View {
+@@ -552,6 +607,8 @@ private struct ZipContentsView: View {
  	private func handle(_ item: ZipPreviewItem) { if item.isImportable { importCandidate = item } }
  	private func icon(for item: ZipPreviewItem) -> String {
  		if item.isDirectory { return "folder.fill" }
@@ -377,7 +392,7 @@ index 51f1a90..30c080a 100644
  		return item.isImportable ? "shippingbox.fill" : "doc.fill"
  	}
  }
-@@ -573,7 +617,17 @@ private struct ZipPreviewItem: Identifiable, Hashable {
+@@ -573,7 +630,17 @@ private struct ZipPreviewItem: Identifiable, Hashable {
  	private var ext: String { URL(fileURLWithPath: cleanPath).pathExtension.lowercased() }
  	var name: String { URL(fileURLWithPath: cleanPath).lastPathComponent }
  	var isDirectory: Bool { path.hasSuffix("/") || ["framework", "bundle"].contains(ext) }
