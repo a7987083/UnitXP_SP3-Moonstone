@@ -1,0 +1,56 @@
+name: Build LoginIPTracer v4 RealTime
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-ip-tracer-dylib-v4-realtime
+    paths:
+      - 'loginiptracer/**'
+      - '.github/workflows/build-login-ip-tracer-v4.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify LoginIPTracer v4
+        run: |
+          set -euxo pipefail
+          cd loginiptracer
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginIPTracer_v4_RealTime_HFAMap187.dylib"
+          cp .theos/obj/LoginIPTracer.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "LoginIPTracer v4 RealTime HFAMap187"
+          strings "$out" | grep -q "\[UI-READY\]"
+          strings "$out" | grep -q "\[CAPTURE-AUTO-START\]"
+          strings "$out" | grep -q "\[NEW\]"
+          strings "$out" | grep -q "\[GONE\]"
+          strings "$out" | grep -q "\[LONG\]"
+          strings "$out" | grep -q "Realtime endpoint events"
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginIPTracer-v4-RealTime-HFAMap187
+          path: |
+            loginiptracer/dist/LoginIPTracer_v4_RealTime_HFAMap187.dylib
+            loginiptracer/dist/SHA256.txt
+          if-no-files-found: error
