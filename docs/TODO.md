@@ -1,10 +1,11 @@
 # zonoe / HFASign v3 待办清单
 
-本清单以 `3.0.0-alpha13` 为基线。优先做验证和缺陷修复，不先扩展新功能。
+本清单以 `3.0.0-alpha14` 为基线。alpha14 已通过 CI；优先完成真机验证，不先扩展新功能。
 
 ## P0：发布阻断级
 
-- [ ] 在目标 iPhone/iPad 通过 TrollStore 安装 alpha13，确认启动、资源页、设置页无崩溃。
+- [ ] 在目标 iPhone/iPad 通过 TrollStore 安装 alpha14，确认启动、资源页、设置页无崩溃。
+- [ ] 进入签名页，逐项点击证书、App 包内文件、插件、第三方库、Toggle 和高级配置，确认全部导航/交互恢复。
 - [ ] 使用真实 IPA + 真实证书执行普通签名，确认签名产物可安装、可启动。
 - [ ] 分别验证 IPA/TIPA 输出、分享和安装按钮。
 - [ ] 验证从“文件”及至少 3 个第三方 App 分享 IPA/ZIP/dylib/p12 到 zonoe，记录失败来源和 URL context。
@@ -25,7 +26,10 @@
 - [ ] 设置默认动态库后，每次签名自动带入并正确注入。
 - [ ] 测试自动安装、钥匙串隔离、深色/白色图标修复开关。
 - [ ] 确认旧版本保存的 `signing_options` 可升级解码。
-- [ ] 测试 App/Zip/动态库原生左右分页、选择状态、刷新与 VoiceOver/大字体。
+- [ ] 测试 App/Zip/动态库显式横向滑动、选择状态、刷新与 VoiceOver/大字体。
+- [ ] 导入 ZIP 后确认当前列表立即刷新，无需离开页面再进入。
+- [ ] ZIP 内分别验证 `.ipa`、`.tipa`、`.dylib`、`.framework`、`.bundle`、`.p12`/`.pfx`。
+- [ ] 用 UTF-8 和 GBK/CP936 两种工具生成中文文件名 ZIP，并核对显示与导入路径。
 
 ## P1：软件源与解锁
 
@@ -36,6 +40,7 @@
 - [ ] 两个不同 Source URL 但相同 repository.identifier 必须同时存在、分别刷新、分别删除。
 - [x] 解锁 source 上下文已改为全链路显式传递原始 Source URL，不再使用 `sourceURLByRepositoryID` 反查；仍需真机双源回归。
 - [ ] 对真实 payURL/unlockURL 服务测试购买跳转、卡密、错误码、过期/未购买状态。
+- [ ] 验证解锁弹窗同时提供“获取解锁码”“使用解锁码”“取消”，已有卡密可直接输入验证。
 - [ ] 对 HTTP 源验证 ATS 行为；当前 `NSAllowsArbitraryLoads=true` 仅适合当前分发场景，若上架需重新评估。
 
 ## P2：工程维护
