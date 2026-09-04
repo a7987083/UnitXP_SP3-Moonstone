@@ -34,7 +34,7 @@
 - [ ] 测试空 URL、坏 URL、中文 URL、自定义 scheme、截图 URL 数组容错。
 - [ ] 测试手动输入、剪贴板自动检测、剪贴板批量、URL Scheme、保存源刷新得到一致结果。
 - [ ] 两个不同 Source URL 但相同 repository.identifier 必须同时存在、分别刷新、分别删除。
-- [ ] 修正/验证解锁 source 上下文：不要依赖 `sourceURLByRepositoryID` 反查，显式传原始 Source URL。
+- [x] 解锁 source 上下文已改为全链路显式传递原始 Source URL，不再使用 `sourceURLByRepositoryID` 反查；仍需真机双源回归。
 - [ ] 对真实 payURL/unlockURL 服务测试购买跳转、卡密、错误码、过期/未购买状态。
 - [ ] 对 HTTP 源验证 ATS 行为；当前 `NSAllowsArbitraryLoads=true` 仅适合当前分发场景，若上架需重新评估。
 
@@ -53,4 +53,3 @@
 - HFAPatch JSON/RVA 功能仍延后。
 - 不在没有真机测试的情况下大规模改造架构。
 - 不切换到 Ksign 最新 HEAD。
-

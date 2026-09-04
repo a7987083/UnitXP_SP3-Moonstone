@@ -14,7 +14,7 @@
 | P0 | UDID Done 后私有设置 URL 可能只打开设置首页 | `prefs:` / `App-Prefs:` 是非公开入口，iOS 版本间不稳定；已有手动 fallback | `UDIDService.openProfileSettings()` | 需真机验证 |
 | P0 | App 进入设置后 localhost server 可能被 iOS 挂起 | Profile Service POST 依赖 `127.0.0.1:14302`；普通后台执行时间不保证 | `UDIDService`、background task 配置 | 需真机验证 |
 | P0 | ZIP 临时目录可能过早删除 | `SharedImportCoordinator.receive()` 若异步读取，调用后立即删除 root 可能竞争 | `LibraryView.ZipContentsView.extractAndImport` | 需真机验证/可能修复 |
-| P1 | 两个相同 repository.id 的源可能共享错误解锁 URL | 本地 Storage 已按 URL 区分，但 `sourceURLByRepositoryID` 是一对一字典，后加载者可覆盖 | `SourceRepositoryLoader.registerSourceURL/sourceURL(for:)` | 已识别，待修 |
+| P1 | 两个相同 repository.id 的源可能共享错误解锁 URL | alpha13 已移除 repository ID 反查，列表、详情和下载按钮显式携带原始 Source URL | `SourceAppsView`、`SourceAppsTableRepresentableView`、`DownloadButtonView` | 静态已修，待真机双源回归 |
 | P1 | 不同第三方 App 分享导入兼容性不一致 | 已扩展 document type 和统一导入入口，但来源 App 的 security-scoped/URL 生命周期不同 | `SharedImportCoordinator`、`FR`、`FeatherApp` | 需来源矩阵 |
 | P1 | 解锁服务响应 schema 不统一 | 当前兼容 bool success 和文本 success/ok/成功，其他字段需按实际服务器响应适配 | `SourceUnlockService.unlock` | 需实服验证 |
 | P1 | 高级 Plist 规则复杂类型边界 | Array/Dictionary/Data 的输入解析、数组下标和错误 key path 尚无完整真机测试矩阵 | `SigningHandler.applyPlistRule`、`AdvancedRuleViews` | CI 已编译，待验收 |
@@ -61,4 +61,3 @@
 - ZIP entry 原始 path、正规化 path、选中的 prefix；
 - UDID server 的 GET/POST 时间点以及 App 当时前台/后台状态；
 - 崩溃日志或系统安装错误原文。
-

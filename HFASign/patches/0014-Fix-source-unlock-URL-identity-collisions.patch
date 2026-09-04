@@ -1,0 +1,324 @@
+From b8fa83088f9e991178917e79c12a9f44c047c016 Mon Sep 17 00:00:00 2001
+From: Codex Local <codex-local@example.invalid>
+Date: Fri, 4 Sep 2026 04:13:33 -0400
+Subject: [PATCH] Fix source unlock URL identity collisions
+
+---
+ .../Sources/SourceRepositoryLoader.swift      | 22 ++----------
+ .../Apps/Detail/SourceAppsDetailView.swift    |  3 +-
+ .../Sources/Apps/DownloadButtonView.swift     |  3 +-
+ .../Sources/Apps/SourceAppsCellView.swift     |  3 +-
+ Ksign/Views/Sources/Apps/SourceAppsView.swift | 20 ++++++++---
+ .../SourceAppsTableRepresentableView.swift    | 34 ++++++++++---------
+ 6 files changed, 40 insertions(+), 45 deletions(-)
+
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 720f7ae..8e00938 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -51,7 +51,6 @@ final class SourceRepositoryLoader {
+ 	static let shared = SourceRepositoryLoader()
+ 	private let metadataLock = NSLock()
+ 	private var metadataBySource: [String: SourceAccessMetadata] = [:]
+-	private var sourceURLByRepositoryID: [String: URL] = [:]
+ 	private init() {}
+ 
+ 	func fetch(from url: URL, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+@@ -113,12 +112,6 @@ final class SourceRepositoryLoader {
+ 		return metadataBySource[SourceURLIdentity.normalized(sourceURL).absoluteString]
+ 	}
+ 
+-	func sourceURL(for repository: ASRepository) -> URL? {
+-		guard let id = repository.id else { return nil }
+-		metadataLock.lock(); defer { metadataLock.unlock() }
+-		return sourceURLByRepositoryID[id]
+-	}
+-
+ 	private func decode(_ data: Data, sourceURL: URL) throws -> ASRepository {
+ 		let decoder = JSONDecoder()
+ 		let object: Any
+@@ -129,9 +122,7 @@ final class SourceRepositoryLoader {
+ 		}
+ 		captureMetadata(object, for: sourceURL)
+ 		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
+-		let repository = try decodeRepository(normalized, decoder: decoder)
+-		registerSourceURL(sourceURL, for: repository)
+-		return repository
++		return try decodeRepository(normalized, decoder: decoder)
+ 	}
+ 
+ 	private func decodeEncrypted(_ encrypted: String, decoder: JSONDecoder, sourceURL: URL) throws -> ASRepository {
+@@ -148,16 +139,7 @@ final class SourceRepositoryLoader {
+ 		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+ 		captureMetadata(object, for: sourceURL)
+ 		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(object))
+-		let repository = try decodeRepository(normalized, decoder: decoder)
+-		registerSourceURL(sourceURL, for: repository)
+-		return repository
+-	}
+-
+-	private func registerSourceURL(_ sourceURL: URL, for repository: ASRepository) {
+-		guard let id = repository.id else { return }
+-		metadataLock.lock()
+-		sourceURLByRepositoryID[id] = sourceURL
+-		metadataLock.unlock()
++		return try decodeRepository(normalized, decoder: decoder)
+ 	}
+ 
+ 	private func captureMetadata(_ object: Any, for sourceURL: URL) {
+diff --git a/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift b/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
+index b559e53..742efb9 100644
+--- a/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
++++ b/Ksign/Views/Sources/Apps/Detail/SourceAppsDetailView.swift
+@@ -24,6 +24,7 @@ struct SourceAppsDetailView: View {
+ 	}
+ 	
+ 	var source: ASRepository
++	var sourceURL: URL
+ 	var app: ASRepository.App
+ 	
+     var body: some View {
+@@ -57,7 +58,7 @@ struct SourceAppsDetailView: View {
+ 						
+ 						Spacer()
+ 						
+-						DownloadButtonView(source: source, app: app)
++						DownloadButtonView(source: source, sourceURL: sourceURL, app: app)
+ 					}
+ 					.lineLimit(2)
+ 					.frame(maxWidth: .infinity, alignment: .leading)
+diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+index ef9fdf6..95ea759 100644
+--- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
++++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+@@ -13,6 +13,7 @@ import SafariServices
+ 
+ struct DownloadButtonView: View {
+ 	let source: ASRepository
++	let sourceURL: URL
+ 	let app: ASRepository.App
+ 	@ObservedObject private var downloadManager = DownloadManager.shared
+ 
+@@ -80,13 +81,11 @@ struct DownloadButtonView: View {
+ 		.alert("解锁失败", isPresented: Binding(get: { unlockError != nil }, set: { if !$0 { unlockError = nil } })) { Button("确定", role: .cancel) {} } message: { Text(unlockError ?? "未知错误") }
+ 	}
+ 
+-	private var sourceURL: URL? { SourceRepositoryLoader.shared.sourceURL(for: source) }
+ 	private func openPurchase() {
+ 		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else { unlockError = "该软件源未提供解锁码获取地址"; return }
+ 		if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { purchaseURL = url } else { UIApplication.shared.open(url) }
+ 	}
+ 	private func unlock() {
+-		guard let sourceURL else { unlockError = "无法确定软件源地址"; return }
+ 		isUnlocking = true
+ 		SourceUnlockService.shared.unlock(sourceURL: sourceURL, code: unlockCode) { result in
+ 			DispatchQueue.main.async {
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+index 36c426f..aeb7643 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+@@ -16,6 +16,7 @@ struct SourceAppsCellView: View {
+     @AppStorage("Feather.storeCellAppearance") private var _storeCellAppearance: Int = 0
+     
+     var source: ASRepository
++	var sourceURL: URL
+     var app: ASRepository.App
+     
+     var body: some View {
+@@ -37,7 +38,7 @@ struct SourceAppsCellView: View {
+                         }
+                     }
+                 }
+-                DownloadButtonView(source: source, app: app)
++                DownloadButtonView(source: source, sourceURL: sourceURL, app: app)
+             }
+             
+             if
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsView.swift b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+index e797c00..0d66eb7 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+@@ -52,7 +52,7 @@ struct SourceAppsView: View {
+     
+     var object: [AltSource]
+     @ObservedObject var viewModel: SourcesViewModel
+-    @State private var _sources: [ASRepository]?
++    @State private var _sources: [LoadedSource]?
+     
+     @FetchRequest(
+         entity: AltSource.entity(),
+@@ -94,13 +94,13 @@ struct SourceAppsView: View {
+                 let _sources,
+                 _sources.count == 1
+             {
+-                if let url = _sources[0].website {
++                if let url = _sources[0].repository.website {
+                     Button(.localized("Visit Website"), systemImage: "globe") {
+                         UIApplication.open(url)
+                     }
+                 }
+                 
+-                if let url = _sources[0].patreonURL {
++                if let url = _sources[0].repository.patreonURL {
+                     Button(.localized("Visit Patreon"), systemImage: "dollarsign.circle") {
+                         UIApplication.open(url)
+                     }
+@@ -162,7 +162,7 @@ struct SourceAppsView: View {
+             _sortOptionRawValue = newValue.rawValue
+         }
+         .navigationDestinationIfAvailable(item: $_selectedRoute) { route in
+-            SourceAppsDetailView(source: route.source, app: route.app)
++            SourceAppsDetailView(source: route.source, sourceURL: route.sourceURL, app: route.app)
+         }
+         
+     }
+@@ -171,7 +171,11 @@ struct SourceAppsView: View {
+         isLoading = true
+         
+         Task {
+-            let loadedSources = object.compactMap { viewModel.sources[$0] }
++            let loadedSources = object.compactMap { storedSource -> LoadedSource? in
++                guard let repository = viewModel.sources[storedSource],
++                      let sourceURL = storedSource.sourceURL else { return nil }
++                return LoadedSource(repository: repository, sourceURL: sourceURL)
++            }
+             _sources = loadedSources
+             withAnimation(.easeIn(duration: 0.2)) {
+                 isLoading = false
+@@ -181,9 +185,15 @@ struct SourceAppsView: View {
+     
+     struct SourceAppRoute: Identifiable, Hashable {
+         let source: ASRepository
++        let sourceURL: URL
+         let app: ASRepository.App
+         let id: String = UUID().uuidString
+     }
++
++    struct LoadedSource: Equatable {
++        let repository: ASRepository
++        let sourceURL: URL
++    }
+ }
+ 
+ // MARK: - Extension: View (Sort)
+diff --git a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+index ecbec3f..6f7da5d 100644
+--- a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
++++ b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+@@ -10,7 +10,7 @@ import AltSourceKit
+ 
+ // MARK: - Representable
+ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+-    var sources: [ASRepository]
++    var sources: [SourceAppsView.LoadedSource]
+     @Binding var searchText: String
+     @Binding var sortOption: SourceAppsView.SortOption
+     @Binding var sortAscending: Bool
+@@ -30,7 +30,7 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+         }
+         
+         if
+-            let firstSource = sources.first,
++            let firstSource = sources.first?.repository,
+             sources.count == 1,
+             let news = firstSource.news,
+             !news.isEmpty
+@@ -87,24 +87,26 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+ 
+ // MARK: - Representable Extension: Coordinator
+ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+-    var sources: [ASRepository]
++    var sources: [SourceAppsView.LoadedSource]
+     var searchText: String
+     var sortOption: SourceAppsView.SortOption
+     var sortAscending: Bool
+     let onSelect: (SourceAppsView.SourceAppRoute) -> Void
+     
+-    private var _groupedAppsByNameFirstLetter: [String: [(source: ASRepository, app: ASRepository.App)]] = [:]
+-    private var _groupedAppsByDate: [String: [(source: ASRepository, app: ASRepository.App)]] = [:]
++    private var _groupedAppsByNameFirstLetter: [String: [(source: ASRepository, sourceURL: URL, app: ASRepository.App)]] = [:]
++    private var _groupedAppsByDate: [String: [(source: ASRepository, sourceURL: URL, app: ASRepository.App)]] = [:]
+     private var _sortedSectionTitles: [String] = []
+     
+-    private var _cachedSortedApps: [(source: ASRepository, app: ASRepository.App)] = []
++    private var _cachedSortedApps: [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] = []
+     weak var uiTableView: UITableView?
+     
+-    private var _allAppsWithSource: [(source: ASRepository, app: ASRepository.App)] {
+-        sources.flatMap { source in source.apps.map { (source: source, app: $0) } }
++    private var _allAppsWithSource: [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] {
++        sources.flatMap { loaded in
++            loaded.repository.apps.map { (source: loaded.repository, sourceURL: loaded.sourceURL, app: $0) }
++        }
+     }
+     
+-    private var _sortedApps: [(source: ASRepository, app: ASRepository.App)] {
++    private var _sortedApps: [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] {
+         if !_cachedSortedApps.isEmpty {
+             return _cachedSortedApps
+         }
+@@ -113,7 +115,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     }
+     
+     init(
+-        sources: [ASRepository],
++        sources: [SourceAppsView.LoadedSource],
+         searchText: String,
+         sortOption: SourceAppsView.SortOption,
+         sortAscending: Bool,
+@@ -131,7 +133,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         }
+     }
+     
+-    private func _calculateSortedApps() -> [(source: ASRepository, app: ASRepository.App)] {
++    private func _calculateSortedApps() -> [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] {
+         let filtered = _allAppsWithSource.filter {
+             searchText.isEmpty ||
+             ($0.app.name?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+@@ -217,7 +219,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     
+     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+         let cell = tableView.dequeueReusableCell(withIdentifier: "AppCell", for: indexPath)
+-        let entry: (source: ASRepository, app: ASRepository.App)
++        let entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)
+         switch sortOption {
+         case .default: entry = _sortedApps[indexPath.row]
+         case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+@@ -225,7 +227,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         }
+ 
+         cell.contentConfiguration = UIHostingConfiguration {
+-            SourceAppsCellView(source: entry.source, app: entry.app)
++            SourceAppsCellView(source: entry.source, sourceURL: entry.sourceURL, app: entry.app)
+         }
+         return cell
+     }
+@@ -234,14 +236,14 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         if #available(iOS 17, *) {
+             tableView.deselectRow(at: indexPath, animated: true)
+             
+-            let entry: (source: ASRepository, app: ASRepository.App)
++            let entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)
+             switch sortOption {
+             case .default: entry = _sortedApps[indexPath.row]
+             case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+             case .date: entry = _groupedAppsByDate[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+             }
+             
+-            onSelect(SourceAppsView.SourceAppRoute(source: entry.source, app: entry.app))
++            onSelect(SourceAppsView.SourceAppRoute(source: entry.source, sourceURL: entry.sourceURL, app: entry.app))
+         }
+     }
+     
+@@ -275,7 +277,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     }
+     
+     func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+-        let entry: (source: ASRepository, app: ASRepository.App)
++        let entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)
+         switch sortOption {
+         case .default: entry = _sortedApps[indexPath.row]
+         case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+-- 
+2.51.1
+
