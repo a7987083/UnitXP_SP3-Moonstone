@@ -1,0 +1,9 @@
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -1 +1,4 @@
+-				return Response(status: .found, headers: ["Location": "/done"])
++				// Profile Service POST completion must not use a temporary 302 redirect.
++				// A permanent redirect is the established UDID-only completion flow and
++				// lets Settings finish the transaction instead of waiting until timeout.
++				return Response(status: .movedPermanently, headers: ["Location": "/done"])
