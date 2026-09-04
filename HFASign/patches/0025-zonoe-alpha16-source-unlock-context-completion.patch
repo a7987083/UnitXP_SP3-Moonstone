@@ -51,7 +51,7 @@ diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sou
 diff --git a/Ksign/Views/Sources/Apps/DownloadButtonView.swift b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
 --- a/Ksign/Views/Sources/Apps/DownloadButtonView.swift
 +++ b/Ksign/Views/Sources/Apps/DownloadButtonView.swift
-@@ -94,13 +94,14 @@ struct DownloadButtonView: View {
+@@ -94,15 +94,16 @@ struct DownloadButtonView: View {
  			Text("已有卡密请选择“使用解锁码”。")
  		}
  		.sheet(isPresented: $showUnlockCode) {
