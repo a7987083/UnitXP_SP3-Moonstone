@@ -1,15 +1,15 @@
 === workflow diagnostics ===
 /Users/runner/work/UnitXP_SP3-Moonstone/UnitXP_SP3-Moonstone
-total 104
-drwxr-xr-x   9 runner  staff    288 Sep  4 16:36 .
-drwxr-xr-x  10 runner  staff    320 Sep  4 16:36 ..
--rw-r--r--   1 runner  staff     46 Sep  4 16:36 ALPHA12_BUILD_TRIGGER.txt
--rw-r--r--   1 runner  staff     90 Sep  4 16:36 BUILD_ERROR.txt
-drwxr-xr-x  18 runner  staff    576 Sep  4 16:36 dist
--rw-r--r--   1 runner  staff  35149 Sep  4 16:36 LICENSE
-drwxr-xr-x  26 runner  staff    832 Sep  4 16:36 patches
--rw-r--r--   1 runner  staff   3682 Sep  4 16:36 prepare.log
--rw-r--r--   1 runner  staff    617 Sep  4 16:36 README.md
+total 136
+drwxr-xr-x   9 runner  staff    288 Sep  4 16:38 .
+drwxr-xr-x  10 runner  staff    320 Sep  4 16:38 ..
+-rw-r--r--   1 runner  staff     46 Sep  4 16:38 ALPHA12_BUILD_TRIGGER.txt
+-rw-r--r--   1 runner  staff     90 Sep  4 16:38 BUILD_ERROR.txt
+drwxr-xr-x  18 runner  staff    576 Sep  4 16:38 dist
+-rw-r--r--   1 runner  staff  35149 Sep  4 16:38 LICENSE
+drwxr-xr-x  26 runner  staff    832 Sep  4 16:38 patches
+-rw-r--r--   1 runner  staff  17850 Sep  4 16:38 prepare.log
+-rw-r--r--   1 runner  staff    617 Sep  4 16:38 README.md
 === prepare.log ===
 + git clone https://github.com/Nyasami/Ksign.git HFASignBuild
 Cloning into 'HFASignBuild'...
@@ -61,5 +61,329 @@ patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
 patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
 patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
 patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
++ echo '=== 0021 SourceUnlockService context ==='
+=== 0021 SourceUnlockService context ===
++ grep -n -B 20 -A 40 'private func md5' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+69-						completion(.success(message)); return
+70-					}
+71-					let access = SourceRepositoryLoader.shared.appAccessMetadata(
+72-						for: sourceURL,
+73-						appIdentifier: appIdentifier,
+74-						appName: appName
+75-					)
+76-					let explicitlyUnlocked = access?.isNeedLock == false
+77-					let acknowledged = object?["success"] as? Bool == true
+78-					if explicitlyUnlocked || (access?.isNeedLock == nil && acknowledged) {
+79-						completion(.success(message))
+80-					} else {
+81-						completion(.failure(UnlockError.server(message.isEmpty ? "服务器尚未确认解锁" : message)))
+82-					}
+83-				case .failure(let error): completion(.failure(error))
+84-				}
+85-			}
+86-		}.resume()
+87-	}
+88-
+89:	private func md5(_ value: String) -> String {
+90-		let data = Data(value.utf8)
+91-		var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+92-		data.withUnsafeBytes { bytes in
+93-			_ = CC_MD5(bytes.baseAddress, CC_LONG(data.count), &digest)
+94-		}
+95-		return digest.map { String(format: "%02x", $0) }.joined()
+96-	}
+97-
+98-	enum UnlockError: LocalizedError {
+99-		case missingEndpoint, missingUDID, emptyCode, invalidEndpoint, invalidResponse, verificationFailed, http(Int), server(String)
+100-		var errorDescription: String? { switch self {
+101-		case .missingEndpoint: return "该软件源未提供解锁接口"; case .missingUDID: return "请先获取本机 UDID"; case .emptyCode: return "请输入解锁码"; case .invalidEndpoint: return "软件源解锁接口无效"; case .invalidResponse: return "解锁服务器没有返回有效数据"; case .verificationFailed: return "解锁校验失败"; case .http(let code): return "解锁服务器返回 HTTP \(code)"; case .server(let message): return message
+102-		} }
+103-	}
+104-}
+105-
+106-final class SourceRepositoryLoader {
+107-	static let shared = SourceRepositoryLoader()
+108-	private let metadataLock = NSLock()
+109-	private var metadataBySource: [String: SourceAccessMetadata] = [:]
+110-	private var appAccessBySource: [String: [String: SourceAppAccessMetadata]] = [:]
+111-	private init() {}
+112-
+113-	func fetch(from url: URL, allowCachedFallback: Bool = true, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+114-		let requestURL = urlWithUDID(url)
+115-		URLSession.shared.dataTask(with: requestURL) { data, response, networkError in
+116-			var latestError: Error = networkError ?? LoaderError.noData
+117-			if let networkError { self.log(networkError, url: requestURL) }
+118-			if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+119-				latestError = LoaderError.httpStatus(http.statusCode)
+120-				self.log(latestError, url: requestURL)
+121-				completion(.failure(latestError)); return
+122-			}
+123-			if let data {
+124-				do {
+125-					if self.looksLikeHTML(data) { throw LoaderError.htmlResponse }
+126-					let repository = try self.decode(data, sourceURL: url)
+127-					try? self.saveCache(data, for: url)
+128-					completion(.success(repository)); return
+129-				} catch { latestError = error; self.log(error, url: requestURL) }
++ echo '=== 0021 DownloadButton context ==='
+=== 0021 DownloadButton context ===
++ grep -n -B 20 -A 100 showUnlockActions HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+2-//  DownloadButtonView.swift
+3-//  Feather
+4-//
+5-//  Created by samsam on 7/25/25.
+6-//
+7-
+8-import SwiftUI
+9-import Combine
+10-import AltSourceKit
+11-import NimbleViews
+12-import SafariServices
+13-
+14-struct DownloadButtonView: View {
+15-	let source: ASRepository
+16-	let sourceURL: URL
+17-	let app: ASRepository.App
+18-	@ObservedObject private var downloadManager = DownloadManager.shared
+19-
+20-	@State private var downloadProgress: Double = 0
+21-	@State private var cancellable: AnyCancellable?
+22:	@State private var showUnlockActions = false
+23-	@State private var showUnlockCode = false
+24-	@State private var unlockCode = ""
+25-	@State private var purchaseURL: URL?
+26-	@State private var unlockError: String?
+27-	@State private var isUnlocking = false
+28-	@State private var unlockStateVersion = 0
+29-	private let pendingUnlockSourceKey = "zonoe.pendingSourceUnlockURL"
+30-	private let pendingUnlockAppKey = "zonoe.pendingSourceUnlockApp"
+31-	private var unlockAppIdentity: String { app.id ?? "name:\(app.currentName)" }
+32-
+33-	var body: some View {
+34-		ZStack {
+35-			if let currentDownload = downloadManager.getDownload(by: app.currentUniqueId) {
+36-				ZStack {
+37-					Circle()
+38-						.trim(from: 0, to: downloadProgress)
+39-						.stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.3, lineCap: .round))
+40-						.rotationEffect(.degrees(-90))
+41-						.frame(width: 31, height: 31)
+42-						.animation(.smooth, value: downloadProgress)
+43-
+44-					Image(systemName: downloadProgress >= 0.75 ? "archivebox" : "square.fill")
+45-						.foregroundStyle(.tint)
+46-						.font(.footnote).bold()
+47-				}
+48-				.onTapGesture {
+49-					if downloadProgress <= 0.75 {
+50-						downloadManager.cancelDownload(currentDownload)
+51-					}
+52-				}
+53-				.compatTransition()
+54-			} else {
+55-				Button {
+56-					if let url = app.currentDownloadUrl {
+57-						_ = downloadManager.startDownload(from: url, id: app.currentUniqueId)
+58:					} else { showUnlockActions = true }
+59-				} label: {
+60-					Text(app.currentDownloadUrl == nil ? "解锁" : .localized("获取"))
+61-						.lineLimit(0)
+62-						.font(.headline.bold())
+63-						.foregroundStyle(Color.accentColor)
+64-						.padding(.horizontal, 24)
+65-						.padding(.vertical, 6)
+66-						.background(Color(uiColor: .quaternarySystemFill))
+67-						.clipShape(Capsule())
+68-				}
+69-				.buttonStyle(.borderless)
+70-				.compatTransition()
+71-			}
+72-		}
+73-		.onAppear {
+74-			setupObserver()
+75-			resumePendingUnlockIfPossible()
+76-		}
+77-		.onDisappear { cancellable?.cancel() }
+78-		.onChange(of: downloadManager.downloads.description) { _ in
+79-			setupObserver()
+80-		}
+81-		.animation(.easeInOut(duration: 0.3), value: downloadManager.getDownload(by: app.currentUniqueId) != nil)
+82:		.confirmationDialog("解锁 \(app.currentName)", isPresented: $showUnlockActions, titleVisibility: .visible) {
+83-			Button("获取解锁码") { openPurchase() }
+84-			Button("使用解锁码") { beginUsingUnlockCode() }
+85-			Button("取消", role: .cancel) {}
+86-		} message: {
+87-			Text("已有卡密请选择“使用解锁码”。")
+88-		}
+89-		.sheet(isPresented: $showUnlockCode) {
+90-			UnlockCodePrompt(code: $unlockCode, isValidating: isUnlocking) {
+91-				guard !isUnlocking else { return }
+92-				unlockCode = ""
+93-				showUnlockCode = false
+94-			} onConfirm: {
+95-				unlock()
+96-			}
+97-			.presentationDetents([.height(230)])
+98-			.interactiveDismissDisabled(isUnlocking)
+99-		}
+100-		.sheet(isPresented: Binding(get: { purchaseURL != nil }, set: { if !$0 { purchaseURL = nil } })) { if let purchaseURL { SafariPurchaseView(url: purchaseURL) } }
+101-		.alert("解锁失败", isPresented: Binding(get: { unlockError != nil }, set: { if !$0 { unlockError = nil } })) { Button("确定", role: .cancel) {} } message: { Text(unlockError ?? "未知错误") }
+102-		.onReceive(NotificationCenter.default.publisher(for: UDIDService.didUpdateNotification)) { _ in
+103-			resumePendingUnlockIfPossible()
+104-		}
+105-	}
+106-
+107-	private func openPurchase() {
+108-		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else { unlockError = "该软件源未提供解锁码获取地址"; return }
+109-		if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { purchaseURL = url } else { UIApplication.shared.open(url) }
+110-	}
+111-
+112-	private func beginUsingUnlockCode() {
+113-		unlockError = nil
+114:		showUnlockActions = false
+115-		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+116-		guard !udid.isEmpty else {
+117-			UserDefaults.standard.set(SourceURLIdentity.normalized(sourceURL).absoluteString, forKey: pendingUnlockSourceKey)
+118-			UserDefaults.standard.set(unlockAppIdentity, forKey: pendingUnlockAppKey)
+119-			NotificationCenter.default.post(name: UDIDService.requestNotification, object: nil)
+120-			return
+121-		}
+122-		DispatchQueue.main.async { showUnlockCode = true }
+123-	}
+124-
+125-	private func resumePendingUnlockIfPossible() {
+126-		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+127-		let pending = UserDefaults.standard.string(forKey: pendingUnlockSourceKey)
+128-		let pendingApp = UserDefaults.standard.string(forKey: pendingUnlockAppKey)
+129-		guard !udid.isEmpty,
+130-			  pending == SourceURLIdentity.normalized(sourceURL).absoluteString,
+131-			  pendingApp == unlockAppIdentity else { return }
+132-		UserDefaults.standard.removeObject(forKey: pendingUnlockSourceKey)
+133-		UserDefaults.standard.removeObject(forKey: pendingUnlockAppKey)
+134-		unlockError = nil
+135:		showUnlockActions = false
+136-		DispatchQueue.main.async { showUnlockCode = true }
+137-	}
+138-
+139-	private func unlock() {
+140-		guard !isUnlocking else { return }
+141-		isUnlocking = true
+142-		SourceUnlockService.shared.unlock(sourceURL: sourceURL, appIdentifier: app.id, appName: app.currentName, code: unlockCode) { result in
+143-			DispatchQueue.main.async {
+144-				isUnlocking = false
+145-				switch result {
+146-				case .success:
+147-					unlockCode = ""
+148-					unlockError = nil
+149-					unlockStateVersion &+= 1
+150-					showUnlockCode = false
+151-					NotificationCenter.default.post(name: NSNotification.Name("zonoe.sourceUnlocked"), object: sourceURL)
+152-				case .failure(let error):
+153-					unlockError = error.localizedDescription
+154-				}
+155-			}
+156-		}
+157-	}
+158-
+159-	private func setupObserver() {
+160-		cancellable?.cancel()
+161-		guard let download = downloadManager.getDownload(by: app.currentUniqueId) else {
+162-			downloadProgress = 0
+163-			return
+164-		}
+165-		downloadProgress = download.overallProgress
+166-
+167-		let publisher = Publishers.CombineLatest(
+168-			download.$progress,
+169-			download.$unpackageProgress
+170-		)
+171-
+172-		cancellable = publisher.sink { _, _ in
+173-			downloadProgress = download.overallProgress
+174-		}
+175-	}
+176-}
+177-
+178-private struct UnlockCodePrompt: View {
+179-	@Binding var code: String
+180-	let isValidating: Bool
+181-	let errorMessage: String?
+182-	let onCancel: () -> Void
+183-	let onConfirm: () -> Void
+184-
+185-	var body: some View {
+186-		VStack(alignment: .leading, spacing: 18) {
+187-			Text("使用解锁码").font(.headline)
+188-			TextField("输入解锁码", text: $code)
+189-				.textFieldStyle(.roundedBorder)
+190-				.disabled(isValidating)
+191-			if let errorMessage, !errorMessage.isEmpty {
+192-				Text("解锁失败：\(errorMessage)")
+193-					.font(.footnote)
+194-					.foregroundStyle(.red)
+195-			}
+196-			if isValidating {
+197-				HStack(spacing: 8) { ProgressView(); Text("验证中…") }
+198-					.frame(maxWidth: .infinity)
+199-			}
+200-			HStack(spacing: 12) {
+201-				Button("取消", role: .cancel, action: onCancel)
+202-					.frame(maxWidth: .infinity)
+203-					.disabled(isValidating)
+204-				Button("确定", action: onConfirm)
+205-					.buttonStyle(.borderedProminent)
+206-					.frame(maxWidth: .infinity)
+207-					.disabled(isValidating || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+208-			}
+209-		}
+210-		.padding(24)
+211-	}
+212-}
+213-
+214-private struct SafariPurchaseView: UIViewControllerRepresentable {
+215-	let url: URL
+216-	func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
+217-	func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+218-}
++ echo '=== 0021 rejects ==='
+=== 0021 rejects ===
++ cat HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej
+@@ -1,3 +1,20 @@
++	func hasLegacyGrant(sourceURL: URL, appIdentifier: String?, appName: String) -> Bool {
++		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++		guard !udid.isEmpty else { return false }
++		return UserDefaults.standard.bool(forKey: legacyGrantKey(sourceURL: sourceURL, appIdentifier: appIdentifier, appName: appName, udid: udid))
++	}
++
++	private func markLegacyGrant(sourceURL: URL, appIdentifier: String?, appName: String, udid: String) {
++		UserDefaults.standard.set(true, forKey: legacyGrantKey(sourceURL: sourceURL, appIdentifier: appIdentifier, appName: appName, udid: udid))
++	}
++
++	private func legacyGrantKey(sourceURL: URL, appIdentifier: String?, appName: String, udid: String) -> String {
++		let identity = appIdentifier?.isEmpty == false ? "id:\(appIdentifier!)" : "name:\(appName)"
++		let raw = "\(SourceURLIdentity.normalized(sourceURL).absoluteString)\n\(udid)\n\(identity)"
++		let digest = SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined()
++		return "zonoe.sourceUnlock.\(digest)"
++	}
++
+ 	private func md5(_ value: String) -> String {
+ 		let data = Data(value.utf8)
+ 		var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
++ cat HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej
+@@ -1,3 +1,13 @@
++	private var isSourceLocked: Bool {
++		_ = unlockStateVersion
++		if let access = SourceRepositoryLoader.shared.appAccessMetadata(for: sourceURL, appIdentifier: app.id, appName: app.currentName),
++		   let needLock = access.isNeedLock {
++			if !needLock { return false }
++			return !SourceUnlockService.shared.hasLegacyGrant(sourceURL: sourceURL, appIdentifier: app.id, appName: app.currentName)
++		}
++		return app.currentDownloadUrl == nil
++	}
++
+ 	private func openPurchase() {
+ 		guard let url = SourceRepositoryLoader.shared.accessMetadata(for: sourceURL)?.payURL else { unlockError = "该软件源未提供解锁码获取地址"; return }
+ 		if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { purchaseURL = url } else { UIApplication.shared.open(url) }
++ exit 1
 === build.log ===
 tail: HFASign/build.log: No such file or directory
