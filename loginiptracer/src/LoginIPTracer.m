@@ -9,11 +9,15 @@
 #include <string.h>
 
 /*
- * LoginIPTracer v3 Timeline
- * Injection/UI lifecycle intentionally follows the proven HFAMap v1.8.7 shell:
+ * LoginIPTracer v4 RealTime
+ * Stable injection/UI lifecycle is kept from the proven HFAMap v1.8.7 shell:
  * constructor -> NSObject target -> NSTimer -> wait for UIWindow -> floating button.
- * No connect/getaddrinfo interpose and no network hook is installed.
- * Socket inspection only runs after the user presses Start Capture.
+ *
+ * Important behavior:
+ * - No connect/getaddrinfo hook/interpose.
+ * - No socket scan before the floating UI exists.
+ * - Capture starts automatically about one timer tick AFTER the floating button is visible.
+ * - Tapping the floating "IP" button only opens/closes the realtime panel.
  */
 
 typedef unsigned long size_t_hfa;
@@ -44,11 +48,14 @@ extern void objc_registerClassPair(Class);
 
 #define MAX_CONN 256
 #define MAX_FD_SCAN 1024
+#define LIVE_LINES 12
+#define LIVE_LINE_CAP 192
 
 typedef struct {
     int used;
     int active;
     int present;
+    int longReported;
     int fd;
     int type;
     unsigned int seq;
@@ -59,14 +66,15 @@ typedef struct {
     double lastSeen;
 } ConnEntry;
 
-static id gTarget=0,gButton=0,gPanel=0,gWindow=0,gStatus=0,gAction=0;
-static int gMade=0,gCapturing=0,gTickPhase=0;
+static id gTarget=0,gButton=0,gPanel=0,gWindow=0,gStatus=0,gLive=0;
+static int gMade=0,gCapturing=0,gTickPhase=0,gAutoStartCountdown=0;
 static char gLogPath[768];
 static ConnEntry gConn[MAX_CONN];
-static unsigned int gConnSeq=0,gNewCount=0,gGoneCount=0;
+static unsigned int gConnSeq=0,gNewCount=0,gGoneCount=0,gLongCount=0;
 static double gCaptureStart=0.0;
-static char gLastEndpoint[128];
-static char gLastMarker[48];
+static char gLastPublic[128];
+static char gLiveLines[LIVE_LINES][LIVE_LINE_CAP];
+static unsigned int gLiveCount=0;
 
 static id ns(const char*s){
     Class c=objc_getClass("NSString");
@@ -105,7 +113,7 @@ static void initlog(void){
     char*h=getenv("HOME");
     if(!h)return;
     snprintf(gLogPath,sizeof(gLogPath),"%s/Documents/LoginIPTrace.log",h);
-    logf0("\n[LoginIPTracer v3 Timeline HFAMap187] loaded pid=%d epoch=%.3f\n",getpid(),now_sec());
+    logf0("\n[LoginIPTracer v4 RealTime HFAMap187] loaded pid=%d epoch=%.3f\n",getpid(),now_sec());
 }
 
 static void copyc(char*d,const char*s,size_t_hfa cap){
@@ -120,6 +128,9 @@ static int ceq(const char*a,const char*b){
     while(*a&&*b&&*a==*b){a++;b++;}
     return *a==0&&*b==0;
 }
+
+static int is_public_kind(const char*k){return k&&ceq(k,"public");}
+static int is_live_kind(const char*k){return k&&(ceq(k,"public")||ceq(k,"benchmark/fake")||ceq(k,"private"));}
 
 static const char* addr_kind(const struct sockaddr*sa){
     if(!sa)return "unknown";
@@ -165,7 +176,38 @@ static int format_addr(const struct sockaddr*sa,char*out,size_t_hfa cap){
 }
 
 static void settext(id l,const char*s){if(l)M1(void,l,"setText:",id,ns(s));}
-static void settitle(id b,const char*s){if(b)M2(void,b,"setTitle:forState:",id,ns(s),u64,0);}
+
+static void refresh_live(void){
+    if(!gLive)return;
+    char out[2600];
+    size_t_hfa used=0;
+    out[0]=0;
+    for(unsigned int i=0;i<gLiveCount;i++){
+        int n=snprintf(out+used,sizeof(out)-used,"%s%s",i?"\n":"",gLiveLines[i]);
+        if(n<=0)break;
+        if((size_t_hfa)n>=sizeof(out)-used){used=sizeof(out)-1;break;}
+        used+=(size_t_hfa)n;
+    }
+    out[sizeof(out)-1]=0;
+    settext(gLive,out);
+}
+
+static void live_push(const char*fmt,...){
+    char line[LIVE_LINE_CAP];
+    __builtin_va_list ap;
+    __builtin_va_start(ap,fmt);
+    vsnprintf(line,sizeof(line),fmt,ap);
+    __builtin_va_end(ap);
+    line[sizeof(line)-1]=0;
+
+    if(gLiveCount<LIVE_LINES){
+        copyc(gLiveLines[gLiveCount++],line,LIVE_LINE_CAP);
+    }else{
+        for(unsigned int i=1;i<LIVE_LINES;i++)copyc(gLiveLines[i-1],gLiveLines[i],LIVE_LINE_CAP);
+        copyc(gLiveLines[LIVE_LINES-1],line,LIVE_LINE_CAP);
+    }
+    refresh_live();
+}
 
 static ConnEntry* find_active(int fd,const char*remote){
     for(unsigned int i=0;i<MAX_CONN;i++){
@@ -187,35 +229,29 @@ static unsigned int active_count(void){
     return n;
 }
 
+static unsigned int active_public_count(void){
+    unsigned int n=0;
+    for(unsigned int i=0;i<MAX_CONN;i++){
+        ConnEntry*e=&gConn[i];
+        if(e->used&&e->active&&is_public_kind(e->kind))n++;
+    }
+    return n;
+}
+
 static void update_status(void){
     if(!gStatus)return;
-    char s[512];
+    char s[640];
     if(gCapturing){
         snprintf(s,sizeof(s),
-            "Capturing: +%.1fs   active=%u\nNEW=%u  GONE=%u\nLast: %s\nStage: %s\nLog: Documents/LoginIPTrace.log",
-            rel_sec(now_sec()),active_count(),gNewCount,gGoneCount,
-            gLastEndpoint[0]?gLastEndpoint:"(none)",
-            gLastMarker[0]?gLastMarker:"(none)");
+            "AUTO CAPTURE  +%.1fs\nActive=%u   Public=%u   NEW=%u   GONE=%u   LONG=%u\nLast public: %s\nFull log: Documents/LoginIPTrace.log",
+            rel_sec(now_sec()),active_count(),active_public_count(),gNewCount,gGoneCount,gLongCount,
+            gLastPublic[0]?gLastPublic:"(none)");
+    }else if(gAutoStartCountdown>0){
+        snprintf(s,sizeof(s),"UI ready. Auto capture starts after the floating button is visible...\nFull log: Documents/LoginIPTrace.log");
     }else{
-        snprintf(s,sizeof(s),
-            "Stopped. NEW=%u GONE=%u\nLast: %s\nLog: Documents/LoginIPTrace.log",
-            gNewCount,gGoneCount,gLastEndpoint[0]?gLastEndpoint:"(none)");
+        snprintf(s,sizeof(s),"Waiting for auto capture...\nFull log: Documents/LoginIPTrace.log");
     }
     settext(gStatus,s);
-}
-
-static void log_new_conn(ConnEntry*e,double t){
-    if(!e)return;
-    logf0("[NEW] +%.3fs seq=%u fd=%d type=%d kind=%s local=%s remote=%s\n",
-          rel_sec(t),e->seq,e->fd,e->type,e->kind,e->local[0]?e->local:"?",e->remote);
-}
-
-static void log_gone_conn(ConnEntry*e,double t,const char*reason){
-    if(!e)return;
-    double dur=t-e->firstSeen;
-    if(dur<0)dur=0;
-    logf0("[GONE] +%.3fs seq=%u fd=%d duration=%.3fs kind=%s remote=%s reason=%s\n",
-          rel_sec(t),e->seq,e->fd,dur,e->kind,e->remote,reason?reason:"not-present");
 }
 
 static void scan_sockets(void){
@@ -254,9 +290,15 @@ static void scan_sockets(void){
             copyc(e->remote,remote,sizeof(e->remote));
             copyc(e->local,localText,sizeof(e->local));
             copyc(e->kind,addr_kind((const struct sockaddr*)&peer),sizeof(e->kind));
-            copyc(gLastEndpoint,remote,sizeof(gLastEndpoint));
             gNewCount++;
-            log_new_conn(e,t);
+            logf0("[NEW] +%.3fs seq=%u fd=%d type=%d kind=%s local=%s remote=%s\n",
+                  rel_sec(t),e->seq,e->fd,e->type,e->kind,e->local[0]?e->local:"?",e->remote);
+            if(is_public_kind(e->kind)){
+                copyc(gLastPublic,e->remote,sizeof(gLastPublic));
+                live_push("+%.2fs  NEW   %s",rel_sec(t),e->remote);
+            }else if(is_live_kind(e->kind)){
+                live_push("+%.2fs  %-5s %s",rel_sec(t),e->kind,e->remote);
+            }
         }else{
             e->present=1;e->lastSeen=t;e->type=type;
             if(localText[0])copyc(e->local,localText,sizeof(e->local));
@@ -266,27 +308,44 @@ static void scan_sockets(void){
     for(unsigned int i=0;i<MAX_CONN;i++){
         ConnEntry*e=&gConn[i];
         if(e->used&&e->active&&!e->present){
-            log_gone_conn(e,t,"closed-or-reused");
+            double dur=t-e->firstSeen;
+            if(dur<0)dur=0;
+            logf0("[GONE] +%.3fs seq=%u fd=%d duration=%.3fs kind=%s remote=%s reason=closed-or-reused\n",
+                  rel_sec(t),e->seq,e->fd,dur,e->kind,e->remote);
+            if(is_public_kind(e->kind))live_push("+%.2fs  GONE  %s  %.1fs",rel_sec(t),e->remote,dur);
             e->active=0;
             gGoneCount++;
+        }
+    }
+
+    for(unsigned int i=0;i<MAX_CONN;i++){
+        ConnEntry*e=&gConn[i];
+        if(!e->used||!e->active||e->longReported||!is_public_kind(e->kind))continue;
+        double dur=t-e->firstSeen;
+        if(dur>=10.0){
+            e->longReported=1;
+            gLongCount++;
+            logf0("[LONG] +%.3fs seq=%u fd=%d duration=%.3fs remote=%s\n",
+                  rel_sec(t),e->seq,e->fd,dur,e->remote);
+            live_push("+%.2fs  LONG  %s  %.1fs",rel_sec(t),e->remote,dur);
         }
     }
     update_status();
 }
 
-static void mark_stage(const char*name){
-    if(!name)return;
-    if(!gCapturing){
-        logf0("[MARK-SKIP] %s capture-not-running epoch=%.3f\n",name,now_sec());
-        settext(gStatus,"Start Capture first, then add stage markers.");
-        return;
-    }
-    double t=now_sec();
-    copyc(gLastMarker,name,sizeof(gLastMarker));
-    logf0("[MARK] +%.3fs %s active=%u new=%u gone=%u\n",
-          rel_sec(t),name,active_count(),gNewCount,gGoneCount);
-    scan_sockets();
+static void start_auto_capture(void){
+    if(gCapturing)return;
+    memset(gConn,0,sizeof(gConn));
+    memset(gLiveLines,0,sizeof(gLiveLines));
+    gLiveCount=0;
+    gConnSeq=0;gNewCount=0;gGoneCount=0;gLongCount=0;
+    gLastPublic[0]=0;
+    gCaptureStart=now_sec();
+    gCapturing=1;
+    logf0("[CAPTURE-AUTO-START] epoch=%.3f after-ui=1\n",gCaptureStart);
+    live_push("AUTO capture started after UI ready");
     update_status();
+    scan_sockets();
 }
 
 static id win(void){
@@ -312,18 +371,6 @@ static id mklabel(CGRect r,double fs){
     Class fc=objc_getClass("UIFont");
     if(fc)M1(void,l,"setFont:",id,M1(id,(id)fc,"systemFontOfSize:",double,fs));
     return l;
-}
-
-static id mkbutton(id parent,CGRect frame,const char*title,const char*action,double r,double g,double b){
-    Class bc=objc_getClass("UIButton");
-    if(!bc)return 0;
-    id x=M0(id,(id)bc,"alloc");
-    x=M1(id,x,"initWithFrame:",CGRect,frame);
-    settitle(x,title);
-    M1(void,x,"setBackgroundColor:",id,color(r,g,b,1));
-    M3(void,x,"addTarget:action:forControlEvents:",id,gTarget,SEL,sel_registerName(action),u64,TOUCHUP);
-    M1(void,parent,"addSubview:",id,x);
-    return x;
 }
 
 static void pan(id self,SEL c,id g){
@@ -358,45 +405,12 @@ static void panelpan(id self,SEL c,id g){
     }
 }
 
-static void capture(id self,SEL c,id sender){
-    (void)self;(void)c;(void)sender;
-    if(!gCapturing){
-        memset(gConn,0,sizeof(gConn));
-        gConnSeq=0;gNewCount=0;gGoneCount=0;gTickPhase=0;
-        gLastEndpoint[0]=0;gLastMarker[0]=0;
-        gCaptureStart=now_sec();
-        gCapturing=1;
-        settitle(gAction,"Stop Capture");
-        logf0("[CAPTURE-START] epoch=%.3f\n",gCaptureStart);
-        scan_sockets();
-        update_status();
-    }else{
-        double t=now_sec();
-        scan_sockets();
-        for(unsigned int i=0;i<MAX_CONN;i++){
-            ConnEntry*e=&gConn[i];
-            if(e->used&&e->active){
-                logf0("[ACTIVE-AT-STOP] +%.3fs seq=%u fd=%d duration=%.3fs kind=%s remote=%s\n",
-                      rel_sec(t),e->seq,e->fd,t-e->firstSeen,e->kind,e->remote);
-            }
-        }
-        logf0("[CAPTURE-STOP] +%.3fs new=%u gone=%u active=%u\n",
-              rel_sec(t),gNewCount,gGoneCount,active_count());
-        gCapturing=0;
-        settitle(gAction,"Start Capture");
-        update_status();
-    }
-}
-
-static void markLogin(id self,SEL c,id sender){(void)self;(void)c;(void)sender;mark_stage("LOGIN");}
-static void markServerList(id self,SEL c,id sender){(void)self;(void)c;(void)sender;mark_stage("SERVER_LIST");}
-static void markEnterGame(id self,SEL c,id sender){(void)self;(void)c;(void)sender;mark_stage("ENTER_GAME");}
-
 static void tap(id self,SEL c,id s){
     (void)self;(void)c;(void)s;
     if(gPanel){
         BOOL h=M0(BOOL,gPanel,"isHidden");
         M1(void,gPanel,"setHidden:",BOOL,!h);
+        if(h){update_status();refresh_live();}
     }
 }
 
@@ -423,7 +437,7 @@ static void mkui(id w){
     gButton=b;
 
     id p=M0(id,(id)vc,"alloc");
-    p=M1(id,p,"initWithFrame:",CGRect,((CGRect){{70,55},{330,390}}));
+    p=M1(id,p,"initWithFrame:",CGRect,((CGRect){{60,80},{350,410}}));
     M1(void,p,"setBackgroundColor:",id,color(.055,.06,.075,.97));
     ly=M0(id,p,"layer");
     if(ly)M1(void,ly,"setCornerRadius:",double,14);
@@ -434,23 +448,30 @@ static void mkui(id w){
         M1(void,p,"addGestureRecognizer:",id,pg);
     }
 
-    id h=mklabel((CGRect){{14,8},{302,48}},17);
-    settext(h,"Login IP Tracer v3 Timeline\nHFAMap 1.8.7 injection shell");
-    M1(void,p,"addSubview:",id,h);
+    id title=mklabel((CGRect){{14,10},{322,44}},18);
+    settext(title,"Login IP Tracer v4 RealTime");
+    M1(void,p,"addSubview:",id,title);
 
-    gAction=mkbutton(p,(CGRect){{14,64},{302,42}},"Start Capture","capture:",.18,.32,.62);
-    mkbutton(p,(CGRect){{14,116},{94,38}},"MARK LOGIN","markLogin:",.20,.40,.28);
-    mkbutton(p,(CGRect){{118,116},{94,38}},"SERVER LIST","markServerList:",.36,.30,.18);
-    mkbutton(p,(CGRect){{222,116},{94,38}},"ENTER GAME","markEnterGame:",.42,.22,.22);
-
-    gStatus=mklabel((CGRect){{14,166},{302,205}},11);
-    settext(gStatus,"1. Start Capture\n2. Before tapping login: MARK LOGIN\n3. When server list appears: SERVER LIST\n4. Before entering game: ENTER GAME\n\nRecords NEW/GONE + duration + IP:Port.\nNo connect/getaddrinfo hook is installed.");
+    gStatus=mklabel((CGRect){{14,52},{322,92}},11);
+    settext(gStatus,"UI ready. Auto capture will start after this floating window is visible.");
     M1(void,p,"addSubview:",id,gStatus);
+
+    id sep=mklabel((CGRect){{14,145},{322,22}},11);
+    settext(sep,"Realtime endpoint events (full log includes loopback):");
+    M1(void,p,"addSubview:",id,sep);
+
+    gLive=mklabel((CGRect){{14,170},{322,222}},10);
+    settext(gLive,"Waiting for auto capture...");
+    M1(void,p,"addSubview:",id,gLive);
 
     M1(void,p,"setHidden:",BOOL,1);
     M1(void,w,"addSubview:",id,p);
     gPanel=p;gWindow=w;gMade=1;
-    logf0("[UI-READY] epoch=%.3f\n",now_sec());
+
+    /* One full timer tick delay guarantees the floating button exists first. */
+    gAutoStartCountdown=2;
+    logf0("[UI-READY] epoch=%.3f auto-start-countdown=%d\n",now_sec(),gAutoStartCountdown);
+    update_status();
 }
 
 static void tick(id self,SEL c,id timer){
@@ -463,10 +484,18 @@ static void tick(id self,SEL c,id timer){
         M1(void,w,"addSubview:",id,gButton);
         gWindow=w;
     }
+
+    if(gMade&&!gCapturing&&gAutoStartCountdown>0){
+        gAutoStartCountdown--;
+        update_status();
+        if(gAutoStartCountdown==0)start_auto_capture();
+    }
+
     if(gCapturing){
         gTickPhase++;
         if((gTickPhase&1)==0)scan_sockets();
     }
+
     if(gMade){
         M1(void,w,"bringSubviewToFront:",id,gPanel);
         M1(void,w,"bringSubviewToFront:",id,gButton);
@@ -477,17 +506,13 @@ __attribute__((constructor)) static void init(void){
     initlog();
     Class base=objc_getClass("NSObject");
     if(!base)return;
-    Class c=objc_allocateClassPair(base,"LoginIPTracerTarget187Timeline",0);
-    if(!c)c=objc_getClass("LoginIPTracerTarget187Timeline");
+    Class c=objc_allocateClassPair(base,"LoginIPTracerTarget187V4",0);
+    if(!c)c=objc_getClass("LoginIPTracerTarget187V4");
     if(!c)return;
     class_addMethod(c,sel_registerName("tick:"),(IMP)tick,"v@:@");
     class_addMethod(c,sel_registerName("tap:"),(IMP)tap,"v@:@");
     class_addMethod(c,sel_registerName("pan:"),(IMP)pan,"v@:@");
     class_addMethod(c,sel_registerName("panelpan:"),(IMP)panelpan,"v@:@");
-    class_addMethod(c,sel_registerName("capture:"),(IMP)capture,"v@:@");
-    class_addMethod(c,sel_registerName("markLogin:"),(IMP)markLogin,"v@:@");
-    class_addMethod(c,sel_registerName("markServerList:"),(IMP)markServerList,"v@:@");
-    class_addMethod(c,sel_registerName("markEnterGame:"),(IMP)markEnterGame,"v@:@");
     objc_registerClassPair(c);
     gTarget=M0(id,(id)c,"new");
     Class t=objc_getClass("NSTimer");
