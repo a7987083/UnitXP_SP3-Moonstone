@@ -1,0 +1,53 @@
+name: Build LoginIPRedirect v9
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-ip-redirect-v9-configurable
+    paths:
+      - 'loginipredirectv9/**'
+      - 'logintcppayload/vendor/**'
+      - '.github/workflows/build-login-ip-redirect-v9.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify LoginIPRedirect v9
+        run: |
+          set -euxo pipefail
+          cd loginipredirectv9
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginIPRedirect_v9_Configurable_HFAMap187.dylib"
+          cp .theos/obj/LoginIPRedirectV9.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "LoginIPRedirect v9"
+          strings "$out" | grep -q "TARGET-APPLIED"
+          strings "$out" | grep -q "LoginIPRedirectV9.TargetIPv4"
+          strings "$out" | grep -q "118.145.146.208"
+          strings "$out" | grep -q "LoginIPRedirect_v9.log"
+          if strings "$out" | grep -q "43.242.203.214"; then echo "unexpected hardcoded old target"; exit 1; fi
+          if strings "$out" | grep -q "212.189.107.53"; then echo "unexpected hardcoded target"; exit 1; fi
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginIPRedirect-v9-Configurable-HFAMap187
+          path: loginipredirectv9/dist/*
