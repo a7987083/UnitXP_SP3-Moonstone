@@ -35,7 +35,16 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0016-zonoe-alpha15-signing-navigation-unlock.patch
           git -C HFASignBuild apply ../HFASign/patches/0019-Import-ZsignSwift-for-signature-validation.patch
           (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0020-zonoe-alpha16-restore-signing-flow.patch)
-          (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0021-zonoe-alpha16-source-unlock-state.patch)
+          if ! (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0021-zonoe-alpha16-source-unlock-state.patch); then
+            echo '=== 0021 SourceUnlockService context ==='
+            grep -n -B 20 -A 40 'private func md5' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift || true
+            echo '=== 0021 DownloadButton context ==='
+            grep -n -B 20 -A 100 'showUnlockActions' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift || true
+            echo '=== 0021 rejects ==='
+            cat HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift.rej 2>/dev/null || true
+            cat HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej 2>/dev/null || true
+            exit 1
+          fi
           (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0022-zonoe-alpha16-udid-profile-completion.patch)
           (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0023-zonoe-alpha16-signing-interactive-back.patch)
           (cd HFASignBuild && patch --batch --forward -p1 < ../HFASign/patches/0024-zonoe-alpha16-remove-sign-and-install.patch)
@@ -79,7 +88,7 @@ jobs:
             pwd
             ls -la HFASign || true
             echo "=== prepare.log ==="
-            tail -n 500 HFASign/prepare.log 2>&1 || true
+            tail -n 900 HFASign/prepare.log 2>&1 || true
             echo "=== build.log ==="
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
