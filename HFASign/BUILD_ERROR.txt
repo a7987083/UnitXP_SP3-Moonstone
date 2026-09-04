@@ -1,15 +1,15 @@
 === workflow diagnostics ===
 /Users/runner/work/UnitXP_SP3-Moonstone/UnitXP_SP3-Moonstone
 total 112
-drwxr-xr-x   9 runner  staff    288 Sep  4 16:45 .
-drwxr-xr-x  10 runner  staff    320 Sep  4 16:45 ..
--rw-r--r--   1 runner  staff     46 Sep  4 16:45 ALPHA12_BUILD_TRIGGER.txt
--rw-r--r--   1 runner  staff     90 Sep  4 16:45 BUILD_ERROR.txt
-drwxr-xr-x  18 runner  staff    576 Sep  4 16:45 dist
--rw-r--r--   1 runner  staff  35149 Sep  4 16:45 LICENSE
-drwxr-xr-x  27 runner  staff    864 Sep  4 16:45 patches
--rw-r--r--   1 runner  staff   4535 Sep  4 16:45 prepare.log
--rw-r--r--   1 runner  staff    617 Sep  4 16:45 README.md
+drwxr-xr-x   9 runner  staff    288 Sep  4 16:46 .
+drwxr-xr-x  10 runner  staff    320 Sep  4 16:46 ..
+-rw-r--r--   1 runner  staff     46 Sep  4 16:46 ALPHA12_BUILD_TRIGGER.txt
+-rw-r--r--   1 runner  staff     90 Sep  4 16:46 BUILD_ERROR.txt
+drwxr-xr-x  18 runner  staff    576 Sep  4 16:46 dist
+-rw-r--r--   1 runner  staff  35149 Sep  4 16:46 LICENSE
+drwxr-xr-x  27 runner  staff    864 Sep  4 16:46 patches
+-rw-r--r--   1 runner  staff   4655 Sep  4 16:46 prepare.log
+-rw-r--r--   1 runner  staff    617 Sep  4 16:46 README.md
 === prepare.log ===
 + git clone https://github.com/Nyasami/Ksign.git HFASignBuild
 Cloning into 'HFASignBuild'...
@@ -77,6 +77,7 @@ patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
 patching file 'Ksign/Backend/Sources/SourceRepositoryLoader.swift'
 patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
 patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
-patch: **** malformed patch at line 71:  		}
+1 out of 1 hunks failed--saving rejects to 'Ksign/Views/Sources/Apps/DownloadButtonView.swift.rej'
+patching file 'Ksign/Views/Sources/Apps/DownloadButtonView.swift'
 === build.log ===
 tail: HFASign/build.log: No such file or directory
