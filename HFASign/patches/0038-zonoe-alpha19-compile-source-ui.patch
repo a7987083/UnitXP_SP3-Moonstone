@@ -1,0 +1,95 @@
+From 128ffbb180dd42a804b79ec084e4b02b4c5af581 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 16:03:37 -0400
+Subject: [PATCH] Fix alpha19 source UI compilation
+
+---
+ Ksign/Backend/Sources/SourceRepositoryLoader.swift          | 5 ++++-
+ Ksign/Views/Appstore/AppstoreView.swift                     | 4 ++--
+ Ksign/Views/Sources/Apps/SourceAppsCellView.swift           | 6 +++---
+ .../Apps/UIKit/SourceAppsTableRepresentableView.swift       | 4 ++--
+ 4 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 8343445..b923f94 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -272,7 +272,10 @@ final class SourceRepositoryLoader {
+ 
+ 	func discoveredFieldKeys(for sourceURLs: [URL]) -> [String] {
+ 		metadataLock.lock(); defer { metadataLock.unlock() }
+-		let keys = sourceURLs.flatMap { appMetadataBySource[SourceURLIdentity.normalized($0).absoluteString]?.values ?? [] }
++		let keys = sourceURLs.flatMap { url -> [SourceAppMetadata] in
++			guard let values = appMetadataBySource[SourceURLIdentity.normalized(url).absoluteString]?.values else { return [] }
++			return Array(values)
++		}
+ 			.flatMap { $0.rawFields.keys }
+ 		return Array(Set(keys)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+ 	}
+diff --git a/Ksign/Views/Appstore/AppstoreView.swift b/Ksign/Views/Appstore/AppstoreView.swift
+index 524ca99..483e9fa 100644
+--- a/Ksign/Views/Appstore/AppstoreView.swift
++++ b/Ksign/Views/Appstore/AppstoreView.swift
+@@ -113,8 +113,8 @@ private struct AppleStoreRegionPicker: View {
+     private let common = ["CN","JP","US","HK","TW","GB","KR","CA","AU"]
+     private var regions: [String] { Locale.isoRegionCodes.filter { code in let name = Locale.current.localizedString(forRegionCode: code) ?? code; return query.isEmpty || code.localizedCaseInsensitiveContains(query) || name.localizedCaseInsensitiveContains(query) }.sorted { (Locale.current.localizedString(forRegionCode:$0) ?? $0) < (Locale.current.localizedString(forRegionCode:$1) ?? $1) } }
+     var body: some View { NavigationStack { List {
+-        Section("常用地区") { ForEach(common,id:\.self,row) }
+-        Section("全部地区") { ForEach(regions,id:\.self,row) }
++        Section("常用地区") { ForEach(common, id: \.self, content: row) }
++        Section("全部地区") { ForEach(regions, id: \.self, content: row) }
+     }.searchable(text:$query,prompt:"搜索国家或地区").navigationTitle("App Store 地区").toolbar { Button("完成") { dismiss() } } } }
+     private func row(_ code:String) -> some View { Button { region=code; dismiss() } label: { HStack { Text(Locale.current.localizedString(forRegionCode:code) ?? code); Spacer(); Text(code).foregroundStyle(.secondary); if region==code { Image(systemName:"checkmark") } } }.foregroundStyle(.primary) }
+ }
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+index 56785dc..2a16b59 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+@@ -8,7 +8,7 @@ struct SourceAppsCellView: View {
+     var app: ASRepository.App
+     var fieldDisplay: AppFieldDisplayState
+ 
+-    private var metadata: SourceAppMetadata? { SourceRepositoryLoader.shared.appMetadata(for: sourceURL, appIdentifier: app.bundleIdentifier, appName: app.currentName) }
++    private var metadata: SourceAppMetadata? { SourceRepositoryLoader.shared.appMetadata(for: sourceURL, appIdentifier: app.id, appName: app.currentName) }
+     private var dateFormatter: DateFormatter { let value = DateFormatter(); value.dateFormat = "yyyy-MM-dd"; return value }
+     var body: some View {
+         HStack(alignment: .top, spacing: 12) {
+@@ -32,11 +32,11 @@ struct SourceAppsCellView: View {
+         var values: [String] = []
+         if fieldDisplay.contains("version"), let version = metadata?.version ?? app.currentVersion, !version.isEmpty { values.append("版本 \(version)") }
+         if fieldDisplay.contains("size"), let size = metadata?.size ?? app.size, size > 0 { values.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
+-        if fieldDisplay.contains("category"), let category = metadata?.category, !category.isEmpty { values.append(category) }
++        if fieldDisplay.contains("category"), let category = metadata?.category ?? app.category, !category.isEmpty { values.append(category) }
+         if fieldDisplay.contains("developer"), let developer = metadata?.developer, !developer.isEmpty { values.append(developer) }
+         if fieldDisplay.contains("price"), let price = metadata?.price { values.append(price == 0 ? "免费" : String(format: "%.2f", price)) }
+         if fieldDisplay.contains("minimumOSVersion"), let value = metadata?.minimumOSVersion { values.append("iOS \(value)+") }
+-        if fieldDisplay.contains("bundleIdentifier"), let value = app.bundleIdentifier { values.append(value) }
++        if fieldDisplay.contains("bundleIdentifier"), let value = app.id { values.append(value) }
+         return values.joined(separator: " · ")
+     }
+     private var customRows: [(String, String)] {
+diff --git a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+index e8037aa..357c0e0 100644
+--- a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
++++ b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+@@ -133,7 +133,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     
+     private func _calculateSortedApps() -> [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] {
+         let filtered = _allAppsWithSource.filter { entry in
+-            let metadata = SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.bundleIdentifier, appName: entry.app.currentName)
++            let metadata = SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.id, appName: entry.app.currentName)
+             let matchesSearch = searchText.isEmpty || entry.app.currentName.localizedCaseInsensitiveContains(searchText) || (metadata?.rawFields.values.contains { $0.displayText?.localizedCaseInsensitiveContains(searchText) == true } ?? false)
+             let matchesCategory: Bool
+             if filter.category == .all { matchesCategory = true } else {
+@@ -153,7 +153,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     }
+ 
+ 	private func date(for entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)) -> Date {
+-		SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.bundleIdentifier, appName: entry.app.currentName)?.updatedAt ?? entry.app.currentDate?.date ?? .distantPast
++		SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.id, appName: entry.app.currentName)?.updatedAt ?? entry.app.currentDate?.date ?? .distantPast
+ 	}
+     
+     func invalidateCache() {
+-- 
+2.51.1
+
