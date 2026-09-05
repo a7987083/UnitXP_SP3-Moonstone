@@ -1,0 +1,84 @@
+name: Build LoginTCPFullFrame v9 Universal
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-tcp-fullframe-v9-universal
+    paths:
+      - 'logintcpfullframe/**'
+      - '.github/workflows/build-login-tcp-fullframe-v9-universal.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Patch source for universal port-only capture
+        run: |
+          set -euxo pipefail
+          cd logintcpfullframe
+          python3 tools/patch_v9_universal.py
+          grep -q 'port == 10003' src/LoginTCPFullFrame.m
+          grep -q 'LoginTCPFullFrame v9 Universal' src/LoginTCPFullFrame.m
+          ! grep -q '118.145.146.208' src/LoginTCPFullFrame.m
+          ! grep -q 'strcmp(ip, TARGET_IP)' src/LoginTCPFullFrame.m
+
+      - name: Build and verify LoginTCPFullFrame v9 Universal
+        run: |
+          set -euxo pipefail
+          cd logintcpfullframe
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginTCPFullFrame_v9_Universal_HFAMap187.dylib"
+          cp .theos/obj/LoginTCPFullFrame.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q 'Login TCP FullFrame v9 Universal'
+          strings "$out" | grep -q 'LoginTCPFull_v9_Universal'
+          strings "$out" | grep -q 'ANY_IPV4:10003,7000-7999'
+          strings "$out" | grep -q 'read-only-full-frame'
+          strings "$out" | grep -q 'sendto'
+          strings "$out" | grep -q 'recvfrom'
+          if strings "$out" | grep -q '118.145.146.208'; then
+            echo 'ERROR: old fixed target IP still present in artifact' >&2
+            exit 1
+          fi
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          cat > dist/README.txt <<'EOF'
+LoginTCPFullFrame v9 Universal
+
+Read-only packet capture dylib.
+No IP restriction: captures any IPv4 peer when the remote port is 10003 or 7000-7999.
+No redirect and no packet mutation.
+Hooks: send / recv / sendto / recvfrom.
+
+Frame formats:
+- port 10003: [body_len:4 BE][msg_id:2 BE][body]
+- port 7000-7999: [body_len:4 BE][msg_id:2 BE][seq:4 BE][body]
+
+Runtime output:
+Documents/LoginTCPFull_v9_Universal/Session_YYYYMMDD-HHMMSS/
+  manifest.tsv
+  frames/
+  bodies/
+  streams/
+EOF
+          ls -lh "$out" dist/SHA256.txt dist/README.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginTCPFullFrame-v9-Universal-HFAMap187
+          path: logintcpfullframe/dist/*
