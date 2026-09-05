@@ -1,0 +1,57 @@
+name: Build RuntimeConfig v0.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/runtime-config-v0.1
+    paths:
+      - 'runtimeconfig/**'
+      - 'logintcppayload/vendor/**'
+      - '.github/workflows/build-runtime-config-v0.1.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify RuntimeConfig v0.1
+        run: |
+          set -euxo pipefail
+          cd runtimeconfig
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/RuntimeConfig_v0.1_HFAMap187.dylib"
+          cp .theos/obj/RuntimeConfig.dylib "$out"
+          cp README.md dist/README.md
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "RuntimeConfig v0.1"
+          strings "$out" | grep -q "RuntimeConfig.js"
+          strings "$out" | grep -q "RuntimeConfigV01.Mode"
+          strings "$out" | grep -q "RuntimeConfigV01.TargetIPv4"
+          strings "$out" | grep -q "118.145.146.208"
+          strings "$out" | grep -q "43.242.203.214"
+          strings "$out" | grep -q "MODE1 REDIRECT"
+          strings "$out" | grep -q "MODE2 LOGIN_HOST"
+          strings "$out" | grep -q "MSHookFunction"
+          strings "$out" | grep -q "DobbyHook"
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh dist
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: RuntimeConfig-v0.1-HFAMap187
+          path: runtimeconfig/dist/*
