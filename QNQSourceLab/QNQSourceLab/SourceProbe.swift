@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 @MainActor
 final class SourceProbeModel: ObservableObject {
@@ -7,76 +6,9 @@ final class SourceProbeModel: ObservableObject {
     @Published var bkey = ""
     @Published var isLoading = false
     @Published var output = "等待测试。"
-
-    func useLegacyPreset() {
-        urlText = "https://sign.io31.top/appstore"
-    }
-
-    func useV2Preset() {
-        urlText = "https://qnq.ioswg.com/appstore"
-    }
-
-    func useV2AltPreset() {
-        urlText = "https://yxy.ioswg.com/appstore"
-    }
-
-    func run() async {
-        let input = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: input), !input.isEmpty else {
-            output = "URL 无效"
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let sample = try await Self.fetchSample(url)
-            output = Self.inspect(sample: sample, bkey: bkey).joined(separator: "\n")
-        } catch {
-            output = "请求失败: \(error.localizedDescription)"
-        }
-    }
-
-    func runRepeatCompare() async {
-        let input = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: input), !input.isEmpty else {
-            output = "URL 无效"
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let a = try await Self.fetchSample(url)
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            let b = try await Self.fetchSample(url)
-            output = Self.compareSamples(a, b, title: "同源双抓对比").joined(separator: "\n")
-        } catch {
-            output = "对比失败: \(error.localizedDescription)"
-        }
-    }
-
-    func runV2Compare() async {
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let qnq = try await Self.fetchSample(URL(string: "https://qnq.ioswg.com/appstore")!)
-            let yxy = try await Self.fetchSample(URL(string: "https://yxy.ioswg.com/appstore")!)
-            var lines = Self.compareSamples(qnq, yxy, title: "V2 两源对比")
-            lines.append("")
-            lines.append("--- qnq 头部 ---")
-            lines.append(contentsOf: Self.headerReport(qnq.decoded))
-            lines.append("")
-            lines.append("--- yxy 头部 ---")
-            lines.append(contentsOf: Self.headerReport(yxy.decoded))
-            output = lines.joined(separator: "\n")
-        } catch {
-            output = "V2 对比失败: \(error.localizedDescription)"
-        }
-    }
+    @Published var exportReportURL: URL?
+    @Published var exportAURL: URL?
+    @Published var exportBURL: URL?
 
     private struct Sample {
         let url: URL
@@ -85,423 +17,375 @@ final class SourceProbeModel: ObservableObject {
         let responseBytes: Int
         let wrapper: String
         let payloadChars: Int
-        let normalizedChars: Int
         let decoded: Data?
         let payloadPrefix: String
+    }
+
+    func useLegacyPreset() { urlText = "https://sign.io31.top/appstore" }
+    func useV2Preset() { urlText = "https://qnq.ioswg.com/appstore" }
+    func useV2AltPreset() { urlText = "https://yxy.ioswg.com/appstore" }
+
+    func run() async {
+        guard let url = checkedURL(urlText) else { output = "URL 无效"; return }
+        await perform {
+            let sample = try await Self.fetchSample(url)
+            let report = Self.inspect(sample: sample, bkey: self.bkey).joined(separator: "\n")
+            self.output = report
+            self.saveExports(report: report, a: sample, b: nil, label: "single")
+        }
+    }
+
+    func runRepeatCompare() async {
+        guard let url = checkedURL(urlText) else { output = "URL 无效"; return }
+        await compareSame(url: url, title: "当前地址同源双抓")
+    }
+
+    func runLegacyRepeat() async {
+        await compareSame(url: URL(string: "https://sign.io31.top/appstore")!, title: "Legacy 同源双抓")
+    }
+
+    func runV2QnqRepeat() async {
+        await compareSame(url: URL(string: "https://qnq.ioswg.com/appstore")!, title: "V2 qnq 同源双抓")
+    }
+
+    func runV2YxyRepeat() async {
+        await compareSame(url: URL(string: "https://yxy.ioswg.com/appstore")!, title: "V2 yxy 同源双抓")
+    }
+
+    func runV2Compare() async {
+        await perform {
+            let a = try await Self.fetchSample(URL(string: "https://qnq.ioswg.com/appstore")!)
+            let b = try await Self.fetchSample(URL(string: "https://yxy.ioswg.com/appstore")!)
+            let report = Self.compareSamples(a, b, title: "V2 两源对比").joined(separator: "\n")
+            self.output = report
+            self.saveExports(report: report, a: a, b: b, label: "v2-cross")
+        }
+    }
+
+    private func compareSame(url: URL, title: String) async {
+        await perform {
+            let a = try await Self.fetchSample(url)
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            let b = try await Self.fetchSample(url)
+            let report = Self.compareSamples(a, b, title: title).joined(separator: "\n")
+            self.output = report
+            self.saveExports(report: report, a: a, b: b, label: title.replacingOccurrences(of: " ", with: "-"))
+        }
+    }
+
+    private func checkedURL(_ value: String) -> URL? {
+        let s = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? nil : URL(string: s)
+    }
+
+    private func perform(_ work: @escaping () async throws -> Void) async {
+        isLoading = true
+        exportReportURL = nil
+        exportAURL = nil
+        exportBURL = nil
+        defer { isLoading = false }
+        do { try await work() }
+        catch { output = "失败: \(error.localizedDescription)" }
+    }
+
+    private func saveExports(report: String, a: Sample, b: Sample?, label: String) {
+        let stamp = Int(Date().timeIntervalSince1970)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("QNQSourceLab-v0.3-\(stamp)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let reportURL = dir.appendingPathComponent("\(label)-report.txt")
+        try? Data(report.utf8).write(to: reportURL)
+        exportReportURL = reportURL
+        if let data = a.decoded {
+            let u = dir.appendingPathComponent("A-\(a.wrapper)-decoded.bin")
+            try? data.write(to: u)
+            exportAURL = u
+        }
+        if let b, let data = b.decoded {
+            let u = dir.appendingPathComponent("B-\(b.wrapper)-decoded.bin")
+            try? data.write(to: u)
+            exportBURL = u
+        }
     }
 
     private static func fetchSample(_ url: URL) async throws -> Sample {
         var request = URLRequest(url: url)
         request.timeoutInterval = 25
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("QNQSourceLab/0.2", forHTTPHeaderField: "User-Agent")
+        request.setValue("QNQSourceLab/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let http = response as? HTTPURLResponse
-
         guard let object = try? JSONSerialization.jsonObject(with: data),
-              let dictionary = object as? [String: Any] else {
-            return Sample(
-                url: url,
-                httpStatus: http?.statusCode,
-                contentType: http?.value(forHTTPHeaderField: "Content-Type"),
-                responseBytes: data.count,
-                wrapper: "<outer-json-failed>",
-                payloadChars: 0,
-                normalizedChars: 0,
-                decoded: nil,
-                payloadPrefix: textPrefix(data, limit: 240)
-            )
+              let dict = object as? [String: Any] else {
+            return Sample(url: url, httpStatus: http?.statusCode, contentType: http?.value(forHTTPHeaderField: "Content-Type"), responseBytes: data.count, wrapper: "<outer-json-failed>", payloadChars: 0, decoded: nil, payloadPrefix: textPrefix(data, limit: 240))
         }
 
         let wrapper: String
-        if dictionary["appstore_v2"] != nil {
-            wrapper = "appstore_v2"
-        } else if dictionary["appstore"] != nil {
-            wrapper = "appstore"
-        } else {
-            wrapper = "<unknown>"
-        }
+        if dict["appstore_v2"] != nil { wrapper = "appstore_v2" }
+        else if dict["appstore"] != nil { wrapper = "appstore" }
+        else { wrapper = "<unknown>" }
 
-        guard wrapper != "<unknown>", let payload = dictionary[wrapper] as? String else {
-            return Sample(
-                url: url,
-                httpStatus: http?.statusCode,
-                contentType: http?.value(forHTTPHeaderField: "Content-Type"),
-                responseBytes: data.count,
-                wrapper: wrapper,
-                payloadChars: 0,
-                normalizedChars: 0,
-                decoded: nil,
-                payloadPrefix: prettyJSONPrefix(object)
-            )
+        guard wrapper != "<unknown>", let payload = dict[wrapper] as? String else {
+            return Sample(url: url, httpStatus: http?.statusCode, contentType: http?.value(forHTTPHeaderField: "Content-Type"), responseBytes: data.count, wrapper: wrapper, payloadChars: 0, decoded: nil, payloadPrefix: String(data: data.prefix(240), encoding: .utf8) ?? "<binary>")
         }
-
         let compact = extractSourcePayload(payload)
-        return Sample(
-            url: url,
-            httpStatus: http?.statusCode,
-            contentType: http?.value(forHTTPHeaderField: "Content-Type"),
-            responseBytes: data.count,
-            wrapper: wrapper,
-            payloadChars: payload.count,
-            normalizedChars: compact.count,
-            decoded: decodeBase64Flexible(compact),
-            payloadPrefix: String(payload.prefix(240))
-        )
+        return Sample(url: url, httpStatus: http?.statusCode, contentType: http?.value(forHTTPHeaderField: "Content-Type"), responseBytes: data.count, wrapper: wrapper, payloadChars: payload.count, decoded: decodeBase64Flexible(compact), payloadPrefix: String(payload.prefix(240)))
     }
 
     private static func inspect(sample: Sample, bkey: String) -> [String] {
-        var lines: [String] = []
-        lines.append("QNQ Source Lab v0.2")
-        lines.append("URL: \(sample.url.absoluteString)")
-        if let status = sample.httpStatus { lines.append("HTTP: \(status)") }
-        if let type = sample.contentType { lines.append("Content-Type: \(type)") }
+        var lines = ["QNQ Source Lab v0.3", "URL: \(sample.url.absoluteString)"]
+        if let s = sample.httpStatus { lines.append("HTTP: \(s)") }
+        if let t = sample.contentType { lines.append("Content-Type: \(t)") }
         lines.append("Response bytes: \(sample.responseBytes)")
-        lines.append("")
-
-        guard sample.wrapper != "<outer-json-failed>" else {
-            lines.append("Outer JSON: ✗")
-            lines.append("Raw prefix: \(sample.payloadPrefix)")
-            return lines
-        }
-
-        lines.append("Outer JSON: ✓")
         lines.append("Wrapper: \(sample.wrapper)")
         lines.append("Payload chars: \(sample.payloadChars)")
-        lines.append("Payload normalized chars: \(sample.normalizedChars)")
-
-        guard let decoded = sample.decoded else {
+        guard let data = sample.decoded else {
             lines.append("Base64: ✗")
-            lines.append("Payload prefix: \(sample.payloadPrefix)")
+            lines.append("Prefix: \(sample.payloadPrefix)")
             return lines
         }
-
         lines.append("Base64: ✓")
-        lines.append("Decoded bytes: \(decoded.count)")
-        lines.append("Decoded mod 8: \(decoded.count % 8)")
-        lines.append("Decoded mod 16: \(decoded.count % 16)")
-        lines.append("Hex prefix 64: \(hexPrefix(decoded, count: 64))")
-        lines.append("Signature: \(signature(decoded))")
-        lines.append(String(format: "Printable ratio: %.3f", printableRatio(decoded)))
-        lines.append(String(format: "Entropy(first64K): %.3f bits/byte", entropy(decoded.prefixData(65536))))
+        lines.append(contentsOf: structuralReport(data))
 
+        let known = rc4(data: data, key: Data("source_share".utf8))
         lines.append("")
-        lines.append("[Header integers]")
-        lines.append(contentsOf: headerReport(decoded))
-
-        lines.append("")
-        lines.append("[Candidate offsets]")
-        let offsets = candidateOffsets(decoded)
-        for offset in offsets where offset < decoded.count {
-            let tail = decoded.subdata(in: offset..<decoded.count)
-            let sampleData = tail.prefixData(65536)
-            lines.append(
-                String(
-                    format: "off=%d len=%d mod8=%d mod16=%d sig=%@ print=%.3f H=%.3f hex=%@",
-                    offset,
-                    tail.count,
-                    tail.count % 8,
-                    tail.count % 16,
-                    signature(tail),
-                    printableRatio(sampleData),
-                    entropy(sampleData),
-                    hexPrefix(tail, count: 16)
-                )
-            )
-            if let json = utf8JSON(tail) {
-                lines.append("  → JSON ✓ \(String(json.prefix(700)))")
-            }
+        lines.append("RC4 source_share JSON: \(utf8JSON(known) != nil ? "✓" : "✗")")
+        let key = bkey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty {
+            let custom = rc4(data: data, key: Data(key.utf8))
+            lines.append("RC4 bkey JSON: \(utf8JSON(custom) != nil ? "✓" : "✗")")
         }
+        return lines
+    }
 
-        lines.append("")
-        lines.append("[Signature scan first 4096]")
-        lines.append(signatureScan(decoded).joined(separator: "\n"))
-
-        if let direct = utf8JSON(decoded) {
-            lines.append("")
-            lines.append("[Direct Base64 → UTF-8 JSON] ✓")
-            lines.append(String(direct.prefix(1200)))
-        } else {
-            lines.append("")
-            lines.append("[Direct Base64 → UTF-8 JSON] ✗")
+    private static func structuralReport(_ data: Data) -> [String] {
+        var lines: [String] = []
+        lines.append("Decoded bytes: \(data.count)")
+        lines.append("mod8=\(data.count % 8) mod16=\(data.count % 16)")
+        lines.append("first64: \(hexPrefix(data, count: 64))")
+        lines.append(String(format: "Entropy first64K: %.4f", entropy(Data(data.prefix(65536)))))
+        lines.append(String(format: "Printable first64K: %.4f", printableRatio(Data(data.prefix(65536)))))
+        if data.count >= 8 {
+            lines.append(String(format: "u32LE @0 = 0x%08x", readU32LE(data, 0) ?? 0))
+            lines.append("u32LE @4 = \(readU32LE(data, 4) ?? 0)")
         }
-
-        let sourceShare = rc4(data: decoded, key: Data("source_share".utf8))
-        appendCandidate(name: "RC4 full key=source_share", data: sourceShare, to: &lines)
-
-        for offset in [8, 120, 128] where offset < decoded.count {
-            let tail = decoded.subdata(in: offset..<decoded.count)
-            let candidate = rc4(data: tail, key: Data("source_share".utf8))
-            appendCandidate(name: "RC4 off=\(offset) key=source_share", data: candidate, to: &lines, compact: true)
+        if isV2(data) { lines.append("V2 marker 3e b7 f6 f4 + LE32(120): ✓") }
+        for offset in [0, 8, 120, 128] where offset < data.count {
+            let body = data.subdata(in: offset..<data.count)
+            let prefix = Data(body.prefix(65536))
+            let dup8 = duplicateBlockStats(body, blockSize: 8)
+            let dup16 = duplicateBlockStats(body, blockSize: 16)
+            lines.append(String(format: "off=%d len=%d H=%.4f print=%.4f dup8=%d/%d dup16=%d/%d", offset, body.count, entropy(prefix), printableRatio(prefix), dup8.duplicates, dup8.blocks, dup16.duplicates, dup16.blocks))
         }
-
-        let trimmedKey = bkey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedKey.isEmpty {
-            let key = Data(trimmedKey.utf8)
-            appendCandidate(name: "RC4 full key=bkey", data: rc4(data: decoded, key: key), to: &lines)
-            for offset in [8, 120, 128] where offset < decoded.count {
-                let tail = decoded.subdata(in: offset..<decoded.count)
-                appendCandidate(name: "RC4 off=\(offset) key=bkey", data: rc4(data: tail, key: key), to: &lines, compact: true)
-            }
-        } else {
-            lines.append("")
-            lines.append("[RC4 bkey] 未输入 bkey，跳过")
-        }
-
+        lines.append("ASCII runs >=12 (first64K): \(asciiRuns(Data(data.prefix(65536)), minimum: 12, limit: 8).joined(separator: " | "))")
         return lines
     }
 
     private static func compareSamples(_ a: Sample, _ b: Sample, title: String) -> [String] {
-        var lines: [String] = []
-        lines.append("QNQ Source Lab v0.2")
-        lines.append("[\(title)]")
-        lines.append("A: \(a.url.absoluteString)")
-        lines.append("   wrapper=\(a.wrapper) response=\(a.responseBytes) decoded=\(a.decoded?.count ?? -1)")
-        lines.append("B: \(b.url.absoluteString)")
-        lines.append("   wrapper=\(b.wrapper) response=\(b.responseBytes) decoded=\(b.decoded?.count ?? -1)")
-
+        var lines = ["QNQ Source Lab v0.3", "[\(title)]", "A: \(a.url.absoluteString)", "   wrapper=\(a.wrapper) response=\(a.responseBytes) decoded=\(a.decoded?.count ?? -1)", "B: \(b.url.absoluteString)", "   wrapper=\(b.wrapper) response=\(b.responseBytes) decoded=\(b.decoded?.count ?? -1)"]
         guard let ad = a.decoded, let bd = b.decoded else {
-            lines.append("至少一个 payload 无法 Base64 解码。")
+            lines.append("至少一个 payload Base64 解码失败。")
             lines.append("A prefix: \(a.payloadPrefix)")
             lines.append("B prefix: \(b.payloadPrefix)")
             return lines
         }
 
+        let minCount = min(ad.count, bd.count)
         let prefix = commonPrefixLength(ad, bd)
         let suffix = commonSuffixLength(ad, bd)
+        let stats = differenceStats(ad, bd)
         lines.append("Common prefix bytes: \(prefix)")
         lines.append("Common suffix bytes: \(suffix)")
         lines.append("Exact equal: \(ad == bd ? "YES" : "NO")")
+        lines.append("Length delta: \(ad.count - bd.count)")
+        lines.append("Changed bytes(overlap): \(stats.changed)/\(minCount)")
+        lines.append(String(format: "Changed ratio: %.6f", minCount == 0 ? 0 : Double(stats.changed) / Double(minCount)))
+        lines.append("Changed regions: \(stats.regions.count)")
+        if let first = stats.regions.first, let last = stats.regions.last {
+            lines.append("Diff span: \(first.lowerBound)..<\(last.upperBound) spanLen=\(last.upperBound - first.lowerBound)")
+        }
+        lines.append("First regions: \(stats.regions.prefix(12).map { "\($0.lowerBound)..<\($0.upperBound)" }.joined(separator: ", "))")
         lines.append("A first64: \(hexPrefix(ad, count: 64))")
         lines.append("B first64: \(hexPrefix(bd, count: 64))")
-
-        if prefix < min(ad.count, bd.count) {
-            lines.append("First diff offset: \(prefix)")
-            lines.append("A @diff: \(hexWindow(ad, offset: prefix, radius: 16))")
-            lines.append("B @diff: \(hexWindow(bd, offset: prefix, radius: 16))")
+        if prefix < minCount {
+            lines.append("A @firstDiff: \(hexWindow(ad, offset: prefix, radius: 20))")
+            lines.append("B @firstDiff: \(hexWindow(bd, offset: prefix, radius: 20))")
         }
-
         if prefix >= 8 {
-            let header8 = ad.prefixData(8)
-            lines.append("Shared first8: \(hexPrefix(header8, count: 8))")
-            lines.append("first8 u32LE[0]=0x\(String(readU32LE(ad, 0) ?? 0, radix: 16))")
+            lines.append("Shared first8: \(hexPrefix(ad, count: 8))")
+            lines.append(String(format: "first8 u32LE[0]=0x%08x", readU32LE(ad, 0) ?? 0))
             lines.append("first8 u32LE[4]=\(readU32LE(ad, 4) ?? 0)")
         }
 
-        return lines
-    }
-
-    private static func candidateOffsets(_ data: Data) -> [Int] {
-        var values = [0, 2, 4, 8, 12, 16, 24, 32, 64, 96, 120, 124, 128, 136, 256]
-        if let v = readU32LE(data, 4), v >= 4, v <= 4096 {
-            values.append(Int(v))
-            values.append(Int(v) + 4)
-            values.append(Int(v) + 8)
-        }
-        return Array(Set(values)).sorted()
-    }
-
-    private static func headerReport(_ data: Data?) -> [String] {
-        guard let data, !data.isEmpty else { return ["<no decoded data>"] }
-        var lines: [String] = []
-        for offset in stride(from: 0, through: min(28, max(0, data.count - 4)), by: 4) {
-            let le = readU32LE(data, offset) ?? 0
-            let be = readU32BE(data, offset) ?? 0
-            lines.append(String(format: "u32 @%02d  LE=%10u (0x%08x)  BE=%10u (0x%08x)", offset, le, le, be, be))
-        }
-        if data.count >= 8,
-           data[0] == 0x3e, data[1] == 0xb7, data[2] == 0xf6, data[3] == 0xf4,
-           readU32LE(data, 4) == 120 {
-            lines.append("V2 marker: 3e b7 f6 f4 + LE32(120) ✓")
-            lines.append("推测：前 8 字节为固定容器头；120 可能是长度/版本参数，需继续对比验证。")
-        }
-        return lines
-    }
-
-    private static func signatureScan(_ data: Data) -> [String] {
-        let limit = min(data.count, 4096)
-        let bytes = [UInt8](data.prefix(limit))
-        var findings: [String] = []
-
-        func find(_ pattern: [UInt8], name: String) {
-            guard pattern.count <= bytes.count else { return }
-            for i in 0...(bytes.count - pattern.count) {
-                if Array(bytes[i..<(i + pattern.count)]) == pattern {
-                    findings.append("\(name) @ \(i)")
-                    return
-                }
-            }
-        }
-
-        find([0x1f, 0x8b], name: "gzip")
-        find([0x78, 0x01], name: "zlib-01")
-        find([0x78, 0x5e], name: "zlib-5e")
-        find([0x78, 0x9c], name: "zlib-9c")
-        find([0x78, 0xda], name: "zlib-da")
-        find([0x50, 0x4b, 0x03, 0x04], name: "ZIP")
-        find(Array("bplist00".utf8), name: "bplist00")
-        find([0x7b, 0x22], name: "JSON-object")
-        find([0x5b, 0x7b], name: "JSON-array")
-
-        return findings.isEmpty ? ["无明确文件/压缩/JSON 签名（扫描范围前 4096；随机命中也不代表真实格式）"] : findings
-    }
-
-    private static func appendCandidate(name: String, data: Data, to lines: inout [String], compact: Bool = false) {
         lines.append("")
-        if let json = utf8JSON(data) {
-            lines.append("[\(name)] ✓ JSON")
-            lines.append(String(json.prefix(1000)))
-        } else {
-            lines.append("[\(name)] ✗")
-            lines.append("Hex prefix: \(hexPrefix(data, count: compact ? 16 : 32))")
-            lines.append("Signature: \(signature(data))")
-            if !compact {
-                lines.append(String(format: "Printable ratio: %.3f", printableRatio(data.prefixData(65536))))
-                lines.append(String(format: "Entropy: %.3f", entropy(data.prefixData(65536))))
+        lines.append("[A structure]")
+        lines.append(contentsOf: structuralReport(ad))
+        lines.append("")
+        lines.append("[B structure]")
+        lines.append(contentsOf: structuralReport(bd))
+
+        if ad.count == bd.count {
+            let xor = xorData(ad, bd)
+            lines.append("")
+            lines.append(String(format: "XOR entropy(nonzero window): %.4f", entropy(nonzeroWindow(xor))))
+            lines.append("XOR first64: \(hexPrefix(xor, count: 64))")
+            for lag in [1, 4, 8, 16, 32, 64, 120, 128, 256] {
+                lines.append(String(format: "A autocorr lag=%d equal=%.5f", lag, lagEquality(ad, lag: lag, limit: 131072)))
             }
         }
-    }
 
-    private static func utf8JSON(_ data: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
-        if let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
-           let text = String(data: pretty, encoding: .utf8) {
-            return text
+        lines.append("")
+        lines.append("[判定提示]")
+        if a.url == b.url && ad.count == bd.count {
+            let ratio = minCount == 0 ? 0 : Double(stats.changed) / Double(minCount)
+            if prefix == 8 && ratio > 0.90 {
+                lines.append("同源仅前8字节固定且正文几乎全部变化：强烈支持 V2 正文含随机化 IV/nonce/每次会话随机过程。")
+            } else if prefix > 32 && suffix > 32 && ratio < 0.10 {
+                lines.append("同源大部分字节稳定，仅局部窗口变化：更符合固定流/XOR/独立分块编码叠加动态字段，不符合普通 CBC 从变化点后持续扩散。")
+            } else {
+                lines.append("同源变化模式尚不能单独确定算法，结合导出的 A/B decoded.bin 做离线分析。")
+            }
+        } else if prefix == 8 && isV2(ad) && isV2(bd) {
+            lines.append("不同 V2 源仅共享固定8字节头，确认 3e b7 f6 f4 + LE32(120) 属于协议容器，而非源内容。")
         }
-        return String(data: data, encoding: .utf8)
+        return lines
     }
 
-    private static func prettyJSONPrefix(_ object: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
-              let text = String(data: data, encoding: .utf8) else {
-            return "<无法格式化>"
+    private static func isV2(_ data: Data) -> Bool {
+        guard data.count >= 8 else { return false }
+        let b = [UInt8](data.prefix(8))
+        return b[0] == 0x3e && b[1] == 0xb7 && b[2] == 0xf6 && b[3] == 0xf4 && readU32LE(data, 4) == 120
+    }
+
+    private static func differenceStats(_ a: Data, _ b: Data) -> (changed: Int, regions: [Range<Int>]) {
+        let aa = [UInt8](a), bb = [UInt8](b), n = min(aa.count, bb.count)
+        var changed = 0, regions: [Range<Int>] = [], start: Int?
+        for i in 0..<n {
+            if aa[i] != bb[i] {
+                changed += 1
+                if start == nil { start = i }
+            } else if let s = start {
+                regions.append(s..<i); start = nil
+            }
         }
-        return String(text.prefix(1500))
-    }
-
-    private static func extractSourcePayload(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let start = trimmed.range(of: "source[", options: [.caseInsensitive]),
-           let end = trimmed.range(of: "]", options: [.backwards]),
-           start.upperBound <= end.lowerBound {
-            return String(trimmed[start.upperBound..<end.lowerBound]).filter { !$0.isWhitespace }
-        }
-        return trimmed.filter { !$0.isWhitespace }
-    }
-
-    private static func decodeBase64Flexible(_ text: String) -> Data? {
-        var normalized = text
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let remainder = normalized.count % 4
-        if remainder != 0 {
-            normalized += String(repeating: "=", count: 4 - remainder)
-        }
-        return Data(base64Encoded: normalized, options: [.ignoreUnknownCharacters])
-    }
-
-    private static func rc4(data: Data, key: Data) -> Data {
-        let keyBytes = [UInt8](key)
-        guard !keyBytes.isEmpty else { return data }
-        var state = (0...255).map { UInt8($0) }
-        var j = 0
-        for i in 0..<256 {
-            j = (j + Int(state[i]) + Int(keyBytes[i % keyBytes.count])) & 0xff
-            state.swapAt(i, j)
-        }
-        let input = [UInt8](data)
-        var output = [UInt8](repeating: 0, count: input.count)
-        var i = 0
-        j = 0
-        for index in input.indices {
-            i = (i + 1) & 0xff
-            j = (j + Int(state[i])) & 0xff
-            state.swapAt(i, j)
-            let stream = state[(Int(state[i]) + Int(state[j])) & 0xff]
-            output[index] = input[index] ^ stream
-        }
-        return Data(output)
-    }
-
-    private static func readU32LE(_ data: Data, _ offset: Int) -> UInt32? {
-        guard offset >= 0, offset + 4 <= data.count else { return nil }
-        let b = [UInt8](data[offset..<(offset + 4)])
-        return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)
-    }
-
-    private static func readU32BE(_ data: Data, _ offset: Int) -> UInt32? {
-        guard offset >= 0, offset + 4 <= data.count else { return nil }
-        let b = [UInt8](data[offset..<(offset + 4)])
-        return (UInt32(b[0]) << 24) | (UInt32(b[1]) << 16) | (UInt32(b[2]) << 8) | UInt32(b[3])
+        if let s = start { regions.append(s..<n) }
+        return (changed, regions)
     }
 
     private static func commonPrefixLength(_ a: Data, _ b: Data) -> Int {
-        let aa = [UInt8](a), bb = [UInt8](b)
-        let n = min(aa.count, bb.count)
-        var i = 0
-        while i < n && aa[i] == bb[i] { i += 1 }
-        return i
+        let aa = [UInt8](a), bb = [UInt8](b), n = min(aa.count, bb.count)
+        var i = 0; while i < n && aa[i] == bb[i] { i += 1 }; return i
     }
 
     private static func commonSuffixLength(_ a: Data, _ b: Data) -> Int {
-        let aa = [UInt8](a), bb = [UInt8](b)
-        let n = min(aa.count, bb.count)
-        var i = 0
-        while i < n && aa[aa.count - 1 - i] == bb[bb.count - 1 - i] { i += 1 }
-        return i
+        let aa = [UInt8](a), bb = [UInt8](b), n = min(aa.count, bb.count)
+        var i = 0; while i < n && aa[aa.count - 1 - i] == bb[bb.count - 1 - i] { i += 1 }; return i
     }
 
-    private static func hexWindow(_ data: Data, offset: Int, radius: Int) -> String {
-        let start = max(0, offset - radius)
-        let end = min(data.count, offset + radius)
-        return "[\(start)..<\(end)] " + data[start..<end].map { String(format: "%02x", $0) }.joined(separator: " ")
+    private static func xorData(_ a: Data, _ b: Data) -> Data {
+        let aa = [UInt8](a), bb = [UInt8](b), n = min(aa.count, bb.count)
+        return Data((0..<n).map { aa[$0] ^ bb[$0] })
     }
 
-    private static func hexPrefix(_ data: Data, count: Int = 32) -> String {
-        data.prefix(count).map { String(format: "%02x", $0) }.joined(separator: " ")
+    private static func nonzeroWindow(_ data: Data) -> Data {
+        let b = [UInt8](data)
+        guard let first = b.firstIndex(where: { $0 != 0 }), let last = b.lastIndex(where: { $0 != 0 }) else { return Data() }
+        return Data(b[first...last])
     }
 
-    private static func textPrefix(_ data: Data, limit: Int) -> String {
-        guard let text = String(data: data.prefix(limit), encoding: .utf8) else { return "<非 UTF-8>" }
-        return text
-    }
-
-    private static func printableRatio(_ data: Data) -> Double {
-        guard !data.isEmpty else { return 0 }
-        let printable = data.reduce(into: 0) { result, byte in
-            if byte == 9 || byte == 10 || byte == 13 || (32...126).contains(byte) { result += 1 }
+    private static func duplicateBlockStats(_ data: Data, blockSize: Int) -> (blocks: Int, duplicates: Int) {
+        let bytes = [UInt8](data)
+        let blocks = min(bytes.count / blockSize, 131072)
+        if blocks == 0 { return (0, 0) }
+        var seen = Set<UInt64>(), dup = 0
+        for n in 0..<blocks {
+            var h: UInt64 = 1469598103934665603
+            let base = n * blockSize
+            for j in 0..<blockSize { h = (h ^ UInt64(bytes[base + j])) &* 1099511628211 }
+            if !seen.insert(h).inserted { dup += 1 }
         }
-        return Double(printable) / Double(data.count)
+        return (blocks, dup)
+    }
+
+    private static func lagEquality(_ data: Data, lag: Int, limit: Int) -> Double {
+        let b = [UInt8](data.prefix(limit))
+        guard lag > 0, b.count > lag else { return 0 }
+        var equal = 0
+        for i in lag..<b.count { if b[i] == b[i - lag] { equal += 1 } }
+        return Double(equal) / Double(b.count - lag)
+    }
+
+    private static func asciiRuns(_ data: Data, minimum: Int, limit: Int) -> [String] {
+        let b = [UInt8](data); var out: [String] = [], cur: [UInt8] = []
+        func flush() {
+            if cur.count >= minimum, out.count < limit { out.append(String(bytes: cur, encoding: .ascii) ?? "") }
+            cur.removeAll(keepingCapacity: true)
+        }
+        for x in b {
+            if (32...126).contains(x) { cur.append(x) } else { flush() }
+            if out.count >= limit { break }
+        }
+        flush(); return out
     }
 
     private static func entropy(_ data: Data) -> Double {
         guard !data.isEmpty else { return 0 }
         var counts = [Int](repeating: 0, count: 256)
-        for byte in data { counts[Int(byte)] += 1 }
+        for b in data { counts[Int(b)] += 1 }
         let total = Double(data.count)
-        var result = 0.0
-        for count in counts where count > 0 {
-            let p = Double(count) / total
-            result -= p * log2(p)
+        var h = 0.0
+        for c in counts where c > 0 { let p = Double(c) / total; h -= p * log2(p) }
+        return h
+    }
+
+    private static func printableRatio(_ data: Data) -> Double {
+        guard !data.isEmpty else { return 0 }
+        var n = 0
+        for b in data where b == 9 || b == 10 || b == 13 || (32...126).contains(b) { n += 1 }
+        return Double(n) / Double(data.count)
+    }
+
+    private static func readU32LE(_ data: Data, _ offset: Int) -> UInt32? {
+        guard offset >= 0, offset + 4 <= data.count else { return nil }
+        let b = [UInt8](data[offset..<(offset + 4)])
+        return UInt32(b[0]) | UInt32(b[1]) << 8 | UInt32(b[2]) << 16 | UInt32(b[3]) << 24
+    }
+
+    private static func extractSourcePayload(_ value: String) -> String {
+        let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let s = t.range(of: "source[", options: .caseInsensitive), let e = t.range(of: "]", options: .backwards), s.upperBound <= e.lowerBound {
+            return String(t[s.upperBound..<e.lowerBound]).filter { !$0.isWhitespace }
         }
-        return result
+        return t.filter { !$0.isWhitespace }
     }
 
-    private static func signature(_ data: Data) -> String {
-        let bytes = [UInt8](data.prefix(8))
-        if bytes.count >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b { return "gzip" }
-        if bytes.count >= 2 && bytes[0] == 0x78 && [0x01, 0x5e, 0x9c, 0xda].contains(bytes[1]) { return "zlib" }
-        if bytes.count >= 4 && bytes[0] == 0x50 && bytes[1] == 0x4b && bytes[2] == 0x03 && bytes[3] == 0x04 { return "ZIP" }
-        if data.starts(with: Data("bplist00".utf8)) { return "binary plist" }
-        if data.starts(with: Data("Salted__".utf8)) { return "OpenSSL Salted__" }
-        if let first = bytes.first, first == 0x7b || first == 0x5b { return "JSON-like" }
-        return "unknown"
+    private static func decodeBase64Flexible(_ text: String) -> Data? {
+        var s = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let r = s.count % 4; if r != 0 { s += String(repeating: "=", count: 4 - r) }
+        return Data(base64Encoded: s, options: .ignoreUnknownCharacters)
     }
-}
 
-private extension Data {
-    func prefixData(_ count: Int) -> Data {
-        Data(prefix(count))
+    private static func rc4(data: Data, key: Data) -> Data {
+        let keyBytes = [UInt8](key); guard !keyBytes.isEmpty else { return data }
+        var s = (0...255).map(UInt8.init), j = 0
+        for i in 0..<256 { j = (j + Int(s[i]) + Int(keyBytes[i % keyBytes.count])) & 255; s.swapAt(i, j) }
+        let input = [UInt8](data); var output = [UInt8](repeating: 0, count: input.count); var i = 0; j = 0
+        for n in input.indices { i = (i + 1) & 255; j = (j + Int(s[i])) & 255; s.swapAt(i, j); output[n] = input[n] ^ s[(Int(s[i]) + Int(s[j])) & 255] }
+        return Data(output)
     }
+
+    private static func utf8JSON(_ data: Data) -> String? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data), JSONSerialization.isValidJSONObject(obj), let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else { return nil }
+        return String(data: d, encoding: .utf8)
+    }
+
+    private static func hexPrefix(_ data: Data, count: Int) -> String { data.prefix(count).map { String(format: "%02x", $0) }.joined(separator: " ") }
+
+    private static func hexWindow(_ data: Data, offset: Int, radius: Int) -> String {
+        let lo = max(0, offset - radius), hi = min(data.count, offset + radius)
+        return "[\(lo)..<\(hi)] " + data.subdata(in: lo..<hi).map { String(format: "%02x", $0) }.joined(separator: " ")
+    }
+
+    private static func textPrefix(_ data: Data, limit: Int) -> String { String(data: data.prefix(limit), encoding: .utf8) ?? "<非 UTF-8>" }
 }
