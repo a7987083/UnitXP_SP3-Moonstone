@@ -1,0 +1,56 @@
+name: Build LoginIPRedirect v10
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/login-ip-redirect-v10-dualmode
+    paths:
+      - 'loginipredirectv10/**'
+      - 'logintcppayload/vendor/**'
+      - '.github/workflows/build-login-ip-redirect-v10.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify LoginIPRedirect v10
+        run: |
+          set -euxo pipefail
+          cd loginipredirectv10
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/LoginIPRedirect_v10_DualMode_HFAMap187.dylib"
+          cp .theos/obj/LoginIPRedirectV10.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "LoginIPRedirect v10"
+          strings "$out" | grep -q "ENTRY->81"
+          strings "$out" | grep -q "FULL-CHAIN"
+          strings "$out" | grep -q "10008"
+          strings "$out" | grep -q "LoginIPRedirectV10.TargetIPv4"
+          strings "$out" | grep -q "LoginIPRedirectV10.Mode"
+          strings "$out" | grep -q "118.145.146.208"
+          strings "$out" | grep -q "LoginIPRedirect_v10.log"
+          if strings "$out" | grep -q "43.242.203.214"; then echo "unexpected hardcoded target"; exit 1; fi
+          if strings "$out" | grep -q "212.189.107.53"; then echo "unexpected hardcoded target"; exit 1; fi
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoginIPRedirect-v10-DualMode-HFAMap187
+          path: loginipredirectv10/dist/*
