@@ -1,0 +1,56 @@
+name: Build IP Crypto Tool v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/ip-crypto-tool-v2-ipa
+    paths:
+      - 'ipcryptotool_v2/**'
+      - '.github/workflows/build-ip-crypto-tool-v2.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ipcryptotool_v2/requirements.txt
+
+      - name: Syntax check
+        shell: pwsh
+        run: python -m py_compile ipcryptotool_v2/crypto_tool_v2.py
+
+      - name: Build portable EXE
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name "IP加解密工具_v2_IPA" `
+            --collect-all Crypto `
+            ipcryptotool_v2/crypto_tool_v2.py
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item "dist/IP加解密工具_v2_IPA.exe" "package/IP加解密工具_v2_IPA.exe"
+          Copy-Item "ipcryptotool_v2/README.md" "package/README.md"
+          Compress-Archive -Path package/* -DestinationPath "IP加解密工具_v2_IPA_Win10_x64.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: IP-Crypto-Tool-v2-IPA-Win10-x64
+          path: IP加解密工具_v2_IPA_Win10_x64.zip
+          if-no-files-found: error
+          retention-days: 30
