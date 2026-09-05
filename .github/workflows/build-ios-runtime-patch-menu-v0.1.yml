@@ -37,10 +37,10 @@ jobs:
 
           file "$out"
           otool -L "$out"
-          strings "$out" | grep -q "Zonoe Runtime Patch"
-          strings "$out" | grep -q "0.1.0-ui"
-          strings "$out" | grep -q "UI ONLY"
-          strings "$out" | grep -q "当前没有任何 Patch 或 Hook"
+          strings "$out" | grep -Fq "Zonoe Runtime Patch"
+          strings "$out" | grep -Fq "0.1.0-ui"
+          strings "$out" | grep -Fq "UI ONLY"
+          strings "$out" | grep -Fq "[ZonoeRuntimeMenu v0.1] dylib loaded"
 
           shasum -a 256 "$out" | tee dist/SHA256.txt
           ls -lh "$out" dist/SHA256.txt
