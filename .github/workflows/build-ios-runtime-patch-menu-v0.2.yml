@@ -24,36 +24,45 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify runtime menu v0.2.3 persistence
+      - name: Build and verify runtime menu v0.2.4 adaptive themes
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
 
-          grep -q "ZNThemeModeNeon" src/ZNTheme.mm
-          grep -q "ZNThemeModeGlacier" src/ZNTheme.mm
-          grep -q "ZNThemeModeAmber" src/ZNTheme.mm
-          grep -q "ZNThemeModeMatcha" src/ZNTheme.mm
-          grep -q "kZNCompactModeKey" src/ZonoeRuntimeMenuV023.mm
-          grep -q "kZNSelectedCategoryKey" src/ZonoeRuntimeMenuV023.mm
-          grep -q "kZNAutoSnapKey" src/ZonoeRuntimeMenuV023.mm
-          grep -q "kZNRememberPositionKey" src/ZonoeRuntimeMenuV023.mm
-          grep -q "ZNEnabledKey" src/ZonoeRuntimeMenuV023.mm
-          grep -q "ZNValueKey" src/ZonoeRuntimeMenuV023.mm
-          grep -q "placeCompactSwitch" src/ZonoeRuntimeMenuV023.mm
-          grep -q "featureSliderChanged" src/ZonoeRuntimeMenuV023.mm
-          ! grep -q "恢复默认" src/ZonoeRuntimeMenuV023.mm
+          src="src/ZonoeRuntimeMenuV024.mm"
+          grep -q "0.2.4-ui" "$src"
+          grep -q '主题' "$src"
+          grep -q "kZNThemeCategoryIndex" "$src"
+          grep -q "addThemeGridY" "$src"
+          grep -q "themeColumnsForWidth" "$src"
+          grep -q "fullSizeForWindow" "$src"
+          grep -q "ZNThemeModeCount" src/ZNTheme.h
+          grep -q "ZNThemeModeRetroArcade" src/ZNTheme.h
+          grep -q "玻璃拟态" src/ZNTheme.mm
+          grep -q "终端黑客" src/ZNTheme.mm
+          grep -q "太空舰桥" src/ZNTheme.mm
+          grep -q "熔岩锻造" src/ZNTheme.mm
+          grep -q "深海声呐" src/ZNTheme.mm
+          grep -q "复古街机" src/ZNTheme.mm
+          grep -q "kZNCompactModeKey" "$src"
+          grep -q "kZNSelectedCategoryKey" "$src"
+          grep -q "ZNEnabledKey" "$src"
+          grep -q "ZNValueKey" "$src"
+          grep -q "placeCompactSwitch" "$src"
+          ! grep -q "恢复默认" "$src"
+          ! grep -q "themePopover" "$src"
 
           make clean
           make FINALPACKAGE=1
 
           mkdir -p dist
-          out="dist/ZonoePatch_v0.2.3_PersistentUI.dylib"
+          out="dist/ZonoePatch_v0.2.4_AdaptiveThemes.dylib"
           cp .theos/obj/ZonoePatchV02.dylib "$out"
 
           file "$out"
           otool -L "$out"
           strings "$out" | grep -q "Runtime Patch Menu"
-          strings "$out" | grep -q "0.2.3-ui"
+          strings "$out" | grep -q "0.2.4-ui"
           strings "$out" | grep -q "paintpalette.fill"
           nm -gU "$out" | grep -q "_ZonoePatchGetAPIVersion"
           nm -gU "$out" | grep -q "_ZonoePatchStart"
@@ -67,5 +76,5 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.2.3-PersistentUI
+          name: ZonoePatch-v0.2.4-AdaptiveThemes
           path: iosruntimepatchmenu/dist/*
