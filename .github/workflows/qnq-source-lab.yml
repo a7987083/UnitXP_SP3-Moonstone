@@ -32,7 +32,7 @@ jobs:
           rm -rf QNQSourceLab/build QNQSourceLab/dist
           xcodebuild \
             -project QNQSourceLab/QNQSourceLab.xcodeproj \
-            -target QNQSourceLab \
+            -scheme QNQSourceLab \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath QNQSourceLab/build \
@@ -45,6 +45,7 @@ jobs:
           set -euo pipefail
           APP="QNQSourceLab/build/Build/Products/Release-iphoneos/QNQSourceLab.app"
           test -d "$APP"
+          rm -rf QNQSourceLab/package
           mkdir -p QNQSourceLab/package/Payload QNQSourceLab/dist
           cp -R "$APP" QNQSourceLab/package/Payload/
           cd QNQSourceLab/package
