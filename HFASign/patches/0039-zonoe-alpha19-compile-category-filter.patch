@@ -1,0 +1,25 @@
+From 4e7947d485991049a0e9e72cd3e85412a06e18bb Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 16:13:11 -0400
+Subject: [PATCH] Fix source category filter compilation
+
+---
+ .../Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift   | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+index 357c0e0..f68bb2b 100644
+--- a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
++++ b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+@@ -137,7 +137,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+             let matchesSearch = searchText.isEmpty || entry.app.currentName.localizedCaseInsensitiveContains(searchText) || (metadata?.rawFields.values.contains { $0.displayText?.localizedCaseInsensitiveContains(searchText) == true } ?? false)
+             let matchesCategory: Bool
+             if filter.category == .all { matchesCategory = true } else {
+-                let category = metadata?.category?.lowercased() ?? entry.app.category?.rawValue.lowercased() ?? ""
++                let category = metadata?.category?.lowercased() ?? entry.app.category?.lowercased() ?? ""
+                 let expected: [AppFilterState.Category: [String]] = [.app:["应用","app","1"], .game:["游戏","game","2"], .media:["影音","media","video","3"], .tool:["工具","tool","4"], .plugin:["插件","plugin","5"]]
+                 matchesCategory = expected[filter.category, default: []].contains { category.contains($0) }
+             }
+-- 
+2.51.1
+

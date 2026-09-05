@@ -47,6 +47,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0036-zonoe-alpha19-apple-app-store-search.patch
           git -C HFASignBuild apply ../HFASign/patches/0037-zonoe-alpha19-tabs-and-files-settings.patch
           git -C HFASignBuild apply ../HFASign/patches/0038-zonoe-alpha19-compile-source-ui.patch
+          git -C HFASignBuild apply ../HFASign/patches/0039-zonoe-alpha19-compile-category-filter.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
