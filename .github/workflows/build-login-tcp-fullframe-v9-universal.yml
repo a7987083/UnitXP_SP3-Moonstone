@@ -56,25 +56,25 @@ jobs:
             exit 1
           fi
           shasum -a 256 "$out" | tee dist/SHA256.txt
-          cat > dist/README.txt <<'EOF'
-LoginTCPFullFrame v9 Universal
-
-Read-only packet capture dylib.
-No IP restriction: captures any IPv4 peer when the remote port is 10003 or 7000-7999.
-No redirect and no packet mutation.
-Hooks: send / recv / sendto / recvfrom.
-
-Frame formats:
-- port 10003: [body_len:4 BE][msg_id:2 BE][body]
-- port 7000-7999: [body_len:4 BE][msg_id:2 BE][seq:4 BE][body]
-
-Runtime output:
-Documents/LoginTCPFull_v9_Universal/Session_YYYYMMDD-HHMMSS/
-  manifest.tsv
-  frames/
-  bodies/
-  streams/
-EOF
+          {
+            echo 'LoginTCPFullFrame v9 Universal'
+            echo
+            echo 'Read-only packet capture dylib.'
+            echo 'No IP restriction: captures any IPv4 peer when the remote port is 10003 or 7000-7999.'
+            echo 'No redirect and no packet mutation.'
+            echo 'Hooks: send / recv / sendto / recvfrom.'
+            echo
+            echo 'Frame formats:'
+            echo '- port 10003: [body_len:4 BE][msg_id:2 BE][body]'
+            echo '- port 7000-7999: [body_len:4 BE][msg_id:2 BE][seq:4 BE][body]'
+            echo
+            echo 'Runtime output:'
+            echo 'Documents/LoginTCPFull_v9_Universal/Session_YYYYMMDD-HHMMSS/'
+            echo '  manifest.tsv'
+            echo '  frames/'
+            echo '  bodies/'
+            echo '  streams/'
+          } > dist/README.txt
           ls -lh "$out" dist/SHA256.txt dist/README.txt
 
       - name: Upload build output
