@@ -5,7 +5,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = ZonoePatchV02
 
-ZonoePatchV02_FILES = src/ZonoeRuntimeMenu.mm src/ZNTheme.mm
+ZonoePatchV02_FILES = src/ZonoeRuntimeMenuV022.mm src/ZNTheme.mm
 ZonoePatchV02_CFLAGS = -Oz -fobjc-arc -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new
 ZonoePatchV02_FRAMEWORKS = UIKit Foundation QuartzCore
 
