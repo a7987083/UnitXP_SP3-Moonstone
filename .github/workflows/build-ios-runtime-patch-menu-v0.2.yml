@@ -1,0 +1,56 @@
+name: Build iOS Runtime Patch Menu v0.2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/ios-runtime-patch-menu-v0.2-ui
+    paths:
+      - 'iosruntimepatchmenu/**'
+      - '.github/workflows/build-ios-runtime-patch-menu-v0.2.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify runtime menu v0.2
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+
+          mkdir -p dist
+          out="dist/ZonoePatch_v0.2_UI.dylib"
+          cp .theos/obj/ZonoePatchV02.dylib "$out"
+
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "ZONOE PATCH"
+          strings "$out" | grep -q "Runtime Patch Menu"
+          strings "$out" | grep -q "0.2.0-ui"
+          nm -gU "$out" | grep -q "_ZonoePatchGetAPIVersion"
+          nm -gU "$out" | grep -q "_ZonoePatchStart"
+          nm -gU "$out" | grep -q "_ZonoePatchShow"
+          nm -gU "$out" | grep -q "_ZonoePatchHide"
+          nm -gU "$out" | grep -q "_ZonoePatchIsVisible"
+
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoePatch-v0.2-UI
+          path: iosruntimepatchmenu/dist/*
