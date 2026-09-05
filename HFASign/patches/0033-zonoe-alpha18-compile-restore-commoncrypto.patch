@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 15:51:21 +0300
+Subject: [PATCH] Restore CommonCrypto import for DES source decoding
+
+---
+ Ksign/Backend/Sources/SourceRepositoryLoader.swift | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index f99313d..34cfcab 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -1,5 +1,6 @@
+ import Foundation
+ import AltSourceKit
++import CommonCrypto
+ import CryptoKit
+ import SwiftUI
+ import UIKit

@@ -41,6 +41,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0030-zonoe-alpha18-native-signing-navigation.patch
           git -C HFASignBuild apply ../HFASign/patches/0031-zonoe-alpha18-udid-localserver-301-return.patch
           git -C HFASignBuild apply ../HFASign/patches/0032-zonoe-alpha18-source-unlock-real-protocol.patch
+          git -C HFASignBuild apply ../HFASign/patches/0033-zonoe-alpha18-compile-restore-commoncrypto.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
