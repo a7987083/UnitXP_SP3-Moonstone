@@ -1,0 +1,182 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 15:41:28 +0300
+Subject: [PATCH 1/3] Use native navigation for SigningView
+
+---
+ Ksign/Views/Library/LibraryView.swift | 17 ++++----
+ Ksign/Views/Signing/SigningView.swift | 62 +++------------------------
+ 2 files changed, 13 insertions(+), 66 deletions(-)
+
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index dcfb160..024c908 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -73,7 +73,6 @@ struct LibraryView: View {
+ 	
+ 	// MARK: Body
+     var body: some View {
+-		ZStack {
+ 		NBNavigationView("") {
+ 			TabView(selection: $_resourceTab) {
+ 				_appResourcePage.tag(0)
+@@ -208,6 +207,14 @@ struct LibraryView: View {
+ 			}
+ 			.onChange(of: _resourceTab) { _ in _finishSelection(); _reloadResourceFiles() }
+ 			.onChange(of: _selectedTab) { _ in _finishSelection() }
++			.navigationDestination(isPresented: Binding(
++				get: { _selectedSigningAppPresenting != nil },
++				set: { if !$0 { _selectedSigningAppPresenting = nil } }
++			)) {
++				if let app = _selectedSigningAppPresenting {
++					SigningView(app: app.base, signAndInstall: app.signAndInstall)
++				}
++			}
+         }
+         .onChange(of: _isEditMode) { state in
+             if !state.isEditing {
+@@ -217,14 +224,6 @@ struct LibraryView: View {
+                     }
+                 }
+             }
+-        }
+-			if let app = _selectedSigningAppPresenting {
+-				SigningView(app: app.base, signAndInstall: app.signAndInstall) {
+-					_selectedSigningAppPresenting = nil
+-				}
+-				.background(Color(uiColor: .systemBackground).ignoresSafeArea())
+-				.zIndex(1)
+-			}
+ 		}
+     }
+ }
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+index eec54e9..acc6ac6 100644
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -11,8 +11,8 @@ import NimbleViews
+ 
+ // MARK: - View
+ struct SigningView: View {
++	@Environment(\.dismiss) private var dismiss
+ 	@Namespace var _namespace
+-	private let onDismiss: () -> Void
+ 
+ 	@StateObject private var _optionsManager = OptionsManager.shared
+ 	@StateObject private var _operationProgress = OperationProgressManager.shared
+@@ -29,8 +29,6 @@ struct SigningView: View {
+ 	@State private var _outputFormat = "ipa"
+ 	@State private var _selectedPhoto: PhotosPickerItem? = nil
+ 	@FocusState private var _isOutputNameFocused: Bool
+-	@State private var _rootDragOffset: CGFloat = 0
+-	@State private var _isInteractiveBack = false
+ 	@State var appIcon: UIImage?
+ 	
+ 	var signAndInstall: Bool = false
+@@ -61,24 +59,21 @@ struct SigningView: View {
+ 	
+ 	var app: AppInfoPresentable
+ 	
+-	init(app: AppInfoPresentable, signAndInstall: Bool = false, onDismiss: @escaping () -> Void = {}) {
++	init(app: AppInfoPresentable, signAndInstall: Bool = false) {
+ 		self.app = app
+ 		self.signAndInstall = signAndInstall
+-		self.onDismiss = onDismiss
+ 		let storedCert = UserDefaults.standard.integer(forKey: "feather.selectedCert")
+ 		__temporaryCertificate = State(initialValue: storedCert)
+ 	}
+ 		
+ 	// MARK: Body
+     var body: some View {
+-		NBNavigationView(app.name ?? .localized("未知"), displayMode: .inline) {
+ 			Form {
+ 				_customizationOptions(for: app)
+ 				_cert()
+ 				_customizationProperties(for: app)
+ 			}
+ 			.scrollDismissesKeyboard(.interactively)
+-			.scrollDisabled(_isInteractiveBack)
+ 			.disabled(_isSigning)
+ 			.safeAreaInset(edge: .bottom) {
+ 				if !_isSigning {
+@@ -90,10 +85,6 @@ struct SigningView: View {
+ 				}
+ 			}
+ 			.toolbar {
+-				NBToolbarButton(.localized("Dismiss"), systemImage: "chevron.left") {
+-					_dismissRoot()
+-				}
+-				
+ 				NBToolbarButton(
+ 					.localized("重置"),
+ 					style: .text,
+@@ -121,7 +112,7 @@ struct SigningView: View {
+ 			.fullScreenCover(isPresented: $_isSigning) {
+ 			SigningProcessView(manager: _operationProgress, promptInstall: signAndInstall || (_temporaryOptions.autoInstallAfterSigning ?? false)) {
+ 					_isSigning = false
+-					_dismissRoot()
++					dismiss()
+ 				}
+ 			}
+ 			.onChange(of: _selectedPhoto) { newValue in
+@@ -135,15 +126,8 @@ struct SigningView: View {
+ 				}
+ 			}
+ 			.animation(.smooth, value: _isSigning)
+-		}
+-		.overlay(alignment: .leading) {
+-			Color.clear
+-				.frame(width: 22)
+-				.frame(maxHeight: .infinity)
+-				.contentShape(Rectangle())
+-				.gesture(_interactiveBackGesture)
+-		}
+-		.offset(x: _rootDragOffset)
++			.navigationTitle(app.name ?? .localized("未知"))
++			.navigationBarTitleDisplayMode(.inline)
+ 		.onAppear {
+ 			if _outputFileName.isEmpty {
+ 				_refreshGeneratedOutputName()
+@@ -193,42 +177,6 @@ struct SigningView: View {
+ 			}
+ 		}
+     }
+-
+-	private var _interactiveBackGesture: some Gesture {
+-		DragGesture(minimumDistance: 4)
+-			.onChanged { value in
+-				guard !_isSigning else { return }
+-				if !_isInteractiveBack {
+-					guard value.translation.width > 0,
+-						  abs(value.translation.width) > abs(value.translation.height) else { return }
+-					_isInteractiveBack = true
+-				}
+-				_rootDragOffset = max(0, value.translation.width)
+-			}
+-			.onEnded { value in
+-				guard _isInteractiveBack else { return }
+-				let predicted = max(value.translation.width, value.predictedEndTranslation.width)
+-				if value.translation.width > 90 || predicted > 180 {
+-					withAnimation(.easeOut(duration: 0.16)) {
+-						_rootDragOffset = UIScreen.main.bounds.width
+-					}
+-					DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { _dismissRoot() }
+-				} else {
+-					withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+-						_rootDragOffset = 0
+-					}
+-					DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+-						_isInteractiveBack = false
+-					}
+-				}
+-			}
+-	}
+-
+-	private func _dismissRoot() {
+-		_rootDragOffset = 0
+-		_isInteractiveBack = false
+-		onDismiss()
+-	}
+ }
+ 
+ // MARK: - Extension: View

@@ -1,0 +1,123 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 15:41:28 +0300
+Subject: [PATCH 2/3] Return UDID completion through custom URL redirect
+
+---
+ Ksign/Backend/Server/UDIDService.swift    | 38 +++++++++++++++++++----
+ Ksign/FeatherApp.swift                    |  1 +
+ Ksign/Resources/UDIDComplete.mobileconfig | 22 -------------
+ 3 files changed, 33 insertions(+), 28 deletions(-)
+ delete mode 100644 Ksign/Resources/UDIDComplete.mobileconfig
+
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+index 1825646..b08615c 100644
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -9,10 +9,12 @@ final class UDIDService {
+ 	static let port = 14302
+ 	static let pendingCallbackKey = "zonoe.pendingUDIDCallback"
+ 	private var server: Application?
++	private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+ 
+ 	private init() {}
+ 
+ 	func start(completion: @escaping (Result<URL, Error>) -> Void) {
++		beginBackgroundTask()
+ 		if server != nil {
+ 			completion(.success(profileURL))
+ 			return
+@@ -40,23 +42,47 @@ final class UDIDService {
+ 					NotificationCenter.default.post(name: Self.didUpdateNotification, object: udid)
+ 					self.completePendingCallback(with: udid)
+ 				}
+-				guard let completionProfile = self.bundledProfile(named: "UDIDComplete") else {
+-					return Response(status: .internalServerError)
+-				}
++				var callback = URLComponents()
++				callback.scheme = "zonoe"
++				callback.host = "udid-complete"
++				callback.queryItems = [URLQueryItem(name: "udid", value: udid)]
++				guard let location = callback.url?.absoluteString else { return Response(status: .internalServerError) }
+ 				return Response(
+-					status: .ok,
+-					headers: ["Content-Type": "application/x-apple-aspen-config"],
+-					body: .init(data: completionProfile)
++					status: .movedPermanently,
++					headers: [
++						"Location": location,
++						"Content-Length": "0",
++						"Connection": "close"
++					],
++					body: .empty
+ 				)
+ 			}
+ 			try app.server.start()
+ 			server = app
+ 			completion(.success(profileURL))
+ 		} catch {
++			endBackgroundTask()
+ 			completion(.failure(error))
+ 		}
+ 	}
+ 
++	func beginBackgroundTask() {
++		DispatchQueue.main.async {
++			guard self.backgroundTask == .invalid else { return }
++			self.backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "zonoe.udid") { [weak self] in
++				self?.endBackgroundTask()
++			}
++		}
++	}
++
++	func endBackgroundTask() {
++		DispatchQueue.main.async {
++			guard self.backgroundTask != .invalid else { return }
++			UIApplication.shared.endBackgroundTask(self.backgroundTask)
++			self.backgroundTask = .invalid
++		}
++	}
++
+ 	func savePendingCallback(_ callback: URL) {
+ 		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
+ 	}
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 41da40e..da6db88 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -124,6 +124,7 @@ struct FeatherApp: App {
+ 		pendingUDIDProfileURL = nil
+ 		isStartingUDID = false
+ 		lastObservedUDID = udid
++		UDIDService.shared.endBackgroundTask()
+ 	}
+ 
+ 	private func _handleUDIDRequest(_ url: URL) {
+diff --git a/Ksign/Resources/UDIDComplete.mobileconfig b/Ksign/Resources/UDIDComplete.mobileconfig
+deleted file mode 100644
+index 554b0ce..0000000
+--- a/Ksign/Resources/UDIDComplete.mobileconfig
++++ /dev/null
+@@ -1,22 +0,0 @@
+-<?xml version="1.0" encoding="UTF-8"?>
+-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+-<plist version="1.0">
+-<dict>
+-	<key>PayloadContent</key>
+-	<array/>
+-	<key>PayloadDescription</key>
+-	<string>完成 zonoe 设备识别</string>
+-	<key>PayloadDisplayName</key>
+-	<string>zonoe UDID 获取完成</string>
+-	<key>PayloadIdentifier</key>
+-	<string>com.zonoe.udid.complete</string>
+-	<key>PayloadOrganization</key>
+-	<string>zonoe</string>
+-	<key>PayloadType</key>
+-	<string>Configuration</string>
+-	<key>PayloadUUID</key>
+-	<string>F06C8D36-A220-4E02-AE47-2BA34D3580F1</string>
+-	<key>PayloadVersion</key>
+-	<integer>1</integer>
+-</dict>
+-</plist>
