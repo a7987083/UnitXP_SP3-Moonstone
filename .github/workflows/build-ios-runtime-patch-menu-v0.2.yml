@@ -24,22 +24,30 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify runtime menu v0.2
+      - name: Build and verify runtime menu v0.2.1 themes
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
+
+          grep -q "ZNThemeModeNeon" src/ZNTheme.mm
+          grep -q "ZNThemeModeGlacier" src/ZNTheme.mm
+          grep -q "ZNThemeModeAmber" src/ZNTheme.mm
+          grep -q "ZNThemeModeMatcha" src/ZNTheme.mm
+          grep -q "移速修改" src/ZonoeRuntimeMenu.mm
+          grep -q "恢复默认" src/ZonoeRuntimeMenu.mm
+
           make clean
           make FINALPACKAGE=1
 
           mkdir -p dist
-          out="dist/ZonoePatch_v0.2_UI.dylib"
+          out="dist/ZonoePatch_v0.2.1_UI_Themes.dylib"
           cp .theos/obj/ZonoePatchV02.dylib "$out"
 
           file "$out"
           otool -L "$out"
-          strings "$out" | grep -q "ZONOE PATCH"
           strings "$out" | grep -q "Runtime Patch Menu"
-          strings "$out" | grep -q "0.2.0-ui"
+          strings "$out" | grep -q "0.2.1-ui"
+          strings "$out" | grep -q "paintpalette.fill"
           nm -gU "$out" | grep -q "_ZonoePatchGetAPIVersion"
           nm -gU "$out" | grep -q "_ZonoePatchStart"
           nm -gU "$out" | grep -q "_ZonoePatchShow"
@@ -52,5 +60,5 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.2-UI
+          name: ZonoePatch-v0.2.1-UI-Themes
           path: iosruntimepatchmenu/dist/*
