@@ -29,7 +29,7 @@ jobs:
       - name: Build Release iphoneos
         run: |
           set -o pipefail
-          rm -rf QNQSourceLab/build QNQSourceLab/dist
+          rm -rf QNQSourceLab/build QNQSourceLab/package QNQSourceLab/dist
           xcodebuild \
             -project QNQSourceLab/QNQSourceLab.xcodeproj \
             -scheme QNQSourceLab \
@@ -45,21 +45,20 @@ jobs:
           set -euo pipefail
           APP="QNQSourceLab/build/Build/Products/Release-iphoneos/QNQSourceLab.app"
           test -d "$APP"
-          rm -rf QNQSourceLab/package
           mkdir -p QNQSourceLab/package/Payload QNQSourceLab/dist
           cp -R "$APP" QNQSourceLab/package/Payload/
           cd QNQSourceLab/package
-          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.1_TrollStore.ipa Payload
+          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.2_TrollStore.ipa Payload
           cd ../..
-          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.1_TrollStore.ipa | head -40
-          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.1_TrollStore.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
+          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.2_TrollStore.ipa | head -40
+          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.2_TrollStore.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QNQSourceLab-v0.1
+          name: QNQSourceLab-v0.2
           path: |
-            QNQSourceLab/dist/QNQSourceLab_v0.1_TrollStore.ipa
+            QNQSourceLab/dist/QNQSourceLab_v0.2_TrollStore.ipa
             QNQSourceLab/dist/SHA256SUMS.txt
             QNQSourceLab-build.log
           if-no-files-found: error
@@ -68,9 +67,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f QNQSourceLab/dist/QNQSourceLab_v0.1_TrollStore.ipa QNQSourceLab/dist/SHA256SUMS.txt
+          git add -f QNQSourceLab/dist/QNQSourceLab_v0.2_TrollStore.ipa QNQSourceLab/dist/SHA256SUMS.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Publish QNQSourceLab v0.1 IPA [skip ci]"
+          git commit -m "Publish QNQSourceLab v0.2 IPA [skip ci]"
           git push
