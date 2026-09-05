@@ -1,0 +1,49 @@
+From 3d2873f4b8c993034d26003189a815df8d513596 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 15:51:57 -0400
+Subject: [PATCH 37/37] Move files into settings and refresh tabs
+
+---
+ Ksign/Views/Settings/SettingsView.swift | 3 +++
+ Ksign/Views/TabView/TabEnum.swift       | 4 ++--
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index 13f2bc0..96f454c 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -170,6 +170,9 @@ extension SettingsView {
+ 	@ViewBuilder
+ 	private func _directories() -> some View {
+ 		NBSection(.localized("其他")) {
++			NavigationLink(destination: FilesView()) {
++				Label("文件管理", systemImage: "folder.badge.gearshape")
++			}
+ 			Button(.localized("打开文档目录"), systemImage: "folder") {
+ 				UIApplication.open(URL.documentsDirectory.toSharedDocumentsURL()!)
+ 			}
+diff --git a/Ksign/Views/TabView/TabEnum.swift b/Ksign/Views/TabView/TabEnum.swift
+index cc99bcf..829812e 100644
+--- a/Ksign/Views/TabView/TabEnum.swift
++++ b/Ksign/Views/TabView/TabEnum.swift
+@@ -23,7 +23,7 @@ enum TabEnum: String, CaseIterable, Hashable {
+ 		case .library: 		return "App"
+ 		case .settings: 	return "设置"
+ 		case .certificates:	return "证书"
+-		case .appstore: 	return "应用"
++		case .appstore: 	return "App Store"
+         case .downloader:   return "下载"
+ 		}
+ 	}
+@@ -54,7 +54,7 @@ enum TabEnum: String, CaseIterable, Hashable {
+ 	}
+ 	
+ 	static var defaultTabs: [TabEnum] {
+-		return [.library, .files, .sources, .downloader, .settings]
++		return [.library, .appstore, .sources, .downloader, .settings]
+ 	}
+ 	
+ 	static var customizableTabs: [TabEnum] {
+-- 
+2.51.1
+

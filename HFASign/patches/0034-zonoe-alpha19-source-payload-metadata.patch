@@ -1,0 +1,219 @@
+From 1adab6a5dd4b49cb6808e28909e318e731034d13 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 15:51:57 -0400
+Subject: [PATCH 34/37] Add source payload metadata pipeline
+
+---
+ .../Sources/SourceRepositoryLoader.swift      | 122 +++++++++++++++++-
+ 1 file changed, 116 insertions(+), 6 deletions(-)
+
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index 34cfcab..8343445 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -21,6 +21,47 @@ struct SourceAppAccessMetadata: Equatable {
+ 	}
+ }
+ 
++enum SourceJSONValue: Codable, Hashable {
++	case string(String), number(Double), bool(Bool), array([SourceJSONValue]), object([String: SourceJSONValue]), null
++
++	init(any value: Any) {
++		switch value {
++		case let value as String: self = .string(value)
++		case let value as Bool: self = .bool(value)
++		case let value as NSNumber: self = .number(value.doubleValue)
++		case let value as [Any]: self = .array(value.map(SourceJSONValue.init(any:)))
++		case let value as [String: Any]: self = .object(value.mapValues(SourceJSONValue.init(any:)))
++		default: self = .null
++		}
++	}
++
++	var displayText: String? {
++		switch self {
++		case .string(let value): return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
++		case .number(let value): return value.rounded() == value ? String(Int64(value)) : String(value)
++		case .bool(let value): return value ? "是" : "否"
++		case .array(let values):
++			let strings = values.compactMap { value -> String? in if case .string(let text) = value { return text }; return nil }
++			return strings.count == values.count ? strings.joined(separator: "、") : nil
++		case .object, .null: return nil
++		}
++	}
++}
++
++struct SourceAppMetadata: Equatable {
++	let rawFields: [String: SourceJSONValue]
++	let sourceName: String?
++	let version: String?
++	let size: Int64?
++	let updatedAt: Date?
++	let description: String?
++	let releaseNotes: String?
++	let category: String?
++	let price: Double?
++	let developer: String?
++	let minimumOSVersion: String?
++}
++
+ final class SourceUnlockService {
+ 	static let shared = SourceUnlockService()
+ 	private init() {}
+@@ -149,6 +190,7 @@ final class SourceRepositoryLoader {
+ 	private let metadataLock = NSLock()
+ 	private var metadataBySource: [String: SourceAccessMetadata] = [:]
+ 	private var appAccessBySource: [String: [String: SourceAppAccessMetadata]] = [:]
++	private var appMetadataBySource: [String: [String: SourceAppMetadata]] = [:]
+ 	private init() {}
+ 
+ 	func fetch(from url: URL, allowCachedFallback: Bool = true, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+@@ -220,25 +262,43 @@ final class SourceRepositoryLoader {
+ 		return apps["name:\(appName)"]
+ 	}
+ 
++	func appMetadata(for sourceURL: URL, appIdentifier: String?, appName: String) -> SourceAppMetadata? {
++		let sourceKey = SourceURLIdentity.normalized(sourceURL).absoluteString
++		metadataLock.lock(); defer { metadataLock.unlock() }
++		guard let apps = appMetadataBySource[sourceKey] else { return nil }
++		if let appIdentifier, !appIdentifier.isEmpty, let value = apps["id:\(appIdentifier)"] { return value }
++		return apps["name:\(appName)"]
++	}
++
++	func discoveredFieldKeys(for sourceURLs: [URL]) -> [String] {
++		metadataLock.lock(); defer { metadataLock.unlock() }
++		let keys = sourceURLs.flatMap { appMetadataBySource[SourceURLIdentity.normalized($0).absoluteString]?.values ?? [] }
++			.flatMap { $0.rawFields.keys }
++		return Array(Set(keys)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
++	}
++
+ 	private func decode(_ data: Data, sourceURL: URL) throws -> ASRepository {
+ 		let decoder = JSONDecoder()
+ 		let object: Any
+ 		do { object = try JSONSerialization.jsonObject(with: data) }
+ 		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+ 		if let wrapper = object as? [String: Any], let encrypted = wrapper["appstore"] as? String {
+-			return try decodeEncrypted(encrypted, decoder: decoder, sourceURL: sourceURL)
++			return try decodeEncrypted(encrypted, version: 1, decoder: decoder, sourceURL: sourceURL)
++		}
++		if let wrapper = object as? [String: Any], let encrypted = wrapper["appstore_v2"] as? String {
++			return try decodeEncrypted(encrypted, version: 2, decoder: decoder, sourceURL: sourceURL)
+ 		}
+ 		captureMetadata(object, for: sourceURL)
+-		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(repositoryObject(from: object)))
++		let normalized = try JSONSerialization.data(withJSONObject: normalizeRepository(repositoryObject(from: object)))
+ 		return try decodeRepository(normalized, decoder: decoder)
+ 	}
+ 
+-	private func decodeEncrypted(_ encrypted: String, decoder: JSONDecoder, sourceURL: URL) throws -> ASRepository {
++	private func decodeEncrypted(_ encrypted: String, version: Int, decoder: JSONDecoder, sourceURL: URL) throws -> ASRepository {
+ 		var compact = encrypted.trimmingCharacters(in: .whitespacesAndNewlines)
+ 			.replacingOccurrences(of: "-", with: "+")
+ 			.replacingOccurrences(of: "_", with: "/")
+ 		while compact.count % 4 != 0 { compact.append("=") }
+-		guard let cipher = Data(base64Encoded: compact, options: [.ignoreUnknownCharacters]) else {
++		guard version == 1, let cipher = Data(base64Encoded: compact, options: [.ignoreUnknownCharacters]) else {
+ 			throw LoaderError.invalidEncryptedPayload
+ 		}
+ 		let plain = try decryptDES(cipher)
+@@ -246,7 +306,7 @@ final class SourceRepositoryLoader {
+ 		do { object = try JSONSerialization.jsonObject(with: plain) }
+ 		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+ 		captureMetadata(object, for: sourceURL)
+-		let normalized = try JSONSerialization.data(withJSONObject: normalizeURLs(repositoryObject(from: object)))
++		let normalized = try JSONSerialization.data(withJSONObject: normalizeRepository(repositoryObject(from: object)))
+ 		return try decodeRepository(normalized, decoder: decoder)
+ 	}
+ 
+@@ -259,6 +319,8 @@ final class SourceRepositoryLoader {
+ 		let metadata = SourceAccessMetadata(payURL: pay.flatMap(URL.init(string:)), unlockURL: unlock.flatMap(URL.init(string:)), legacyKey: key?.isEmpty == false ? key : nil)
+ 
+ 		var appMetadata: [String: SourceAppAccessMetadata] = [:]
++		var extendedMetadata: [String: SourceAppMetadata] = [:]
++		let sourceName = dictionary["name"] as? String
+ 		if let apps = dictionary["apps"] as? [[String: Any]] {
+ 			for app in apps {
+ 				let identifier = (app["bundleIdentifier"] as? String) ?? (app["identifier"] as? String)
+@@ -269,6 +331,9 @@ final class SourceRepositoryLoader {
+ 				let value = SourceAppAccessMetadata(requiresUnlock: requiresUnlock, hasDownloadURL: hasDownloadURL)
+ 				if let identifier, !identifier.isEmpty { appMetadata["id:\(identifier)"] = value }
+ 				if !name.isEmpty { appMetadata["name:\(name)"] = value }
++				let extended = makeExtendedMetadata(app, sourceName: sourceName)
++				if let identifier, !identifier.isEmpty { extendedMetadata["id:\(identifier)"] = extended }
++				if !name.isEmpty { extendedMetadata["name:\(name)"] = extended }
+ 			}
+ 		}
+ 
+@@ -276,9 +341,39 @@ final class SourceRepositoryLoader {
+ 		metadataLock.lock()
+ 		metadataBySource[sourceKey] = metadata
+ 		appAccessBySource[sourceKey] = appMetadata
++		appMetadataBySource[sourceKey] = extendedMetadata
+ 		metadataLock.unlock()
+ 	}
+ 
++	private func makeExtendedMetadata(_ app: [String: Any], sourceName: String?) -> SourceAppMetadata {
++		let text: (String...) -> String? = { keys in
++			for key in keys { if let value = app[key] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return value } }
++			return nil
++		}
++		let version = text("version", "versionCode")
++		let sizeValue = app["size"] as? NSNumber ?? (text("size").flatMap(Double.init).map(NSNumber.init(value:)))
++		let priceValue = app["price"] as? NSNumber ?? (text("price").flatMap(Double.init).map(NSNumber.init(value:)))
++		let date = text("versionDate", "updatedAt", "date").flatMap(parseSourceDate)
++		return SourceAppMetadata(
++			rawFields: app.mapValues(SourceJSONValue.init(any:)), sourceName: sourceName, version: version,
++			size: sizeValue.map { Int64($0.doubleValue) }, updatedAt: date,
++			description: text("localizedDescription", "description", "desc"),
++			releaseNotes: text("versionDescription", "releaseNotes"), category: text("category", "type"),
++			price: priceValue?.doubleValue, developer: text("developer", "author", "sellerName"),
++			minimumOSVersion: text("minimumOSVersion", "minOSVersion", "support")
++		)
++	}
++
++	private func parseSourceDate(_ value: String) -> Date? {
++		let iso = ISO8601DateFormatter()
++		if let date = iso.date(from: value) { return date }
++		for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd", "yyyy/MM/dd"] {
++			let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = format
++			if let date = formatter.date(from: value) { return date }
++		}
++		return nil
++	}
++
+ 	private func boolValue(_ value: Any?) -> Bool? {
+ 		if let value = value as? Bool { return value }
+ 		if let value = value as? NSNumber { return value.intValue != 0 }
+@@ -313,6 +408,21 @@ final class SourceRepositoryLoader {
+ 		return dictionary
+ 	}
+ 
++	private func normalizeRepository(_ object: Any) -> Any {
++		guard var root = normalizeURLs(object) as? [String: Any] else { return normalizeURLs(object) }
++		if root["iconURL"] == nil, let sourceIcon = root["sourceicon"] { root["iconURL"] = sourceIcon }
++		if let apps = root["apps"] as? [[String: Any]] {
++			root["apps"] = apps.map { app in
++				var app = app
++				if app["bundleIdentifier"] == nil { app["bundleIdentifier"] = app["identifier"] ?? "zonoe.source.\(UUID().uuidString)" }
++				if app["localizedDescription"] == nil { app["localizedDescription"] = app["description"] ?? app["versionDescription"] }
++				if let size = app["size"] as? String, let value = Double(size) { app["size"] = Int64(value) }
++				return app
++			}
++		}
++		return root
++	}
++
+ 	private func decodeRepository(_ data: Data, decoder: JSONDecoder) throws -> ASRepository {
+ 		do {
+ 			let repository = try decoder.decode(ASRepository.self, from: data)
+@@ -477,7 +587,7 @@ final class SourceRepositoryLoader {
+ 			switch self {
+ 			case .noData: return "软件源没有返回数据"
+ 			case .unsupportedFormat: return "不支持的软件源格式"
+-			case .invalidEncryptedPayload: return "全能签 appstore 字段不是有效 Base64"
++			case .invalidEncryptedPayload: return "暂不支持该全能签加密软件源格式"
+ 			case .decryptionFailed(let status): return "全能签软件源解密失败（\(status)）"
+ 			case .httpStatus(let code): return "软件源服务器返回 HTTP \(code)"
+ 			case .htmlResponse: return "服务器返回了网页，而不是软件源 JSON"
+-- 
+2.51.1
+

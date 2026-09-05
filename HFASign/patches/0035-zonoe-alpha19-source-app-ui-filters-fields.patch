@@ -1,0 +1,708 @@
+From 62cb46bdab1a529d58dbc793b1a3ee85c2fa33df Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 15:51:57 -0400
+Subject: [PATCH 35/37] Add source filters and dynamic field display
+
+---
+ .../Sources/Apps/SourceAppsCellView.swift     |  98 ++----
+ Ksign/Views/Sources/Apps/SourceAppsView.swift | 300 +++++-------------
+ .../SourceAppsTableRepresentableView.swift    | 145 +++------
+ 3 files changed, 162 insertions(+), 381 deletions(-)
+
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+index aeb7643..56785dc 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+@@ -1,76 +1,46 @@
+-//
+-//  SourceAppsCellView.swift
+-//  Feather
+-//
+-//  Created by samara on 3.05.2025.
+-//
+-
+ import SwiftUI
+ import AltSourceKit
+-import NimbleViews
+-import Combine
+ import NukeUI
+ 
+-// thats a whole pharaghraph of codes
+ struct SourceAppsCellView: View {
+-    @AppStorage("Feather.storeCellAppearance") private var _storeCellAppearance: Int = 0
+-    
+     var source: ASRepository
+-	var sourceURL: URL
++    var sourceURL: URL
+     var app: ASRepository.App
+-    
++    var fieldDisplay: AppFieldDisplayState
++
++    private var metadata: SourceAppMetadata? { SourceRepositoryLoader.shared.appMetadata(for: sourceURL, appIdentifier: app.bundleIdentifier, appName: app.currentName) }
++    private var dateFormatter: DateFormatter { let value = DateFormatter(); value.dateFormat = "yyyy-MM-dd"; return value }
+     var body: some View {
+-        VStack {
+-            HStack(spacing: 2) {
+-                FRIconCellView(
+-                    title: app.currentName,
+-                    subtitle: Self.appDescription(app: app),
+-                    iconUrl: app.iconURL
+-                )
+-                .overlay(alignment: .bottomLeading) {
+-                    if let iconURL = source.currentIconURL {
+-                        LazyImage(url: iconURL) { state in
+-                            if let image = state.image {
+-                                image
+-                                    .appIconStyle(size: 20, isCircle: true, background: Color(uiColor: .secondarySystemBackground))
+-                                    .offset(x: 41, y: 4)
+-                            }
+-                        }
+-                    }
+-                }
+-                DownloadButtonView(source: source, sourceURL: sourceURL, app: app)
+-            }
+-            
+-            if
+-                _storeCellAppearance != 0,
+-                let desc = app.localizedDescription
+-            {
+-                Text(desc)
+-                    .frame(maxWidth: .infinity, alignment: .leading)
+-                    .font(.subheadline)
+-                    .foregroundStyle(.secondary)
+-                    .padding(.top, 2)
++        HStack(alignment: .top, spacing: 12) {
++            LazyImage(url: app.iconURL) { state in
++                if let image = state.image { image.resizable().scaledToFill() } else { Image(systemName: "app.fill").resizable().scaledToFit().padding(12).foregroundStyle(.secondary) }
++            }.frame(width: 58, height: 58).clipShape(RoundedRectangle(cornerRadius: 13))
++            VStack(alignment: .leading, spacing: 4) {
++                Text(app.currentName).font(.headline).lineLimit(1)
++                if fieldDisplay.contains("source"), let name = metadata?.sourceName ?? source.name { Text(name).font(.caption).foregroundStyle(.secondary) }
++                let summary = summaryLine
++                if !summary.isEmpty { Text(summary).font(.subheadline).foregroundStyle(.secondary) }
++                if fieldDisplay.contains("updatedAt"), let date = metadata?.updatedAt ?? app.currentDate?.date { Text("更新 \(dateFormatter.string(from: date))").font(.caption).foregroundStyle(.secondary) }
++                if fieldDisplay.contains("description"), let text = metadata?.description ?? app.localizedDescription, !text.isEmpty { Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }
++                ForEach(customRows, id: \.0) { key, value in Text("\(key)：\(value)").font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+             }
+-        }
++            Spacer(minLength: 4)
++            DownloadButtonView(source: source, sourceURL: sourceURL, app: app)
++        }.padding(.vertical, 6)
+     }
+-    
+-    static func appDescription(app: ASRepository.App) -> String {
+-        let optionalComponents: [String?] = [
+-            app.currentVersion,
+-            app.currentDescription ?? .localized("An awesome application")
+-        ]
+-        
+-        let components: [String] = optionalComponents.compactMap { value in
+-            guard
+-                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+-                !trimmed.isEmpty
+-            else {
+-                return nil
+-            }
+-            
+-            return trimmed
+-        }
+-        
+-        return components.joined(separator: " • ")
++    private var summaryLine: String {
++        var values: [String] = []
++        if fieldDisplay.contains("version"), let version = metadata?.version ?? app.currentVersion, !version.isEmpty { values.append("版本 \(version)") }
++        if fieldDisplay.contains("size"), let size = metadata?.size ?? app.size, size > 0 { values.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
++        if fieldDisplay.contains("category"), let category = metadata?.category, !category.isEmpty { values.append(category) }
++        if fieldDisplay.contains("developer"), let developer = metadata?.developer, !developer.isEmpty { values.append(developer) }
++        if fieldDisplay.contains("price"), let price = metadata?.price { values.append(price == 0 ? "免费" : String(format: "%.2f", price)) }
++        if fieldDisplay.contains("minimumOSVersion"), let value = metadata?.minimumOSVersion { values.append("iOS \(value)+") }
++        if fieldDisplay.contains("bundleIdentifier"), let value = app.bundleIdentifier { values.append(value) }
++        return values.joined(separator: " · ")
++    }
++    private var customRows: [(String, String)] {
++        let standard = Set(AppFieldDisplayState.labels.keys)
++        return fieldDisplay.fields.subtracting(standard).sorted().compactMap { key in metadata?.rawFields[key]?.displayText.map { (key, $0) } }
+     }
+ }
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsView.swift b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+index 0d66eb7..f1eacc0 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+@@ -1,244 +1,112 @@
+-//
+-//  SourceAppsView.swift
+-//  Feather
+-//
+-//  Created by samara on 1.05.2025.
+-//
+-
+ import SwiftUI
+ import AltSourceKit
+ import NimbleViews
+ import UIKit
+ 
+-// MARK: - Extension: View (Enil)
+-extension SourceAppsView {
+-    enum SortOption: String, CaseIterable {
+-        case `default` = "default"
+-        case name
+-        case date
+-        
+-        var displayName: String {
+-            switch self {
+-            case .default:  .localized("默认")
+-            case .name:     .localized("名称")
+-            case .date:     .localized("日期")
+-            }
+-        }
++struct AppFilterState: Equatable {
++    enum Category: String, CaseIterable { case all = "全部", app = "应用", game = "游戏", media = "影音", tool = "工具", plugin = "插件" }
++    enum Payment: String, CaseIterable { case all = "全部", free = "免费", paid = "收费" }
++    enum Sort: String, CaseIterable { case `default` = "默认", newest = "最新", oldest = "最旧" }
++    var category: Category = .all
++    var payment: Payment = .all
++    var sort: Sort = .default
++}
++
++struct AppFieldDisplayState: Equatable {
++    enum Mode: String, CaseIterable { case compact = "精简", standard = "标准", detailed = "详细", custom = "自定义" }
++    var mode: Mode
++    var fields: Set<String>
++    static let labels = ["version":"版本", "size":"大小", "updatedAt":"更新时间", "description":"说明", "source":"来源", "bundleIdentifier":"Bundle ID", "category":"分类", "developer":"作者", "price":"价格", "minimumOSVersion":"最低系统", "releaseNotes":"更新说明"]
++    static func fields(for mode: Mode) -> Set<String> {
++        switch mode { case .compact: return ["version"]; case .standard: return ["version","size","updatedAt"]; case .detailed: return ["version","size","updatedAt","source","category","description"]; case .custom: return [] }
+     }
++    func contains(_ field: String) -> Bool { fields.contains(field) }
+ }
+ 
+-// MARK: - View
+ struct SourceAppsView: View {
+-    @AppStorage("Feather.sortOptionRawValue") private var _sortOptionRawValue: String = SortOption.default.rawValue
+-    @AppStorage("Feather.sortAscending") private var _sortAscending: Bool = true
+-    
+-    @State private var _sortOption: SortOption = .default
+-    @State private var _selectedRoute: SourceAppRoute?
+-    
++    @AppStorage("zonoe.sourceAppFieldMode") private var fieldModeRaw = AppFieldDisplayState.Mode.standard.rawValue
++    @AppStorage("zonoe.sourceAppVisibleFields") private var visibleFieldsRaw = "version,size,updatedAt"
++    @State private var filter = AppFilterState()
++    @State private var selectedRoute: SourceAppRoute?
++    @State private var searchText = ""
++    @State private var showFilters = false
++    @State private var showFields = false
++    @State private var sources: [LoadedSource]?
+     @State var isLoading = true
+     @State var hasLoadedOnce = false
+-    @State private var _searchText = ""
+     var fromAppStore: Bool = false
+-    
+-    private var _navigationTitle: String {
+-        if fromAppStore {
+-            return .localized("应用商店")
+-        } else if object.count == 1 {
+-            return object[0].name ?? .localized("未知")
+-        } else {
+-            return .localized("%lld Sources", arguments: object.count)
+-        }
+-    }
+-    
+     var object: [AltSource]
+     @ObservedObject var viewModel: SourcesViewModel
+-    @State private var _sources: [LoadedSource]?
+-    
+-    @FetchRequest(
+-        entity: AltSource.entity(),
+-        sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)],
+-        animation: .snappy
+-    ) private var _allSources: FetchedResults<AltSource>
+-    
+-    // MARK: Body
++    @FetchRequest(entity: AltSource.entity(), sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)], animation: .snappy) private var allSources: FetchedResults<AltSource>
++
++    private var navigationTitle: String { fromAppStore ? .localized("应用商店") : (object.count == 1 ? object[0].name ?? .localized("未知") : .localized("%lld Sources", arguments: object.count)) }
++    private var fieldState: AppFieldDisplayState {
++        let mode = AppFieldDisplayState.Mode(rawValue: fieldModeRaw) ?? .standard
++        let custom = Set(visibleFieldsRaw.split(separator: ",").map(String.init))
++        return .init(mode: mode, fields: mode == .custom ? custom : AppFieldDisplayState.fields(for: mode))
++    }
++    private var dynamicFields: [String] { SourceRepositoryLoader.shared.discoveredFieldKeys(for: sources?.map(\.sourceURL) ?? []) }
++
+     var body: some View {
+         ZStack {
+-            if
+-                let _sources,
+-                !_sources.isEmpty
+-            {
+-                SourceAppsTableRepresentableView(
+-                    sources: _sources,
+-                    searchText: $_searchText,
+-                    sortOption: $_sortOption,
+-                    sortAscending: $_sortAscending,
+-                    onSelect: {self._selectedRoute = $0}
+-                )
+-                .ignoresSafeArea()
+-            } else {
+-                if #available(iOS 17, *) {
+-                    ContentUnavailableView {
+-                        ProgressView()
+-                        Label(.localized("正在获取…"), systemImage: "")
+-                    } description: {
+-                        Text(.localized("Stuck? Check if you have any sources added."))
+-                    }
+-                }
+-                else { ProgressView() }
+-            }
+-        }
+-        .navigationTitle(_navigationTitle)
+-        .searchable(text: $_searchText, placement: .platform())
+-        .toolbarTitleMenu {
+-            if
+-                let _sources,
+-                _sources.count == 1
+-            {
+-                if let url = _sources[0].repository.website {
+-                    Button(.localized("Visit Website"), systemImage: "globe") {
+-                        UIApplication.open(url)
+-                    }
+-                }
+-                
+-                if let url = _sources[0].repository.patreonURL {
+-                    Button(.localized("Visit Patreon"), systemImage: "dollarsign.circle") {
+-                        UIApplication.open(url)
+-                    }
+-                }
+-            }
+-            
+-            Divider()
+-            
+-            Button(.localized("复制"), systemImage: "doc.on.doc") {
+-                UIPasteboard.general.string = object.map {
+-                    $0.sourceURL!.absoluteString
+-                }.joined(separator: "\n")
+-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+-            }
+-        }
+-        .toolbar {
+-            if fromAppStore {
+-                ToolbarItem(placement: .topBarLeading) {
+-                    NavigationLink {
+-                        SourcesView()
+-                    } label: {
+-                        Text(.localized("软件源"))
+-                    }
+-                }
+-            }
+-            
+-            NBToolbarButton(
+-                systemImage: "arrow.trianglehead.2.counterclockwise.rotate.90",
+-                style: .icon,
+-                placement: .topBarTrailing
+-            ) {
+-                Task {
+-                    await viewModel.fetchSources(_allSources, refresh: true)
+-                }
+-            }
+-            
+-            NBToolbarMenu(
+-                systemImage: "line.3.horizontal.decrease",
+-                style: .icon,
+-                placement: .topBarTrailing
+-            ) {
+-                _sortActions()
+-            }
+-        }
+-        .onAppear {
+-            if !hasLoadedOnce, viewModel.isFinished {
+-                _load()
+-                hasLoadedOnce = true
+-            }
+-            _sortOption = SortOption(rawValue: _sortOptionRawValue) ?? .default
+-        }
+-		.onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("zonoe.sourceUnlocked"))) { _ in
+-			Task { await viewModel.fetchSources(_allSources, refresh: true) }
+-		}
+-        .onChange(of: viewModel.isFinished) { _ in
+-            _load()
++            if let sources, !sources.isEmpty {
++                SourceAppsTableRepresentableView(sources: sources, searchText: $searchText, filter: filter, fieldDisplay: fieldState) { selectedRoute = $0 }.ignoresSafeArea()
++            } else { ProgressView() }
+         }
+-        .onChange(of: _sortOption) { newValue in
+-            _sortOptionRawValue = newValue.rawValue
+-        }
+-        .navigationDestinationIfAvailable(item: $_selectedRoute) { route in
+-            SourceAppsDetailView(source: route.source, sourceURL: route.sourceURL, app: route.app)
+-        }
+-        
++        .navigationTitle(navigationTitle)
++        .searchable(text: $searchText, placement: .platform())
++        .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
++            Button("字段") { showFields = true }
++            Button("筛选") { showFilters = true }
++            Button { Task { await viewModel.fetchSources(allSources, refresh: true) } } label: { Image(systemName: "arrow.clockwise") }
++        } }
++        .sheet(isPresented: $showFilters) { SourceAppFilterSheet(filter: $filter) }
++        .sheet(isPresented: $showFields) { SourceAppFieldsSheet(modeRaw: $fieldModeRaw, fieldsRaw: $visibleFieldsRaw, dynamicFields: dynamicFields) }
++        .onAppear { if !hasLoadedOnce, viewModel.isFinished { load(); hasLoadedOnce = true } }
++        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("zonoe.sourceUnlocked"))) { _ in Task { await viewModel.fetchSources(allSources, refresh: true) } }
++        .onChange(of: viewModel.isFinished) { _ in load() }
++        .navigationDestinationIfAvailable(item: $selectedRoute) { route in SourceAppsDetailView(source: route.source, sourceURL: route.sourceURL, app: route.app) }
+     }
+-    
+-    private func _load() {
++    private func load() {
+         isLoading = true
+-        
+-        Task {
+-            let loadedSources = object.compactMap { storedSource -> LoadedSource? in
+-                guard let repository = viewModel.sources[storedSource],
+-                      let sourceURL = storedSource.sourceURL else { return nil }
+-                return LoadedSource(repository: repository, sourceURL: sourceURL)
+-            }
+-            _sources = loadedSources
+-            withAnimation(.easeIn(duration: 0.2)) {
+-                isLoading = false
+-            }
+-        }
+-    }
+-    
+-    struct SourceAppRoute: Identifiable, Hashable {
+-        let source: ASRepository
+-        let sourceURL: URL
+-        let app: ASRepository.App
+-        let id: String = UUID().uuidString
+-    }
+-
+-    struct LoadedSource: Equatable {
+-        let repository: ASRepository
+-        let sourceURL: URL
++        sources = object.compactMap { stored in guard let repo = viewModel.sources[stored], let url = stored.sourceURL else { return nil }; return .init(repository: repo, sourceURL: url) }
++        isLoading = false
+     }
++    struct SourceAppRoute: Identifiable, Hashable { let source: ASRepository; let sourceURL: URL; let app: ASRepository.App; let id = UUID().uuidString }
++    struct LoadedSource: Equatable { let repository: ASRepository; let sourceURL: URL }
+ }
+ 
+-// MARK: - Extension: View (Sort)
+-extension SourceAppsView {
+-    @ViewBuilder
+-    private func _sortActions() -> some View {
+-        Section(.localized("筛选")) {
+-            ForEach(SortOption.allCases, id: \.displayName) { opt in
+-                _sortButton(for: opt)
+-            }
+-        }
+-    }
+-    
+-    private func _sortButton(for option: SortOption) -> some View {
+-        Button {
+-            if _sortOption == option {
+-                _sortAscending.toggle()
+-            } else {
+-                _sortOption = option
+-                _sortAscending = true
+-            }
+-        } label: {
+-            HStack {
+-                Text(option.displayName)
+-                Spacer()
+-                if _sortOption == option {
+-                    Image(systemName: _sortAscending ? "chevron.up" : "chevron.down")
+-                }
+-            }
+-        }
++private struct SourceAppFilterSheet: View {
++    @Environment(\.dismiss) private var dismiss
++    @Binding var filter: AppFilterState
++    var body: some View { NavigationStack { Form {
++        row("分类", selection: $filter.category, values: AppFilterState.Category.allCases)
++        row("付费", selection: $filter.payment, values: AppFilterState.Payment.allCases)
++        row("排序", selection: $filter.sort, values: AppFilterState.Sort.allCases)
++    }.navigationTitle("筛选").toolbar { Button("完成") { dismiss() } } }.presentationDetents([.medium, .large]) }
++    private func row<T: RawRepresentable & Hashable>(_ title: String, selection: Binding<T>, values: [T]) -> some View where T.RawValue == String {
++        Section(title) { Picker(title, selection: selection) { ForEach(values, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented) }
+     }
+ }
+ 
+-import SwiftUI
++private struct SourceAppFieldsSheet: View {
++    @Environment(\.dismiss) private var dismiss
++    @Binding var modeRaw: String
++    @Binding var fieldsRaw: String
++    let dynamicFields: [String]
++    @State private var query = ""
++    private var mode: Binding<AppFieldDisplayState.Mode> { .init(get: { .init(rawValue: modeRaw) ?? .standard }, set: { modeRaw = $0.rawValue }) }
++    private var selected: Set<String> { Set(fieldsRaw.split(separator: ",").map(String.init)) }
++    private var allFields: [String] { Array(Set(Array(AppFieldDisplayState.labels.keys) + dynamicFields)).sorted() }
++    private var shown: [String] { query.isEmpty ? allFields : allFields.filter { $0.localizedCaseInsensitiveContains(query) || (AppFieldDisplayState.labels[$0]?.localizedCaseInsensitiveContains(query) ?? false) } }
++    private var effective: Set<String> { mode.wrappedValue == .custom ? selected : AppFieldDisplayState.fields(for: mode.wrappedValue) }
++    var body: some View { NavigationStack { List {
++        Section("显示模式") { Picker("显示模式", selection: mode) { ForEach(AppFieldDisplayState.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented) }
++        Section("字段") { ForEach(shown, id: \.self) { field in Button { toggle(field) } label: { HStack { Text(AppFieldDisplayState.labels[field] ?? field); Spacer(); if effective.contains(field) { Image(systemName: "checkmark") } } }.foregroundStyle(.primary) } }
++    }.searchable(text: $query, prompt: "搜索字段").navigationTitle("显示字段").toolbar { Button("完成") { dismiss() } } } }
++    private func toggle(_ field: String) { var values = effective; if values.contains(field) { values.remove(field) } else { values.insert(field) }; fieldsRaw = values.sorted().joined(separator: ","); modeRaw = AppFieldDisplayState.Mode.custom.rawValue }
++}
+ 
+ extension View {
+-    @ViewBuilder
+-    func navigationDestinationIfAvailable<Item: Identifiable & Hashable, Destination: View>(
+-        item: Binding<Item?>,
+-        @ViewBuilder destination: @escaping (Item) -> Destination
+-    ) -> some View {
+-        if #available(iOS 17, *) {
+-            self.navigationDestination(item: item, destination: destination)
+-        } else {
+-            self
+-        }
+-    }
++    @ViewBuilder func navigationDestinationIfAvailable<Item: Identifiable & Hashable, Destination: View>(item: Binding<Item?>, @ViewBuilder destination: @escaping (Item) -> Destination) -> some View { if #available(iOS 17, *) { self.navigationDestination(item: item, destination: destination) } else { self } }
+ }
+diff --git a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+index 6f7da5d..e8037aa 100644
+--- a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
++++ b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+@@ -12,8 +12,8 @@ import AltSourceKit
+ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+     var sources: [SourceAppsView.LoadedSource]
+     @Binding var searchText: String
+-    @Binding var sortOption: SourceAppsView.SortOption
+-    @Binding var sortAscending: Bool
++    var filter: AppFilterState
++    var fieldDisplay: AppFieldDisplayState
+     var onSelect: (SourceAppsView.SourceAppRoute) -> Void
+     
+     func makeUIView(context: Context) -> UITableView {
+@@ -61,15 +61,15 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+         
+         let sourcesChanged = context.coordinator.sources != sources
+         let searchChanged = context.coordinator.searchText != searchText
+-        let sortOptionChanged = context.coordinator.sortOption != sortOption
+-        let sortDirectionChanged = context.coordinator.sortAscending != sortAscending
++        let filterChanged = context.coordinator.filter != filter
++        let fieldsChanged = context.coordinator.fieldDisplay != fieldDisplay
+         
+         context.coordinator.sources = sources
+         context.coordinator.searchText = searchText
+-        context.coordinator.sortOption = sortOption
+-        context.coordinator.sortAscending = sortAscending
++        context.coordinator.filter = filter
++        context.coordinator.fieldDisplay = fieldDisplay
+         
+-        if sourcesChanged || searchChanged || sortOptionChanged || sortDirectionChanged {
++        if sourcesChanged || searchChanged || filterChanged || fieldsChanged {
+             context.coordinator.invalidateCache()
+         }
+     }
+@@ -78,8 +78,8 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+         Coordinator(
+             sources: sources,
+             searchText: searchText,
+-            sortOption: sortOption,
+-            sortAscending: sortAscending,
++            filter: filter,
++            fieldDisplay: fieldDisplay,
+             onSelect: onSelect
+         )
+     }
+@@ -89,8 +89,8 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+     var sources: [SourceAppsView.LoadedSource]
+     var searchText: String
+-    var sortOption: SourceAppsView.SortOption
+-    var sortAscending: Bool
++    var filter: AppFilterState
++    var fieldDisplay: AppFieldDisplayState
+     let onSelect: (SourceAppsView.SourceAppRoute) -> Void
+     
+     private var _groupedAppsByNameFirstLetter: [String: [(source: ASRepository, sourceURL: URL, app: ASRepository.App)]] = [:]
+@@ -117,79 +117,44 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     init(
+         sources: [SourceAppsView.LoadedSource],
+         searchText: String,
+-        sortOption: SourceAppsView.SortOption,
+-        sortAscending: Bool,
++        filter: AppFilterState,
++        fieldDisplay: AppFieldDisplayState,
+         onSelect: @escaping (SourceAppsView.SourceAppRoute) -> Void
+     ) {
+         self.sources = sources
+         self.searchText = searchText
+-        self.sortOption = sortOption
+-        self.sortAscending = sortAscending
++        self.filter = filter
++        self.fieldDisplay = fieldDisplay
+         self.onSelect = onSelect
+         super.init()
+         
+-        if sortOption != .default {
+-            invalidateCache()
+-        }
++		invalidateCache()
+     }
+     
+     private func _calculateSortedApps() -> [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] {
+-        let filtered = _allAppsWithSource.filter {
+-            searchText.isEmpty ||
+-            ($0.app.name?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+-            ($0.app.description?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+-            ($0.app.subtitle?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+-            ($0.app.localizedDescription?.localizedCaseInsensitiveContains(searchText) ?? false)
+-        }
+-        
+-        switch sortOption {
+-        case .default:
+-            _groupedAppsByDate = [:]
+-            _groupedAppsByNameFirstLetter = [:]
+-            _sortedSectionTitles = []
+-            return sortAscending ? filtered : filtered.reversed()
+-        case .date:
+-            let sorted = filtered.sorted {
+-                let d1 = $0.app.currentDate?.date ?? .distantPast
+-                let d2 = $1.app.currentDate?.date ?? .distantPast
+-                return sortAscending ? (d1 < d2) : (d1 > d2)
+-            }
+-            
+-            let formatter = DateFormatter()
+-            formatter.dateFormat = "MMMM d, yyyy"
+-            
+-            let grouped = Dictionary(grouping: sorted) {
+-                $0.app.currentDate?.date.stripTime() ?? .distantPast
+-            }
+-            
+-            let sortedDates = grouped.keys.sorted(by: { sortAscending ? $0 > $1 : $0 < $1 })
+-            
+-            _groupedAppsByDate = grouped.reduce(into: [:]) { result, pair in
+-                let key = formatter.string(from: pair.key)
+-                result[key] = pair.value
+-            }
+-            
+-            _sortedSectionTitles = sortedDates.map { formatter.string(from: $0) }
+-            return sorted
+-        case .name:
+-            let sorted = filtered.sorted {
+-                let n1 = $0.app.name ?? ""
+-                let n2 = $1.app.name ?? ""
+-                let comparison = n1.localizedCaseInsensitiveCompare(n2) == .orderedAscending
+-                return sortAscending ? comparison : !comparison
++        let filtered = _allAppsWithSource.filter { entry in
++            let metadata = SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.bundleIdentifier, appName: entry.app.currentName)
++            let matchesSearch = searchText.isEmpty || entry.app.currentName.localizedCaseInsensitiveContains(searchText) || (metadata?.rawFields.values.contains { $0.displayText?.localizedCaseInsensitiveContains(searchText) == true } ?? false)
++            let matchesCategory: Bool
++            if filter.category == .all { matchesCategory = true } else {
++                let category = metadata?.category?.lowercased() ?? entry.app.category?.rawValue.lowercased() ?? ""
++                let expected: [AppFilterState.Category: [String]] = [.app:["应用","app","1"], .game:["游戏","game","2"], .media:["影音","media","video","3"], .tool:["工具","tool","4"], .plugin:["插件","plugin","5"]]
++                matchesCategory = expected[filter.category, default: []].contains { category.contains($0) }
+             }
+-            _groupedAppsByNameFirstLetter = Dictionary(grouping: sorted) {
+-                let first = $0.app.name?.trimmingCharacters(in: .whitespacesAndNewlines).first?.uppercased() ?? "#"
+-                return first.range(of: "[A-Z]", options: .regularExpression) != nil ? first : "#"
+-            }
+-            _sortedSectionTitles = _groupedAppsByNameFirstLetter.keys.sorted(by: {
+-                if $0 == "#" { return false }
+-                if $1 == "#" { return true }
+-                return sortAscending ? $0 < $1 : $0 > $1
+-            })
+-            return sorted
++            let matchesPayment: Bool
++            switch filter.payment { case .all: matchesPayment = true; case .free: matchesPayment = metadata?.price == 0; case .paid: matchesPayment = (metadata?.price ?? 0) > 0 }
++            return matchesSearch && matchesCategory && matchesPayment
++        }
++        switch filter.sort {
++        case .default: return filtered
++        case .newest: return filtered.sorted { date(for: $0) > date(for: $1) }
++        case .oldest: return filtered.sorted { date(for: $0) < date(for: $1) }
+         }
+     }
++
++	private func date(for entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)) -> Date {
++		SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.bundleIdentifier, appName: entry.app.currentName)?.updatedAt ?? entry.app.currentDate?.date ?? .distantPast
++	}
+     
+     func invalidateCache() {
+         _cachedSortedApps = _calculateSortedApps()
+@@ -203,31 +168,20 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     // MARK: TableView
+     
+     func numberOfSections(in tableView: UITableView) -> Int {
+-        switch sortOption {
+-        case .default: 1
+-        case .name, .date: _sortedSectionTitles.count
+-        }
++        1
+     }
+     
+     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+-        switch sortOption {
+-        case .default: _sortedApps.count
+-        case .name: _groupedAppsByNameFirstLetter[_sortedSectionTitles[section]]?.count ?? 0
+-        case .date: _groupedAppsByDate[_sortedSectionTitles[section]]?.count ?? 0
+-        }
++        _sortedApps.count
+     }
+     
+     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+         let cell = tableView.dequeueReusableCell(withIdentifier: "AppCell", for: indexPath)
+         let entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)
+-        switch sortOption {
+-        case .default: entry = _sortedApps[indexPath.row]
+-        case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+-        case .date: entry = _groupedAppsByDate[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+-        }
++        entry = _sortedApps[indexPath.row]
+ 
+         cell.contentConfiguration = UIHostingConfiguration {
+-            SourceAppsCellView(source: entry.source, sourceURL: entry.sourceURL, app: entry.app)
++            SourceAppsCellView(source: entry.source, sourceURL: entry.sourceURL, app: entry.app, fieldDisplay: fieldDisplay)
+         }
+         return cell
+     }
+@@ -237,11 +191,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+             tableView.deselectRow(at: indexPath, animated: true)
+             
+             let entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)
+-            switch sortOption {
+-            case .default: entry = _sortedApps[indexPath.row]
+-            case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+-            case .date: entry = _groupedAppsByDate[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+-            }
++            entry = _sortedApps[indexPath.row]
+             
+             onSelect(SourceAppsView.SourceAppRoute(source: entry.source, sourceURL: entry.sourceURL, app: entry.app))
+         }
+@@ -251,10 +201,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         let headerView = tableView.dequeueReusableHeaderFooterView(withIdentifier: "SectionHeader")
+         let title: String
+         
+-        switch sortOption {
+-        case .default: title = .localized("%lld Apps", arguments: _sortedApps.count)
+-        case .name, .date: title = _sortedSectionTitles[section]
+-        }
++        title = .localized("%lld Apps", arguments: _sortedApps.count)
+         
+         headerView?.contentConfiguration = UIHostingConfiguration {
+             HStack {
+@@ -269,7 +216,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     }
+     
+     func sectionIndexTitles(for tableView: UITableView) -> [String]? {
+-        sortOption == .name ? _sortedSectionTitles : nil
++        nil
+     }
+     
+     func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
+@@ -278,11 +225,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     
+     func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+         let entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)
+-        switch sortOption {
+-        case .default: entry = _sortedApps[indexPath.row]
+-        case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+-        case .date: entry = _groupedAppsByDate[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+-        }
++        entry = _sortedApps[indexPath.row]
+         
+         return UIContextMenuConfiguration(
+             identifier: nil,
+-- 
+2.51.1
+

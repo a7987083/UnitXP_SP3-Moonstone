@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha18 fixes based on the published alpha17 patch stack
+# alpha19 source compatibility, metadata, Apple Store search, and tab updates
 
 on:
   push:
@@ -42,6 +42,10 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0031-zonoe-alpha18-udid-localserver-301-return.patch
           git -C HFASignBuild apply ../HFASign/patches/0032-zonoe-alpha18-source-unlock-real-protocol.patch
           git -C HFASignBuild apply ../HFASign/patches/0033-zonoe-alpha18-compile-restore-commoncrypto.patch
+          git -C HFASignBuild apply ../HFASign/patches/0034-zonoe-alpha19-source-payload-metadata.patch
+          git -C HFASignBuild apply ../HFASign/patches/0035-zonoe-alpha19-source-app-ui-filters-fields.patch
+          git -C HFASignBuild apply ../HFASign/patches/0036-zonoe-alpha19-apple-app-store-search.patch
+          git -C HFASignBuild apply ../HFASign/patches/0037-zonoe-alpha19-tabs-and-files-settings.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
@@ -87,7 +91,7 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alpha18 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alpha19 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -101,9 +105,9 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha18_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha19_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alpha18_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alpha19_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
@@ -116,13 +120,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/zonoe_v3.0.0-alpha18_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alpha18 IPA [skip ci]"
+          git add -f HFASign/dist/zonoe_v3.0.0-alpha19_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alpha19 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
       - uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alpha18
+          name: zonoe-v3.0.0-alpha19
           path: |
-            HFASign/dist/zonoe_v3.0.0-alpha18_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alpha19_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error

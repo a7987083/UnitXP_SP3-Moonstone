@@ -1,0 +1,162 @@
+From a5aeaf1f838a227df5b642643645e34289aa69b4 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 5 Sep 2026 15:51:57 -0400
+Subject: [PATCH 36/37] Add global Apple App Store search
+
+---
+ Ksign/Views/Appstore/AppstoreView.swift | 141 +++++++++++++++++++-----
+ 1 file changed, 116 insertions(+), 25 deletions(-)
+
+diff --git a/Ksign/Views/Appstore/AppstoreView.swift b/Ksign/Views/Appstore/AppstoreView.swift
+index b26808a..524ca99 100644
+--- a/Ksign/Views/Appstore/AppstoreView.swift
++++ b/Ksign/Views/Appstore/AppstoreView.swift
+@@ -1,29 +1,120 @@
+-//
+-//  AppstoreView.swift
+-//  Ksign
+-//
+-//  Created by Nagata Asami on 3/8/25.
+-//
+-
+ import SwiftUI
+-import CoreData
+-import AltSourceKit
++
++struct AppleStoreProduct: Codable, Identifiable, Hashable {
++    let trackId: Int64
++    let bundleId: String?
++    let trackName: String?
++    let version: String?
++    let formattedPrice: String?
++    let price: Double?
++    let artistName: String?
++    let sellerName: String?
++    let description: String?
++    let artworkUrl512: URL?
++    let artworkUrl100: URL?
++    let minimumOsVersion: String?
++    let primaryGenreName: String?
++    let currentVersionReleaseDate: String?
++    let releaseNotes: String?
++    let fileSizeBytes: String?
++    let trackViewUrl: URL?
++    var id: Int64 { trackId }
++    var name: String { trackName ?? bundleId ?? "App" }
++}
++
++@MainActor final class AppleStoreSearchService: ObservableObject {
++    enum Device: String, CaseIterable, Identifiable { case iphone = "iPhone", ipad = "iPad", tv = "Apple TV"; var id: String { rawValue }; var entity: String { switch self { case .iphone: return "software"; case .ipad: return "iPadSoftware"; case .tv: return "software,tvSoftware" } } }
++    @Published var products: [AppleStoreProduct] = []
++    @Published var isLoading = false
++    @Published var errorMessage: String?
++
++    func search(term: String, country: String, device: Device) async {
++        let clean = term.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !clean.isEmpty else { products = []; return }
++        isLoading = true; errorMessage = nil
++        do {
++            async let search = request(path: "search", items: [.init(name:"term", value:clean), .init(name:"country", value:country), .init(name:"media", value:"software"), .init(name:"entity", value:device.entity), .init(name:"limit", value:"32")])
++            async let lookup = request(path: "lookup", items: [.init(name:"bundleId", value:clean), .init(name:"country", value:country), .init(name:"entity", value:device.entity), .init(name:"limit", value:"1")])
++            let values = try await lookup + search
++            products = Array(Dictionary(grouping: values, by: \.trackId).compactMap { $0.value.first }).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
++        } catch { errorMessage = error.localizedDescription; products = [] }
++        isLoading = false
++    }
++    private func request(path: String, items: [URLQueryItem]) async throws -> [AppleStoreProduct] {
++        var components = URLComponents(string: "https://itunes.apple.com/\(path)")!; components.queryItems = items
++        let (data, response) = try await URLSession.shared.data(from: components.url!)
++        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { throw URLError(.badServerResponse) }
++        return try JSONDecoder().decode(Response.self, from: data).results
++    }
++    private struct Response: Codable { let results: [AppleStoreProduct] }
++}
+ 
+ struct AppstoreView: View {
+-	@StateObject private var _viewModel = SourcesViewModel.shared
+-	
+-	@FetchRequest(
+-		entity: AltSource.entity(),
+-		sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)],
+-		animation: .snappy
+-	) private var _sources: FetchedResults<AltSource>
+-	
+-	var body: some View {
+-		NavigationStack {
+-            SourceAppsView(fromAppStore: true, object: Array(_sources), viewModel: _viewModel)
+-		}
+-		.task(id: Array(_sources)) {
+-			await _viewModel.fetchSources(_sources)
+-		}
+-	}
++    @StateObject private var service = AppleStoreSearchService()
++    @AppStorage("zonoe.appleStoreRegion") private var region = "CN"
++    @AppStorage("zonoe.appleStoreDevice") private var deviceRaw = AppleStoreSearchService.Device.iphone.rawValue
++    @State private var query = ""
++    @State private var showRegions = false
++    @State private var selected: AppleStoreProduct?
++    private var device: Binding<AppleStoreSearchService.Device> { .init(get: { .init(rawValue: deviceRaw) ?? .iphone }, set: { deviceRaw = $0.rawValue }) }
++
++    var body: some View {
++        NavigationStack {
++            List {
++                Picker("设备", selection: device) { ForEach(AppleStoreSearchService.Device.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
++                if service.isLoading { HStack { Spacer(); ProgressView(); Spacer() } }
++                if let error = service.errorMessage { Text(error).foregroundStyle(.red).font(.footnote) }
++                if !service.products.isEmpty { Section("\(service.products.count) 个结果") { ForEach(service.products) { product in
++                    Button { selected = product } label: { AppleStoreProductRow(product: product) }.buttonStyle(.plain)
++                } } }
++            }
++            .navigationTitle("App Store")
++            .searchable(text: $query, prompt: "搜索 App、Bundle ID")
++            .onSubmit(of: .search) { Task { await service.search(term: query, country: region, device: device.wrappedValue) } }
++            .toolbar { Button { showRegions = true } label: { Label(regionName(region), systemImage: "globe") } }
++            .sheet(isPresented: $showRegions) { AppleStoreRegionPicker(region: $region) }
++            .navigationDestinationIfAvailable(item: $selected) { AppleStoreProductDetail(product: $0) }
++            .onChange(of: region) { _ in if !query.isEmpty { Task { await service.search(term: query, country: region, device: device.wrappedValue) } } }
++            .onChange(of: deviceRaw) { _ in if !query.isEmpty { Task { await service.search(term: query, country: region, device: device.wrappedValue) } } }
++        }
++    }
++    private func regionName(_ code: String) -> String { Locale.current.localizedString(forRegionCode: code) ?? code }
++}
++
++private struct AppleStoreProductRow: View {
++    let product: AppleStoreProduct
++    var body: some View { HStack(spacing: 12) {
++        AsyncImage(url: product.artworkUrl100 ?? product.artworkUrl512) { image in image.resizable() } placeholder: { Image(systemName:"app.fill").resizable().scaledToFit().padding(12).foregroundStyle(.secondary) }.frame(width:58,height:58).clipShape(RoundedRectangle(cornerRadius:13))
++        VStack(alignment:.leading,spacing:3) { Text(product.name).font(.headline).lineLimit(1); if let artist = product.artistName { Text(artist).font(.caption).foregroundStyle(.secondary) }; Text([product.version.map { "版本 \($0)" }, product.formattedPrice, product.primaryGenreName].compactMap{$0}.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary) }
++        Spacer(); Image(systemName:"chevron.right").foregroundStyle(.tertiary)
++    }.padding(.vertical,4) }
++}
++
++private struct AppleStoreProductDetail: View {
++    let product: AppleStoreProduct
++    var body: some View { List {
++        AppleStoreProductRow(product: product)
++        if let text = product.description { Section("说明") { Text(text) } }
++        if let notes = product.releaseNotes { Section("更新说明") { Text(notes) } }
++        Section("Metadata") {
++            if let value = product.bundleId { LabeledContent("Bundle ID", value:value) }
++            if let value = product.minimumOsVersion { LabeledContent("最低系统", value:"iOS \(value)") }
++            if let value = product.fileSizeBytes.flatMap(Int64.init), value > 0 { LabeledContent("大小", value:ByteCountFormatter.string(fromByteCount:value,countStyle:.file)) }
++            if let value = product.currentVersionReleaseDate { LabeledContent("更新时间", value:String(value.prefix(10))) }
++        }
++        if let url = product.trackViewUrl { Link("在 App Store 中查看", destination:url) }
++    }.navigationTitle(product.name).navigationBarTitleDisplayMode(.inline) }
++}
++
++private struct AppleStoreRegionPicker: View {
++    @Environment(\.dismiss) private var dismiss
++    @Binding var region: String
++    @State private var query = ""
++    private let common = ["CN","JP","US","HK","TW","GB","KR","CA","AU"]
++    private var regions: [String] { Locale.isoRegionCodes.filter { code in let name = Locale.current.localizedString(forRegionCode: code) ?? code; return query.isEmpty || code.localizedCaseInsensitiveContains(query) || name.localizedCaseInsensitiveContains(query) }.sorted { (Locale.current.localizedString(forRegionCode:$0) ?? $0) < (Locale.current.localizedString(forRegionCode:$1) ?? $1) } }
++    var body: some View { NavigationStack { List {
++        Section("常用地区") { ForEach(common,id:\.self,row) }
++        Section("全部地区") { ForEach(regions,id:\.self,row) }
++    }.searchable(text:$query,prompt:"搜索国家或地区").navigationTitle("App Store 地区").toolbar { Button("完成") { dismiss() } } } }
++    private func row(_ code:String) -> some View { Button { region=code; dismiss() } label: { HStack { Text(Locale.current.localizedString(forRegionCode:code) ?? code); Spacer(); Text(code).foregroundStyle(.secondary); if region==code { Image(systemName:"checkmark") } } }.foregroundStyle(.primary) }
+ }
+-- 
+2.51.1
+
