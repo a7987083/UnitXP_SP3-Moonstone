@@ -1,0 +1,52 @@
+name: Build iOS Runtime Patch Menu v0.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/ios-runtime-patch-menu-v0.1
+    paths:
+      - 'iosruntimepatchmenu/**'
+      - '.github/workflows/build-ios-runtime-patch-menu-v0.1.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify runtime menu v0.1
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+
+          mkdir -p dist
+          out="dist/ZonoeRuntimePatchMenu_v0.1_UIOnly.dylib"
+          cp .theos/obj/ZonoeRuntimeMenuV01.dylib "$out"
+
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q "Zonoe Runtime Patch"
+          strings "$out" | grep -q "0.1.0-ui"
+          strings "$out" | grep -q "UI ONLY"
+          strings "$out" | grep -q "当前没有任何 Patch 或 Hook"
+
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoeRuntimePatchMenu-v0.1-UIOnly
+          path: iosruntimepatchmenu/dist/*
