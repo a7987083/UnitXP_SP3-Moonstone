@@ -29,7 +29,7 @@ jobs:
           trap 'rm -rf "$TMP"' EXIT
 
           curl -fL --retry 2 --connect-timeout 15 --max-time 45 \
-            -A 'QNQSourceLab/0.7.1-CI' \
+            -A 'QNQSourceLab/0.7.2-CI' \
             https://api.nuosike.com/update.json -o "$TMP/update.json"
 
           python3 - "$TMP/update.json" "$TMP/akey.pem" <<'PY'
@@ -50,7 +50,7 @@ jobs:
           openssl pkey -in "$TMP/akey.pem" -noout >/dev/null
 
           curl -fL --retry 2 --connect-timeout 15 --max-time 45 \
-            -A 'QNQSourceLab/0.7.1-CI' \
+            -A 'QNQSourceLab/0.7.2-CI' \
             https://api.nuosike.com/key.json -o "$TMP/key.json"
 
           python3 - "$TMP/key.json" "$TMP/bkey.enc" <<'PY'
@@ -81,7 +81,7 @@ jobs:
           PY
 
           curl -fL --retry 2 --connect-timeout 15 --max-time 60 \
-            -A 'QNQSourceLab/0.7.1-CI' \
+            -A 'QNQSourceLab/0.7.2-CI' \
             https://sign.io31.top/appstore -o "$TMP/source.json"
 
           python3 - "$TMP/source.json" "$TMP/bkey.txt" <<'PY'
@@ -140,26 +140,43 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build | tee QNQSourceLab-build.log
 
-      - name: Package TrollStore IPA
+      - name: Inject bundled V2 key
+        shell: bash
+        env:
+          QNQ_APPSTORE_V2_PEM_B64: ${{ secrets.QNQ_APPSTORE_V2_PEM_B64 }}
         run: |
           set -euo pipefail
           APP="QNQSourceLab/build/Build/Products/Release-iphoneos/QNQSourceLab.app"
           test -d "$APP"
+          if [ -z "${QNQ_APPSTORE_V2_PEM_B64:-}" ]; then
+            echo "::error::Missing Actions secret QNQ_APPSTORE_V2_PEM_B64"
+            exit 1
+          fi
+          printf '%s' "$QNQ_APPSTORE_V2_PEM_B64" | base64 --decode > "$APP/appstore_v2.pem"
+          grep -Eq 'BEGIN (RSA )?PRIVATE KEY' "$APP/appstore_v2.pem"
+          openssl pkey -in "$APP/appstore_v2.pem" -noout >/dev/null
+          echo "[v2] bundled key injected: $(wc -c < "$APP/appstore_v2.pem") bytes"
+
+      - name: Package TrollStore IPA
+        run: |
+          set -euo pipefail
+          APP="QNQSourceLab/build/Build/Products/Release-iphoneos/QNQSourceLab.app"
+          test -f "$APP/appstore_v2.pem"
           rm -rf QNQSourceLab/package
           mkdir -p QNQSourceLab/package/Payload QNQSourceLab/dist
           cp -R "$APP" QNQSourceLab/package/Payload/
           cd QNQSourceLab/package
-          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.7.1_TrollStore.ipa Payload
+          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.7.2_TrollStore.ipa Payload
           cd ../..
-          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa | head -40
-          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
+          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa | grep -E 'QNQSourceLab.app/(QNQSourceLab|appstore_v2.pem)' | head -20
+          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QNQSourceLab-v0.7.1
+          name: QNQSourceLab-v0.7.2
           path: |
-            QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa
+            QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa
             QNQSourceLab/dist/SHA256SUMS.txt
             QNQSourceLab-build.log
           if-no-files-found: error
@@ -168,9 +185,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa QNQSourceLab/dist/SHA256SUMS.txt
+          git add -f QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa QNQSourceLab/dist/SHA256SUMS.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Publish QNQSourceLab v0.7.1 IPA [skip ci]"
+          git commit -m "Publish QNQSourceLab v0.7.2 IPA [skip ci]"
           git push
