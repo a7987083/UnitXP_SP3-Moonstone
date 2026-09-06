@@ -1,0 +1,1 @@
+Log fields: timestamp, thread id, image base/name, hook label, packet length, packet-id candidates, first 128 bytes hex, caller LR, backtrace for packet-id 10195, SDK callback/userInfo strings, SDK getter return strings.
