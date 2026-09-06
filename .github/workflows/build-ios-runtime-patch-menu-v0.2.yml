@@ -63,7 +63,7 @@ jobs:
           file "$out"
           otool -L "$out"
           strings "$out" | grep -q "0.3.1-local-ticket"
-          strings "$out" | grep -q "Local Device Ticket"
+          strings "$out" | grep -q "LocalTicket"
           strings "$out" | grep -q "zonoe://device-auth"
           strings "$out" | grep -q "ZonoeHostGetUDID"
           nm -gU "$out" | grep -q "_ZonoePatchGetAPIVersion"
