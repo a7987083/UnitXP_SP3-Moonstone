@@ -1,0 +1,1 @@
+CI should fail if produced Mach-O is not arm64 or if expected artifact is missing. Package source/README with dylib in zip artifact.
