@@ -1,0 +1,132 @@
+name: Build zonoe LocalTicketV2 test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/zonoe-local-ticket-v2]
+    paths:
+      - 'HFASign/patches/0042-zonoe-local-ticket-v2-push.patch'
+      - '.github/workflows/hfasign-localticket-v2-build.yml'
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare alpha19 baseline plus LocalTicketV2
+        run: |
+          set -euxo pipefail
+          exec > >(tee HFASign/prepare-localticket-v2.log) 2>&1
+          git clone https://github.com/Nyasami/Ksign.git HFASignBuild
+          git -C HFASignBuild checkout 03a3a9c86897d79f9faf8106037b9971841d56a0
+          for p in \
+            0001-Rebrand-Ksign-baseline-as-HFASign-alpha1.patch \
+            0003-HFASign-alpha3-detailed-signing-and-import-fixes.patch \
+            0004-zonoe-alpha4-incremental.patch \
+            0005-zonoe-alpha5-import-resources-signing-ui.patch \
+            0006-zonoe-alpha6-resource-actions-signing-fix.patch \
+            0007-zonoe-alpha7-import-zip-library.patch \
+            0008-zonoe-alpha8-udid-schemes-encrypted-sources.patch \
+            0009-zonoe-alpha9-udid-zip-sources.patch \
+            0010-zonoe-alpha9-compile-pending-validation.patch \
+            0011-zonoe-alpha10-source-zip-udid-fixes.patch \
+            0012-zonoe-alpha11-source-identity-advanced-signing.patch \
+            0013-zonoe-alpha12-signing-paging-unlock.patch \
+            0014-Fix-source-unlock-URL-identity-collisions.patch \
+            0015-Fix-alpha12-signing-and-import-regressions.patch \
+            0016-zonoe-alpha15-signing-navigation-unlock.patch \
+            0019-Import-ZsignSwift-for-signature-validation.patch \
+            0026-zonoe-alpha16-consolidated-fixes.patch \
+            0027-zonoe-alpha17-fix-signing-layered-interactive-back.patch \
+            0028-zonoe-alpha17-fix-udid-profile-service-completion.patch \
+            0029-zonoe-alpha17-fix-legacy-source-unlock-post.patch \
+            0030-zonoe-alpha18-native-signing-navigation.patch \
+            0031-zonoe-alpha18-udid-localserver-301-return.patch \
+            0032-zonoe-alpha18-source-unlock-real-protocol.patch \
+            0033-zonoe-alpha18-compile-restore-commoncrypto.patch \
+            0034-zonoe-alpha19-source-payload-metadata.patch \
+            0035-zonoe-alpha19-source-app-ui-filters-fields.patch \
+            0036-zonoe-alpha19-apple-app-store-search.patch \
+            0037-zonoe-alpha19-tabs-and-files-settings.patch \
+            0038-zonoe-alpha19-compile-source-ui.patch \
+            0039-zonoe-alpha19-compile-category-filter.patch \
+            0042-zonoe-local-ticket-v2-push.patch; do
+            git -C HFASignBuild apply "../HFASign/patches/$p"
+          done
+          git -C HFASignBuild diff --check
+          grep -q 'handleDeviceTicketV2Request' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
+          grep -q 'import Network' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
+          grep -q 'action == "device-auth"' HFASignBuild/Ksign/FeatherApp.swift
+          git -C HFASignBuild submodule update --init --recursive
+          git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
+
+      - name: Apply zonoe icon
+        run: |
+          curl -L --fail --retry 3 -o /tmp/zonoe-icon.png 'https://app.zonoeios.xyz/uploads/20220704/d042be36ab9f4c73f0c721bccc6ba6c9.png'
+          sips -c 901 901 /tmp/zonoe-icon.png --out /tmp/zonoe-square.png
+          sips -z 1024 1024 /tmp/zonoe-square.png --out /tmp/zonoe-1024.png
+          cp /tmp/zonoe-1024.png HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-default.png
+          cp /tmp/zonoe-1024.png HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-trans.png
+          cp /tmp/zonoe-1024.png 'HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-trans 1.png'
+
+      - name: Install packaging tools
+        run: brew install ldid
+
+      - name: Prepare installer assets
+        working-directory: HFASignBuild
+        run: make deps
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies -project HFASignBuild/Ksign.xcodeproj -scheme Ksign \
+            -clonedSourcePackagesDirPath HFASignBuild/SourcePackages
+          git -C HFASignBuild/SourcePackages/checkouts/ZIPFoundation apply \
+            ../../../../HFASign/patches/0018-Fix-ZIPFoundation-filename-encoding.patch
+
+      - name: Build unsigned app
+        run: |
+          set -o pipefail
+          xcodebuild -project HFASignBuild/Ksign.xcodeproj -scheme Ksign \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath HFASignBuild/build -skipPackagePluginValidation \
+            -clonedSourcePackagesDirPath HFASignBuild/SourcePackages \
+            SWIFT_VERSION=5 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee HFASign/build-localticket-v2.log
+
+      - name: Package LocalTicketV2 TrollStore IPA
+        run: |
+          set -euxo pipefail
+          app="HFASignBuild/build/Build/Products/Release-iphoneos/Ksign.app"
+          test -d "$app"
+          cp HFASignBuild/deps/* "$app/" || true
+          while IFS= read -r file; do
+            if file "$file" | grep -q 'Mach-O'; then ldid -S "$file"; fi
+          done < <(find "$app/Frameworks" -type f 2>/dev/null || true)
+          ldid -S "$app/Ksign"
+          strings "$app/Ksign" | grep -q 'LocalTicketV2'
+          strings "$app/Ksign" | grep -q 'device-auth'
+          mkdir -p HFASign/dist-localticket-v2/stage/Payload
+          cp -R "$app" HFASign/dist-localticket-v2/stage/Payload/HFASign.app
+          cd HFASign/dist-localticket-v2/stage
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_alpha19_LocalTicketV2_TrollStore.ipa
+          cd ..
+          shasum -a 256 zonoe_alpha19_LocalTicketV2_TrollStore.ipa | tee SHA256SUMS.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: zonoe-alpha19-LocalTicketV2
+          path: |
+            HFASign/dist-localticket-v2/zonoe_alpha19_LocalTicketV2_TrollStore.ipa
+            HFASign/dist-localticket-v2/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zonoe-localticket-v2-build-diagnostics
+          path: |
+            HFASign/prepare-localticket-v2.log
+            HFASign/build-localticket-v2.log
+          if-no-files-found: ignore
