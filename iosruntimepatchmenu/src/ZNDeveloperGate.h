@@ -5,8 +5,7 @@ NS_ASSUME_NONNULL_BEGIN
 typedef NS_ENUM(NSInteger, ZNIdentitySource) {
     ZNIdentitySourceNone = 0,
     ZNIdentitySourceHostDylib,
-    ZNIdentitySourceZonoeCallback,
-    ZNIdentitySourceClipboardFallback,
+    ZNIdentitySourceZonoeLocalTicket,
     ZNIdentitySourceSubmittedHost,
 };
 
@@ -20,7 +19,6 @@ typedef NS_ENUM(NSInteger, ZNIdentitySource) {
 @property(nonatomic,assign,readonly) ZNIdentitySource identitySource;
 @property(nonatomic,copy,readonly) NSString *lastError;
 @property(nonatomic,assign,readonly) BOOL awaitingZonoe;
-@property(nonatomic,assign,readonly) BOOL lastRequestUsedCallback;
 + (instancetype)sharedGate;
 - (void)refresh;
 - (void)requestZonoeValidation;
