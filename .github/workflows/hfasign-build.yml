@@ -132,6 +132,14 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           strings HFASign/dist/stage/Payload/HFASign.app/Ksign | grep -q 'device-auth'
           strings HFASign/dist/stage/Payload/HFASign.app/Ksign | grep -q 'device-ticket'
+      - name: Upload alpha20 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zonoe-v3.0.0-alpha20
+          path: |
+            HFASign/dist/zonoe_v3.0.0-alpha20_TrollStore.ipa
+            HFASign/dist/SHA256SUMS.txt
+          if-no-files-found: error
       - name: Publish alpha IPA
         run: |
           git config user.name "github-actions[bot]"
@@ -139,10 +147,3 @@ jobs:
           git add -f HFASign/dist/zonoe_v3.0.0-alpha20_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
           git commit -m "Publish zonoe v3.0.0-alpha20 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
-      - uses: actions/upload-artifact@v4
-        with:
-          name: zonoe-v3.0.0-alpha20
-          path: |
-            HFASign/dist/zonoe_v3.0.0-alpha20_TrollStore.ipa
-            HFASign/dist/SHA256SUMS.txt
-          if-no-files-found: error
