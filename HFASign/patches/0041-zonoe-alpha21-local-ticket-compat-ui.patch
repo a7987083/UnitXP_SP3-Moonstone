@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sun, 6 Sep 2026 20:45:00 +0800
+Subject: [PATCH 41/41] Preserve UDID copy UX for local device ticket
+
+---
+ Ksign/Backend/Server/UDIDService.swift | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -148,7 +148,8 @@ final class UDIDService {
+ 				switch result {
+ 				case .success:
+ 					self.issueLocalDeviceTicket(session: session, nonce: nonce, bundle: bundle, udid: udid)
+-					self.showDeviceTicketAlert(title: "设备验证已准备", message: "请返回游戏，ZonoePatch 会自动完成验证。")
++					UIPasteboard.general.string = udid
++					self.showDeviceTicketAlert(title: "UDID 已复制", message: "\(udid)\n\n设备验证已准备，请返回游戏。")
+ 				case .failure(let error):
+ 					self.endBackgroundTask()
+ 					self.showDeviceTicketAlert(title: "设备验证失败", message: error.localizedDescription)
+-- 
+2.51.1
