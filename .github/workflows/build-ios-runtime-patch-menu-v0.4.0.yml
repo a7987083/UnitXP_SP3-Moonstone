@@ -29,14 +29,18 @@ jobs:
         run: |
           set -euxo pipefail
           grep -q '0.4.0-runtime-foundation' iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm
+          grep -q 'v0.4.0a UI hotfix layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm
+          grep -q 'delaysContentTouches = NO' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm
+          grep -q 'return @\[@"玩家", @"战斗", @"移动", @"其他", @"设置", @"主题"\]' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm
           grep -q 'ZNPatchActionTypeIL2CPPMethod' iosruntimepatchmenu/src/ZNPatchCore.h
           grep -q 'il2cpp_class_from_name' iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
           grep -q 'line 2 is optional' iosruntimepatchmenu/src/ZNDeveloperGate.mm
           ! grep -REn 'MAP_JIT|pthread_jit_write_protect_np|task_for_pid' \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm \
+            iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm \
             iosruntimepatchmenu/src/ZNPatchCore.mm \
             iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
-          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm
+          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm
 
       - name: Build Runtime Foundation
         run: |
@@ -44,15 +48,15 @@ jobs:
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 \
-            ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV040.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm"
+            ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV0401.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm"
           mkdir -p dist-v040
-          cp .theos/obj/ZonoePatchV03.dylib dist-v040/ZonoePatch_v0.4.0_RuntimeFoundation.dylib
-          shasum -a 256 dist-v040/ZonoePatch_v0.4.0_RuntimeFoundation.dylib | tee dist-v040/SHA256.txt
+          cp .theos/obj/ZonoePatchV03.dylib dist-v040/ZonoePatch_v0.4.0a_RuntimeFoundation_UIFix.dylib
+          shasum -a 256 dist-v040/ZonoePatch_v0.4.0a_RuntimeFoundation_UIFix.dylib | tee dist-v040/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v040/ZonoePatch_v0.4.0_RuntimeFoundation.dylib
+          out=iosruntimepatchmenu/dist-v040/ZonoePatch_v0.4.0a_RuntimeFoundation_UIFix.dylib
           file "$out"
           otool -L "$out"
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
@@ -66,6 +70,7 @@ jobs:
           strings "$out" | grep -q 'No JIT'
           strings "$out" | grep -q 'il2cpp_domain_get'
           strings "$out" | grep -q 'il2cpp_class_from_name'
+          strings "$out" | grep -q 'UI fixes installed'
           ! strings "$out" | grep -q 'LocalTicketV2 transport installed'
           ! strings "$out" | grep -q 'zonoe://device-auth'
           ! strings "$out" | grep -q 'ZonoeHostGetUDID'
@@ -73,8 +78,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.4.0-RuntimeFoundation
+          name: ZonoePatch-v0.4.0a-RuntimeFoundation-UIFix
           path: |
-            iosruntimepatchmenu/dist-v040/ZonoePatch_v0.4.0_RuntimeFoundation.dylib
+            iosruntimepatchmenu/dist-v040/ZonoePatch_v0.4.0a_RuntimeFoundation_UIFix.dylib
             iosruntimepatchmenu/dist-v040/SHA256.txt
           if-no-files-found: error
