@@ -1,0 +1,6 @@
+1. Install fishhook-style rebinding or inline branch trampolines for verified RVAs.
+2. Log SDK login/init callbacks and SDK getter return strings.
+3. Log SetHostPort/DoConnect and SendMessage(byte[]) metadata.
+4. Decode IL2CPP byte[] header conservatively; never mutate payload.
+5. On packet id 10195, record return address and backtrace.
+6. Build arm64 dylib in GitHub Actions and upload packaged artifact.
