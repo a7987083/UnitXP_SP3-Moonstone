@@ -1,0 +1,1 @@
+Hook implementation should prefer a minimal arm64 inline trampoline local to this module; no third-party dependency unless already present in repository. Observational hooks tail-call original implementation.
