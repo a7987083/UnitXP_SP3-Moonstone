@@ -1,0 +1,87 @@
+name: Build iOS Runtime Patch Menu v0.3.2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/ios-runtime-patch-menu-v0.2-ui
+    paths:
+      - 'iosruntimepatchmenu/src/ZNLocalTicketV2.mm'
+      - '.github/workflows/build-ios-runtime-patch-menu-v0.3.2.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Generate v0.3.2 translation unit
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          cp src/ZonoeRuntimeMenuV030.mm src/ZonoeRuntimeMenuV032.mm
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/ZonoeRuntimeMenuV032.mm')
+          s = p.read_text()
+          s = s.replace('0.3.1-local-ticket', '0.3.2-local-ticket-v2')
+          s = s.replace('0.3.1', '0.3.2')
+          s = s.replace('Local Device Ticket', 'Local Ticket V2')
+          s = s.replace('LocalTicket    iOS', 'LocalTicketV2    iOS')
+          p.write_text(s)
+          PY
+          grep -q '0.3.2-local-ticket-v2' src/ZonoeRuntimeMenuV032.mm
+          grep -q 'protocol" value:@"2"' src/ZNLocalTicketV2.mm
+          grep -q 'beginBackgroundTaskWithName:@"zonoe.localticket.v2"' src/ZNLocalTicketV2.mm
+          grep -q 'LISTEN_BIND_FAILED' src/ZNLocalTicketV2.mm
+          grep -q 'ACCEPT_TIMEOUT' src/ZNLocalTicketV2.mm
+          grep -q 'UDID_MISMATCH' src/ZNLocalTicketV2.mm
+          grep -q 'LocalTicket.Protocol: 2' src/ZNLocalTicketV2.mm
+
+      - name: Build and verify v0.3.2 LocalTicketV2
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV032.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNDeveloperGate.mm src/ZNLocalTicketV2.mm"
+
+          mkdir -p dist-v032
+          out="dist-v032/ZonoePatch_v0.3.2_LocalTicketV2.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib "$out"
+
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q '0.3.2-local-ticket-v2'
+          strings "$out" | grep -q 'LocalTicketV2 transport installed'
+          strings "$out" | grep -q 'zonoe://device-auth'
+          strings "$out" | grep -q 'ACCEPT_TIMEOUT'
+          strings "$out" | grep -q 'UDID_MISMATCH'
+          strings "$out" | grep -q 'ZonoeHostGetUDID'
+          nm -gU "$out" | grep -q '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep -q '_ZonoePatchGetVersion'
+          nm -gU "$out" | grep -q '_ZonoePatchStart'
+          nm -gU "$out" | grep -q '_ZonoePatchShow'
+          nm -gU "$out" | grep -q '_ZonoePatchHide'
+          nm -gU "$out" | grep -q '_ZonoePatchIsVisible'
+          nm -gU "$out" | grep -q '_ZonoePatchDeveloperAuthorized'
+          nm -gU "$out" | grep -q '_ZonoePatchRequestUDIDValidation'
+          nm -gU "$out" | grep -q '_ZonoePatchSubmitHostIdentity'
+
+          shasum -a 256 "$out" | tee dist-v032/SHA256.txt
+          ls -lh "$out" dist-v032/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoePatch-v0.3.2-LocalTicketV2
+          path: iosruntimepatchmenu/dist-v032/*
+          if-no-files-found: error
