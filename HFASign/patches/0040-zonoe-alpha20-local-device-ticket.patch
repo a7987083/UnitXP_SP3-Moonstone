@@ -5,8 +5,7 @@ Subject: [PATCH 40/40] Add zonoe local device ticket bridge
 
 ---
  Ksign/Backend/Server/UDIDService.swift | 112 +++++++++++++++++++++++++
- Ksign/FeatherApp.swift                 |   1 +
- 2 files changed, 113 insertions(+)
+ 1 file changed, 112 insertions(+)
 
 diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
 index b08615c..c91e321 100644
@@ -131,17 +130,3 @@ index b08615c..c91e321 100644
  	func savePendingCallback(_ callback: URL) {
  		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
  	}
-diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
-index da6db88..33f2c77 100644
---- a/Ksign/FeatherApp.swift
-+++ b/Ksign/FeatherApp.swift
-@@ -87,6 +87,7 @@ struct FeatherApp: App {
- 			}
- 
- 			if action == "udid" { _handleUDIDRequest(url) }
-+			if action == "device-auth" { UDIDService.shared.handleDeviceTicketRequest(url) }
- 		} else {
- 			SharedImportCoordinator.shared.receive(url)
- 		}
--- 
-2.51.1
