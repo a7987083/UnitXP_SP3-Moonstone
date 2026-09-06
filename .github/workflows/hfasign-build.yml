@@ -48,7 +48,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0037-zonoe-alpha19-tabs-and-files-settings.patch
           git -C HFASignBuild apply ../HFASign/patches/0038-zonoe-alpha19-compile-source-ui.patch
           git -C HFASignBuild apply ../HFASign/patches/0039-zonoe-alpha19-compile-category-filter.patch
-          git -C HFASignBuild apply ../HFASign/patches/0040-zonoe-alpha20-local-device-ticket.patch
+          git -C HFASignBuild apply --recount ../HFASign/patches/0040-zonoe-alpha20-local-device-ticket.patch
           git -C HFASignBuild diff --check
           grep -q 'device-ticket' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
           grep -q 'device-auth' HFASignBuild/Ksign/FeatherApp.swift
