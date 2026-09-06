@@ -1,0 +1,1 @@
+Compare normal/abnormal logs by last identical event before 10195, SDK login/init callback order, SDK getter outputs, network connect state, and caller/backtrace at SendMessage.
