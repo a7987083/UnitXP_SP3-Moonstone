@@ -4,9 +4,9 @@ Date: Sun, 6 Sep 2026 23:10:00 +0800
 Subject: [PATCH 42/42] Add zonoe LocalTicketV2 foreground push transport
 
 ---
- Ksign/Backend/Server/UDIDService.swift | 94 ++++++++++++++++++++++++++
+ Ksign/Backend/Server/UDIDService.swift | 88 ++++++++++++++++++++++++++
  Ksign/FeatherApp.swift                 |  1 +
- 2 files changed, 95 insertions(+)
+ 2 files changed, 89 insertions(+)
 
 diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
 --- a/Ksign/Backend/Server/UDIDService.swift
@@ -18,7 +18,7 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
  import Vapor
  
  final class UDIDService {
-@@ -82,6 +83,99 @@ final class UDIDService {
+@@ -82,6 +83,93 @@ final class UDIDService {
  		}
  	}
  
