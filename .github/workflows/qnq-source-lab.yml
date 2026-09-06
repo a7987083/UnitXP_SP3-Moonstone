@@ -140,7 +140,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build | tee QNQSourceLab-build.log
 
-      - name: Inject bundled V2 key
+      - name: Inject bundled V2 key when secret exists
         shell: bash
         env:
           QNQ_APPSTORE_V2_PEM_B64: ${{ secrets.QNQ_APPSTORE_V2_PEM_B64 }}
@@ -149,45 +149,34 @@ jobs:
           APP="QNQSourceLab/build/Build/Products/Release-iphoneos/QNQSourceLab.app"
           test -d "$APP"
           if [ -z "${QNQ_APPSTORE_V2_PEM_B64:-}" ]; then
-            echo "::error::Missing Actions secret QNQ_APPSTORE_V2_PEM_B64"
-            exit 1
+            echo "[v2] repository secret absent; producing CI base IPA for post-build injection"
+            exit 0
           fi
           printf '%s' "$QNQ_APPSTORE_V2_PEM_B64" | base64 --decode > "$APP/appstore_v2.pem"
           grep -Eq 'BEGIN (RSA )?PRIVATE KEY' "$APP/appstore_v2.pem"
           openssl pkey -in "$APP/appstore_v2.pem" -noout >/dev/null
           echo "[v2] bundled key injected: $(wc -c < "$APP/appstore_v2.pem") bytes"
 
-      - name: Package TrollStore IPA
+      - name: Package CI base IPA
         run: |
           set -euo pipefail
           APP="QNQSourceLab/build/Build/Products/Release-iphoneos/QNQSourceLab.app"
-          test -f "$APP/appstore_v2.pem"
+          test -d "$APP"
           rm -rf QNQSourceLab/package
           mkdir -p QNQSourceLab/package/Payload QNQSourceLab/dist
           cp -R "$APP" QNQSourceLab/package/Payload/
           cd QNQSourceLab/package
-          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.7.2_TrollStore.ipa Payload
+          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.7.2_CIBase.ipa Payload
           cd ../..
-          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa | grep -E 'QNQSourceLab.app/(QNQSourceLab|appstore_v2.pem)' | head -20
-          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
+          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.7.2_CIBase.ipa | grep -E 'QNQSourceLab.app/(QNQSourceLab|appstore_v2.pem)' | head -20 || true
+          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.7.2_CIBase.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QNQSourceLab-v0.7.2
+          name: QNQSourceLab-v0.7.2-CIBase
           path: |
-            QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa
+            QNQSourceLab/dist/QNQSourceLab_v0.7.2_CIBase.ipa
             QNQSourceLab/dist/SHA256SUMS.txt
             QNQSourceLab-build.log
           if-no-files-found: error
-
-      - name: Publish IPA to branch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f QNQSourceLab/dist/QNQSourceLab_v0.7.2_TrollStore.ipa QNQSourceLab/dist/SHA256SUMS.txt
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "Publish QNQSourceLab v0.7.2 IPA [skip ci]"
-          git push
