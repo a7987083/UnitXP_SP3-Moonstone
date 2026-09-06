@@ -1,0 +1,1 @@
+Goal: diagnostic-only iOS arm64 dylib for comparing normal vs abnormal devices around the 10195 server-list request. No protocol modification, no JSON modification, no forced packet transmission.
