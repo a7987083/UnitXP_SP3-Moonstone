@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sun, 6 Sep 2026 14:52:00 +0800
+Subject: [PATCH 40/40] Add zonoe local device ticket bridge
+
+---
+ Ksign/Backend/Server/UDIDService.swift | 112 +++++++++++++++++++++++++
+ Ksign/FeatherApp.swift                 |   1 +
+ 2 files changed, 113 insertions(+)
+
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+index b08615c..c91e321 100644
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -11,6 +11,9 @@ final class UDIDService {
+ 	private var server: Application?
+ 	private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
++	private let localTicketLock = NSLock()
++	private var localDeviceTicket: [String: Any]?
++	private let localTicketTTL: TimeInterval = 90
+ 
+ 	private init() {}
+ 
+@@ -25,6 +28,34 @@ final class UDIDService {
+ 			app.http.server.configuration.hostname = "127.0.0.1"
+ 			app.http.server.configuration.port = Self.port
+ 			app.routes.defaultMaxBodySize = "2mb"
++
++			app.get("device-ticket") { req -> Response in
++				guard let session = req.query[String.self, at: "session"],
++					  let nonce = req.query[String.self, at: "nonce"],
++					  let bundle = req.query[String.self, at: "bundle"],
++					  let ticket = self.consumeLocalDeviceTicket(session: session, nonce: nonce, bundle: bundle),
++					  let data = try? JSONSerialization.data(withJSONObject: ticket) else {
++					return Response(status: .notFound)
++				}
++				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
++					self.endBackgroundTask()
++				}
++				return Response(
++					status: .ok,
++					headers: [
++						"Content-Type": "application/json; charset=utf-8",
++						"Cache-Control": "no-store",
++						"Connection": "close"
++					],
++					body: .init(data: data)
++				)
++			}
+ 
+ 			app.get("profile.mobileconfig") { _ in
+ 				guard let data = self.bundledProfile(named: "UDIDRequest") else {
+@@ -82,6 +113,87 @@ final class UDIDService {
+ 		}
+ 	}
+ 
++	func handleDeviceTicketRequest(_ url: URL) {
++		guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
++			showDeviceTicketAlert(title: "设备验证失败", message: "请求格式无效")
++			return
++		}
++		func value(_ name: String) -> String {
++			components.queryItems?.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })?.value ?? ""
++		}
++		let session = value("session").trimmingCharacters(in: .whitespacesAndNewlines)
++		let nonce = value("nonce").trimmingCharacters(in: .whitespacesAndNewlines)
++		let bundle = value("bundle").trimmingCharacters(in: .whitespacesAndNewlines)
++		let protocolVersion = value("protocol")
++		guard !session.isEmpty, !nonce.isEmpty, !bundle.isEmpty, protocolVersion == "1" else {
++			showDeviceTicketAlert(title: "设备验证失败", message: "缺少 session / nonce / bundle")
++			return
++		}
++		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++		guard !udid.isEmpty else {
++			showDeviceTicketAlert(title: "尚未获取 UDID", message: "请先在 zonoe 设置中获取本机 UDID，然后重新验证。")
++			return
++		}
++
++		beginBackgroundTask()
++		start { result in
++			DispatchQueue.main.async {
++				switch result {
++				case .success:
++					self.issueLocalDeviceTicket(session: session, nonce: nonce, bundle: bundle, udid: udid)
++					self.showDeviceTicketAlert(title: "设备验证已准备", message: "请返回游戏，ZonoePatch 会自动完成验证。")
++				case .failure(let error):
++					self.endBackgroundTask()
++					self.showDeviceTicketAlert(title: "设备验证失败", message: error.localizedDescription)
++				}
++			}
++		}
++	}
++
++	private func issueLocalDeviceTicket(session: String, nonce: String, bundle: String, udid: String) {
++		let now = Date().timeIntervalSince1970
++		let ticket: [String: Any] = [
++			"version": 1,
++			"session": session,
++			"nonce": nonce,
++			"bundle": bundle,
++			"udid": udid,
++			"issuedAt": now,
++			"expiresAt": now + localTicketTTL
++		]
++		localTicketLock.lock()
++		localDeviceTicket = ticket
++		localTicketLock.unlock()
++	}
++
++	private func consumeLocalDeviceTicket(session: String, nonce: String, bundle: String) -> [String: Any]? {
++		localTicketLock.lock()
++		defer { localTicketLock.unlock() }
++		guard let ticket = localDeviceTicket,
++			  let storedSession = ticket["session"] as? String, storedSession == session,
++			  let storedNonce = ticket["nonce"] as? String, storedNonce == nonce,
++			  let storedBundle = ticket["bundle"] as? String, storedBundle == bundle,
++			  let expiresAt = ticket["expiresAt"] as? TimeInterval,
++			  expiresAt >= Date().timeIntervalSince1970 else {
++			if let expiresAt = localDeviceTicket?["expiresAt"] as? TimeInterval,
++			   expiresAt < Date().timeIntervalSince1970 { localDeviceTicket = nil }
++			return nil
++		}
++		localDeviceTicket = nil
++		return ticket
++	}
++
++	private func showDeviceTicketAlert(title: String, message: String) {
++		UIAlertController.showAlertWithOk(title: title, message: message)
++	}
++
+ 	func savePendingCallback(_ callback: URL) {
+ 		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
+ 	}
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index da6db88..33f2c77 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -87,6 +87,7 @@ struct FeatherApp: App {
+ 			}
+ 
+ 			if action == "udid" { _handleUDIDRequest(url) }
++			if action == "device-auth" { UDIDService.shared.handleDeviceTicketRequest(url) }
+ 		} else {
+ 			SharedImportCoordinator.shared.receive(url)
+ 		}
+-- 
+2.51.1
