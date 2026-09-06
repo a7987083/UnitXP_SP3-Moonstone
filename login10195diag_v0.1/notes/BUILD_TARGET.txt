@@ -1,0 +1,1 @@
+Target: iOS arm64 Mach-O dynamic library. Preferred CI: macos-latest with xcrun clang, iPhoneOS SDK, -dynamiclib, -arch arm64, -framework Foundation, -framework UIKit.
