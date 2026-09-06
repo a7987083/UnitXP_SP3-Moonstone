@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha20 local device-ticket bridge for ZonoePatch developer gate
+# alpha21: local device-ticket bridge + legacy UDID copy UX
 
 on:
   push:
@@ -49,6 +49,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0038-zonoe-alpha19-compile-source-ui.patch
           git -C HFASignBuild apply ../HFASign/patches/0039-zonoe-alpha19-compile-category-filter.patch
           git -C HFASignBuild apply --recount ../HFASign/patches/0040-zonoe-alpha20-local-device-ticket.patch
+          git -C HFASignBuild apply --recount ../HFASign/patches/0041-zonoe-alpha21-local-ticket-compat-ui.patch
           python3 - <<'PY'
           from pathlib import Path
           path = Path("HFASignBuild/Ksign/FeatherApp.swift")
@@ -57,12 +58,13 @@ jobs:
           route = '\t\t\tif action == "device-auth" { UDIDService.shared.handleDeviceTicketRequest(url) }'
           if route not in text:
               if text.count(anchor) != 1:
-                  raise SystemExit("alpha20 route anchor not found exactly once")
+                  raise SystemExit("alpha21 route anchor not found exactly once")
               text = text.replace(anchor, anchor + "\n" + route, 1)
               path.write_text(text)
           PY
           git -C HFASignBuild diff --check
           grep -q 'device-ticket' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
+          grep -q 'UDID 已复制' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
           grep -q 'device-auth' HFASignBuild/Ksign/FeatherApp.swift
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
@@ -108,7 +110,7 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alpha20 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alpha21 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -119,31 +121,34 @@ jobs:
             if file "$file" | grep -q 'Mach-O'; then ldid -S "$file"; fi
           done < <(find "$app/Frameworks" -type f 2>/dev/null || true)
           ldid -S "$app/Ksign"
+          rm -rf HFASign/dist/stage
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha20_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha21_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alpha20_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alpha21_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and local ticket bridge
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
-          strings HFASign/dist/stage/Payload/HFASign.app/Ksign | grep -q 'device-auth'
-          strings HFASign/dist/stage/Payload/HFASign.app/Ksign | grep -q 'device-ticket'
-      - name: Upload alpha20 artifact
+          grep -q 'device-auth' HFASignBuild/Ksign/FeatherApp.swift
+          grep -q 'device-ticket' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
+          grep -q 'UDID 已复制' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
+          test -s HFASign/dist/zonoe_v3.0.0-alpha21_TrollStore.ipa
+      - name: Upload alpha21 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alpha20
+          name: zonoe-v3.0.0-alpha21
           path: |
-            HFASign/dist/zonoe_v3.0.0-alpha20_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alpha21_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Publish alpha IPA
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/zonoe_v3.0.0-alpha20_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alpha20 IPA [skip ci]"
+          git add -f HFASign/dist/zonoe_v3.0.0-alpha21_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alpha21 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
