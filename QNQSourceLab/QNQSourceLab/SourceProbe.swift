@@ -128,7 +128,7 @@ private enum OriginalSourcePipeline {
                 lines.append("[1] HTTP ❌ 非 HTTP 响应")
                 return OriginalPipelineResult(lines: lines, decodedJSON: nil)
             }
-            lines.append("[1] HTTP ✅ status=\(status) bytes=\(data.count) content-type=\(http.value(forHTTPHeaderField: "Content-Type") ?? "?")")
+            lines.append("[1] HTTP ✅ status=\(status) bytes=\(data.count) content-type=\(http?.value(forHTTPHeaderField: "Content-Type") ?? "?")")
             guard (200...299).contains(status) else {
                 lines.append("[1] HTTP ❌ status=\(status)")
                 return OriginalPipelineResult(lines: lines, decodedJSON: nil)
