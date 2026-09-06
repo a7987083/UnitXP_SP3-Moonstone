@@ -1,1 +1,1 @@
-ad0ed52d987671cea99ec14a6f72e54125864e0de32f359c49c697b0226c0543  QNQSourceLab/dist/QNQSourceLab_v0.6_TrollStore.ipa
+0dacfe3655a2d553f0f5096f2eaac9d5656326d067c0abfa4c33e7314a041b6b  QNQSourceLab/dist/QNQSourceLab_v0.7_TrollStore.ipa
