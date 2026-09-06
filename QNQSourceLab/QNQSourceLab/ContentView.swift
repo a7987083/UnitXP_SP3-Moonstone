@@ -1,83 +1,88 @@
 import SwiftUI
-import UIKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = SourceProbeModel()
+    @State private var showKeyImporter = false
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("软件源") {
-                    TextField("软件源 URL", text: $model.urlText)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    HStack {
-                        Button("Legacy") { model.useLegacyPreset() }
-                        Spacer()
-                        Button("V2-qnq") { model.useV2Preset() }
-                        Spacer()
-                        Button("V2-yxy") { model.useV2AltPreset() }
+            VStack(spacing: 12) {
+                TextField("软件源 URL", text: $model.urlText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    presetButton("普通 JSON", action: model.usePlainPreset)
+                    presetButton("appstore / V1", action: model.useLegacyPreset)
+                    presetButton("appstore_v2 / QNQ", action: model.useV2Preset)
+                    presetButton("appstore_v2 / YXY", action: model.useV2AltPreset)
+                }
+
+                HStack(spacing: 10) {
+                    Button(model.hasV2Key ? "V2 Key ✓" : "导入 V2 Key") { showKeyImporter = true }
+                        .buttonStyle(.bordered)
+                    if model.hasV2Key {
+                        Button("移除 Key", role: .destructive) { model.removeV2Key() }
+                            .buttonStyle(.bordered)
                     }
-                    Button("检查当前软件源 envelope") { Task { await model.runSourceInspect() } }
-                        .disabled(model.isLoading)
+                    Spacer()
                 }
 
-                Section("Nuosike 已知明文 Oracle") {
-                    TextEditor(text: $model.oracleText)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(minHeight: 76)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button("V2 encrypt.php：自定义明文双抓") { Task { await model.runCustomV2Oracle() } }
+                HStack(spacing: 10) {
+                    Button("运行当前") { Task { await model.runCurrent() } }
+                        .buttonStyle(.borderedProminent)
                         .disabled(model.isLoading)
-                    Button("V1 api.php：自定义明文双抓") { Task { await model.runCustomV1Oracle() } }
+                    Button("四源全部运行") { Task { await model.runAll() } }
+                        .buttonStyle(.bordered)
                         .disabled(model.isLoading)
-                }
-
-                Section("自动矩阵") {
-                    Button("V2 已知明文矩阵（7×2）") { Task { await model.runV2Matrix() } }
-                        .disabled(model.isLoading)
-                    Button("V1 已知明文矩阵（7×2）") { Task { await model.runV1Matrix() } }
-                        .disabled(model.isLoading)
-                    Text("矩阵使用空串、A、AA、AAAA、{}、{\"a\":1}、{\"a\":\"AAAA\"}。每个样本只请求两次，并按后台源码的 content=Base64(plaintext) 表单格式提交。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 if model.isLoading {
-                    Section { HStack { Spacer(); ProgressView("测试中…"); Spacer() } }
+                    ProgressView("按原版流程执行…")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Section("结果") {
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        Text(model.output)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 4)
-                    }
-                    .frame(minHeight: 500)
+                ScrollView {
+                    Text(model.output)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
+                .background(.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                    Button("复制结果") { UIPasteboard.general.string = model.output }
+                HStack {
                     if let url = model.exportReportURL {
-                        ShareLink(item: url) { Label("分享报告", systemImage: "square.and.arrow.up") }
+                        ShareLink(item: url) { Label("导出日志", systemImage: "square.and.arrow.up") }
                     }
-                    if let url = model.exportAURL {
-                        ShareLink(item: url) { Label("分享 A decoded.bin", systemImage: "doc") }
+                    if let url = model.exportDecodedURL {
+                        ShareLink(item: url) { Label("导出 JSON", systemImage: "doc.text") }
                     }
-                    if let url = model.exportBURL {
-                        ShareLink(item: url) { Label("分享 B decoded.bin", systemImage: "doc.on.doc") }
-                    }
-                }
-
-                Section("v0.6 重点") {
-                    Text("不再把 offset 128 的 UInt32 当 Segment2 长度。V2 只确认 3e b7 f6 f4 + LE32(120) + 120-byte 动态块，并用官方 encrypt.php 的已知明文输出验证尾部长度、固定开销和随机化范围；V1 同样用 api.php 反推 DES 前处理。")
-                        .font(.footnote)
+                    Spacer()
+                    Text("v0.7")
+                        .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("QNQ Source Lab v0.6")
+            .padding()
+            .navigationTitle("QNQ Source Lab")
+            .fileImporter(isPresented: $showKeyImporter, allowedContentTypes: [.data, .plainText], allowsMultipleSelection: false) { result in
+                do {
+                    guard let url = try result.get().first else { return }
+                    try model.installV2Key(from: url)
+                } catch {
+                    model.output = "❌ V2 Key 导入失败：\(error.localizedDescription)"
+                }
+            }
         }
+    }
+
+    private func presetButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
     }
 }
