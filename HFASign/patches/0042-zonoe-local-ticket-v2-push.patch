@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sun, 6 Sep 2026 23:10:00 +0800
+Subject: [PATCH 42/42] Add zonoe LocalTicketV2 foreground push transport
+
+---
+ Ksign/Backend/Server/UDIDService.swift | 94 ++++++++++++++++++++++++++
+ Ksign/FeatherApp.swift                 |  1 +
+ 2 files changed, 95 insertions(+)
+
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -1,5 +1,6 @@
+ import Foundation
++import Network
+ import UIKit
+ import Vapor
+ 
+ final class UDIDService {
+@@ -82,6 +83,99 @@ final class UDIDService {
+ 		}
+ 	}
+ 
++	func handleDeviceTicketV2Request(_ url: URL) {
++		guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
++			showDeviceTicketV2Alert(title: "设备验证失败", message: "请求格式无效")
++			return
++		}
++
++		func value(_ name: String) -> String {
++			components.queryItems?.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })?.value ?? ""
++		}
++
++		let protocolVersion = value("protocol")
++		let session = value("session").trimmingCharacters(in: .whitespacesAndNewlines)
++		let nonce = value("nonce").trimmingCharacters(in: .whitespacesAndNewlines)
++		let bundle = value("bundle").trimmingCharacters(in: .whitespacesAndNewlines)
++		let portText = value("port").trimmingCharacters(in: .whitespacesAndNewlines)
++
++		guard protocolVersion == "2",
++			  !session.isEmpty,
++			  !nonce.isEmpty,
++			  !bundle.isEmpty,
++			  let portValue = UInt16(portText),
++			  portValue > 0,
++			  let port = NWEndpoint.Port(rawValue: portValue) else {
++			showDeviceTicketV2Alert(title: "设备验证失败", message: "LocalTicketV2 参数无效")
++			return
++		}
++
++		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++		guard !udid.isEmpty else {
++			showDeviceTicketV2Alert(title: "尚未获取 UDID", message: "请先在 zonoe 设置中获取本机 UDID，然后重新验证。")
++			return
++		}
++
++		let now = Date().timeIntervalSince1970
++		let ticket: [String: Any] = [
++			"version": 2,
++			"session": session,
++			"nonce": nonce,
++			"bundle": bundle,
++			"udid": udid,
++			"issuedAt": now,
++			"expiresAt": now + 15
++		]
++
++		guard let payload = try? JSONSerialization.data(withJSONObject: ticket),
++			  !payload.isEmpty,
++			  payload.count <= 4096 else {
++			showDeviceTicketV2Alert(title: "设备验证失败", message: "LocalTicketV2 票据编码失败")
++			return
++		}
++
++		var networkLength = UInt32(payload.count).bigEndian
++		var frame = Data(bytes: &networkLength, count: MemoryLayout<UInt32>.size)
++		frame.append(payload)
++
++		let connection = NWConnection(host: NWEndpoint.Host("127.0.0.1"), port: port, using: .tcp)
++		let queue = DispatchQueue(label: "zonoe.localticket.v2.push", qos: .userInitiated)
++		connection.stateUpdateHandler = { [weak self] state in
++			switch state {
++			case .ready:
++				connection.send(content: frame, completion: .contentProcessed { error in
++					connection.cancel()
++					DispatchQueue.main.async {
++						if let error {
++							self?.showDeviceTicketV2Alert(title: "设备验证失败", message: "LocalTicketV2 PUSH_SEND_FAILED: \(error.localizedDescription)")
++						} else {
++							UIPasteboard.general.string = udid
++							self?.showDeviceTicketV2Alert(title: "UDID 已发送", message: "\(udid)\n\nLocalTicketV2 已推送，请返回游戏。")
++						}
++					}
++				})
++			case .failed(let error):
++				connection.cancel()
++				DispatchQueue.main.async {
++					self?.showDeviceTicketV2Alert(title: "设备验证失败", message: "LocalTicketV2 PUSH_CONNECT_FAILED: \(error.localizedDescription)")
++				}
++			default:
++				break
++			}
++		}
++		connection.start(queue: queue)
++	}
++
++	private func showDeviceTicketV2Alert(title: String, message: String) {
++		UIAlertController.showAlertWithOk(title: title, message: message)
++	}
++
+ 	func savePendingCallback(_ callback: URL) {
+ 		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
+ 	}
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -87,6 +87,7 @@ struct FeatherApp: App {
+ 			}
+ 
+ 			if action == "udid" { _handleUDIDRequest(url) }
++			if action == "device-auth" { UDIDService.shared.handleDeviceTicketV2Request(url) }
+ 		} else {
+ 			SharedImportCoordinator.shared.receive(url)
+ 		}
+-- 
+2.51.1
