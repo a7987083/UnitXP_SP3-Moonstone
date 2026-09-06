@@ -1,9 +1,7 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = SourceProbeModel()
-    @State private var showKeyImporter = false
 
     var body: some View {
         NavigationStack {
@@ -20,15 +18,13 @@ struct ContentView: View {
                     presetButton("appstore_v2 / YXY", action: model.useV2AltPreset)
                 }
 
-                HStack(spacing: 10) {
-                    Button(model.hasV2Key ? "V2 Key ✓" : "导入 V2 Key") { showKeyImporter = true }
-                        .buttonStyle(.bordered)
-                    if model.hasV2Key {
-                        Button("移除 Key", role: .destructive) { model.removeV2Key() }
-                            .buttonStyle(.bordered)
-                    }
+                HStack(spacing: 8) {
+                    Image(systemName: "key.fill")
+                    Text("V2 Key：内置 / 自动加载")
+                        .font(.caption.monospaced())
                     Spacer()
                 }
+                .foregroundStyle(.secondary)
 
                 HStack(spacing: 10) {
                     Button("运行当前") { Task { await model.runCurrent() } }
@@ -62,21 +58,13 @@ struct ContentView: View {
                         ShareLink(item: url) { Label("导出 JSON", systemImage: "doc.text") }
                     }
                     Spacer()
-                    Text("v0.7.1")
+                    Text("v0.7.2")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
             }
             .padding()
             .navigationTitle("QNQ Source Lab")
-            .fileImporter(isPresented: $showKeyImporter, allowedContentTypes: [.data, .plainText], allowsMultipleSelection: false) { result in
-                do {
-                    guard let url = try result.get().first else { return }
-                    try model.installV2Key(from: url)
-                } catch {
-                    model.output = "❌ V2 Key 导入失败：\(error.localizedDescription)"
-                }
-            }
         }
     }
 
