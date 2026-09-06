@@ -1,0 +1,90 @@
+name: Build iOS Runtime Patch Menu v0.3.3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/ios-runtime-patch-menu-v0.2-ui
+    paths:
+      - 'iosruntimepatchmenu/src/ZNDeveloperGate.h'
+      - 'iosruntimepatchmenu/src/ZNDeveloperGate.mm'
+      - '.github/workflows/build-ios-runtime-patch-menu-v0.3.3.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Generate v0.3.3 translation unit
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          cp src/ZonoeRuntimeMenuV030.mm src/ZonoeRuntimeMenuV033.mm
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/ZonoeRuntimeMenuV033.mm')
+          s = p.read_text()
+          s = s.replace('0.3.1-local-ticket', '0.3.3-marker-only')
+          s = s.replace('0.3.1', '0.3.3')
+          s = s.replace('Local Device Ticket', 'Marker Gate')
+          s = s.replace('LocalTicket    iOS', 'MarkerGate    iOS')
+          s = s.replace('等待 zonoe 本地票据', '检查 Documents/1 标记文件')
+          s = s.replace('打开 zonoe', '重新检测')
+          s = s.replace('Developer Gate 已授权 · Local Ticket / MockBackend', 'Developer Gate 已授权 · Marker Gate / MockBackend')
+          s = s.replace('[NSString stringWithFormat:@"Host Bridge: %@",gate.hostBridgeAvailable?@"Available":@"Unavailable"]', '@"UDID Acquisition: Disabled"')
+          p.write_text(s)
+          PY
+          grep -q '0.3.3-marker-only' src/ZonoeRuntimeMenuV033.mm
+          grep -q 'MarkerGate' src/ZonoeRuntimeMenuV033.mm
+          grep -q 'ZNIdentitySourceMarkerFile' src/ZNDeveloperGate.mm
+          grep -q 'UDID acquisition disabled' src/ZNDeveloperGate.mm
+          ! grep -q 'dlsym' src/ZNDeveloperGate.mm
+          ! grep -q 'device-ticket' src/ZNDeveloperGate.mm
+          ! grep -q 'zonoe://device-auth' src/ZNDeveloperGate.mm
+
+      - name: Build and verify v0.3.3 marker-only
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV033.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNDeveloperGate.mm"
+
+          mkdir -p dist-v033
+          out="dist-v033/ZonoePatch_v0.3.3_MarkerOnly.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib "$out"
+
+          file "$out"
+          otool -L "$out"
+          strings "$out" | grep -q '0.3.3-marker-only'
+          strings "$out" | grep -q 'Marker File'
+          strings "$out" | grep -q 'UDID Acquisition: Disabled'
+          ! strings "$out" | grep -q 'LocalTicketV2 transport installed'
+          ! strings "$out" | grep -q 'zonoe://device-auth'
+          ! strings "$out" | grep -q 'ZonoeHostGetUDID'
+          nm -gU "$out" | grep -q '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep -q '_ZonoePatchGetVersion'
+          nm -gU "$out" | grep -q '_ZonoePatchStart'
+          nm -gU "$out" | grep -q '_ZonoePatchShow'
+          nm -gU "$out" | grep -q '_ZonoePatchHide'
+          nm -gU "$out" | grep -q '_ZonoePatchIsVisible'
+          nm -gU "$out" | grep -q '_ZonoePatchDeveloperAuthorized'
+
+          shasum -a 256 "$out" | tee dist-v033/SHA256.txt
+          ls -lh "$out" dist-v033/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoePatch-v0.3.3-MarkerOnly
+          path: iosruntimepatchmenu/dist-v033/*
+          if-no-files-found: error
