@@ -115,13 +115,8 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
 --- a/Ksign/FeatherApp.swift
 +++ b/Ksign/FeatherApp.swift
-@@ -87,6 +87,7 @@ struct FeatherApp: App {
- 			}
- 
+@@ -87,1 +87,2 @@ struct FeatherApp: App {
  			if action == "udid" { _handleUDIDRequest(url) }
 +			if action == "device-auth" { UDIDService.shared.handleDeviceTicketV2Request(url) }
- 		} else {
- 			SharedImportCoordinator.shared.receive(url)
- 		}
 -- 
 2.51.1
