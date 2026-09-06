@@ -5,16 +5,16 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Disable Xcode signing for every target, including the statically linked Dobby target.
+# Disable Xcode signing for every target, including Dobby's static helper target.
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
 
-set(DOBBY_GENERATE_SHARED OFF CACHE BOOL "" FORCE)
 set(DOBBY_DEBUG OFF CACHE BOOL "" FORCE)
 set(DOBBY_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 set(DOBBY_BUILD_TEST OFF CACHE BOOL "" FORCE)
-set(Plugin.SymbolResolver OFF CACHE BOOL "" FORCE)
+# Dobby's Darwin backend references DobbySymbolResolver; keep its built-in resolver enabled.
+set(Plugin.SymbolResolver ON CACHE BOOL "" FORCE)
 set(Plugin.ImportTableReplace OFF CACHE BOOL "" FORCE)
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/Dobby/CMakeLists.txt")
@@ -31,7 +31,8 @@ target_include_directories(Login10195Diag PRIVATE
   ${CMAKE_SOURCE_DIR}/third_party/Dobby/include
 )
 
-target_link_libraries(Login10195Diag PRIVATE dobby)
+# Link Dobby statically so the injected dylib has no extra libdobby.dylib runtime dependency.
+target_link_libraries(Login10195Diag PRIVATE dobby_static)
 
 target_compile_options(Login10195Diag PRIVATE
   -fvisibility=hidden
