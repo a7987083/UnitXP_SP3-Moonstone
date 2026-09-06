@@ -1,0 +1,14 @@
+Verified from supplied dump.cs (2026-09-04):
+SDKInterface.onLoginSuccess 0x2A674D4
+SDKInterface.GetAppInfoMessage 0x2A67980
+SDKInterface.GetBuildVersionString 0x2A683A4
+SDKInterface.GetVersionString 0x2A68540
+SDKInterface.onLoginFailed 0x2A68860
+SDKInterface.GetChannelID 0x2A68CBC
+SDKInterface.SDKLogin 0x2A68F4C
+SDKInterface.IsSdkInit 0x2A69078
+NetworkBase.SetHostPort 0x1CC80D8
+NetworkBase.UpdateNetwork 0x1CC91E0
+NetworkBase.SendMessage 0x1CC9204
+TcpNetwork.DoConnect 0x1CC96B4
+TcpNetwork.SendMessage 0x1CCA124
