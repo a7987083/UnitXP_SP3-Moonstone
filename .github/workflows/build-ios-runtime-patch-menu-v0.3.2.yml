@@ -38,8 +38,15 @@ jobs:
           s = s.replace('Local Device Ticket', 'Local Ticket V2')
           s = s.replace('LocalTicket    iOS', 'LocalTicketV2    iOS')
           p.write_text(s)
+
+          p = Path('src/ZNLocalTicketV2.mm')
+          s = p.read_text()
+          if '#import "ZNPatchCore.h"' not in s:
+              s = s.replace('#import "ZNDeveloperGate.h"', '#import "ZNDeveloperGate.h"\n#import "ZNPatchCore.h"')
+          p.write_text(s)
           PY
           grep -q '0.3.2-local-ticket-v2' src/ZonoeRuntimeMenuV032.mm
+          grep -q '#import "ZNPatchCore.h"' src/ZNLocalTicketV2.mm
           grep -q 'protocol" value:@"2"' src/ZNLocalTicketV2.mm
           grep -q 'beginBackgroundTaskWithName:@"zonoe.localticket.v2"' src/ZNLocalTicketV2.mm
           grep -q 'LISTEN_BIND_FAILED' src/ZNLocalTicketV2.mm
