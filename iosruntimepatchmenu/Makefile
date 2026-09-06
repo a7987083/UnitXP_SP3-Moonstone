@@ -3,10 +3,10 @@ TARGET = iphone:clang:latest:14.0
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = ZonoePatchV02
+TWEAK_NAME = ZonoePatchV03
 
-ZonoePatchV02_FILES = src/ZonoeRuntimeMenuV024.mm src/ZNTheme.mm
-ZonoePatchV02_CFLAGS = -Oz -fobjc-arc -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new
-ZonoePatchV02_FRAMEWORKS = UIKit Foundation QuartzCore
+ZonoePatchV03_FILES = src/ZonoeRuntimeMenuV030.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNDeveloperGate.mm
+ZonoePatchV03_CFLAGS = -Oz -fobjc-arc -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-objc-method-access
+ZonoePatchV03_FRAMEWORKS = UIKit Foundation QuartzCore
 
 include $(THEOS_MAKE_PATH)/tweak.mk
