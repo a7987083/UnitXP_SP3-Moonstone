@@ -1,0 +1,415 @@
+From 01feab3aff93d72e67e90422a3e347ed96d80c30 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 7 Sep 2026 01:48:50 +0900
+Subject: [PATCH] Add verified QNQ source payload decoders
+
+---
+ .../Sources/SourceRepositoryLoader.swift      | 293 +++++++++++++-----
+ Ksign/Backend/Storage/Storage+Sources.swift   |   7 +-
+ 2 files changed, 227 insertions(+), 73 deletions(-)
+
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index b923f94..5093fb1 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -1,7 +1,7 @@
+ import Foundation
+ import AltSourceKit
+-import CommonCrypto
+ import CryptoKit
++import Security
+ import SwiftUI
+ import UIKit
+ 
+@@ -9,6 +9,7 @@ struct SourceAccessMetadata: Equatable {
+ 	let payURL: URL?
+ 	let unlockURL: URL?
+ 	let legacyKey: String?
++	let rawFields: [String: SourceJSONValue]
+ }
+ 
+ struct SourceAppAccessMetadata: Equatable {
+@@ -48,6 +49,174 @@ enum SourceJSONValue: Codable, Hashable {
+ 	}
+ }
+ 
++private enum SourcePayloadDecoder {
++	private static let legacyUpdateURL = URL(string: "https://api.nuosike.com/update.json")!
++	private static let legacyKeyURL = URL(string: "https://api.nuosike.com/key.json")!
++	private static let v2Magic: UInt32 = 0xFEEDFACF
++	private static let v2Alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".utf8)
++	private static let v2PrivateKeyPEM = """
++	-----BEGIN PRIVATE KEY-----
++	MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC+Ey5IihKYWU9P
++	X1vRT5dc7ejWQ+k+JoI4IhhWRSH28LjP42oX385yba2ofTH5oUpz7gdLlahYDgXZ
++	B1s9R7vOfX5LMHbk5CqfSEY86CPra8ev1WQjZv8l2mp+lT7DDebGBpDGii8fy2OI
++	oDydyoVngG7hTrdh/oGLUwc0VlimRlhgJESsp1y6q8F0bVyB4hu4OofsCIadhvnJ
++	DF30XNn4en4gpZVScEv0ln7kMBEvXBkOpmuXUmjX12fpkdrqy9RwuhEIuFS4SGFC
++	4K5TI8AXvW2xpROgZbXqkZqlL47CO5FwnZ5unz5n09diO9yWHvMLR68mPN0OAL9v
++	JJ4HPOVdAgMBAAECggEAB3sDRQ0UDsVjCu1mlG4Et75QPdCF5zGGSfXDje+iFtEi
++	AOKDHCXtftDktv8YXqnzn2zkghvFeJOytLgmpdqDIG0NcaGaaEc3izXBt+dt9He1
++	L+0eyArna0K1kr5GblBHfw8mlv28vYxYYjnmMNKV3f0uv/TEYFmvGP/fRnbIfeCw
++	/+WWq7zLEzUbsmSFFh7R5wmp7abdXJIrUYag88yv2WK1KqpPml2acxVes8Bsi4Ku
++	/L5bFfYfP3P7ZEzz1UZh4uGhIWlSuwgNqyqyKgeb41CxPSqcLTca0Y8U41buvqMF
++	Vc+u1U/4gmTEXnZyFkyG04hW8OdIIXQwgjIxdHXX2QKBgQDfdwcRJPC/IF0e1SuS
++	fULec1HeQVmRtKql5ijPBZZj7x+sGIk/NMozakpe+OiTbOR77p09R/+bRq+osalZ
++	0VFYR0bBwJnfC6065TE95H+3u0WN/UP9NXKpNIYqsCiLS3WHgsbN0CVFST5vbvq1
++	J3P0wBAu+/o4F5pkpZb684yNxQKBgQDZv6RgyEGwSYV1I5cZh/f+oSI7tkRbXt7F
++	Nu/q5fo7XtTSo8rSj/fy55BoXLazSeanbhCXnH9SgoRwwVDIJH/BF5untnGrdZdi
++	GEVUOMS+spzKdBpJIQCYK8tTIbvx0JJhSfgzDeh8JdOWVBhICaQoP1bqw6J+xq05
++	uO7dpWnKuQKBgGtw+S7fCfl7AArRB3AZVctKuvQXi48oxFube8d9sj8+O4YtDeAb
++	65Qo6LUdDAXF91027tcGBPmNVOvQ79HFeEzviC+kANdi79k/VRui/11BZ0HLoaLe
++	zdBY9qETrYq7rziGQju2dhUIEELXoybyXygwKBfPAxFxF8SIcT0bWFrZAoGAUmig
++	Kmy/x5sboiiVD/mQltKe5SBnIHl4MAVJqYneOUf7nbiVkzkfatPOqGCmWJZYb/dM
++	2kRFP5Hb09yl2QlPPGHV7BQ1UuHPKDXtTyGo/E8W3dww8opF8lFoww6aVbtNGvrm
++	r1PNL+cU++jZw7G6ae0G1RSzU+2XM6hU5peqwSkCgYEAg77/o1gZfXiXViXRu+J8
++	A0EDRM0AC2y9bBudzDFJFBGke8DMXmUbxGcHCbgun1wliMD72HETbRw/8+2BmUD1
++	wF28uMKNCQp1+mDW4whc1umko3CuLBBDXzAY8L0nMDURqJFiFVE5AGuSNRtSPUHF
++	FFjk71N0GWtdQSovpR+GRDE=
++	-----END PRIVATE KEY-----
++	"""
++
++	static func decode(_ data: Data) async throws -> Data {
++		let object: Any
++		do { object = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) }
++		catch { throw DecodeError("软件源外层 JSON 无效：\(error.localizedDescription)") }
++		guard let root = object as? [String: Any] else { return data }
++		if let payload = root["appstore_v2"] as? String { return try decodeV2(payload) }
++		if let payload = root["appstore"] as? String { return try await decodeLegacy(payload) }
++		return data
++	}
++
++	private static func decodeLegacy(_ payload: String) async throws -> Data {
++		let encrypted = try base64(payload)
++		let update = try await get(legacyUpdateURL)
++		guard let encodedAKey = try dictionary(update, label: "update.json")["rule"] as? String else { throw DecodeError("update.json 缺少 rule") }
++		let akey = try base64(encodedAKey)
++		let keyResponse = try await get(legacyKeyURL)
++		guard let encodedBKey = try dictionary(keyResponse, label: "key.json")["rule"] as? String else { throw DecodeError("key.json 缺少 rule") }
++		let bkeyData = try rsaDecrypt(try base64(encodedBKey), privateKeyPEM: akey)
++		guard let bkey = String(data: bkeyData, encoding: .utf8), !bkey.isEmpty else { throw DecodeError("动态 bkey 不是 UTF-8") }
++		return try validateJSON(rc4(encrypted, keyText: bkey), label: "Legacy appstore")
++	}
++
++	private static func decodeV2(_ payload: String) throws -> Data {
++		let raw = try decodeV2Codec(payload)
++		guard raw.count >= 12, u32LE(raw, 0) == v2Magic else { throw DecodeError("appstore_v2 container magic 无效") }
++		let rsaLength = Int(u32LE(raw, 4)), rsaStart = 8, rsaEnd = rsaStart + rsaLength
++		guard rsaLength > 0, rsaEnd + 4 <= raw.count else { throw DecodeError("appstore_v2 RSA 长度越界") }
++		let payloadLength = Int(u32LE(raw, rsaEnd)), payloadStart = rsaEnd + 4, payloadEnd = payloadStart + payloadLength
++		guard payloadLength > 0, payloadEnd <= raw.count else { throw DecodeError("appstore_v2 payload 长度越界") }
++		let keyData = try rsaDecrypt(raw.subdata(in: rsaStart..<rsaEnd), privateKeyPEM: Data(v2PrivateKeyPEM.utf8))
++		guard let keyText = String(data: keyData, encoding: .utf8), !keyText.isEmpty else { throw DecodeError("appstore_v2 RC4 key 无效") }
++		return try validateJSON(rc4(raw.subdata(in: payloadStart..<payloadEnd), keyText: keyText), label: "appstore_v2")
++	}
++
++	private static func get(_ url: URL) async throws -> Data {
++		var request = URLRequest(url: url); request.timeoutInterval = 30; request.cachePolicy = .reloadIgnoringLocalCacheData
++		request.setValue("zonoe/3.0", forHTTPHeaderField: "User-Agent")
++		let (data, response) = try await URLSession.shared.data(for: request)
++		guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { throw DecodeError("\(url.lastPathComponent) 请求失败") }
++		return data
++	}
++
++	private static func dictionary(_ data: Data, label: String) throws -> [String: Any] {
++		guard let result = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else { throw DecodeError("\(label) 不是 JSON object") }
++		return result
++	}
++
++	private static func base64(_ text: String) throws -> Data {
++		var compact = text.components(separatedBy: .whitespacesAndNewlines).joined().replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
++		if compact.count % 4 != 0 { compact += String(repeating: "=", count: 4 - compact.count % 4) }
++		guard let data = Data(base64Encoded: compact, options: [.ignoreUnknownCharacters]) else { throw DecodeError("Base64 数据无效") }
++		return data
++	}
++
++	private static func decodeV2Codec(_ text: String) throws -> Data {
++		var lookup = [Int](repeating: -1, count: 256)
++		for (index, byte) in v2Alphabet.enumerated() { lookup[Int(byte)] = index }
++		var output = Data(), accumulator: UInt64 = 0, bitCount = 0
++		for byte in text.utf8 {
++			guard byte < 128, lookup[Int(byte)] >= 0 else { throw DecodeError("appstore_v2 codec 字符无效") }
++			let value = lookup[Int(byte)], width = (value == 30 || value == 31) ? 5 : 6
++			accumulator |= UInt64(value & ((1 << width) - 1)) << UInt64(bitCount); bitCount += width
++			while bitCount >= 8 { output.append(UInt8(accumulator & 0xff)); accumulator >>= 8; bitCount -= 8 }
++		}
++		if bitCount > 0 { output.append(UInt8(accumulator & 0xff)) }
++		return output
++	}
++
++	private static func u32LE(_ data: Data, _ offset: Int) -> UInt32 {
++		UInt32(data[offset]) | (UInt32(data[offset + 1]) << 8) | (UInt32(data[offset + 2]) << 16) | (UInt32(data[offset + 3]) << 24)
++	}
++
++	private static func rc4(_ data: Data, keyText: String) -> Data {
++		let key = keyText.utf16.map { UInt8(truncatingIfNeeded: $0) }
++		var state = Array(0...255).map(UInt8.init), j = 0
++		for i in 0..<256 { j = (j + Int(state[i]) + Int(key[i % key.count])) & 0xff; state.swapAt(i, j) }
++		var i = 0; j = 0; var output = Data(capacity: data.count)
++		for byte in data { i = (i + 1) & 0xff; j = (j + Int(state[i])) & 0xff; state.swapAt(i, j); output.append(byte ^ state[(Int(state[i]) + Int(state[j])) & 0xff]) }
++		return output
++	}
++
++	private static func validateJSON(_ data: Data, label: String) throws -> Data {
++		guard String(data: data, encoding: .utf8) != nil else { throw DecodeError("\(label) 解密结果不是 UTF-8") }
++		do { _ = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]); return data }
++		catch { throw DecodeError("\(label) 解密结果不是 JSON：\(error.localizedDescription)") }
++	}
++
++	private static func rsaDecrypt(_ ciphertext: Data, privateKeyPEM: Data) throws -> Data {
++		guard let pem = String(data: privateKeyPEM, encoding: .utf8) else { throw DecodeError("RSA private key 不是 UTF-8 PEM") }
++		let der = try privateKeyDER(pem)
++		let attributes: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPrivate, kSecAttrKeySizeInBits: 2048]
++		var createError: Unmanaged<CFError>?
++		guard let key = SecKeyCreateWithData(der as CFData, attributes as CFDictionary, &createError) else { throw DecodeError("RSA private key 导入失败") }
++		let blockSize = SecKeyGetBlockSize(key)
++		guard ciphertext.count > 0, ciphertext.count % blockSize == 0 else { throw DecodeError("RSA ciphertext 长度无效") }
++		var output = Data()
++		for offset in stride(from: 0, to: ciphertext.count, by: blockSize) {
++			var error: Unmanaged<CFError>?
++			let block = ciphertext.subdata(in: offset..<(offset + blockSize))
++			guard let plain = SecKeyCreateDecryptedData(key, .rsaEncryptionPKCS1, block as CFData, &error) as Data? else { throw DecodeError("RSA PKCS#1 v1.5 解密失败") }
++			output.append(plain)
++		}
++		return output
++	}
++
++	private static func privateKeyDER(_ pem: String) throws -> Data {
++		let body = pem.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty && !$0.hasPrefix("-----") }.joined()
++		guard let der = Data(base64Encoded: body, options: [.ignoreUnknownCharacters]) else { throw DecodeError("RSA PEM Base64 无效") }
++		if pem.contains("BEGIN RSA PRIVATE KEY") { return der }
++		guard pem.contains("BEGIN PRIVATE KEY") else { throw DecodeError("不支持的 RSA PEM 格式") }
++		var outer = DERReader(data: der), sequence = try outer.read(tag: 0x30), inner = DERReader(data: sequence)
++		_ = try inner.read(tag: 0x02); _ = try inner.read(tag: 0x30); return try inner.read(tag: 0x04)
++	}
++
++	private struct DERReader {
++		let data: Data; var index = 0
++		mutating func read(tag: UInt8) throws -> Data {
++			guard index < data.count, data[index] == tag else { throw DecodeError("DER tag 无效") }; index += 1
++			let length = try readLength(); guard index + length <= data.count else { throw DecodeError("DER 长度越界") }
++			let value = data.subdata(in: index..<(index + length)); index += length; return value
++		}
++		mutating func readLength() throws -> Int {
++			guard index < data.count else { throw DecodeError("DER length 缺失") }; let first = data[index]; index += 1
++			if first & 0x80 == 0 { return Int(first) }
++			let count = Int(first & 0x7f); guard count > 0, count <= 8, index + count <= data.count else { throw DecodeError("DER length 无效") }
++			var length = 0; for _ in 0..<count { length = (length << 8) | Int(data[index]); index += 1 }; return length
++		}
++	}
++
++	private struct DecodeError: LocalizedError { let message: String; init(_ message: String) { self.message = message }; var errorDescription: String? { message } }
++}
++
+ struct SourceAppMetadata: Equatable {
+ 	let rawFields: [String: SourceJSONValue]
+ 	let sourceName: String?
+@@ -196,24 +365,31 @@ final class SourceRepositoryLoader {
+ 	func fetch(from url: URL, allowCachedFallback: Bool = true, completion: @escaping (Result<ASRepository, Error>) -> Void) {
+ 		let requestURL = urlWithUDID(url)
+ 		URLSession.shared.dataTask(with: requestURL) { data, response, networkError in
+-			var latestError: Error = networkError ?? LoaderError.noData
+-			if let networkError { self.log(networkError, url: requestURL) }
+-			if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+-				latestError = LoaderError.httpStatus(http.statusCode)
+-				self.log(latestError, url: requestURL)
+-				completion(.failure(latestError)); return
+-			}
+-			if let data {
+-				do {
+-					if self.looksLikeHTML(data) { throw LoaderError.htmlResponse }
+-					let repository = try self.decode(data, sourceURL: url)
+-					try? self.saveCache(data, for: url)
+-					completion(.success(repository)); return
+-				} catch { latestError = error; self.log(error, url: requestURL) }
++			Task {
++				var latestError: Error = networkError ?? LoaderError.noData
++				if let networkError { self.log(networkError, url: requestURL) }
++				if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
++					latestError = LoaderError.httpStatus(http.statusCode)
++					self.log(latestError, url: requestURL)
++					completion(.failure(latestError)); return
++				}
++				if let data {
++					do {
++						if self.looksLikeHTML(data) { throw LoaderError.htmlResponse }
++						let plain = try await SourcePayloadDecoder.decode(data)
++						let repository = try self.decodeRepositoryPayload(plain, sourceURL: url)
++						try? self.saveCache(data, for: url)
++						completion(.success(repository)); return
++					} catch { latestError = error; self.log(error, url: requestURL) }
++				}
++				if allowCachedFallback, let cached = try? Data(contentsOf: self.cacheURL(for: url)) {
++					do {
++						let plain = try await SourcePayloadDecoder.decode(cached)
++						completion(.success(try self.decodeRepositoryPayload(plain, sourceURL: url))); return
++					} catch { latestError = error }
++				}
++				completion(.failure(latestError))
+ 			}
+-			if allowCachedFallback, let cached = try? Data(contentsOf: self.cacheURL(for: url)), let repository = try? self.decode(cached, sourceURL: url) {
+-				completion(.success(repository))
+-			} else { completion(.failure(latestError)) }
+ 		}.resume()
+ 	}
+ 
+@@ -280,34 +456,11 @@ final class SourceRepositoryLoader {
+ 		return Array(Set(keys)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+ 	}
+ 
+-	private func decode(_ data: Data, sourceURL: URL) throws -> ASRepository {
++	private func decodeRepositoryPayload(_ data: Data, sourceURL: URL) throws -> ASRepository {
+ 		let decoder = JSONDecoder()
+ 		let object: Any
+ 		do { object = try JSONSerialization.jsonObject(with: data) }
+ 		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+-		if let wrapper = object as? [String: Any], let encrypted = wrapper["appstore"] as? String {
+-			return try decodeEncrypted(encrypted, version: 1, decoder: decoder, sourceURL: sourceURL)
+-		}
+-		if let wrapper = object as? [String: Any], let encrypted = wrapper["appstore_v2"] as? String {
+-			return try decodeEncrypted(encrypted, version: 2, decoder: decoder, sourceURL: sourceURL)
+-		}
+-		captureMetadata(object, for: sourceURL)
+-		let normalized = try JSONSerialization.data(withJSONObject: normalizeRepository(repositoryObject(from: object)))
+-		return try decodeRepository(normalized, decoder: decoder)
+-	}
+-
+-	private func decodeEncrypted(_ encrypted: String, version: Int, decoder: JSONDecoder, sourceURL: URL) throws -> ASRepository {
+-		var compact = encrypted.trimmingCharacters(in: .whitespacesAndNewlines)
+-			.replacingOccurrences(of: "-", with: "+")
+-			.replacingOccurrences(of: "_", with: "/")
+-		while compact.count % 4 != 0 { compact.append("=") }
+-		guard version == 1, let cipher = Data(base64Encoded: compact, options: [.ignoreUnknownCharacters]) else {
+-			throw LoaderError.invalidEncryptedPayload
+-		}
+-		let plain = try decryptDES(cipher)
+-		let object: Any
+-		do { object = try JSONSerialization.jsonObject(with: plain) }
+-		catch { throw LoaderError.invalidJSON(error.localizedDescription) }
+ 		captureMetadata(object, for: sourceURL)
+ 		let normalized = try JSONSerialization.data(withJSONObject: normalizeRepository(repositoryObject(from: object)))
+ 		return try decodeRepository(normalized, decoder: decoder)
+@@ -319,7 +472,11 @@ final class SourceRepositoryLoader {
+ 		let pay = ((dictionary["payURL"] as? String) ?? (legacy?["pay"] as? String)).flatMap(tolerantURLString)
+ 		let unlock = ((dictionary["unlockURL"] as? String) ?? (legacy?["url"] as? String)).flatMap(tolerantURLString)
+ 		let key = (legacy?["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+-		let metadata = SourceAccessMetadata(payURL: pay.flatMap(URL.init(string:)), unlockURL: unlock.flatMap(URL.init(string:)), legacyKey: key?.isEmpty == false ? key : nil)
++		let metadata = SourceAccessMetadata(
++			payURL: pay.flatMap(URL.init(string:)), unlockURL: unlock.flatMap(URL.init(string:)),
++			legacyKey: key?.isEmpty == false ? key : nil,
++			rawFields: dictionary.filter { $0.key != "apps" }.mapValues(SourceJSONValue.init(any:))
++		)
+ 
+ 		var appMetadata: [String: SourceAppAccessMetadata] = [:]
+ 		var extendedMetadata: [String: SourceAppMetadata] = [:]
+@@ -330,10 +487,11 @@ final class SourceRepositoryLoader {
+ 				let name = (app["name"] as? String) ?? ""
+ 				let requiresUnlock = boolValue(app["isNeedlock"] ?? app["isNeedLock"] ?? app["lock"])
+ 				let hasDownloadURL = appHasDownloadURL(app)
+-				guard requiresUnlock != nil || hasDownloadURL else { continue }
+-				let value = SourceAppAccessMetadata(requiresUnlock: requiresUnlock, hasDownloadURL: hasDownloadURL)
+-				if let identifier, !identifier.isEmpty { appMetadata["id:\(identifier)"] = value }
+-				if !name.isEmpty { appMetadata["name:\(name)"] = value }
++				if requiresUnlock != nil || hasDownloadURL {
++					let value = SourceAppAccessMetadata(requiresUnlock: requiresUnlock, hasDownloadURL: hasDownloadURL)
++					if let identifier, !identifier.isEmpty { appMetadata["id:\(identifier)"] = value }
++					if !name.isEmpty { appMetadata["name:\(name)"] = value }
++				}
+ 				let extended = makeExtendedMetadata(app, sourceName: sourceName)
+ 				if let identifier, !identifier.isEmpty { extendedMetadata["id:\(identifier)"] = extended }
+ 				if !name.isEmpty { extendedMetadata["name:\(name)"] = extended }
+@@ -563,35 +721,13 @@ final class SourceRepositoryLoader {
+ #endif
+ 	}
+ 
+-	private func decryptDES(_ encrypted: Data) throws -> Data {
+-		let key = Data("esign_so".utf8)
+-		let iv = Data("urce_enc".utf8)
+-		let outputCapacity = encrypted.count + kCCBlockSizeDES
+-		var output = Data(count: outputCapacity)
+-		var moved = 0
+-		let status = output.withUnsafeMutableBytes { outputBytes in
+-			encrypted.withUnsafeBytes { inputBytes in
+-				key.withUnsafeBytes { keyBytes in
+-					iv.withUnsafeBytes { ivBytes in
+-						CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmDES), CCOptions(kCCOptionPKCS7Padding), keyBytes.baseAddress, kCCKeySizeDES, ivBytes.baseAddress, inputBytes.baseAddress, encrypted.count, outputBytes.baseAddress, outputCapacity, &moved)
+-					}
+-				}
+-			}
+-		}
+-		guard status == kCCSuccess else { throw LoaderError.decryptionFailed(status) }
+-		output.removeSubrange(moved..<output.count)
+-		return output
+-	}
+-
+ 	enum LoaderError: LocalizedError {
+-		case noData, unsupportedFormat, invalidEncryptedPayload, decryptionFailed(CCCryptorStatus)
++		case noData, unsupportedFormat
+ 		case httpStatus(Int), htmlResponse, invalidJSON(String), repositoryDecode(String), emptyApps
+ 		var errorDescription: String? {
+ 			switch self {
+ 			case .noData: return "软件源没有返回数据"
+ 			case .unsupportedFormat: return "不支持的软件源格式"
+-			case .invalidEncryptedPayload: return "暂不支持该全能签加密软件源格式"
+-			case .decryptionFailed(let status): return "全能签软件源解密失败（\(status)）"
+ 			case .httpStatus(let code): return "软件源服务器返回 HTTP \(code)"
+ 			case .htmlResponse: return "服务器返回了网页，而不是软件源 JSON"
+ 			case .invalidJSON(let detail): return "JSON 格式错误：\(detail)"
+@@ -619,7 +755,20 @@ enum SourceURLIdentity {
+ 	}
+ 
+ 	static func localID(for url: URL) -> String {
+-		"source-url:\(normalized(url).absoluteString)"
++		"source-host:\(duplicateKey(for: url))"
++	}
++
++	static func duplicateKey(for url: URL) -> String {
++		guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
++			  let host = components.host?.lowercased(), !host.isEmpty else {
++			return normalized(url).absoluteString
++		}
++		return host
++	}
++
++	static func isDuplicate(_ lhs: URL?, _ rhs: URL) -> Bool {
++		guard let lhs else { return false }
++		return duplicateKey(for: lhs) == duplicateKey(for: rhs)
+ 	}
+ 
+ 	static func matches(_ lhs: URL?, _ rhs: URL) -> Bool {
+@@ -684,7 +833,7 @@ final class SourceImportCoordinator: ObservableObject {
+ 
+ 	func importSource(_ url: URL, completion: ((Bool) -> Void)? = nil) {
+ 		let sourceURL = SourceURLIdentity.normalized(url)
+-		if Storage.shared.getSources().contains(where: { SourceURLIdentity.matches($0.sourceURL, sourceURL) }) {
++		if Storage.shared.getSources().contains(where: { SourceURLIdentity.isDuplicate($0.sourceURL, sourceURL) }) {
+ 			UIAlertController.showAlertWithOk(title: "提示", message: "该软件源已添加")
+ 			completion?(false); return
+ 		}
+diff --git a/Ksign/Backend/Storage/Storage+Sources.swift b/Ksign/Backend/Storage/Storage+Sources.swift
+index 083e002..89b42bf 100644
+--- a/Ksign/Backend/Storage/Storage+Sources.swift
++++ b/Ksign/Backend/Storage/Storage+Sources.swift
+@@ -57,6 +57,11 @@ extension Storage {
+ 		completion: @escaping (Error?) -> Void
+ 	) {
+ 		let normalizedURL = SourceURLIdentity.normalized(url)
++		guard !sourceExists(url: normalizedURL) else {
++			completion(nil)
++			print("ignoring duplicate source host \(SourceURLIdentity.duplicateKey(for: normalizedURL))")
++			return
++		}
+ 		addSource(
+ 			normalizedURL,
+ 			name: repository.name,
+@@ -123,6 +128,6 @@ extension Storage {
+ 
+ 	func sourceExists(url: URL) -> Bool {
+ 		let normalizedURL = SourceURLIdentity.normalized(url)
+-		return getSources().contains { SourceURLIdentity.matches($0.sourceURL, normalizedURL) }
++		return getSources().contains { SourceURLIdentity.isDuplicate($0.sourceURL, normalizedURL) }
+ 	}
+ }
+-- 
+2.51.1
+

@@ -1,0 +1,73 @@
+From 3eb842a69abc9feb5fdc2f0581c877f98e1816a6 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 7 Sep 2026 01:48:50 +0900
+Subject: [PATCH] Localize and broaden App Store region search
+
+---
+ Ksign/Views/Appstore/AppstoreView.swift | 41 +++++++++++++++++++++++--
+ 1 file changed, 38 insertions(+), 3 deletions(-)
+
+diff --git a/Ksign/Views/Appstore/AppstoreView.swift b/Ksign/Views/Appstore/AppstoreView.swift
+index 483e9fa..42fe648 100644
+--- a/Ksign/Views/Appstore/AppstoreView.swift
++++ b/Ksign/Views/Appstore/AppstoreView.swift
+@@ -78,7 +78,7 @@ struct AppstoreView: View {
+             .onChange(of: deviceRaw) { _ in if !query.isEmpty { Task { await service.search(term: query, country: region, device: device.wrappedValue) } } }
+         }
+     }
+-    private func regionName(_ code: String) -> String { Locale.current.localizedString(forRegionCode: code) ?? code }
++    private func regionName(_ code: String) -> String { AppleStoreRegionNames.chinese(code) }
+ }
+ 
+ private struct AppleStoreProductRow: View {
+@@ -111,10 +111,45 @@ private struct AppleStoreRegionPicker: View {
+     @Binding var region: String
+     @State private var query = ""
+     private let common = ["CN","JP","US","HK","TW","GB","KR","CA","AU"]
+-    private var regions: [String] { Locale.isoRegionCodes.filter { code in let name = Locale.current.localizedString(forRegionCode: code) ?? code; return query.isEmpty || code.localizedCaseInsensitiveContains(query) || name.localizedCaseInsensitiveContains(query) }.sorted { (Locale.current.localizedString(forRegionCode:$0) ?? $0) < (Locale.current.localizedString(forRegionCode:$1) ?? $1) } }
++    private var regions: [String] {
++        Locale.isoRegionCodes.filter { AppleStoreRegionNames.matches($0, query: query) }
++            .sorted { AppleStoreRegionNames.chinese($0).localizedCompare(AppleStoreRegionNames.chinese($1)) == .orderedAscending }
++    }
+     var body: some View { NavigationStack { List {
+         Section("常用地区") { ForEach(common, id: \.self, content: row) }
+         Section("全部地区") { ForEach(regions, id: \.self, content: row) }
+     }.searchable(text:$query,prompt:"搜索国家或地区").navigationTitle("App Store 地区").toolbar { Button("完成") { dismiss() } } } }
+-    private func row(_ code:String) -> some View { Button { region=code; dismiss() } label: { HStack { Text(Locale.current.localizedString(forRegionCode:code) ?? code); Spacer(); Text(code).foregroundStyle(.secondary); if region==code { Image(systemName:"checkmark") } } }.foregroundStyle(.primary) }
++    private func row(_ code:String) -> some View {
++        Button { region=code; dismiss() } label: {
++            HStack {
++                VStack(alignment: .leading, spacing: 2) {
++                    Text(AppleStoreRegionNames.chinese(code))
++                    Text("\(AppleStoreRegionNames.english(code)) · \(code.uppercased())")
++                        .font(.caption).foregroundStyle(.secondary)
++                }
++                Spacer()
++                if region == code { Image(systemName:"checkmark") }
++            }
++        }.foregroundStyle(.primary)
++    }
++}
++
++private enum AppleStoreRegionNames {
++    private static let englishLocale = Locale(identifier: "en_US")
++    private static let chineseLocale = Locale(identifier: "zh_Hans")
++
++    static func english(_ code: String) -> String {
++        englishLocale.localizedString(forRegionCode: code) ?? code.uppercased()
++    }
++
++    static func chinese(_ code: String) -> String {
++        chineseLocale.localizedString(forRegionCode: code) ?? english(code)
++    }
++
++    static func matches(_ code: String, query: String) -> Bool {
++        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !clean.isEmpty else { return true }
++        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
++        return [code, english(code), chinese(code)].contains { $0.range(of: clean, options: options) != nil }
++    }
+ }
+-- 
+2.51.1
+
