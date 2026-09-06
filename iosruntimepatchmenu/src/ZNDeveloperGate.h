@@ -7,6 +7,7 @@ typedef NS_ENUM(NSInteger, ZNIdentitySource) {
     ZNIdentitySourceHostDylib,
     ZNIdentitySourceZonoeLocalTicket,
     ZNIdentitySourceSubmittedHost,
+    ZNIdentitySourceMarkerFile,
 };
 
 @interface ZNDeveloperGate : NSObject
