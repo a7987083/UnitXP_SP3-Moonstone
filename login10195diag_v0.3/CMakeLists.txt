@@ -29,7 +29,12 @@ target_include_directories(Login10195DiagV03 PRIVATE
   ${CMAKE_SOURCE_DIR}/third_party/Dobby/include
 )
 
-target_link_libraries(Login10195DiagV03 PRIVATE dobby_static)
+find_library(OBJC_LIBRARY objc REQUIRED)
+
+target_link_libraries(Login10195DiagV03 PRIVATE
+  dobby_static
+  ${OBJC_LIBRARY}
+)
 
 target_compile_options(Login10195DiagV03 PRIVATE
   -fvisibility=hidden
