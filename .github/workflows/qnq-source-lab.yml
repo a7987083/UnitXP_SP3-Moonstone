@@ -21,6 +21,106 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Legacy live regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+
+          curl -fL --retry 2 --connect-timeout 15 --max-time 45 \
+            -A 'QNQSourceLab/0.7.1-CI' \
+            https://api.nuosike.com/update.json -o "$TMP/update.json"
+
+          python3 - "$TMP/update.json" "$TMP/akey.pem" <<'PY'
+          import base64, json, sys
+          src, out = sys.argv[1:]
+          root = json.load(open(src, 'r', encoding='utf-8'))
+          rule = root.get('rule')
+          if not isinstance(rule, str) or not rule:
+              raise SystemExit('update.json missing rule')
+          pem = base64.b64decode(''.join(rule.split()), validate=False)
+          text = pem.decode('utf-8')
+          if 'BEGIN' not in text or 'PRIVATE KEY' not in text:
+              raise SystemExit('update.json rule is not RSA private PEM')
+          open(out, 'wb').write(pem)
+          print(f'[legacy] akey PEM bytes={len(pem)}')
+          PY
+
+          openssl pkey -in "$TMP/akey.pem" -noout >/dev/null
+
+          curl -fL --retry 2 --connect-timeout 15 --max-time 45 \
+            -A 'QNQSourceLab/0.7.1-CI' \
+            https://api.nuosike.com/key.json -o "$TMP/key.json"
+
+          python3 - "$TMP/key.json" "$TMP/bkey.enc" <<'PY'
+          import base64, json, sys
+          src, out = sys.argv[1:]
+          root = json.load(open(src, 'r', encoding='utf-8'))
+          rule = root.get('rule')
+          if not isinstance(rule, str) or not rule:
+              raise SystemExit('key.json missing rule')
+          blob = base64.b64decode(''.join(rule.split()), validate=False)
+          open(out, 'wb').write(blob)
+          print(f'[legacy] bkey RSA ciphertext bytes={len(blob)}')
+          PY
+
+          openssl pkeyutl -decrypt \
+            -inkey "$TMP/akey.pem" \
+            -pkeyopt rsa_padding_mode:pkcs1 \
+            -in "$TMP/bkey.enc" \
+            -out "$TMP/bkey.txt"
+
+          python3 - "$TMP/bkey.txt" <<'PY'
+          import sys
+          data = open(sys.argv[1], 'rb').read()
+          text = data.decode('utf-8')
+          if not text:
+              raise SystemExit('empty bkey')
+          print(f'[legacy] bkey UTF-8 bytes={len(data)} chars={len(text)}')
+          PY
+
+          curl -fL --retry 2 --connect-timeout 15 --max-time 60 \
+            -A 'QNQSourceLab/0.7.1-CI' \
+            https://sign.io31.top/appstore -o "$TMP/source.json"
+
+          python3 - "$TMP/source.json" "$TMP/bkey.txt" <<'PY'
+          import base64, json, sys
+
+          source_path, key_path = sys.argv[1:]
+          outer = json.load(open(source_path, 'r', encoding='utf-8'))
+          value = outer.get('appstore')
+          if not isinstance(value, str) or not value:
+              raise SystemExit('source wrapper missing appstore')
+          encrypted = base64.b64decode(''.join(value.split()), validate=False)
+
+          key_text = open(key_path, 'rb').read().decode('utf-8')
+          utf16 = key_text.encode('utf-16-le')
+          key = bytes(utf16[i] for i in range(0, len(utf16), 2))
+          if not key:
+              raise SystemExit('empty RC4 key')
+
+          S = list(range(256))
+          j = 0
+          for i in range(256):
+              j = (j + S[i] + key[i % len(key)]) & 0xff
+              S[i], S[j] = S[j], S[i]
+          i = j = 0
+          out = bytearray()
+          for b in encrypted:
+              i = (i + 1) & 0xff
+              j = (j + S[i]) & 0xff
+              S[i], S[j] = S[j], S[i]
+              out.append(b ^ S[(S[i] + S[j]) & 0xff])
+
+          text = bytes(out).decode('utf-8')
+          decoded = json.loads(text)
+          apps = decoded.get('apps') if isinstance(decoded, dict) else None
+          if not isinstance(apps, list) or len(apps) <= 0:
+              raise SystemExit(f'legacy JSON parsed but apps invalid: {type(apps).__name__}')
+          print(f'[legacy] PASS encrypted={len(encrypted)} plaintext={len(out)} apps={len(apps)}')
+          PY
+
       - name: Show Xcode
         run: |
           xcodebuild -version
@@ -49,17 +149,17 @@ jobs:
           mkdir -p QNQSourceLab/package/Payload QNQSourceLab/dist
           cp -R "$APP" QNQSourceLab/package/Payload/
           cd QNQSourceLab/package
-          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.7_TrollStore.ipa Payload
+          /usr/bin/zip -qry ../dist/QNQSourceLab_v0.7.1_TrollStore.ipa Payload
           cd ../..
-          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.7_TrollStore.ipa | head -40
-          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.7_TrollStore.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
+          unzip -l QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa | head -40
+          shasum -a 256 QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa | tee QNQSourceLab/dist/SHA256SUMS.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QNQSourceLab-v0.7
+          name: QNQSourceLab-v0.7.1
           path: |
-            QNQSourceLab/dist/QNQSourceLab_v0.7_TrollStore.ipa
+            QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa
             QNQSourceLab/dist/SHA256SUMS.txt
             QNQSourceLab-build.log
           if-no-files-found: error
@@ -68,9 +168,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f QNQSourceLab/dist/QNQSourceLab_v0.7_TrollStore.ipa QNQSourceLab/dist/SHA256SUMS.txt
+          git add -f QNQSourceLab/dist/QNQSourceLab_v0.7.1_TrollStore.ipa QNQSourceLab/dist/SHA256SUMS.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Publish QNQSourceLab v0.7 IPA [skip ci]"
+          git commit -m "Publish QNQSourceLab v0.7.1 IPA [skip ci]"
           git push
