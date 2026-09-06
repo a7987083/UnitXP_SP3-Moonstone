@@ -27,7 +27,7 @@
     _markerPath = @"";
     _authorizedUDID = @"";
     _observedUDID = @"";
-    _lastError = @"Not validated";
+    _lastError = @"尚未检测";
     _identitySource = ZNIdentitySourceNone;
     _hostBridgeAvailable = NO;
     _awaitingZonoe = NO;
@@ -60,14 +60,14 @@
     _authorizedUDID = @"";
 
     if (!path) {
-        _lastError = @"Developer marker file not found";
+        _lastError = @"未找到开发者标记文件 1";
         return NO;
     }
 
     NSError *error = nil;
     NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];
     if (!text) {
-        _lastError = [NSString stringWithFormat:@"Marker read failed: %@", error.localizedDescription ?: @"unknown"];
+        _lastError = [NSString stringWithFormat:@"读取标记文件失败：%@", error.localizedDescription ?: @"未知错误"];
         return NO;
     }
 
@@ -76,18 +76,16 @@
     text = [text stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
 
     NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
-    if (lines.count < 2 || ![[self trimLine:lines[0]] isEqualToString:@"g"]) {
-        _lastError = @"Marker line 1 must be g";
+    if (lines.count < 1 || ![[self trimLine:lines[0]] isEqualToString:@"g"]) {
+        _lastError = @"标记文件第一行必须为 g";
         return NO;
     }
 
-    NSString *udid = [self trimLine:lines[1]];
-    if (!udid.length) {
-        _lastError = @"Marker line 2 UDID is empty";
-        return NO;
+    // v0.4: line 2 is optional. If present it is display-only metadata.
+    if (lines.count >= 2) {
+        NSString *udid = [self trimLine:lines[1]];
+        if (udid.length) _authorizedUDID = udid;
     }
-
-    _authorizedUDID = udid;
     return YES;
 }
 
@@ -102,7 +100,7 @@
 
     if (![self loadMarker]) {
         if (wasAuthorized) {
-            [[ZNRuntimeLogger sharedLogger] log:@"Developer Gate revoked: marker invalid or removed"];
+            [[ZNRuntimeLogger sharedLogger] log:@"开发者权限已关闭：标记文件无效或已移除"];
         }
         return;
     }
@@ -113,13 +111,13 @@
     _lastError = @"";
 
     if (!wasAuthorized) {
-        [[ZNRuntimeLogger sharedLogger] log:@"Developer Gate authorized via marker file; external UDID acquisition disabled"];
+        [[ZNRuntimeLogger sharedLogger] log:@"开发者权限已通过标记文件启用；不再获取外部 UDID"];
     }
 }
 
 - (void)requestZonoeValidation {
     [self refresh];
-    [[ZNRuntimeLogger sharedLogger] log:@"UDID acquisition disabled; developer gate uses marker file only"];
+    [[ZNRuntimeLogger sharedLogger] log:@"已重新检测标记文件 1"];
 }
 
 - (void)submitHostUDID:(NSString *)udid authorized:(BOOL)authorized {
@@ -130,26 +128,27 @@
 
 - (NSString *)sourceDescription {
     switch (_identitySource) {
-        case ZNIdentitySourceMarkerFile: return @"Marker File";
-        case ZNIdentitySourceHostDylib: return @"Host Dylib (Disabled)";
-        case ZNIdentitySourceZonoeLocalTicket: return @"Zonoe Local Ticket (Disabled)";
-        case ZNIdentitySourceSubmittedHost: return @"Host Submitted (Disabled)";
-        default: return @"None";
+        case ZNIdentitySourceMarkerFile: return @"标记文件";
+        case ZNIdentitySourceHostDylib: return @"Host Dylib（已禁用）";
+        case ZNIdentitySourceZonoeLocalTicket: return @"Local Ticket（已禁用）";
+        case ZNIdentitySourceSubmittedHost: return @"Host Submitted（已禁用）";
+        default: return @"无";
     }
 }
 
 - (NSString *)maskedUDID:(NSString *)udid {
-    if (udid.length <= 8) return udid.length ? @"********" : @"";
+    if (!udid.length) return @"";
+    if (udid.length <= 8) return @"********";
     return [NSString stringWithFormat:@"%@****%@", [udid substringToIndex:4], [udid substringFromIndex:udid.length-4]];
 }
 
 - (NSString *)diagnosticReport {
-    return [NSString stringWithFormat:@"Developer Gate: %@\nMarker: %@\nMarker UDID: %@\nSource: %@\nUDID Acquisition: Disabled\nHost Bridge: Disabled\nLocal Ticket: Disabled\nError: %@\n",
-            self.authorized ? @"Authorized" : @"Locked",
-            self.markerPath.length ? self.markerPath : @"Not Found",
+    return [NSString stringWithFormat:@"开发者状态: %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n外部 UDID 获取: 已禁用\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
+            self.authorized ? @"已启用" : @"未启用",
+            self.markerPath.length ? self.markerPath : @"未找到",
             [self maskedUDID:self.authorizedUDID],
             [self sourceDescription],
-            self.lastError.length ? self.lastError : @"None"];
+            self.lastError.length ? self.lastError : @"无"];
 }
 @end
 
