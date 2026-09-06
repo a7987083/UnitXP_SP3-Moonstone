@@ -62,7 +62,7 @@ struct ContentView: View {
                         ShareLink(item: url) { Label("导出 JSON", systemImage: "doc.text") }
                     }
                     Spacer()
-                    Text("v0.7")
+                    Text("v0.7.1")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
