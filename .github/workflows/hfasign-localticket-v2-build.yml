@@ -50,14 +50,41 @@ jobs:
             0036-zonoe-alpha19-apple-app-store-search.patch \
             0037-zonoe-alpha19-tabs-and-files-settings.patch \
             0038-zonoe-alpha19-compile-source-ui.patch \
-            0039-zonoe-alpha19-compile-category-filter.patch \
-            0042-zonoe-local-ticket-v2-push.patch; do
+            0039-zonoe-alpha19-compile-category-filter.patch; do
             git -C HFASignBuild apply "../HFASign/patches/$p"
           done
+
+          # 0042 modifies two files. Apply its UDIDService portion against the
+          # exact alpha19 stack, then inject the URL route using a structural
+          # anchor so later FeatherApp formatting changes cannot break git apply.
+          awk '/^diff --git a\/Ksign\/FeatherApp.swift/{exit} {print}' \
+            HFASign/patches/0042-zonoe-local-ticket-v2-push.patch > /tmp/0042-udidservice.patch
+          git -C HFASignBuild apply /tmp/0042-udidservice.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('HFASignBuild/Ksign/FeatherApp.swift')
+          s = p.read_text()
+          needle = '\t\tif url.scheme == "zonoe" {\n'
+          insert = (
+              needle
+              + '\t\t\tif url.host?.lowercased() == "device-auth" {\n'
+              + '\t\t\t\tUDIDService.shared.handleDeviceTicketV2Request(url)\n'
+              + '\t\t\t\treturn\n'
+              + '\t\t\t}\n'
+          )
+          if needle not in s:
+              raise SystemExit('FeatherApp zonoe URL routing anchor not found')
+          if 'handleDeviceTicketV2Request(url)' not in s:
+              s = s.replace(needle, insert, 1)
+          p.write_text(s)
+          PY
+
           git -C HFASignBuild diff --check
           grep -q 'handleDeviceTicketV2Request' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
           grep -q 'import Network' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
-          grep -q 'action == "device-auth"' HFASignBuild/Ksign/FeatherApp.swift
+          grep -q 'handleDeviceTicketV2Request(url)' HFASignBuild/Ksign/FeatherApp.swift
+          grep -q 'device-auth' HFASignBuild/Ksign/FeatherApp.swift
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
 
@@ -105,6 +132,7 @@ jobs:
           ldid -S "$app/Ksign"
           strings "$app/Ksign" | grep -q 'LocalTicketV2'
           strings "$app/Ksign" | grep -q 'device-auth'
+          strings "$app/Ksign" | grep -q 'PUSH_CONNECT_FAILED'
           mkdir -p HFASign/dist-localticket-v2/stage/Payload
           cp -R "$app" HFASign/dist-localticket-v2/stage/Payload/HFASign.app
           cd HFASign/dist-localticket-v2/stage
