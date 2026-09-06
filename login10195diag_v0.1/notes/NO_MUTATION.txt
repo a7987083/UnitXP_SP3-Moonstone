@@ -1,0 +1,1 @@
+Safety invariant: hooks are observational only. They must tail-call original functions unchanged and must not alter JSON, socket destination, packet payload, message id, callback result, or SDK return values.
