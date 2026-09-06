@@ -11,7 +11,7 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
         [ZNPatchManager sharedManager];
         [[ZNDeveloperGate sharedGate] refresh];
         ZNInstallV030Swizzles();
-        [[ZNRuntimeLogger sharedLogger] log:@"Runtime Core 0.3.0 bootstrap"];
+        [[ZNRuntimeLogger sharedLogger] log:@"Runtime Core 0.3.1 local-ticket bootstrap"];
     }
 }
 
@@ -39,6 +39,7 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
 @interface ZNRuntimeMenuControllerV030 (V030Private)
 - (UIView *)cardAtY:(CGFloat)y height:(CGFloat)h width:(CGFloat)w compact:(BOOL)compact;
 - (UILabel *)label:(NSString *)text size:(CGFloat)size weight:(UIFontWeight)weight color:(UIColor *)color;
+- (UIFont *)menuFont:(CGFloat)size weight:(UIFontWeight)weight;
 - (void)addSection:(NSString *)title subtitle:(NSString *)subtitle y:(CGFloat *)y width:(CGFloat)width;
 - (void)layoutSidebar;
 - (void)updateSidebar;
@@ -58,6 +59,7 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
 - (void)zn30_makeUI:(UIWindow *)window;
 - (void)zn30_togglePanel:(id)sender;
 - (void)zn30_refreshDeveloperCategories:(BOOL)force;
+- (void)zn31_updateIdentitySubtitle;
 @end
 
 @implementation ZNRuntimeMenuControllerV030 (V030)
@@ -136,23 +138,35 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
     [self renderPage];
 }
 
+- (void)zn31_updateIdentitySubtitle {
+    if (!self.uiReady || !self.subtitleLabel) return;
+    NSString *udid = [ZNDeveloperGate sharedGate].observedUDID ?: @"";
+    self.subtitleLabel.text = udid.length ? udid : @"";
+    self.subtitleLabel.adjustsFontSizeToFitWidth = YES;
+    self.subtitleLabel.minimumScaleFactor = 0.42;
+    self.subtitleLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+}
+
 - (void)zn30_makeUI:(UIWindow *)window {
     [self zn30_makeUI:window];
     [self zn30_refreshDeveloperCategories:YES];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.3.0    MockBackend    iOS %@", UIDevice.currentDevice.systemVersion];
+    [self zn31_updateIdentitySubtitle];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.3.1    LocalTicket    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn30_tick:(NSTimer *)timer {
     [self zn30_tick:timer];
     [[ZNDeveloperGate sharedGate] refresh];
     [self zn30_refreshDeveloperCategories:NO];
-    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.3.0    MockBackend    iOS %@", UIDevice.currentDevice.systemVersion];
+    [self zn31_updateIdentitySubtitle];
+    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.3.1    LocalTicket    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn30_togglePanel:(id)sender {
     [[ZNDeveloperGate sharedGate] refresh];
     [self zn30_refreshDeveloperCategories:NO];
     [self zn30_togglePanel:sender];
+    [self zn31_updateIdentitySubtitle];
 }
 
 - (CGSize)zn30_fullSizeForWindow:(UIWindow *)window {
@@ -230,11 +244,11 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
     UIView *card = [self cardAtY:y height:88 width:width compact:NO];
     UILabel *t = [self label:@"开发者验证" size:12.8 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
     t.frame = CGRectMake(13,7,110,20); [card addSubview:t];
-    UILabel *s = [self label:gate.lastError.length?gate.lastError:@"等待主 dylib UDID" size:9.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+    UILabel *s = [self label:gate.lastError.length?gate.lastError:@"等待 zonoe 本地票据" size:9.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
     s.frame = CGRectMake(13,29,card.bounds.size.width-118,18); s.adjustsFontSizeToFitWidth=YES; s.minimumScaleFactor=0.7; [card addSubview:s];
-    UIButton *verify = [self zn30_button:@"验证 UDID" selector:@selector(zn30_validateUDID:) frame:CGRectMake(card.bounds.size.width-99,26,86,32)];
+    UIButton *verify = [self zn30_button:@"打开 zonoe" selector:@selector(zn30_validateUDID:) frame:CGRectMake(card.bounds.size.width-99,26,86,32)];
     [card addSubview:verify];
-    UILabel *path = [self label:[NSString stringWithFormat:@"1: %@",gate.markerPath.lastPathComponent ?: @"1"] size:8.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+    UILabel *path = [self label:[NSString stringWithFormat:@"1: %@ · g + UDID",gate.markerPath.lastPathComponent ?: @"1"] size:8.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
     path.frame=CGRectMake(13,59,card.bounds.size.width-26,16); [card addSubview:path];
     [self.contentView addSubview:card];
     [self zn30_updateContentHeight:CGRectGetMaxY(card.frame)];
@@ -244,7 +258,7 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
     for (UIView *view in self.contentView.subviews) {
         if (![view isKindOfClass:UILabel.class]) continue;
         UILabel *label = (UILabel *)view;
-        if ([label.text hasPrefix:@"V0.2.4 UI"]) label.text = @"V0.3.0 Core · PatchManager / Diagnostics";
+        if ([label.text hasPrefix:@"V0.2.4 UI"]) label.text = @"V0.3.1 Core · Local Device Ticket";
     }
 }
 
@@ -259,10 +273,10 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
     NSString *bundle = NSBundle.mainBundle.bundleIdentifier ?: @"unknown";
     NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown";
 
-    [self addSection:@"Runtime 诊断" subtitle:@"Developer Gate 已授权 · 只读检查与 MockBackend 自检" y:&y width:width];
+    [self addSection:@"Runtime 诊断" subtitle:@"Developer Gate 已授权 · Local Ticket / MockBackend" y:&y width:width];
     [self zn30_addInfoCard:@"Runtime" lines:@[
         @"Status: Ready",
-        @"Core Version: 0.3.0-core    API: 2",
+        @"Core Version: 0.3.1-local-ticket    API: 2",
         [NSString stringWithFormat:@"Bundle: %@  App: %@",bundle,version],
         [NSString stringWithFormat:@"iOS: %@",UIDevice.currentDevice.systemVersion]
     ] y:&y width:width];
@@ -281,7 +295,7 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
     [self zn30_addInfoCard:@"Patch Manager" lines:@[
         [NSString stringWithFormat:@"Registered: %@   Enabled: %@   Disabled: %@",counts[@"registered"],counts[@"enabled"],counts[@"disabled"]],
         [NSString stringWithFormat:@"Unsupported: %@   Failed: %@",counts[@"unsupported"],counts[@"failed"]],
-        @"Backend: Mock (v0.3 does not patch executable code)"
+        @"Backend: Mock (v0.3.1 does not patch executable code)"
     ] y:&y width:width];
 
     [self zn30_addActionCardY:&y width:width titles:@[@"运行完整诊断",@"复制诊断信息"] selectors:@[@"zn30_runDiagnostics:",@"zn30_copyDiagnostics:"]];
@@ -293,11 +307,12 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV030(void) {
     [self.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
     CGFloat width = CGRectGetWidth(self.contentView.bounds), y = 9.0;
     ZNDeveloperGate *gate = [ZNDeveloperGate sharedGate];
-    [self addSection:@"Debug" subtitle:@"Host Bridge / Patch 状态 / 最近日志" y:&y width:width];
-    [self zn30_addInfoCard:@"Host Identity Bridge" lines:@[
-        @"Passive symbols: ZonoeHostGetUDID / ZonoeHostIsAuthorized",
-        [NSString stringWithFormat:@"Bridge: %@",gate.hostBridgeAvailable?@"Available":@"Not Exported"],
+    [self addSection:@"Debug" subtitle:@"Host Bridge / Local Ticket / Patch 状态 / 最近日志" y:&y width:width];
+    [self zn30_addInfoCard:@"Device Identity" lines:@[
+        @"Host symbols: ZonoeHostGetUDID / ZonoeHostIsAuthorized",
+        [NSString stringWithFormat:@"Host Bridge: %@",gate.hostBridgeAvailable?@"Available":@"Not Exported"],
         [NSString stringWithFormat:@"Identity Source: %@",gate.sourceDescription],
+        [NSString stringWithFormat:@"Local Ticket: %@",gate.awaitingZonoe?@"Pending":@"Idle"],
         [NSString stringWithFormat:@"Marker: %@",gate.markerPath.length?gate.markerPath:@"Not Found"]
     ] y:&y width:width];
 
@@ -394,7 +409,7 @@ static void ZNInstallV030Swizzles(void) {
 }
 
 extern "C" __attribute__((visibility("default"))) uint32_t ZonoePatchGetAPIVersion(void) { return 2; }
-extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void) { return "0.3.0-core"; }
+extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void) { return "0.3.1-local-ticket"; }
 extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void) {
     [[ZNDeveloperGate sharedGate] refresh];
     [ZNPatchManager sharedManager];
