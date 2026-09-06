@@ -1,4 +1,4 @@
-name: Build iOS Runtime Patch Menu v0.3
+name: Build iOS Runtime Patch Menu v0.3.1
 
 on:
   workflow_dispatch:
@@ -24,20 +24,26 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify runtime menu v0.3 Patch Core
+      - name: Build and verify runtime menu v0.3.1 local ticket
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
 
           src="src/ZonoeRuntimeMenuV030.mm"
-          grep -q "0.3.0-core" "$src"
+          grep -q "0.3.1-local-ticket" "$src"
+          grep -q 'Local Device Ticket' "$src"
           grep -q '诊断' "$src"
           grep -q 'Debug' "$src"
           grep -q 'ZonoeRuntimeMenuV024.mm' "$src"
           grep -q 'ZonoeHostGetUDID' src/ZNDeveloperGate.mm
           grep -q 'ZonoeHostIsAuthorized' src/ZNDeveloperGate.mm
-          grep -q 'Clipboard Fallback' src/ZNDeveloperGate.mm
+          grep -q 'Zonoe Local Ticket' src/ZNDeveloperGate.mm
+          grep -q 'zonoe://device-auth' src/ZNDeveloperGate.mm
+          grep -q '/device-ticket' src/ZNDeveloperGate.mm
+          grep -q '127.0.0.1' src/ZNDeveloperGate.mm
           grep -q 'Documents/1' src/ZNDeveloperGate.mm
+          ! grep -q 'Clipboard Fallback' src/ZNDeveloperGate.mm
+          ! grep -q 'generalPasteboard.string ?: @""' src/ZNDeveloperGate.mm
           grep -q 'PatchManager initialized' src/ZNPatchCore.mm
           grep -q 'UnityFramework' src/ZNPatchCore.mm
           grep -q 'runSelfTest' src/ZNPatchCore.mm
@@ -51,15 +57,14 @@ jobs:
           make FINALPACKAGE=1
 
           mkdir -p dist
-          out="dist/ZonoePatch_v0.3.0_PatchCore_Diagnostics.dylib"
+          out="dist/ZonoePatch_v0.3.1_LocalTicket.dylib"
           cp .theos/obj/ZonoePatchV03.dylib "$out"
 
           file "$out"
           otool -L "$out"
-          strings "$out" | grep -q "Runtime Patch Menu"
-          strings "$out" | grep -q "0.3.0-core"
-          strings "$out" | grep -q "PatchManager initialized"
-          strings "$out" | grep -q "Developer Gate"
+          strings "$out" | grep -q "0.3.1-local-ticket"
+          strings "$out" | grep -q "Local Device Ticket"
+          strings "$out" | grep -q "zonoe://device-auth"
           strings "$out" | grep -q "ZonoeHostGetUDID"
           nm -gU "$out" | grep -q "_ZonoePatchGetAPIVersion"
           nm -gU "$out" | grep -q "_ZonoePatchGetVersion"
@@ -77,5 +82,5 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.3.0-PatchCore-Diagnostics
+          name: ZonoePatch-v0.3.1-LocalTicket
           path: iosruntimepatchmenu/dist/*
