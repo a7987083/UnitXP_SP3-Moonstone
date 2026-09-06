@@ -1,433 +1,412 @@
 import Foundation
+import Security
 
 @MainActor
 final class SourceProbeModel: ObservableObject {
     @Published var urlText = "https://qnq.ioswg.com/appstore"
-    @Published var oracleText = "{\"a\":\"AAAA\"}"
     @Published var isLoading = false
-    @Published var output = "等待 v0.6 测试。"
+    @Published var output = "等待 QNQ Source Lab v0.7 Original Decoder Reconstruction。"
     @Published var exportReportURL: URL?
-    @Published var exportAURL: URL?
-    @Published var exportBURL: URL?
+    @Published var exportDecodedURL: URL?
 
-    private let v2OracleURL = URL(string: "https://api.nuosike.com/encrypt.php")!
-    private let v1OracleURL = URL(string: "https://api.nuosike.com/api.php")!
+    static let plainPreset = "https://raw.githubusercontent.com/maxchang3/ani-altstore-source/main/generated/apps.json"
+    static let legacyPreset = "https://sign.io31.top/appstore"
+    static let v2Preset = "https://qnq.ioswg.com/appstore"
+    static let v2AltPreset = "https://yxy.ioswg.com/appstore"
 
-    private struct SourceSample {
-        let url: URL
-        let status: Int?
-        let contentType: String?
-        let responseBytes: Int
-        let wrapper: String
-        let payload: String
-        let decoded: Data?
+    func usePlainPreset() { urlText = Self.plainPreset }
+    func useLegacyPreset() { urlText = Self.legacyPreset }
+    func useV2Preset() { urlText = Self.v2Preset }
+    func useV2AltPreset() { urlText = Self.v2AltPreset }
+
+    func runCurrent() async {
+        guard let url = Self.checkedURL(urlText) else { output = "❌ URL 无效"; return }
+        await run(urls: [url])
     }
 
-    private struct OracleSample {
-        let endpoint: URL
-        let plain: Data
-        let contentBase64: String
-        let status: Int?
-        let responseText: String
-        let encodedResponse: String?
-        let decoded: Data?
+    func runAll() async {
+        let urls = [Self.plainPreset, Self.legacyPreset, Self.v2Preset, Self.v2AltPreset].compactMap(Self.checkedURL)
+        await run(urls: urls)
     }
 
-    private struct V2Shape {
-        let magicOK: Bool
-        let keyBlockLength: Int?
-        let keyBlock: Data?
-        let bodyStart: Int?
-        let body: Data?
-        let last4LE: UInt32?
-        let last4BE: UInt32?
-    }
+    private func run(urls: [URL]) async {
+        isLoading = true
+        exportReportURL = nil
+        exportDecodedURL = nil
+        defer { isLoading = false }
 
-    func useLegacyPreset() { urlText = "https://sign.io31.top/appstore" }
-    func useV2Preset() { urlText = "https://qnq.ioswg.com/appstore" }
-    func useV2AltPreset() { urlText = "https://yxy.ioswg.com/appstore" }
-
-    func runSourceInspect() async {
-        guard let url = checkedURL(urlText) else { output = "URL 无效"; return }
-        await withBusy {
-            let sample = try await Self.fetchSource(url)
-            var lines = [
-                "QNQ Source Lab v0.6",
-                "[软件源结构验证]",
-                "URL: \(sample.url.absoluteString)",
-                "HTTP: \(sample.status.map(String.init) ?? "?")",
-                "Content-Type: \(sample.contentType ?? "?")",
-                "Response bytes: \(sample.responseBytes)",
-                "Wrapper: \(sample.wrapper)",
-                "Payload chars: \(sample.payload.count)"
-            ]
-            guard let data = sample.decoded else {
-                lines.append("❌ Base64 decode failed")
-                self.finish(lines: lines)
-                return
-            }
-            lines.append("Base64 decoded: \(data.count) bytes")
-            if sample.wrapper == "appstore_v2" {
-                lines.append(contentsOf: Self.v2ShapeReport(data, knownPlainLength: nil))
-                lines.append("结论: v0.5 的 @128 Segment2 length 假设已移除；本版只按已确认的 8-byte header + 120-byte key block 解析。")
-            } else if sample.wrapper == "appstore" {
-                lines.append("")
-                lines.append("[appstore / v1]")
-                lines.append("mod8=\(data.count % 8) mod16=\(data.count % 16)")
-                lines.append("first32: \(Self.hex(Data(data.prefix(32))))")
-                lines.append("last32: \(Self.hex(Data(data.suffix(32))))")
-                lines.append("结论: 继续用 api.php 已知明文 Oracle 反推 DES 前 envelope/preprocessing，不再扩大 offset 暴力枚举。")
-            } else {
-                lines.append("❌ Unsupported wrapper")
-            }
-            self.finish(lines: lines)
-        }
-    }
-
-    func runCustomV2Oracle() async { await runCustomOracle(endpoint: v2OracleURL, label: "V2 encrypt.php") }
-    func runCustomV1Oracle() async { await runCustomOracle(endpoint: v1OracleURL, label: "V1 api.php") }
-
-    func runV2Matrix() async { await runMatrix(endpoint: v2OracleURL, isV2: true) }
-    func runV1Matrix() async { await runMatrix(endpoint: v1OracleURL, isV2: false) }
-
-    private func runCustomOracle(endpoint: URL, label: String) async {
-        await withBusy {
-            let plain = Data(self.oracleText.utf8)
-            let a = try await Self.postOracle(endpoint: endpoint, plain: plain)
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            let b = try await Self.postOracle(endpoint: endpoint, plain: plain)
-
-            var lines = [
-                "QNQ Source Lab v0.6",
-                "[\(label) 自定义明文双抓]",
-                "Endpoint: \(endpoint.absoluteString)",
-                "Plain UTF-8 bytes: \(plain.count)",
-                "POST content(Base64) chars: \(a.contentBase64.count)"
-            ]
-            lines.append(contentsOf: Self.oraclePairReport(a, b, isV2: endpoint.lastPathComponent == "encrypt.php"))
-            self.finish(lines: lines, a: a.decoded, b: b.decoded)
-        }
-    }
-
-    private func runMatrix(endpoint: URL, isV2: Bool) async {
-        let cases = [
-            "",
-            "A",
-            "AA",
-            "AAAA",
-            "{}",
-            "{\"a\":1}",
-            "{\"a\":\"AAAA\"}"
+        var allLines = [
+            "QNQ Source Lab v0.7 — Original Decoder Reconstruction",
+            "原版处理原则：Plain / appstore / appstore_v2 统一进入 OriginalSourcePipeline",
+            ""
         ]
-
-        await withBusy {
-            var lines = [
-                "QNQ Source Lab v0.6",
-                isV2 ? "[V2 encrypt.php 已知明文矩阵]" : "[V1 api.php 已知明文矩阵]",
-                "Endpoint: \(endpoint.absoluteString)",
-                "每个明文连续请求 2 次；POST 格式与全能签后台一致：application/x-www-form-urlencoded, content=Base64(plaintext)",
-                ""
-            ]
-
-            var firstA: Data?
-            var firstB: Data?
-            var lengthRows: [(Int, Int)] = []
-
-            for (index, text) in cases.enumerated() {
-                let plain = Data(text.utf8)
-                let a = try await Self.postOracle(endpoint: endpoint, plain: plain)
-                try? await Task.sleep(nanoseconds: 220_000_000)
-                let b = try await Self.postOracle(endpoint: endpoint, plain: plain)
-                if index == 0 { firstA = a.decoded; firstB = b.decoded }
-
-                lines.append("#\(index + 1) plain=\(Self.quoted(text)) bytes=\(plain.count)")
-                lines.append(contentsOf: Self.compactOraclePairReport(a, b, isV2: isV2))
-                lines.append("")
-                if let count = a.decoded?.count { lengthRows.append((plain.count, count)) }
-                try? await Task.sleep(nanoseconds: 220_000_000)
+        var lastDecoded: Data?
+        for (index, url) in urls.enumerated() {
+            if index > 0 {
+                allLines.append("")
+                allLines.append(String(repeating: "=", count: 56))
+                allLines.append("")
             }
+            let result = await OriginalSourcePipeline.load(url: url, v2PrivateKeyPEM: Self.loadV2Key())
+            allLines.append(contentsOf: result.lines)
+            if let decoded = result.decodedJSON { lastDecoded = decoded }
+        }
+        finish(lines: allLines, decoded: lastDecoded)
+    }
 
-            lines.append("[长度关系]")
-            for row in lengthRows {
-                lines.append("plain=\(row.0) -> decoded=\(row.1), overhead=\(row.1 - row.0)")
-            }
-            if lengthRows.count >= 2 {
-                let overheads = Set(lengthRows.map { $0.1 - $0.0 })
-                lines.append("固定 overhead: \(overheads.count == 1 ? "YES (\(overheads.first!))" : "NO")")
-            }
-            self.finish(lines: lines, a: firstA, b: firstB)
+    private func finish(lines: [String], decoded: Data?) {
+        let report = lines.joined(separator: "\n")
+        output = report
+        let stamp = Int(Date().timeIntervalSince1970)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("QNQSourceLab-v0.7-\(stamp)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let reportURL = dir.appendingPathComponent("v0.7-original-decoder-report.txt")
+        try? Data(report.utf8).write(to: reportURL)
+        exportReportURL = reportURL
+        if let decoded {
+            let jsonURL = dir.appendingPathComponent("last-decoded-source.json")
+            try? decoded.write(to: jsonURL)
+            exportDecodedURL = jsonURL
         }
     }
 
-    private func checkedURL(_ value: String) -> URL? {
+    func installV2Key(from sourceURL: URL) throws {
+        let accessed = sourceURL.startAccessingSecurityScopedResource()
+        defer { if accessed { sourceURL.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: sourceURL)
+        guard String(data: data, encoding: .utf8)?.contains("BEGIN PRIVATE KEY") == true else {
+            throw V2DecodeError("不是 PKCS#8 PRIVATE KEY PEM")
+        }
+        try data.write(to: Self.v2KeyURL, options: .atomic)
+        output = "✅ 已导入 appstore_v2.pem：\(data.count) bytes"
+    }
+
+    func removeV2Key() {
+        try? FileManager.default.removeItem(at: Self.v2KeyURL)
+        output = "已移除本地 appstore_v2.pem"
+    }
+
+    var hasV2Key: Bool { FileManager.default.fileExists(atPath: Self.v2KeyURL.path) }
+
+    private static var v2KeyURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("appstore_v2.pem")
+    }
+
+    private static func loadV2Key() -> Data? { try? Data(contentsOf: v2KeyURL) }
+
+    private static func checkedURL(_ value: String) -> URL? {
         let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         return url
     }
+}
 
-    private func withBusy(_ operation: @escaping () async throws -> Void) async {
-        isLoading = true
-        exportReportURL = nil
-        exportAURL = nil
-        exportBURL = nil
-        defer { isLoading = false }
-        do { try await operation() }
-        catch {
-            finish(lines: ["QNQ Source Lab v0.6", "❌ \(error.localizedDescription)"])
+private struct OriginalPipelineResult {
+    let lines: [String]
+    let decodedJSON: Data?
+}
+
+private enum SourceEnvelopeKind: String {
+    case plain = "Plain JSON"
+    case appstore = "appstore"
+    case appstoreV2 = "appstore_v2"
+}
+
+private enum OriginalSourcePipeline {
+    static func load(url: URL, v2PrivateKeyPEM: Data?) async -> OriginalPipelineResult {
+        var lines = ["URL: \(url.absoluteString)"]
+        let responseData: Data
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 30
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("QNQSourceLab/0.7", forHTTPHeaderField: "User-Agent")
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let http = response as? HTTPURLResponse
+            guard let status = http?.statusCode else {
+                lines.append("[1] HTTP ❌ 非 HTTP 响应")
+                return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+            }
+            lines.append("[1] HTTP ✅ status=\(status) bytes=\(data.count) content-type=\(http.value(forHTTPHeaderField: "Content-Type") ?? "?")")
+            guard (200...299).contains(status) else {
+                lines.append("[1] HTTP ❌ status=\(status)")
+                return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+            }
+            responseData = data
+        } catch {
+            lines.append("[1] HTTP ❌ \(error.localizedDescription)")
+            return OriginalPipelineResult(lines: lines, decodedJSON: nil)
         }
-    }
 
-    private func finish(lines: [String], a: Data? = nil, b: Data? = nil) {
-        let report = lines.joined(separator: "\n")
-        output = report
-        let stamp = Int(Date().timeIntervalSince1970)
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("QNQSourceLab-v0.6-\(stamp)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let reportURL = dir.appendingPathComponent("v0.6-report.txt")
-        try? Data(report.utf8).write(to: reportURL)
-        exportReportURL = reportURL
-        if let a {
-            let u = dir.appendingPathComponent("A-decoded.bin")
-            try? a.write(to: u)
-            exportAURL = u
+        let outerObject: Any
+        do {
+            outerObject = try JSONSerialization.jsonObject(with: responseData, options: [.fragmentsAllowed])
+        } catch {
+            lines.append("[2] Outer detection ❌ outer JSON parse: \(error.localizedDescription)")
+            return OriginalPipelineResult(lines: lines, decodedJSON: nil)
         }
-        if let b {
-            let u = dir.appendingPathComponent("B-decoded.bin")
-            try? b.write(to: u)
-            exportBURL = u
-        }
-    }
 
-    private static func fetchSource(_ url: URL) async throws -> SourceSample {
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 30
-        req.cachePolicy = .reloadIgnoringLocalCacheData
-        req.setValue("QNQSourceLab/0.6", forHTTPHeaderField: "User-Agent")
-        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let http = response as? HTTPURLResponse
-        guard let obj = try? JSONSerialization.jsonObject(with: data), let root = obj as? [String: Any] else {
-            return SourceSample(url: url, status: http?.statusCode, contentType: http?.value(forHTTPHeaderField: "Content-Type"), responseBytes: data.count, wrapper: "<outer-json-failed>", payload: "", decoded: nil)
-        }
-        let wrapper: String
-        if root["appstore_v2"] is String { wrapper = "appstore_v2" }
-        else if root["appstore"] is String { wrapper = "appstore" }
-        else { wrapper = "<unknown>" }
-        let payload = root[wrapper] as? String ?? ""
-        return SourceSample(url: url, status: http?.statusCode, contentType: http?.value(forHTTPHeaderField: "Content-Type"), responseBytes: data.count, wrapper: wrapper, payload: payload, decoded: decodeBase64Flexible(payload))
-    }
-
-    private static func postOracle(endpoint: URL, plain: Data) async throws -> OracleSample {
-        let content = plain.base64EncodedString()
-        var comps = URLComponents()
-        comps.queryItems = [URLQueryItem(name: "content", value: content)]
-        let body = Data((comps.percentEncodedQuery ?? "content=").utf8)
-
-        var req = URLRequest(url: endpoint)
-        req.httpMethod = "POST"
-        req.timeoutInterval = 30
-        req.cachePolicy = .reloadIgnoringLocalCacheData
-        req.httpBody = body
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.setValue("QNQSourceLab/0.6", forHTTPHeaderField: "User-Agent")
-        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let status = (response as? HTTPURLResponse)?.statusCode
-        let text = String(data: data, encoding: .utf8) ?? ""
-        let encoded = extractBase64Response(text)
-        let decoded = encoded.flatMap(decodeBase64Flexible)
-        return OracleSample(endpoint: endpoint, plain: plain, contentBase64: content, status: status, responseText: text, encodedResponse: encoded, decoded: decoded)
-    }
-
-    private static func extractBase64Response(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let d = decodeBase64Flexible(trimmed), d.count >= 4 { return trimmed }
-
-        let pattern = "[A-Za-z0-9+/_=-]{32,}"
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let ns = raw as NSString
-        let range = NSRange(location: 0, length: ns.length)
-        let candidates = re.matches(in: raw, range: range).map { ns.substring(with: $0.range) }
-        return candidates.max(by: { $0.count < $1.count })
-    }
-
-    private static func oraclePairReport(_ a: OracleSample, _ b: OracleSample, isV2: Bool) -> [String] {
-        var lines = [
-            "A HTTP: \(a.status.map(String.init) ?? "?") response chars=\(a.responseText.count) decoded=\(a.decoded?.count ?? -1)",
-            "B HTTP: \(b.status.map(String.init) ?? "?") response chars=\(b.responseText.count) decoded=\(b.decoded?.count ?? -1)"
-        ]
-        guard let ad = a.decoded, let bd = b.decoded else {
-            lines.append("❌ 至少一次响应无法提取/解码 Base64")
-            lines.append("A prefix: \(String(a.responseText.prefix(180)))")
-            lines.append("B prefix: \(String(b.responseText.prefix(180)))")
-            return lines
-        }
-        lines.append(contentsOf: binaryCompareReport(ad, bd))
-        if isV2 {
-            lines.append("")
-            lines.append("[A V2 envelope]")
-            lines.append(contentsOf: v2ShapeReport(ad, knownPlainLength: a.plain.count))
-            lines.append("")
-            lines.append("[B V2 envelope]")
-            lines.append(contentsOf: v2ShapeReport(bd, knownPlainLength: b.plain.count))
+        let envelope: SourceEnvelopeKind
+        let payload: String?
+        if let root = outerObject as? [String: Any], let value = root["appstore_v2"] as? String {
+            envelope = .appstoreV2; payload = value
+        } else if let root = outerObject as? [String: Any], let value = root["appstore"] as? String {
+            envelope = .appstore; payload = value
         } else {
-            lines.append("A mod8=\(ad.count % 8) mod16=\(ad.count % 16)")
-            lines.append("A first32: \(hex(Data(ad.prefix(32))))")
-            lines.append("A last32: \(hex(Data(ad.suffix(32))))")
-            lines.append("B first32: \(hex(Data(bd.prefix(32))))")
-            lines.append("B last32: \(hex(Data(bd.suffix(32))))")
+            envelope = .plain; payload = nil
         }
-        return lines
+        lines.append("[2] Outer detection ✅ \(envelope.rawValue)")
+
+        switch envelope {
+        case .plain:
+            lines.append("[3] Envelope decode ✅ skipped (plain JSON)")
+            lines.append("[4] Original preprocess ✅ skipped")
+            lines.append("[5] Crypto ✅ skipped")
+            lines.append("[6] UTF-8 \(String(data: responseData, encoding: .utf8) == nil ? "❌" : "✅") bytes=\(responseData.count)")
+            return finishJSON(data: responseData, object: outerObject, lines: lines)
+
+        case .appstore:
+            guard let payload else {
+                lines.append("[3] Base64 ❌ wrapper value missing")
+                return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+            }
+            guard let decoded = flexibleBase64Decode(payload) else {
+                lines.append("[3] Base64 ❌ invalid appstore payload")
+                return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+            }
+            lines.append("[3] Base64 ✅ decoded=\(decoded.count) mod8=\(decoded.count % 8) mod16=\(decoded.count % 16)")
+            lines.append("    first32=\(hex(Data(decoded.prefix(32))))")
+            lines.append("    last32=\(hex(Data(decoded.suffix(32))))")
+            lines.append("[4] Original V1 preprocess ❌ 尚未完成：继续从 +[YYYAppStoreSource modelWithJSON:] 反追真实 appstore 分支输入构造")
+            lines.append("[5] Crypto ⏸ 未调用猜测 DES；等待 V1 原版参数链完成")
+            lines.append("[6] UTF-8 ⏸")
+            lines.append("[7] JSON ⏸")
+            lines.append("[8] Repo schema ⏸")
+            lines.append("[9] Apps ⏸")
+            return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+
+        case .appstoreV2:
+            guard let payload else {
+                lines.append("[3] V2 codec ❌ wrapper value missing")
+                return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+            }
+            do {
+                let raw = try NuosikeAppstoreV2Decoder.decodeCodec(payload)
+                lines.append("[3] Original V2 codec ✅ decoded=\(raw.count)")
+                let container = try NuosikeAppstoreV2Decoder.parseContainer(raw)
+                lines.append("[4] Original V2 preprocess ✅ magic=0x\(String(container.magic, radix: 16)) rsa_len=\(container.rsaBlob.count) payload_len=\(container.payload.count) trailing=\(container.trailingCount)")
+                guard let v2PrivateKeyPEM else {
+                    lines.append("[5] Crypto / RSA ❌ appstore_v2.pem 未导入")
+                    lines.append("[6] UTF-8 ⏸")
+                    lines.append("[7] JSON ⏸")
+                    lines.append("[8] Repo schema ⏸")
+                    lines.append("[9] Apps ⏸")
+                    return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+                }
+                let keyData = try NuosikeAppstoreV2Decoder.rsaDecrypt(container.rsaBlob, privateKeyPEM: v2PrivateKeyPEM)
+                guard let keyText = String(data: keyData, encoding: .utf8) else { throw V2DecodeError("RSA plaintext is not UTF-8 RC4 key text") }
+                lines.append("[5] Crypto / RSA ✅ key_chars=\(keyText.utf16.count)")
+                let jsonData = try NuosikeAppstoreV2Decoder.rc4(container.payload, keyText: keyText)
+                guard String(data: jsonData, encoding: .utf8) != nil else { throw V2DecodeError("RC4 plaintext is not UTF-8") }
+                lines.append("[5] Crypto / RC4 ✅ plaintext=\(jsonData.count)")
+                lines.append("[6] UTF-8 ✅")
+                let jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: [.fragmentsAllowed])
+                return finishJSON(data: jsonData, object: jsonObject, lines: lines)
+            } catch {
+                lines.append("❌ V2 / \(error.localizedDescription)")
+                return OriginalPipelineResult(lines: lines, decodedJSON: nil)
+            }
+        }
     }
 
-    private static func compactOraclePairReport(_ a: OracleSample, _ b: OracleSample, isV2: Bool) -> [String] {
-        guard let ad = a.decoded, let bd = b.decoded else {
-            return ["decode: FAIL A=\(a.decoded?.count ?? -1) B=\(b.decoded?.count ?? -1)"]
-        }
-        let prefix = commonPrefix(ad, bd)
-        let suffix = commonSuffix(ad, bd)
-        let changed = changedCount(ad, bd)
-        let overlap = min(ad.count, bd.count)
-        let ratio = overlap == 0 ? 0 : Double(changed) / Double(overlap)
-        var lines = [
-            String(format: "A=%d B=%d commonPrefix=%d commonSuffix=%d changed=%d/%d (%.6f)", ad.count, bd.count, prefix, suffix, changed, overlap, ratio)
-        ]
-        if isV2 {
-            let sa = parseV2(ad)
-            let sb = parseV2(bd)
-            lines.append("A: magic=\(sa.magicOK ? "OK" : "NO") keyLen=\(sa.keyBlockLength.map(String.init) ?? "?") bodyStart=\(sa.bodyStart.map(String.init) ?? "?") bodyBytes=\(sa.body?.count ?? -1) last4LE=\(sa.last4LE.map(String.init) ?? "?") plainLenMatch=\(sa.last4LE == UInt32(a.plain.count) ? "YES" : "NO")")
-            lines.append("B: magic=\(sb.magicOK ? "OK" : "NO") keyLen=\(sb.keyBlockLength.map(String.init) ?? "?") bodyStart=\(sb.bodyStart.map(String.init) ?? "?") bodyBytes=\(sb.body?.count ?? -1) last4LE=\(sb.last4LE.map(String.init) ?? "?") plainLenMatch=\(sb.last4LE == UInt32(b.plain.count) ? "YES" : "NO")")
+    private static func finishJSON(data: Data, object: Any, lines: [String]) -> OriginalPipelineResult {
+        var lines = lines
+        lines.append("[7] JSON ✅ top-level=\(typeName(object))")
+        if let root = object as? [String: Any] {
+            let keys = root.keys.sorted()
+            lines.append("[8] Repo schema ✅ keys=\(keys.prefix(12).joined(separator: ","))")
+            if let apps = root["apps"] as? [Any] { lines.append("[9] Apps ✅ Apps: \(apps.count)") }
+            else { lines.append("[9] Apps ❌ top-level apps[] missing") }
         } else {
-            lines.append("mod8 A=\(ad.count % 8) B=\(bd.count % 8); first8 A=\(hex(Data(ad.prefix(8)))) B=\(hex(Data(bd.prefix(8))))")
+            lines.append("[8] Repo schema ❌ expected top-level object")
+            lines.append("[9] Apps ❌")
         }
-        return lines
+        return OriginalPipelineResult(lines: lines, decodedJSON: data)
     }
 
-    private static func parseV2(_ data: Data) -> V2Shape {
-        let expected = Data([0x3e, 0xb7, 0xf6, 0xf4])
-        let magicOK = data.count >= 4 && Data(data.prefix(4)) == expected
-        guard data.count >= 8, let keyLen32 = readU32LE(data, at: 4) else {
-            return V2Shape(magicOK: magicOK, keyBlockLength: nil, keyBlock: nil, bodyStart: nil, body: nil, last4LE: readU32LEAtEnd(data), last4BE: readU32BEAtEnd(data))
-        }
-        let keyLen = Int(keyLen32)
-        let start = 8
-        let end = start + keyLen
-        guard keyLen >= 0, end <= data.count else {
-            return V2Shape(magicOK: magicOK, keyBlockLength: keyLen, keyBlock: nil, bodyStart: nil, body: nil, last4LE: readU32LEAtEnd(data), last4BE: readU32BEAtEnd(data))
-        }
-        let block = data.subdata(in: start..<end)
-        let body = end <= data.count ? data.subdata(in: end..<data.count) : nil
-        return V2Shape(magicOK: magicOK, keyBlockLength: keyLen, keyBlock: block, bodyStart: end, body: body, last4LE: readU32LEAtEnd(data), last4BE: readU32BEAtEnd(data))
+    private static func typeName(_ value: Any) -> String {
+        if value is [String: Any] { return "object" }
+        if value is [Any] { return "array" }
+        if value is String { return "string" }
+        if value is NSNumber { return "number/bool" }
+        if value is NSNull { return "null" }
+        return String(describing: type(of: value))
     }
 
-    private static func v2ShapeReport(_ data: Data, knownPlainLength: Int?) -> [String] {
-        let s = parseV2(data)
-        var lines = ["", "[appstore_v2 envelope]"]
-        lines.append("Magic: \(s.magicOK ? "✅ 3e b7 f6 f4" : "❌")")
-        lines.append("Key block length @4 LE32: \(s.keyBlockLength.map(String.init) ?? "?")")
-        if let key = s.keyBlock {
-            lines.append("Key block: \(key.count) bytes")
-            lines.append("Key first16: \(hex(Data(key.prefix(16))))")
-            lines.append("Key last16: \(hex(Data(key.suffix(16))))")
-        }
-        lines.append("Body start: \(s.bodyStart.map(String.init) ?? "?")")
-        if let body = s.body {
-            lines.append("Body bytes (including possible trailer): \(body.count)")
-            lines.append("Body first24: \(hex(Data(body.prefix(24))))")
-            lines.append("Body last24: \(hex(Data(body.suffix(24))))")
-        }
-        lines.append("Last4 LE: \(s.last4LE.map(String.init) ?? "?")")
-        lines.append("Last4 BE: \(s.last4BE.map(String.init) ?? "?")")
-        if let knownPlainLength, let last = s.last4LE {
-            lines.append("Last4LE == plaintext bytes: \(last == UInt32(knownPlainLength) ? "✅ YES" : "❌ NO") (plain=\(knownPlainLength))")
-        }
-        return lines
+    private static func flexibleBase64Decode(_ value: String) -> Data? {
+        let compact = value.components(separatedBy: .whitespacesAndNewlines).joined()
+        if let data = Data(base64Encoded: compact, options: [.ignoreUnknownCharacters]) { return data }
+        var padded = compact.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let rem = padded.count % 4
+        if rem != 0 { padded += String(repeating: "=", count: 4 - rem) }
+        return Data(base64Encoded: padded, options: [.ignoreUnknownCharacters])
     }
 
-    private static func binaryCompareReport(_ a: Data, _ b: Data) -> [String] {
-        let prefix = commonPrefix(a, b)
-        let suffix = commonSuffix(a, b)
-        let changed = changedCount(a, b)
-        let overlap = min(a.count, b.count)
-        let ratio = overlap == 0 ? 0 : Double(changed) / Double(overlap)
-        return [
-            "Exact equal: \(a == b ? "YES" : "NO")",
-            "Common prefix: \(prefix)",
-            "Common suffix: \(suffix)",
-            "Length delta: \(a.count - b.count)",
-            "Changed overlap: \(changed)/\(overlap)",
-            String(format: "Changed ratio: %.6f", ratio),
-            "A first16: \(hex(Data(a.prefix(16))))",
-            "B first16: \(hex(Data(b.prefix(16))))",
-            "A last16: \(hex(Data(a.suffix(16))))",
-            "B last16: \(hex(Data(b.suffix(16))))"
+    private static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined(separator: " ") }
+}
+
+private struct V2DecodeError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+private struct V2Container {
+    let magic: UInt32
+    let rsaBlob: Data
+    let payload: Data
+    let trailingCount: Int
+}
+
+private enum NuosikeAppstoreV2Decoder {
+    private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".utf8)
+    private static let magic: UInt32 = 0xFEEDFACF
+
+    static func decodeCodec(_ text: String) throws -> Data {
+        var lookup = [Int](repeating: -1, count: 256)
+        for (index, byte) in alphabet.enumerated() { lookup[Int(byte)] = index }
+        var output = Data()
+        output.reserveCapacity(text.utf8.count * 3 / 4 + 8)
+        var accumulator: UInt64 = 0
+        var bitCount = 0
+        for (position, byte) in text.utf8.enumerated() {
+            let value = byte < 128 ? lookup[Int(byte)] : -1
+            guard value >= 0 else { throw V2DecodeError("invalid codec character at index \(position)") }
+            let width = (value == 30 || value == 31) ? 5 : 6
+            accumulator |= UInt64(value & ((1 << width) - 1)) << UInt64(bitCount)
+            bitCount += width
+            while bitCount >= 8 {
+                output.append(UInt8(accumulator & 0xff))
+                accumulator >>= 8
+                bitCount -= 8
+            }
+        }
+        if bitCount > 0 { output.append(UInt8(accumulator & 0xff)) }
+        return output
+    }
+
+    static func parseContainer(_ raw: Data) throws -> V2Container {
+        guard raw.count >= 12 else { throw V2DecodeError("container too short: \(raw.count)") }
+        let containerMagic = try u32LE(raw, 0)
+        guard containerMagic == magic else { throw V2DecodeError("unexpected magic: 0x\(String(containerMagic, radix: 16)); expected 0xfeedfacf") }
+        let rsaLength = Int(try u32LE(raw, 4))
+        guard rsaLength > 0 else { throw V2DecodeError("invalid RSA blob length: \(rsaLength)") }
+        let rsaStart = 8
+        let rsaEnd = rsaStart + rsaLength
+        guard rsaEnd + 4 <= raw.count else { throw V2DecodeError("RSA blob out of bounds: L1=\(rsaLength), decoded=\(raw.count)") }
+        let payloadLength = Int(try u32LE(raw, rsaEnd))
+        let payloadStart = rsaEnd + 4
+        let payloadEnd = payloadStart + payloadLength
+        guard payloadEnd <= raw.count else { throw V2DecodeError("payload out of bounds: L2=\(payloadLength), remaining=\(raw.count - payloadStart)") }
+        return V2Container(magic: containerMagic, rsaBlob: raw.subdata(in: rsaStart..<rsaEnd), payload: raw.subdata(in: payloadStart..<payloadEnd), trailingCount: raw.count - payloadEnd)
+    }
+
+    static func rsaDecrypt(_ ciphertext: Data, privateKeyPEM: Data) throws -> Data {
+        guard let pem = String(data: privateKeyPEM, encoding: .utf8) else { throw V2DecodeError("private key PEM is not UTF-8") }
+        let pkcs1 = try extractPKCS1PrivateKey(fromPEM: pem)
+        let attributes: [CFString: Any] = [
+            kSecAttrKeyType: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+            kSecAttrKeySizeInBits: 2048
         ]
+        var createError: Unmanaged<CFError>?
+        guard let key = SecKeyCreateWithData(pkcs1 as CFData, attributes as CFDictionary, &createError) else {
+            let message = createError?.takeRetainedValue().localizedDescription ?? "unknown SecKeyCreateWithData error"
+            throw V2DecodeError("RSA private key import failed: \(message)")
+        }
+        let blockSize = SecKeyGetBlockSize(key)
+        guard blockSize > 0, ciphertext.count % blockSize == 0 else { throw V2DecodeError("RSA ciphertext length \(ciphertext.count) is not a multiple of RSA_size \(blockSize)") }
+        var output = Data()
+        for offset in stride(from: 0, to: ciphertext.count, by: blockSize) {
+            let block = ciphertext.subdata(in: offset..<(offset + blockSize))
+            var decryptError: Unmanaged<CFError>?
+            guard let plain = SecKeyCreateDecryptedData(key, .rsaEncryptionPKCS1, block as CFData, &decryptError) as Data? else {
+                let message = decryptError?.takeRetainedValue().localizedDescription ?? "unknown RSA decrypt error"
+                throw V2DecodeError("RSA PKCS#1 v1.5 decrypt failed at block \(offset / blockSize): \(message)")
+            }
+            output.append(plain)
+        }
+        return output
     }
 
-    private static func commonPrefix(_ a: Data, _ b: Data) -> Int {
-        let aa = [UInt8](a), bb = [UInt8](b)
-        let n = min(aa.count, bb.count)
+    static func rc4(_ data: Data, keyText: String) throws -> Data {
+        let key = keyText.utf16.map { UInt8(truncatingIfNeeded: $0) }
+        guard !key.isEmpty else { throw V2DecodeError("empty RC4 key") }
+        var state = Array(0...255).map(UInt8.init)
+        var j = 0
+        for i in 0..<256 {
+            j = (j + Int(state[i]) + Int(key[i % key.count])) & 0xff
+            state.swapAt(i, j)
+        }
         var i = 0
-        while i < n && aa[i] == bb[i] { i += 1 }
-        return i
+        j = 0
+        var output = Data(capacity: data.count)
+        for byte in data {
+            i = (i + 1) & 0xff
+            j = (j + Int(state[i])) & 0xff
+            state.swapAt(i, j)
+            let k = state[(Int(state[i]) + Int(state[j])) & 0xff]
+            output.append(byte ^ k)
+        }
+        return output
     }
 
-    private static func commonSuffix(_ a: Data, _ b: Data) -> Int {
-        let aa = [UInt8](a), bb = [UInt8](b)
-        let n = min(aa.count, bb.count)
-        var i = 0
-        while i < n && aa[aa.count - 1 - i] == bb[bb.count - 1 - i] { i += 1 }
-        return i
+    private static func u32LE(_ data: Data, _ offset: Int) throws -> UInt32 {
+        guard offset >= 0, offset + 4 <= data.count else { throw V2DecodeError("u32 out of bounds @\(offset)") }
+        return UInt32(data[offset]) | (UInt32(data[offset + 1]) << 8) | (UInt32(data[offset + 2]) << 16) | (UInt32(data[offset + 3]) << 24)
     }
 
-    private static func changedCount(_ a: Data, _ b: Data) -> Int {
-        let aa = [UInt8](a), bb = [UInt8](b)
-        let n = min(aa.count, bb.count)
-        var c = 0
-        for i in 0..<n where aa[i] != bb[i] { c += 1 }
-        return c
+    private static func extractPKCS1PrivateKey(fromPEM pem: String) throws -> Data {
+        let body = pem.components(separatedBy: .newlines).filter { !$0.hasPrefix("-----") && !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined()
+        guard let der = Data(base64Encoded: body) else { throw V2DecodeError("invalid PKCS#8 PEM Base64") }
+        var outer = DERReader(data: der)
+        let sequence = try outer.read(expectedTag: 0x30)
+        var inner = DERReader(data: sequence)
+        _ = try inner.read(expectedTag: 0x02)
+        _ = try inner.read(expectedTag: 0x30)
+        return try inner.read(expectedTag: 0x04)
+    }
+}
+
+private struct DERReader {
+    let data: Data
+    var index = 0
+
+    mutating func read(expectedTag: UInt8) throws -> Data {
+        guard index < data.count else { throw V2DecodeError("DER truncated before tag") }
+        let tag = data[index]
+        index += 1
+        guard tag == expectedTag else { throw V2DecodeError("DER tag mismatch: got 0x\(String(tag, radix: 16)), expected 0x\(String(expectedTag, radix: 16))") }
+        let length = try readLength()
+        guard length >= 0, index + length <= data.count else { throw V2DecodeError("DER value out of bounds") }
+        let value = data.subdata(in: index..<(index + length))
+        index += length
+        return value
     }
 
-    private static func decodeBase64Flexible(_ input: String) -> Data? {
-        var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-            .replacingOccurrences(of: "\r", with: "")
-            .replacingOccurrences(of: "\n", with: "")
-            .replacingOccurrences(of: " ", with: "")
-        while text.count % 4 != 0 { text.append("=") }
-        return Data(base64Encoded: text, options: [.ignoreUnknownCharacters])
-    }
-
-    private static func readU32LE(_ data: Data, at offset: Int) -> UInt32? {
-        guard offset >= 0, offset + 4 <= data.count else { return nil }
-        let b = [UInt8](data.subdata(in: offset..<(offset + 4)))
-        return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)
-    }
-
-    private static func readU32BE(_ data: Data, at offset: Int) -> UInt32? {
-        guard offset >= 0, offset + 4 <= data.count else { return nil }
-        let b = [UInt8](data.subdata(in: offset..<(offset + 4)))
-        return (UInt32(b[0]) << 24) | (UInt32(b[1]) << 16) | (UInt32(b[2]) << 8) | UInt32(b[3])
-    }
-
-    private static func readU32LEAtEnd(_ data: Data) -> UInt32? {
-        guard data.count >= 4 else { return nil }
-        return readU32LE(data, at: data.count - 4)
-    }
-
-    private static func readU32BEAtEnd(_ data: Data) -> UInt32? {
-        guard data.count >= 4 else { return nil }
-        return readU32BE(data, at: data.count - 4)
-    }
-
-    private static func hex(_ data: Data) -> String {
-        data.map { String(format: "%02x", $0) }.joined(separator: " ")
-    }
-
-    private static func quoted(_ s: String) -> String {
-        if s.isEmpty { return "<empty>" }
-        return "\"\(s.replacingOccurrences(of: "\n", with: "\\n"))\""
+    private mutating func readLength() throws -> Int {
+        guard index < data.count else { throw V2DecodeError("DER truncated before length") }
+        let first = data[index]
+        index += 1
+        if first & 0x80 == 0 { return Int(first) }
+        let count = Int(first & 0x7f)
+        guard count > 0, count <= MemoryLayout<Int>.size, index + count <= data.count else { throw V2DecodeError("unsupported DER length") }
+        var length = 0
+        for _ in 0..<count {
+            length = (length << 8) | Int(data[index])
+            index += 1
+        }
+        return length
     }
 }
