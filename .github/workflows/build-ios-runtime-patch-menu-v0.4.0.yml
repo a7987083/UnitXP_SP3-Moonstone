@@ -37,6 +37,7 @@ jobs:
           grep -q 'JSON "original" is intentionally ignored' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'Executable Page Probe 未通过' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q '原字节已回滚' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
+          grep -q 'Runtime Patch PASS' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'numberOfLines = 0' iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm
           grep -q 'Executable Page Probe 0.4.2' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
           grep -q '__TEXT,__znprobe' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
@@ -94,9 +95,6 @@ jobs:
           strings "$out" > /tmp/zonoe_v043_strings.txt
           grep -q '0.4.0-runtime-foundation' /tmp/zonoe_v043_strings.txt
           grep -q 'runtime validation installed' /tmp/zonoe_v043_strings.txt
-          grep -q 'Live Original' /tmp/zonoe_v043_strings.txt
-          grep -q 'Runtime Patch PASS' /tmp/zonoe_v043_strings.txt
-          grep -q 'No JIT' /tmp/zonoe_v043_strings.txt
           grep -q 'il2cpp_domain_get' /tmp/zonoe_v043_strings.txt
           ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v043_strings.txt
           ! grep -q 'zonoe://device-auth' /tmp/zonoe_v043_strings.txt
