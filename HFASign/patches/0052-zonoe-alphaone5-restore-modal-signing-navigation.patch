@@ -10,7 +10,7 @@ diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/Library
 -		NavigationStack(path: $_navigationPath) {
 +		NBNavigationView("") {
  			TabView(selection: $_resourceTab) {
-@@ -209,14 +210,5 @@ struct LibraryView: View {
+@@ -209,15 +210,6 @@ struct LibraryView: View {
  			.onChange(of: _selectedTab) { _ in _finishSelection() }
 -			.navigationDestination(for: LibrarySigningRoute.self) { route in
 -				if let app = _signingApp(for: route.appUUID) {
