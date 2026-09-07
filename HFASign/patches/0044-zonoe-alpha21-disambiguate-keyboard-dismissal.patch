@@ -1,0 +1,34 @@
+From 8fee6d270675aab3f90130a41a494f0312eb1026 Mon Sep 17 00:00:00 2001
+From: codex <codex@local>
+Date: Sun, 6 Sep 2026 20:17:06 -0400
+Subject: [PATCH] zonoe alpha21 disambiguate keyboard dismissal
+
+---
+ Ksign/FeatherApp.swift | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 04d0b9e..7373566 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -200,7 +200,7 @@ private struct ZonoeKeyboardDismissBridge: UIViewRepresentable {
+ 		}
+ 
+ 		@objc private func dismissKeyboard() {
+-			UIApplication.shared.resignFirstResponder()
++			UIApplication.shared.zonoeResignFirstResponder()
+ 		}
+ 
+ 		func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+@@ -229,7 +229,7 @@ private extension View {
+ }
+ 
+ private extension UIApplication {
+-	func resignFirstResponder() {
++	func zonoeResignFirstResponder() {
+ 		sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+ 	}
+ }
+-- 
+2.51.1
+
