@@ -1,0 +1,382 @@
+diff --git a/Ksign.xcodeproj/project.pbxproj b/Ksign.xcodeproj/project.pbxproj
+index b673df8..fa4d9a5 100644
+--- a/Ksign.xcodeproj/project.pbxproj
++++ b/Ksign.xcodeproj/project.pbxproj
+@@ -452,7 +452,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 101;
++				CURRENT_PROJECT_VERSION = 102;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+@@ -520,7 +520,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 101;
++				CURRENT_PROJECT_VERSION = 102;
+ 				DEAD_CODE_STRIPPING = YES;
+ 				DEPLOYMENT_POSTPROCESSING = YES;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index bbc9060..a0ecab1 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -623,23 +623,14 @@ final class SourceImportCoordinator: ObservableObject {
+ 		guard let text = pasteboard.string else { return }
+ 		let urls = Self.extractURLs(from: text)
+ 		guard !urls.isEmpty else { return }
+-		validateCandidates(urls, index: 0, valid: [])
++		clipboardCandidates = urls
++		isShowingClipboardPrompt = true
+ 	}
+ 
+-	private func validateCandidates(_ urls: [URL], index: Int, valid: [URL]) {
+-		guard index < urls.count else {
+-			guard !valid.isEmpty else { return }
+-			clipboardCandidates = valid
+-			isShowingClipboardPrompt = true
+-			return
+-		}
+-		let url = urls[index]
+-		SourceRepositoryLoader.shared.fetch(from: url) { result in
+-			DispatchQueue.main.async {
+-				var next = valid
+-				if case .success = result { next.append(url) }
+-				self.validateCandidates(urls, index: index + 1, valid: next)
+-			}
++	func isSourceAdded(_ url: URL) -> Bool {
++		let sourceURL = SourceURLIdentity.normalized(url)
++		return Storage.shared.getSources().contains {
++			SourceURLIdentity.isDuplicate($0.sourceURL, sourceURL)
+ 		}
+ 	}
+ 
+@@ -692,12 +683,15 @@ final class SourceImportCoordinator: ObservableObject {
+ struct SourceClipboardPrompt: View {
+ 	@ObservedObject var coordinator: SourceImportCoordinator
+ 	@Environment(\.dismiss) private var dismiss
++	@State private var importingURLs = Set<String>()
++	@State private var importedURLs = Set<String>()
++
+ 	var body: some View {
+ 		NavigationStack {
+ 			List(coordinator.clipboardCandidates, id: \.absoluteString) { url in
+ 				VStack(alignment: .leading, spacing: 10) {
+ 					Text(url.absoluteString).font(.footnote).textSelection(.enabled)
+-					Button("导入") { coordinator.importSource(url) { if $0 && coordinator.clipboardCandidates.count == 1 { dismiss() } } }.buttonStyle(.borderedProminent)
++					_sourceButton(for: url)
+ 				}
+ 				.padding(.vertical, 4)
+ 			}
+@@ -706,4 +700,35 @@ struct SourceClipboardPrompt: View {
+ 			.toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+ 		}
+ 	}
++
++	@ViewBuilder
++	private func _sourceButton(for url: URL) -> some View {
++		let key = url.absoluteString
++		let isImporting = importingURLs.contains(key)
++		let isAdded = importedURLs.contains(key) || coordinator.isSourceAdded(url)
++
++		Button {
++			guard !isImporting, !isAdded else { return }
++			importingURLs.insert(key)
++			coordinator.importSource(url) { success in
++				DispatchQueue.main.async {
++					importingURLs.remove(key)
++					if success {
++						importedURLs.insert(key)
++						UINotificationFeedbackGenerator().notificationOccurred(.success)
++					}
++				}
++			}
++		} label: {
++			HStack(spacing: 8) {
++				if isImporting {
++					ProgressView().controlSize(.small)
++				}
++				Text(isAdded ? "已添加" : (isImporting ? "正在导入…" : "导入"))
++			}
++		}
++		.buttonStyle(.borderedProminent)
++		.tint(isAdded ? .gray : .accentColor)
++		.disabled(isImporting || isAdded)
++	}
+ }
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 048e456..7c4573d 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -3,7 +3,7 @@
+ <plist version="1.0">
+ <dict>
+ 	<key>ZonoeReleaseVersion</key>
+-	<string>v3.0.0-alphaone1</string>
++	<string>v3.0.0-alphaone2</string>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+ 	<true/>
+ 	<key>LSApplicationQueriesSchemes</key>
+diff --git a/Ksign/Views/Settings/Certificates/CertificatesAddView.swift b/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
+index b21da0c..8820c69 100644
+--- a/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
++++ b/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
+@@ -123,12 +123,16 @@ extension CertificatesAddView {
+ 		hasData: Data? = nil,
+ 		action: @escaping () -> Void
+ 	) -> some View {
+-		Button(title) {
++		let isImported = file != nil || hasData != nil
++		let displayTitle = file.map { "已导入：\($0.lastPathComponent)" }
++			?? (hasData == nil ? title : "已导入")
++
++		Button(displayTitle) {
+ 			action()
+ 		}
+-		.foregroundColor((file == nil && hasData == nil) ? .accentColor : .disabled())
+-		.disabled(file != nil || hasData != nil)
+-		.animation(.easeInOut(duration: 0.3), value: file != nil || hasData != nil)
++		.foregroundColor(isImported ? .disabled() : .accentColor)
++		.disabled(isImported)
++		.animation(.easeInOut(duration: 0.3), value: isImported)
+ 	}
+ }
+ 
+@@ -155,4 +159,3 @@ extension CertificatesAddView {
+ 	}
+ }
+ 
+-
+diff --git a/Ksign/Views/Settings/Certificates/CertificatesCellView.swift b/Ksign/Views/Settings/Certificates/CertificatesCellView.swift
+index 4cc689e..46fae73 100644
+--- a/Ksign/Views/Settings/Certificates/CertificatesCellView.swift
++++ b/Ksign/Views/Settings/Certificates/CertificatesCellView.swift
+@@ -64,15 +64,16 @@ extension CertificatesCellView {
+ 		}
+         
+         if cert.revoked {
+-            pills.append(NBPillItem(title: "Revoked", icon: "xmark.octagon", color: .red))
++			pills.append(NBPillItem(title: "证书已吊销", icon: "xmark.octagon", color: .red))
+         }
+         else {
+-            pills.append(NBPillItem(title: "Valid", icon: "checkmark.circle", color: .green))
++			pills.append(NBPillItem(title: "证书有效", icon: "checkmark.circle", color: .green))
+         }
+ 		
+-		if let info = cert.expiration?.expirationInfo() {
++		if let expiration = cert.expiration {
++			let info = expiration.expirationInfo()
+ 			pills.append(NBPillItem(
+-				title: info.formatted,
++				title: expiration.zonoeRemainingDaysText,
+ 				icon: info.icon,
+ 				color: info.color
+ 			))
+diff --git a/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift b/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift
+index 5951cb3..06d7a9a 100644
+--- a/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift
++++ b/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift
+@@ -49,18 +49,19 @@ extension CertificatesInfoView {
+ 	private func _infoSection(data: Certificate) -> some View {
+ 		NBSection(.localized("信息")) {
+ 			_info(.localized("名称"), description: data.Name)
+-			_info(.localized("AppID Name"), description: data.AppIDName)
+-			_info(.localized("Team Name"), description: data.TeamName)
++			_info("App ID 名称", description: data.AppIDName)
++			_info("团队名称", description: data.TeamName)
+ 		}
+ 		
+ 		Section {
+-			_info(.localized("到期时间"), description: data.ExpirationDate.expirationInfo().formatted)
++			_info(.localized("到期时间"), description: data.ExpirationDate.zonoeRemainingDaysText)
+ 				.foregroundStyle(data.ExpirationDate.expirationInfo().color)
+-            
+-            _info(.localized("Revoked"), description: cert.revoked ? "Yes" : "No")
++
++			_info("证书状态", description: cert.revoked ? "证书已吊销" : "证书有效")
++                .foregroundStyle(cert.revoked ? Color.red : Color.green)
+             
+ 			if let ppq = data.PPQCheck {
+-				_info("PPQCheck", description: ppq ? "Yes" : "No")
++				_info("PPQ 状态", description: ppq ? "已启用" : "未启用")
+ 			}
+ 		}
+ 	}
+@@ -79,20 +80,20 @@ extension CertificatesInfoView {
+ 	@ViewBuilder
+ 	private func _miscSection(data: Certificate) -> some View {
+ 		NBSection(.localized("其他")) {
+-			_disclosure(.localized("Platform"), keys: data.Platform)
++			_disclosure("支持平台", keys: data.Platform)
+ 			
+ 			if let all = data.ProvisionsAllDevices {
+-				_info(.localized("Provision All Devices"), description: all.description)
++				_info("允许所有设备", description: all ? "是" : "否")
+ 			}
+ 			
+ 			if let devices = data.ProvisionedDevices {
+-				_disclosure(.localized("Provisioned Devices"), keys: devices)
++				_disclosure("已授权设备", keys: devices)
+ 			}
+ 			
+-			_disclosure(.localized("Team Identifiers"), keys: data.TeamIdentifier)
++			_disclosure("团队标识", keys: data.TeamIdentifier)
+ 			
+ 			if let prefix = data.ApplicationIdentifierPrefix{
+-				_disclosure(.localized("Identifier Prefix"), keys: prefix)
++				_disclosure("标识符前缀", keys: prefix)
+ 			}
+ 		}
+ 	}
+@@ -114,3 +115,17 @@ extension CertificatesInfoView {
+ 		}
+ 	}
+ }
++
++extension Date {
++	var zonoeRemainingDaysText: String {
++		let calendar = Calendar.current
++		let today = calendar.startOfDay(for: Date())
++		let expirationDay = calendar.startOfDay(for: self)
++		guard let days = calendar.dateComponents([.day], from: today, to: expirationDay).day else {
++			return formatted(date: .numeric, time: .omitted)
++		}
++		if days > 0 { return "\(days) 天" }
++		if days == 0 { return "今天到期" }
++		return "已过期 \(-days) 天"
++	}
++}
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index 314dd5b..0aa265e 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -14,6 +14,7 @@ struct SettingsView: View {
+ 	@State private var isStartingUDID = false
+ 	@State private var isAwaitingUDID = false
+ 	@State private var udidProfileURL: URL?
++	@State private var isUDIDCopyConfirmationPresented = false
+ 
+ 	var body: some View {
+ 		NBNavigationView(.localized("设置")) {
+@@ -50,6 +51,9 @@ struct SettingsView: View {
+ 			deviceUDID = current
+ 			finishUDIDFlow()
+ 		}
++		.alert("UDID 复制成功", isPresented: $isUDIDCopyConfirmationPresented) {
++			Button("确定", role: .cancel) {}
++		}
+ 	}
+ 
+ 	private var deviceSection: some View {
+@@ -80,6 +84,7 @@ struct SettingsView: View {
+ 						Button("复制 UDID") {
+ 							UIPasteboard.general.string = deviceUDID
+ 							UINotificationFeedbackGenerator().notificationOccurred(.success)
++							isUDIDCopyConfirmationPresented = true
+ 						}
+ 						.buttonStyle(.bordered)
+ 
+@@ -167,7 +172,7 @@ struct SettingsView: View {
+ 
+ 	private var releaseVersion: String {
+ 		(Bundle.main.object(forInfoDictionaryKey: "ZonoeReleaseVersion") as? String)
+-			?? "v3.0.0-alphaone1"
++			?? "v3.0.0-alphaone2"
+ 	}
+ 
+ 	private func startUDID() {
+diff --git a/Ksign/Views/Sources/SourcesAddView.swift b/Ksign/Views/Sources/SourcesAddView.swift
+index 1e54804..feff899 100644
+--- a/Ksign/Views/Sources/SourcesAddView.swift
++++ b/Ksign/Views/Sources/SourcesAddView.swift
+@@ -26,22 +26,22 @@ struct SourcesAddView: View {
+ 				Section {
+ 					TextField(.localized("Source Repo URL"), text: $_sourceURL)
+ 						.keyboardType(.URL)
++						.textInputAutocapitalization(.never)
++						.autocorrectionDisabled()
++						.disabled(_isImporting)
+ 				} footer: {
+ 					Text(.localized("Enter a URL to start validation."))
+ 				}
+-				
+-				Section {
+-					Button(.localized("导入"), systemImage: "square.and.arrow.down") {
+-						_isImporting = true
+-						_addCode(UIPasteboard.general.string) {
+-							UINotificationFeedbackGenerator().notificationOccurred(.success)
+-							dismiss()
++
++				if _isImporting {
++					Section {
++						VStack(alignment: .leading, spacing: 10) {
++							Text("正在添加软件源…")
++							ProgressView()
++								.progressViewStyle(.linear)
+ 						}
+-						
++						.padding(.vertical, 4)
+ 					}
+-					
+-				} footer: {
+-					Text(.localized("Supports importing from KravaSign/MapleSign and ESign"))
+ 				}
+ 			}
+ 			.toolbar {
+@@ -52,11 +52,9 @@ struct SourcesAddView: View {
+ 						.localized("添加"),
+ 						style: .text,
+ 						placement: .confirmationAction,
+-						isDisabled: _sourceURL.isEmpty
++						isDisabled: _sourceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+ 					) {
+-						FR.handleSource(_sourceURL) {
+-							dismiss()
+-						}
++						_addSource()
+ 					}
+ 				} else {
+ 					ToolbarItem(placement: .confirmationAction) {
+@@ -66,23 +64,23 @@ struct SourcesAddView: View {
+ 			}
+ 		}
+ 	}
+-	
+-	private func _addCode(
+-		_ code: String?,
+-		competion: @escaping () -> Void
+-	) {
+-		guard let code else { return }
+-		
+-		let repoUrls = SourceImportCoordinator.extractURLs(from: code)
+ 
+-		guard !repoUrls.isEmpty else { return }
+-		
+-		let group = DispatchGroup()
+-		var imported = false
+-		for url in repoUrls {
+-			group.enter()
+-			SourceImportCoordinator.shared.importSource(url) { success in imported = imported || success; group.leave() }
++	private func _addSource() {
++		let value = _sourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
++		guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
++			UIAlertController.showAlertWithOk(title: "地址无效", message: "请输入有效的 HTTP 或 HTTPS 软件源地址。")
++			return
++		}
++
++		_isImporting = true
++		SourceImportCoordinator.shared.importSource(url) { success in
++			DispatchQueue.main.async {
++				_isImporting = false
++				if success {
++					UINotificationFeedbackGenerator().notificationOccurred(.success)
++					dismiss()
++				}
++			}
+ 		}
+-		group.notify(queue: .main) { _isImporting = false; if imported { competion() } }
+ 	}
+ }
