@@ -2,15 +2,21 @@
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
 - Branch: `work/hfapatchipa-ksign-v3`
-- Current version: `v3.0.0-alphaone3` (build 103)
+- Current version: `v3.0.0-alphaone4` (build 104)
 - Stable reconstruction baseline: Ksign `03a3a9c86897d79f9faf8106037b9971841d56a0`
-- Code commit: `5ee8ce6d98b7f93b6d775dea0ccde2fe375280dd`
-- Published artifact commit: `316645e5a996639e38748584392ca5252a5449f4`
-- GitHub Actions run: `34133291093` (`success`)
-- IPA: `HFASign/dist/zonoe_v3.0.0-alphaone3_TrollStore.ipa`
-- SHA256: `facd82e07fcb9f87f900287cfa3e70fd419b10247a5440ad4d518409e5f32c9a`
+- Code commit: `42917ee29dc7f62ce7d40ca9626d6e98af6fa1a1`
+- Published artifact commit: `a6cdcd62235022d0313cad38293a5321343aa28e`
+- GitHub Actions run: `34149749914` (`success`)
+- IPA: `HFASign/dist/zonoe_v3.0.0-alphaone4_TrollStore.ipa`
+- SHA256: `cbe2182e7f4a350f594bdfb1b1032d47142f771f7dfcaa0a25301a26fa82a810`
 
-The authoritative build is `.github/workflows/hfasign-build.yml`. It reconstructs the app from the pinned Ksign commit and the ordered patch stack. Historical patches are immutable; alphaone3 adds `0049-zonoe-alphaone3-fix-navigation-and-clipboard-completion.patch`.
+The authoritative build is `.github/workflows/hfasign-build.yml`. It reconstructs the app from the pinned Ksign commit and the ordered patch stack. Historical patches are immutable; alphaone4 adds `0050-zonoe-alphaone4-fix-signing-navigation-and-keyboard-dismissal.patch` and `0051-zonoe-alphaone4-build-identity.patch`.
+
+## alphaone4 changes
+
+- SigningView is now pushed through a stable UUID-based `NavigationPath` route instead of a Boolean destination derived from an optional Core Data object.
+- The route is appended after the IPA action dialog dismissal state completes, preventing nested push/pop transaction conflicts.
+- Global keyboard dismissal is restored, but the window recognizer remains disabled unless the keyboard is visible and uses `cancelsTouchesInView = false`.
 
 ## alphaone3 changes
 
@@ -35,6 +41,6 @@ The authoritative build is `.github/workflows/hfasign-build.yml`. It reconstruct
 - `git diff --check`: passed on reconstructed source.
 - Five-source QNQ decoder regression: passed in CI.
 - Release iphoneos build, metadata verification, TrollStore packaging and publication: passed.
-- Signing child navigation, Apple App Store detail navigation and clipboard prompt dismissal require device regression.
+- Signing child navigation and keyboard dismissal require device regression; CI verifies construction, compilation and packaging only.
 
 See `docs/PROJECT_HANDOFF.md`, `docs/BUILD.md`, and `docs/KNOWN_ISSUES.md` for older architecture and risks.

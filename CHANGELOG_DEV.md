@@ -1,5 +1,12 @@
 # Development changelog
 
+## v3.0.0-alphaone4
+
+- Replaced the optional-object/Boolean SigningView destination with a stable UUID-based `NavigationPath` route.
+- Deferred the signing route append until the IPA action dialog has completed dismissal.
+- Restored global keyboard dismissal; its window recognizer is enabled only while the keyboard is visible and never cancels control touches.
+- Build 104; workflow run 34149749914 succeeded.
+
 ## v3.0.0-alphaone3
 
 - Removed the global window tap recognizer that blocked SwiftUI navigation.
