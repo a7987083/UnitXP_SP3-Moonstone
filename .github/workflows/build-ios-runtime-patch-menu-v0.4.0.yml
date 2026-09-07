@@ -34,6 +34,7 @@ jobs:
           grep -q 'Runtime Patch Executor 0.4.1' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
           grep -q 'expectedBytes 为空' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
           grep -q '事务已回滚' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
+          grep -q 'mprotect' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
           grep -q 'ZNPatchActionTypeIL2CPPMethod' iosruntimepatchmenu/src/ZNPatchCore.h
           grep -q 'il2cpp_class_from_name' iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
           grep -q 'line 2 is optional' iosruntimepatchmenu/src/ZNDeveloperGate.mm
@@ -71,10 +72,10 @@ jobs:
           nm -gU "$out" | grep '_ZonoePatchHide'
           nm -gU "$out" | grep '_ZonoePatchIsVisible'
           nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
+          nm -gU "$out" | grep 'ZNRuntimePatchExecutor'
+          nm -u "$out" | grep '_mprotect'
           strings "$out" | grep -q '0.4.0-runtime-foundation'
-          strings "$out" | grep -q 'Runtime Patch Executor 0.4.1'
-          strings "$out" | grep -q 'expectedBytes'
-          strings "$out" | grep -q '事务已回滚'
+          strings "$out" | grep -q 'zn_expectedBytes'
           strings "$out" | grep -q 'No JIT'
           strings "$out" | grep -q 'il2cpp_domain_get'
           ! strings "$out" | grep -q 'LocalTicketV2 transport installed'
