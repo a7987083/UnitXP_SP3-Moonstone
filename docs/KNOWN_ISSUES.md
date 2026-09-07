@@ -8,6 +8,9 @@
 
 ## 当前问题
 
+- alpha21 的 appstore_v2 解码材料来自已验证 QNQSourceLab v0.7.2 IPA；CI 只能证明编译和打包，具体第三方源可用性及 App 数量仍以真机/实服回归为准。
+- 全局键盘手势使用 `cancelsTouchesInView = false` 并跳过 UIKit 输入控件，以避免重现按钮/导航点击被拦截；SwiftUI 各复杂表单仍需真机验证。
+
 | 优先级 | 问题 | 当前判断 | 相关位置 | 状态 |
 |---|---|---|---|---|
 | P0 | 签名 IPA 在特定证书/设备组合下可能无法安装 | 需要区分 provisioning、entitlements、设备 UDID、证书类型与安装通道 | `SigningHandler.swift`、`ZsignHandler.swift`、安装模块 | 需真机验证 |

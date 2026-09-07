@@ -7,7 +7,7 @@
 | 项目 | 当前值 |
 |---|---|
 | 产品名称 | zonoe（工程历史名 HFASign v3，基于 Ksign/Feather） |
-| 产品版本 | `3.0.0-alpha14` |
+| 产品版本 | `3.0.0-alpha21`（构建中） |
 | 仓库 | `a7987083/UnitXP_SP3-Moonstone` |
 | 开发分支 | `work/hfapatchipa-ksign-v3` |
 | 原始交接提交 | `aa0c685d218b8d7b6e9f91dbe9a167aded5265fb` |
@@ -20,7 +20,9 @@
 | 最低系统 | iOS 16.0 |
 | 许可证 | GPL-3.0（沿用 Ksign/Feather） |
 
-alpha14 保留 alpha12/alpha13 的分页、签名配置和 Source 解锁功能，同时恢复 alpha11 的稳定页面承载方式，并增量修复签名产物校验、Framework 分享、ZIP 导入/刷新/证书识别、解锁入口和 UDID Done 延迟。功能源码和 IPA 分别以 `fb14b5b` / `d8327d4` 为当前基线。
+alpha21 基于已发布 alpha20，不改签名、UDID 服务、导入和下载底层。新增 patch `0042-zonoe-alpha21-source-decoder-and-UI-polish.patch`：将 QNQSourceLab v0.7.2 成功产物中的 appstore_v2 RSA 私钥精确迁移到现有结构检测/Codec/Container/RC4 解码链；添加源弹窗移除分享并将“保存”改为“添加”；源 App 列表固定显示分类、说明、更新时间、版本并移除长按菜单；设置页 UDID 已获取时显示复制/获取；加入不取消控件点击的全局键盘收起桥接和交互式滚动收键盘。
+
+alpha20 已具备 HTTP/HTTPS 源接收、按 JSON 顶层 `appstore_v2` / `appstore` / Plain 的结构检测，以及按 host 去重（不同子域视为不同源）。不要恢复按 URL 路径、Content-Type 或 repository ID 判断协议/身份的旧逻辑。
 
 ## 2. 最近一次成功构建与产物
 

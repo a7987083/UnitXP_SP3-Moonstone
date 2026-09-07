@@ -1,6 +1,17 @@
 # zonoe / HFASign v3 待办清单
 
-本清单以 `3.0.0-alpha14` 为基线。alpha14 已通过 CI；优先完成真机验证，不先扩展新功能。
+本清单当前以 `3.0.0-alpha21` 为构建目标。历史真机项目仍保留；alpha21 新增项目在 CI 成功后继续真机验收。
+
+## alpha21 专项回归
+
+- [ ] 添加 `https://qnq.ioswg.com/appstore` 与 `https://yxy.ioswg.com/appstore`，确认 appstore_v2 解出预期 App 数量。
+- [ ] 回归 Legacy appstore 与 Plain JSON，确认结构检测未回退。
+- [ ] 分别添加 HTTP 与 HTTPS 源，确认 ATS/Loader 路径正常。
+- [ ] 确认相同 host 不同 path 判为重复，不同子域名可分别添加。
+- [ ] 确认添加源弹窗无分享按钮，右上角为“添加”。
+- [ ] 确认源 App Cell 仅按顺序显示分类、说明、更新时间、版本，缺失字段隐藏，长按不出现菜单。
+- [ ] 确认设置分区顺序与 UDID 的复制/获取按钮；复制内容与 UserDefaults 中 UDID 一致。
+- [ ] 检查 TextField、搜索框、Form、List 和 UIKit 源列表的键盘交互收起，不影响 Button/NavigationLink 点击。
 
 ## P0：发布阻断级
 

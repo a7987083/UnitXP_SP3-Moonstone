@@ -17,11 +17,11 @@
 
 不要修改功能时仅为重跑而制造无意义代码差异。可以在 GitHub Actions 页面手工 `workflow_dispatch`。
 
-成功产物：
+alpha21 目标产物：
 
 ```text
-Artifact: zonoe-v3.0.0-alpha14
-HFASign/dist/zonoe_v3.0.0-alpha14_TrollStore.ipa
+Artifact: zonoe-v3.0.0-alpha21
+HFASign/dist/zonoe_v3.0.0-alpha21_TrollStore.ipa
 HFASign/dist/SHA256SUMS.txt
 ```
 
