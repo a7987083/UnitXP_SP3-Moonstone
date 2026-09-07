@@ -2,19 +2,19 @@ diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/Library
 index e95c658..3d7ee12 100644
 --- a/Ksign/Views/Library/LibraryView.swift
 +++ b/Ksign/Views/Library/LibraryView.swift
-@@ -14,8 +14,8 @@ import ZIPFoundation
+@@ -14,9 +14,9 @@ import ZIPFoundation
  // MARK: - View
  struct LibraryView: View {
  	@StateObject var downloadManager = DownloadManager.shared
 -	@State private var _navigationPath = NavigationPath()
- 	
+ 
  	@State private var _selectedInfoAppPresenting: AnyApp?
 +	@State private var _selectedSigningAppPresenting: AnyApp?
  	@State private var _selectedInstallAppPresenting: AnyApp?
  	@State private var _selectedAppDylibsPresenting: AnyApp?
  	@State private var _isBulkSigningPresenting = false
 @@ -73,7 +73,7 @@ struct LibraryView: View {
- 	
+ 
  	// MARK: Body
      var body: some View {
 -		NavigationStack(path: $_navigationPath) {
@@ -22,7 +22,7 @@ index e95c658..3d7ee12 100644
  			TabView(selection: $_resourceTab) {
  				_appResourcePage.tag(0)
  				_fileResourcePage(tab: 1).tag(1)
-@@ -207,19 +207,11 @@ struct LibraryView: View {
+@@ -207,19 +207,10 @@ struct LibraryView: View {
  			}
  			.onChange(of: _resourceTab) { _ in _finishSelection(); _reloadResourceFiles() }
  			.onChange(of: _selectedTab) { _ in _finishSelection() }
@@ -45,7 +45,7 @@ index e95c658..3d7ee12 100644
          }
          .onChange(of: _isEditMode) { state in
              if !state.isEditing {
-@@ -263,17 +255,10 @@ extension LibraryView {
+@@ -263,18 +255,12 @@ extension LibraryView {
  			selectedAppDylibsPresenting: $_selectedAppDylibsPresenting,
  			selectedApps: $_selectedApps,
  			onRequestSigning: { requestedApp, signAndInstall in
@@ -70,7 +70,7 @@ index acc6ac6..99632b5 100644
 --- a/Ksign/Views/Signing/SigningView.swift
 +++ b/Ksign/Views/Signing/SigningView.swift
 @@ -67,6 +67,7 @@ struct SigningView: View {
- 		
+ 
  	// MARK: Body
      var body: some View {
 +		NBNavigationView(app.name ?? .localized("未知"), displayMode: .inline) {
