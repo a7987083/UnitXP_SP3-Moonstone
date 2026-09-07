@@ -1,0 +1,25 @@
+From 1573d0ab195f1436b57ccbdd491a535689a7c2f6 Mon Sep 17 00:00:00 2001
+From: codex <codex@local>
+Date: Sun, 6 Sep 2026 20:07:32 -0400
+Subject: [PATCH] zonoe alpha21 fix source table whitespace
+
+---
+ .../Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift   | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+index deddcf0..5241975 100644
+--- a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
++++ b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+@@ -124,7 +124,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         
+ 		invalidateCache()
+     }
+-    
++
+     private func _calculateSortedApps() -> [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] {
+         let filtered = _allAppsWithSource.filter { entry in
+             let metadata = SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.id, appName: entry.app.currentName)
+-- 
+2.51.1
+

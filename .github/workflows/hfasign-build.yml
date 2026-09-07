@@ -51,6 +51,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0040-zonoe-alpha20-qnq-source-payload-decoders.patch
           git -C HFASignBuild apply ../HFASign/patches/0041-zonoe-alpha20-localized-appstore-regions.patch
           git -C HFASignBuild apply ../HFASign/patches/0042-zonoe-alpha21-source-decoder-and-UI-polish.patch
+          git -C HFASignBuild apply ../HFASign/patches/0043-zonoe-alpha21-fix-source-table-whitespace.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
