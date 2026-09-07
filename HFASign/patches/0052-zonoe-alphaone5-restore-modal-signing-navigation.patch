@@ -1,30 +1,19 @@
 diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
-index e95c658..3d7ee12 100644
 --- a/Ksign/Views/Library/LibraryView.swift
 +++ b/Ksign/Views/Library/LibraryView.swift
-@@ -14,9 +14,9 @@ import ZIPFoundation
- // MARK: - View
- struct LibraryView: View {
+@@ -16,2 +16,1 @@ struct LibraryView: View {
  	@StateObject var downloadManager = DownloadManager.shared
 -	@State private var _navigationPath = NavigationPath()
- 
+@@ -20,2 +19,3 @@ struct LibraryView: View {
  	@State private var _selectedInfoAppPresenting: AnyApp?
 +	@State private var _selectedSigningAppPresenting: AnyApp?
  	@State private var _selectedInstallAppPresenting: AnyApp?
- 	@State private var _selectedAppDylibsPresenting: AnyApp?
- 	@State private var _isBulkSigningPresenting = false
-@@ -73,7 +73,7 @@ struct LibraryView: View {
- 
- 	// MARK: Body
+@@ -75,3 +75,3 @@ struct LibraryView: View {
      var body: some View {
 -		NavigationStack(path: $_navigationPath) {
 +		NBNavigationView("") {
  			TabView(selection: $_resourceTab) {
- 				_appResourcePage.tag(0)
- 				_fileResourcePage(tab: 1).tag(1)
-@@ -207,19 +207,10 @@ struct LibraryView: View {
- 			}
- 			.onChange(of: _resourceTab) { _ in _finishSelection(); _reloadResourceFiles() }
+@@ -209,16 +209,7 @@ struct LibraryView: View {
  			.onChange(of: _selectedTab) { _ in _finishSelection() }
 -			.navigationDestination(for: LibrarySigningRoute.self) { route in
 -				if let app = _signingApp(for: route.appUUID) {
@@ -44,9 +33,7 @@ index e95c658..3d7ee12 100644
 -			.navigationTitle("")
          }
          .onChange(of: _isEditMode) { state in
-             if !state.isEditing {
-@@ -263,18 +255,12 @@ extension LibraryView {
- 			selectedAppDylibsPresenting: $_selectedAppDylibsPresenting,
+@@ -263,6 +254,5 @@ extension LibraryView {
  			selectedApps: $_selectedApps,
  			onRequestSigning: { requestedApp, signAndInstall in
 -				guard let uuid = requestedApp.uuid else { return }
@@ -54,45 +41,20 @@ index e95c658..3d7ee12 100644
 +				_selectedSigningAppPresenting = AnyApp(base: requestedApp, signAndInstall: signAndInstall)
  			}
  		)
- 			.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
- 	}
- 
--	private func _signingApp(for uuid: String) -> AppInfoPresentable? {
--		(_importedApps.first(where: { $0.uuid == uuid }) as AppInfoPresentable?)
--			?? (_signedApps.first(where: { $0.uuid == uuid }) as AppInfoPresentable?)
--	}
--
- 	@ViewBuilder private func _fileResourcePage(tab: Int) -> some View {
- 		NBListAdaptable {
- 			NBSection(tab == 1 ? "Zip" : "动态库", secondary: _files(for: tab).count.description) {
 diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
-index acc6ac6..99632b5 100644
 --- a/Ksign/Views/Signing/SigningView.swift
 +++ b/Ksign/Views/Signing/SigningView.swift
-@@ -67,6 +67,7 @@ struct SigningView: View {
- 
- 	// MARK: Body
+@@ -69,2 +69,3 @@ struct SigningView: View {
      var body: some View {
 +		NBNavigationView(app.name ?? .localized("未知"), displayMode: .inline) {
  			Form {
- 				_customizationOptions(for: app)
- 				_cert()
-@@ -85,6 +86,8 @@ struct SigningView: View {
- 				}
- 			}
+@@ -87,2 +88,3 @@ struct SigningView: View {
  			.toolbar {
 +				NBToolbarButton(role: .dismiss)
-+				
  				NBToolbarButton(
- 					.localized("重置"),
- 					style: .text,
-@@ -126,8 +129,7 @@ struct SigningView: View {
- 				}
- 			}
+@@ -128,4 +130,3 @@ struct SigningView: View {
  			.animation(.smooth, value: _isSigning)
 -			.navigationTitle(app.name ?? .localized("未知"))
 -			.navigationBarTitleDisplayMode(.inline)
 +		}
  		.onAppear {
- 			if _outputFileName.isEmpty {
- 				_refreshGeneratedOutputName()
