@@ -1,0 +1,34 @@
+cmake_minimum_required(VERSION 3.16)
+project(Login10195DiagV05 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+set(DOBBY_GENERATE_SHARED OFF CACHE BOOL "" FORCE)
+set(DOBBY_GENERATE_STATIC ON CACHE BOOL "" FORCE)
+set(DOBBY_DEBUG OFF CACHE BOOL "" FORCE)
+set(Plugin.SymbolResolver ON CACHE BOOL "" FORCE)
+add_subdirectory(third_party/Dobby)
+
+add_library(Login10195DiagV05 SHARED
+  src/Login10195DiagV05.cpp
+)
+
+set_target_properties(Login10195DiagV05 PROPERTIES
+  OUTPUT_NAME "Login10195Diag_v0.5"
+  PREFIX ""
+  SUFFIX ".dylib"
+  XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+  XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+  XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH "NO"
+  XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
+)
+
+target_include_directories(Login10195DiagV05 PRIVATE
+  third_party/Dobby/include
+)
+
+target_link_libraries(Login10195DiagV05 PRIVATE
+  dobby_static
+)
