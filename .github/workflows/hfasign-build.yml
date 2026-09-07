@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alpha21 uses the verified QNQ v0.7.2 V2 key and source/settings UI polish
+# alphaone1 rebuilds from the alpha20 patch baseline and imports QNQSourceLab v0.7.2 verbatim
 
 on:
   push:
@@ -50,12 +50,28 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0039-zonoe-alpha19-compile-category-filter.patch
           git -C HFASignBuild apply ../HFASign/patches/0040-zonoe-alpha20-qnq-source-payload-decoders.patch
           git -C HFASignBuild apply ../HFASign/patches/0041-zonoe-alpha20-localized-appstore-regions.patch
-          git -C HFASignBuild apply ../HFASign/patches/0042-zonoe-alpha21-source-decoder-and-UI-polish.patch
-          git -C HFASignBuild apply ../HFASign/patches/0043-zonoe-alpha21-fix-source-table-whitespace.patch
-          git -C HFASignBuild apply ../HFASign/patches/0044-zonoe-alpha21-disambiguate-keyboard-dismissal.patch
+          # 0042-0044 are preserved alpha21 history and intentionally not applied.
+          git -C HFASignBuild apply ../HFASign/patches/0045-zonoe-alphaone1-import-QNQ-v0.7.2-source-pipeline.patch
+          git -C HFASignBuild apply ../HFASign/patches/0046-zonoe-alphaone1-fix-source-and-settings-UI.patch
+          git -C HFASignBuild apply ../HFASign/patches/0047-zonoe-alphaone1-keyboard-and-build-identity.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
+      - name: Live source decoder regression
+        run: |
+          set -euxo pipefail
+          xcrun swiftc \
+            HFASignBuild/Ksign/Backend/Sources/QNQSourcePayloadDecoder.swift \
+            HFASign/scripts/SourceDecoderRegressionMain.swift \
+            -framework Security \
+            -o /tmp/zonoe-source-regression
+          for attempt in 1 2 3; do
+            if /tmp/zonoe-source-regression; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          exit 1
       - name: Apply zonoe icon
         run: |
           curl -L --fail --retry 3 -o /tmp/zonoe-icon.png 'https://app.zonoeios.xyz/uploads/20220704/d042be36ab9f4c73f0c721bccc6ba6c9.png'
@@ -98,7 +114,7 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alpha21 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alphaone1 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -112,28 +128,38 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alpha21_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone1_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alpha21_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alphaone1_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 101
+          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone1
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist" | grep -qx public.data
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:1:LSItemContentTypes:0' "$plist" | grep -qx com.apple.framework
+          strings "$plist" | grep -q alphaone1
+          grep -q 'Button("筛选")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+          ! grep -q 'Button("字段")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+          ! grep -q 'contextMenuConfigurationForRowAt' HFASignBuild/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+          grep -q 'Button("复制 UDID")' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
+          grep -q '"重新获取"' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
+          grep -q 'localized("添加")' HFASignBuild/Ksign/Views/Sources/SourcesAddView.swift
+          ! grep -q 'localized("分享")' HFASignBuild/Ksign/Views/Sources/SourcesAddView.swift
       - name: Publish alpha IPA
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/zonoe_v3.0.0-alpha21_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alpha21 IPA [skip ci]"
+          git add -f HFASign/dist/zonoe_v3.0.0-alphaone1_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alphaone1 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
       - uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alpha21
+          name: zonoe-v3.0.0-alphaone1
           path: |
-            HFASign/dist/zonoe_v3.0.0-alpha21_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alphaone1_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error

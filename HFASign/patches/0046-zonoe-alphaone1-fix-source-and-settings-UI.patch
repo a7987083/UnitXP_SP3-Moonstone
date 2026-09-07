@@ -1,0 +1,708 @@
+From 4d27e191293784a3ac5dfe3795cbec6076bbea80 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 7 Sep 2026 10:03:51 +0200
+Subject: [PATCH 46/47] zonoe alphaone1 fix source and settings UI
+
+---
+ Ksign/Views/Settings/SettingsView.swift       | 337 ++++++++++--------
+ .../Sources/Apps/SourceAppsCellView.swift     |  36 +-
+ Ksign/Views/Sources/Apps/SourceAppsView.swift |  43 +--
+ .../SourceAppsTableRepresentableView.swift    |  76 +---
+ Ksign/Views/Sources/SourcesAddView.swift      |   9 +-
+ 5 files changed, 213 insertions(+), 288 deletions(-)
+
+diff --git a/Ksign/Views/Settings/SettingsView.swift b/Ksign/Views/Settings/SettingsView.swift
+index 96f454c..314dd5b 100644
+--- a/Ksign/Views/Settings/SettingsView.swift
++++ b/Ksign/Views/Settings/SettingsView.swift
+@@ -9,130 +9,221 @@ import SwiftUI
+ import NimbleViews
+ import SafariServices
+ 
+-// MARK: - View
+ struct SettingsView: View {
+-	@AppStorage("zonoe.deviceUDID") private var _deviceUDID = ""
+-	@State private var _isStartingUDID = false
+-	@State private var _udidProfileURL: URL?
+-    @AppStorage("feather.selectedCert") private var _storedSelectedCert: Int = 0
+-    @FetchRequest(
+-        entity: CertificatePair.entity(),
+-        sortDescriptors: [NSSortDescriptor(keyPath: \CertificatePair.date, ascending: false)],
+-        animation: .snappy
+-    ) private var _certificates: FetchedResults<CertificatePair>
+-    
+-    private var selectedCertificate: CertificatePair? {
+-        guard
+-            _storedSelectedCert >= 0,
+-            _storedSelectedCert < _certificates.count
+-        else {
+-            return nil
+-        }
+-        return _certificates[_storedSelectedCert]
+-    }
+-    
+-    
+-	// MARK: Body
+-    var body: some View {
++	@AppStorage("zonoe.deviceUDID") private var deviceUDID = ""
++	@State private var isStartingUDID = false
++	@State private var isAwaitingUDID = false
++	@State private var udidProfileURL: URL?
++
++	var body: some View {
+ 		NBNavigationView(.localized("设置")) {
+ 			Form {
+-				NBSection("设备") {
+-					HStack(spacing: 14) {
+-						Image(systemName: "iphone").font(.title2).frame(width: 38, height: 38)
+-						VStack(alignment: .leading, spacing: 3) {
+-							Text("本机 UDID")
+-							Text(_deviceUDID.isEmpty ? "未检测到 UDID" : _deviceUDID).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+-						}
+-						Spacer()
+-							Button(_isStartingUDID ? "启动中" : "获取") { _startUDID() }.disabled(_isStartingUDID)
+-						}
++				deviceSection
++				signingSection
++				fileAndStorageSection
++				softwareAndInterfaceSection
++				otherSection
++			}
++			.scrollDismissesKeyboard(.interactively)
++		}
++		.sheet(isPresented: Binding(
++			get: { udidProfileURL != nil },
++			set: { if !$0 { udidProfileURL = nil } }
++		)) {
++			if let url = udidProfileURL {
++				UDIDSafariView(url: url) {
++					udidProfileURL = nil
++					UDIDService.shared.openProfileSettings()
++				}
++				.ignoresSafeArea()
++			}
++		}
++		.onReceive(NotificationCenter.default.publisher(for: UDIDService.didUpdateNotification)) { notification in
++			guard let udid = notification.object as? String, !udid.isEmpty else { return }
++			deviceUDID = udid
++			finishUDIDFlow()
++		}
++		.onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
++			guard isAwaitingUDID else { return }
++			let current = UserDefaults.standard.string(forKey: "zonoe.deviceUDID") ?? ""
++			guard !current.isEmpty else { return }
++			deviceUDID = current
++			finishUDIDFlow()
++		}
++	}
++
++	private var deviceSection: some View {
++		NBSection("设备") {
++			VStack(alignment: .leading, spacing: 12) {
++				HStack(alignment: .top, spacing: 14) {
++					Image(systemName: "iphone")
++						.font(.title2)
++						.frame(width: 38, height: 38)
++					VStack(alignment: .leading, spacing: 3) {
++						Text("本机 UDID")
++						Text(deviceUDID.isEmpty ? "未检测到 UDID" : deviceUDID)
++							.font(.caption)
++							.foregroundStyle(.secondary)
++							.textSelection(.enabled)
+ 					}
+-				_feedback()
+-				
+-				Section {
+-                    NavigationLink(destination: AppIconView()) {
+-                        Label(.localized("应用图标"), systemImage: "app.badge")
+-                    }
+-					NavigationLink(destination: AppearanceView()) {
+-	                        Label(.localized("外观"), systemImage: "paintbrush")
+-	                    }
++					Spacer(minLength: 0)
+ 				}
+-                
+-                NBSection(.localized("证书管理")) {
+-                    
+-                    if let cert = selectedCertificate {
+-                        CertificatesCellView(cert: cert)
+-                    } else {
+-                        Text(.localized("没有证书"))
+-                            .font(.footnote)
+-                            .foregroundColor(.disabled())
+-                    }
+-                    NavigationLink(destination: CertificatesView()) {
+-                        Label(.localized("证书管理"), systemImage: "signature")
+-                    }
+-                 
+-                } footer: {
+-                    Text(.localized("Add and manage certificates used for signing applications."))
+-                }
+-				
+-				NBSection(.localized("功能")) {
+-					NavigationLink(destination: URLSchemeView()) {
+-						Label("URL Scheme", systemImage: "link")
++
++				if deviceUDID.isEmpty {
++					Button(isStartingUDID ? "启动中…" : "获取") {
++						startUDID()
++					}
++					.buttonStyle(.borderedProminent)
++					.disabled(isStartingUDID)
++				} else {
++					HStack(spacing: 12) {
++						Button("复制 UDID") {
++							UIPasteboard.general.string = deviceUDID
++							UINotificationFeedbackGenerator().notificationOccurred(.success)
++						}
++						.buttonStyle(.bordered)
++
++						Button(isStartingUDID ? "启动中…" : "重新获取") {
++							startUDID()
++						}
++						.buttonStyle(.borderedProminent)
++						.disabled(isStartingUDID)
+ 					}
+-                    NavigationLink(destination: LogsView(manager: LogsManager.shared)) {
+-                        Label(.localized("日志"), systemImage: "apple.terminal")
+-                    }
+-					NavigationLink(destination: AppFeaturesView()) {
+-                        Label(.localized("应用功能"), systemImage: "sparkles")
+-                    }
+-					NavigationLink(destination: ConfigurationView()) {
+-                        Label(.localized("签名选项"), systemImage: "gear")
+-                    }
+-					NavigationLink(destination: ArchiveView()) {
+-                        Label(.localized("归档与解压"), systemImage: "archivebox")
+-                    }
+-					NavigationLink(destination: InstallationView()) {
+-                        Label(.localized("安装"), systemImage: "server.rack")
+-                    }
+ 				}
+-				
+-				_directories()
+-                
+-                Section {
+-                    NavigationLink(destination: ResetView()) {
+-                        Label(.localized("重置"), systemImage: "trash")
+-                    }
+-                } footer: {
+-                    Text("Reset the applications sources, certificates, apps, and general contents.")
+-                }
+-
+-	            }
+-	        }
+-			.sheet(isPresented: Binding(get: { _udidProfileURL != nil }, set: { if !$0 { _udidProfileURL = nil } })) {
+-				if let url = _udidProfileURL {
+-					UDIDSafariView(url: url) {
+-						_udidProfileURL = nil
+-						UDIDService.shared.openProfileSettings()
+-					}.ignoresSafeArea()
++			}
++			.padding(.vertical, 4)
++		}
++	}
++
++	private var signingSection: some View {
++		NBSection("签名") {
++			NavigationLink(destination: CertificatesView()) {
++				Label("证书管理", systemImage: "signature")
++			}
++			NavigationLink(destination: ConfigurationView()) {
++				Label("签名相关设置", systemImage: "gearshape")
++			}
++		}
++	}
++
++	private var fileAndStorageSection: some View {
++		NBSection("文件与存储") {
++			NavigationLink(destination: FilesView()) {
++				Label("文件管理", systemImage: "folder.badge.gearshape")
++			}
++			Button("打开 Documents", systemImage: "folder") {
++				guard let url = URL.documentsDirectory.toSharedDocumentsURL() else { return }
++				UIApplication.open(url)
++			}
++			Button("打开 Archives", systemImage: "archivebox") {
++				guard let url = FileManager.default.archives.toSharedDocumentsURL() else { return }
++				UIApplication.open(url)
++			}
++			NavigationLink(destination: ArchiveView()) {
++				Label("归档与解压设置", systemImage: "doc.zipper")
++			}
++		}
++	}
++
++	private var softwareAndInterfaceSection: some View {
++		NBSection("软件与界面") {
++			NavigationLink(destination: AppIconView()) {
++				Label("应用图标", systemImage: "app.badge")
++			}
++			NavigationLink(destination: AppearanceView()) {
++				Label("外观设置", systemImage: "paintbrush")
++			}
++			NavigationLink(destination: InstallationView()) {
++				Label("下载与安装设置", systemImage: "arrow.down.app")
++			}
++			NavigationLink(destination: AppFeaturesView()) {
++				Label("应用功能", systemImage: "sparkles")
++			}
++		}
++	}
++
++	private var otherSection: some View {
++		NBSection("其他") {
++			NavigationLink(destination: AboutView()) {
++				Label("关于 zonoe", systemImage: "info.circle")
++			}
++			HStack {
++				Label("版本信息", systemImage: "number")
++				Spacer()
++				Text(releaseVersion)
++					.foregroundStyle(.secondary)
++			}
++			NavigationLink(destination: URLSchemeView()) {
++				Label("URL Scheme", systemImage: "link")
++			}
++			NavigationLink(destination: LogsView(manager: LogsManager.shared)) {
++				Label("日志", systemImage: "apple.terminal")
++			}
++			NavigationLink(destination: ResetView()) {
++				Label("重置", systemImage: "trash")
++			}
++		}
++	}
++
++	private var releaseVersion: String {
++		(Bundle.main.object(forInfoDictionaryKey: "ZonoeReleaseVersion") as? String)
++			?? "v3.0.0-alphaone1"
++	}
++
++	private func startUDID() {
++		guard !isStartingUDID, udidProfileURL == nil else { return }
++		isStartingUDID = true
++		isAwaitingUDID = true
++		UDIDService.shared.start { result in
++			DispatchQueue.main.async {
++				isStartingUDID = false
++				switch result {
++				case .success(let url):
++					udidProfileURL = url
++				case .failure(let error):
++					isAwaitingUDID = false
++					UIAlertController.showAlertWithOk(
++						title: "无法启动 UDID 服务",
++						message: error.localizedDescription
++					)
+ 				}
+ 			}
+-	    }
++		}
++	}
++
++	private func finishUDIDFlow() {
++		udidProfileURL = nil
++		isStartingUDID = false
++		isAwaitingUDID = false
++		UDIDService.shared.endBackgroundTask()
++	}
+ }
++
+ struct UDIDSafariView: UIViewControllerRepresentable {
+ 	let url: URL
+ 	let onDone: () -> Void
+-	func makeCoordinator() -> Coordinator { Coordinator(onDone: onDone) }
++
++	func makeCoordinator() -> Coordinator {
++		Coordinator(onDone: onDone)
++	}
++
+ 	func makeUIViewController(context: Context) -> SFSafariViewController {
+ 		let controller = SFSafariViewController(url: url)
+ 		controller.delegate = context.coordinator
+ 		controller.dismissButtonStyle = .done
+ 		return controller
+ 	}
++
+ 	func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
++
+ 	final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+ 		let onDone: () -> Void
+ 		private var didFinish = false
+-		init(onDone: @escaping () -> Void) { self.onDone = onDone }
++
++		init(onDone: @escaping () -> Void) {
++			self.onDone = onDone
++		}
++
+ 		func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+ 			guard !didFinish else { return }
+ 			didFinish = true
+@@ -140,47 +231,3 @@ struct UDIDSafariView: UIViewControllerRepresentable {
+ 		}
+ 	}
+ }
+-
+-
+-// MARK: - View extension
+-extension SettingsView {
+-	private func _startUDID() {
+-		guard !_isStartingUDID, _udidProfileURL == nil else { return }
+-		_isStartingUDID = true
+-		UDIDService.shared.start { result in
+-			DispatchQueue.main.async {
+-				_isStartingUDID = false
+-				switch result {
+-					case .success(let url): _udidProfileURL = url
+-				case .failure(let error): UIAlertController.showAlertWithOk(title: "无法启动 UDID 服务", message: error.localizedDescription)
+-				}
+-				}
+-			}
+-		}
+-
+-	@ViewBuilder
+-	private func _feedback() -> some View {
+-		Section {
+-			NavigationLink(destination: AboutView()) {
+-				Label("关于 zonoe", systemImage: "info.circle")
+-            }
+-		}
+-	}
+-	
+-	@ViewBuilder
+-	private func _directories() -> some View {
+-		NBSection(.localized("其他")) {
+-			NavigationLink(destination: FilesView()) {
+-				Label("文件管理", systemImage: "folder.badge.gearshape")
+-			}
+-			Button(.localized("打开文档目录"), systemImage: "folder") {
+-				UIApplication.open(URL.documentsDirectory.toSharedDocumentsURL()!)
+-			}
+-			Button(.localized("打开归档目录"), systemImage: "folder") {
+-				UIApplication.open(FileManager.default.archives.toSharedDocumentsURL()!)
+-			}
+-		} footer: {
+-			Text("除证书外，zonoe 文件都保存在 Documents 目录。")
+-		}
+-	}
+-}
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+index 2a16b59..d5599d3 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsCellView.swift
+@@ -6,7 +6,6 @@ struct SourceAppsCellView: View {
+     var source: ASRepository
+     var sourceURL: URL
+     var app: ASRepository.App
+-    var fieldDisplay: AppFieldDisplayState
+ 
+     private var metadata: SourceAppMetadata? { SourceRepositoryLoader.shared.appMetadata(for: sourceURL, appIdentifier: app.id, appName: app.currentName) }
+     private var dateFormatter: DateFormatter { let value = DateFormatter(); value.dateFormat = "yyyy-MM-dd"; return value }
+@@ -17,30 +16,23 @@ struct SourceAppsCellView: View {
+             }.frame(width: 58, height: 58).clipShape(RoundedRectangle(cornerRadius: 13))
+             VStack(alignment: .leading, spacing: 4) {
+                 Text(app.currentName).font(.headline).lineLimit(1)
+-                if fieldDisplay.contains("source"), let name = metadata?.sourceName ?? source.name { Text(name).font(.caption).foregroundStyle(.secondary) }
+-                let summary = summaryLine
+-                if !summary.isEmpty { Text(summary).font(.subheadline).foregroundStyle(.secondary) }
+-                if fieldDisplay.contains("updatedAt"), let date = metadata?.updatedAt ?? app.currentDate?.date { Text("更新 \(dateFormatter.string(from: date))").font(.caption).foregroundStyle(.secondary) }
+-                if fieldDisplay.contains("description"), let text = metadata?.description ?? app.localizedDescription, !text.isEmpty { Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }
+-                ForEach(customRows, id: \.0) { key, value in Text("\(key)：\(value)").font(.caption).foregroundStyle(.secondary).lineLimit(2) }
++                if let category = metadata?.category ?? app.category, !category.isEmpty {
++                    Text("分类 \(category)").font(.caption).foregroundStyle(.secondary)
++                }
++                if let text = metadata?.description ?? app.currentDescription,
++                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
++                    Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
++                }
++                if let date = metadata?.updatedAt ?? app.currentDate?.date {
++                    Text("更新 \(dateFormatter.string(from: date))").font(.caption).foregroundStyle(.secondary)
++                }
++                if let version = metadata?.version ?? app.currentVersion,
++                   !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
++                    Text("版本 \(version)").font(.caption).foregroundStyle(.secondary)
++                }
+             }
+             Spacer(minLength: 4)
+             DownloadButtonView(source: source, sourceURL: sourceURL, app: app)
+         }.padding(.vertical, 6)
+     }
+-    private var summaryLine: String {
+-        var values: [String] = []
+-        if fieldDisplay.contains("version"), let version = metadata?.version ?? app.currentVersion, !version.isEmpty { values.append("版本 \(version)") }
+-        if fieldDisplay.contains("size"), let size = metadata?.size ?? app.size, size > 0 { values.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
+-        if fieldDisplay.contains("category"), let category = metadata?.category ?? app.category, !category.isEmpty { values.append(category) }
+-        if fieldDisplay.contains("developer"), let developer = metadata?.developer, !developer.isEmpty { values.append(developer) }
+-        if fieldDisplay.contains("price"), let price = metadata?.price { values.append(price == 0 ? "免费" : String(format: "%.2f", price)) }
+-        if fieldDisplay.contains("minimumOSVersion"), let value = metadata?.minimumOSVersion { values.append("iOS \(value)+") }
+-        if fieldDisplay.contains("bundleIdentifier"), let value = app.id { values.append(value) }
+-        return values.joined(separator: " · ")
+-    }
+-    private var customRows: [(String, String)] {
+-        let standard = Set(AppFieldDisplayState.labels.keys)
+-        return fieldDisplay.fields.subtracting(standard).sorted().compactMap { key in metadata?.rawFields[key]?.displayText.map { (key, $0) } }
+-    }
+ }
+diff --git a/Ksign/Views/Sources/Apps/SourceAppsView.swift b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+index f1eacc0..03757ec 100644
+--- a/Ksign/Views/Sources/Apps/SourceAppsView.swift
++++ b/Ksign/Views/Sources/Apps/SourceAppsView.swift
+@@ -12,25 +12,11 @@ struct AppFilterState: Equatable {
+     var sort: Sort = .default
+ }
+ 
+-struct AppFieldDisplayState: Equatable {
+-    enum Mode: String, CaseIterable { case compact = "精简", standard = "标准", detailed = "详细", custom = "自定义" }
+-    var mode: Mode
+-    var fields: Set<String>
+-    static let labels = ["version":"版本", "size":"大小", "updatedAt":"更新时间", "description":"说明", "source":"来源", "bundleIdentifier":"Bundle ID", "category":"分类", "developer":"作者", "price":"价格", "minimumOSVersion":"最低系统", "releaseNotes":"更新说明"]
+-    static func fields(for mode: Mode) -> Set<String> {
+-        switch mode { case .compact: return ["version"]; case .standard: return ["version","size","updatedAt"]; case .detailed: return ["version","size","updatedAt","source","category","description"]; case .custom: return [] }
+-    }
+-    func contains(_ field: String) -> Bool { fields.contains(field) }
+-}
+-
+ struct SourceAppsView: View {
+-    @AppStorage("zonoe.sourceAppFieldMode") private var fieldModeRaw = AppFieldDisplayState.Mode.standard.rawValue
+-    @AppStorage("zonoe.sourceAppVisibleFields") private var visibleFieldsRaw = "version,size,updatedAt"
+     @State private var filter = AppFilterState()
+     @State private var selectedRoute: SourceAppRoute?
+     @State private var searchText = ""
+     @State private var showFilters = false
+-    @State private var showFields = false
+     @State private var sources: [LoadedSource]?
+     @State var isLoading = true
+     @State var hasLoadedOnce = false
+@@ -40,28 +26,19 @@ struct SourceAppsView: View {
+     @FetchRequest(entity: AltSource.entity(), sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)], animation: .snappy) private var allSources: FetchedResults<AltSource>
+ 
+     private var navigationTitle: String { fromAppStore ? .localized("应用商店") : (object.count == 1 ? object[0].name ?? .localized("未知") : .localized("%lld Sources", arguments: object.count)) }
+-    private var fieldState: AppFieldDisplayState {
+-        let mode = AppFieldDisplayState.Mode(rawValue: fieldModeRaw) ?? .standard
+-        let custom = Set(visibleFieldsRaw.split(separator: ",").map(String.init))
+-        return .init(mode: mode, fields: mode == .custom ? custom : AppFieldDisplayState.fields(for: mode))
+-    }
+-    private var dynamicFields: [String] { SourceRepositoryLoader.shared.discoveredFieldKeys(for: sources?.map(\.sourceURL) ?? []) }
+-
+     var body: some View {
+         ZStack {
+             if let sources, !sources.isEmpty {
+-                SourceAppsTableRepresentableView(sources: sources, searchText: $searchText, filter: filter, fieldDisplay: fieldState) { selectedRoute = $0 }.ignoresSafeArea()
++                SourceAppsTableRepresentableView(sources: sources, searchText: $searchText, filter: filter) { selectedRoute = $0 }.ignoresSafeArea()
+             } else { ProgressView() }
+         }
+         .navigationTitle(navigationTitle)
+         .searchable(text: $searchText, placement: .platform())
+         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
+-            Button("字段") { showFields = true }
+             Button("筛选") { showFilters = true }
+             Button { Task { await viewModel.fetchSources(allSources, refresh: true) } } label: { Image(systemName: "arrow.clockwise") }
+         } }
+         .sheet(isPresented: $showFilters) { SourceAppFilterSheet(filter: $filter) }
+-        .sheet(isPresented: $showFields) { SourceAppFieldsSheet(modeRaw: $fieldModeRaw, fieldsRaw: $visibleFieldsRaw, dynamicFields: dynamicFields) }
+         .onAppear { if !hasLoadedOnce, viewModel.isFinished { load(); hasLoadedOnce = true } }
+         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("zonoe.sourceUnlocked"))) { _ in Task { await viewModel.fetchSources(allSources, refresh: true) } }
+         .onChange(of: viewModel.isFinished) { _ in load() }
+@@ -89,24 +66,6 @@ private struct SourceAppFilterSheet: View {
+     }
+ }
+ 
+-private struct SourceAppFieldsSheet: View {
+-    @Environment(\.dismiss) private var dismiss
+-    @Binding var modeRaw: String
+-    @Binding var fieldsRaw: String
+-    let dynamicFields: [String]
+-    @State private var query = ""
+-    private var mode: Binding<AppFieldDisplayState.Mode> { .init(get: { .init(rawValue: modeRaw) ?? .standard }, set: { modeRaw = $0.rawValue }) }
+-    private var selected: Set<String> { Set(fieldsRaw.split(separator: ",").map(String.init)) }
+-    private var allFields: [String] { Array(Set(Array(AppFieldDisplayState.labels.keys) + dynamicFields)).sorted() }
+-    private var shown: [String] { query.isEmpty ? allFields : allFields.filter { $0.localizedCaseInsensitiveContains(query) || (AppFieldDisplayState.labels[$0]?.localizedCaseInsensitiveContains(query) ?? false) } }
+-    private var effective: Set<String> { mode.wrappedValue == .custom ? selected : AppFieldDisplayState.fields(for: mode.wrappedValue) }
+-    var body: some View { NavigationStack { List {
+-        Section("显示模式") { Picker("显示模式", selection: mode) { ForEach(AppFieldDisplayState.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented) }
+-        Section("字段") { ForEach(shown, id: \.self) { field in Button { toggle(field) } label: { HStack { Text(AppFieldDisplayState.labels[field] ?? field); Spacer(); if effective.contains(field) { Image(systemName: "checkmark") } } }.foregroundStyle(.primary) } }
+-    }.searchable(text: $query, prompt: "搜索字段").navigationTitle("显示字段").toolbar { Button("完成") { dismiss() } } } }
+-    private func toggle(_ field: String) { var values = effective; if values.contains(field) { values.remove(field) } else { values.insert(field) }; fieldsRaw = values.sorted().joined(separator: ","); modeRaw = AppFieldDisplayState.Mode.custom.rawValue }
+-}
+-
+ extension View {
+     @ViewBuilder func navigationDestinationIfAvailable<Item: Identifiable & Hashable, Destination: View>(item: Binding<Item?>, @ViewBuilder destination: @escaping (Item) -> Destination) -> some View { if #available(iOS 17, *) { self.navigationDestination(item: item, destination: destination) } else { self } }
+ }
+diff --git a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+index f68bb2b..8c6d6ee 100644
+--- a/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
++++ b/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+@@ -13,7 +13,6 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+     var sources: [SourceAppsView.LoadedSource]
+     @Binding var searchText: String
+     var filter: AppFilterState
+-    var fieldDisplay: AppFieldDisplayState
+     var onSelect: (SourceAppsView.SourceAppRoute) -> Void
+     
+     func makeUIView(context: Context) -> UITableView {
+@@ -22,6 +21,7 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+         tableView.dataSource = context.coordinator
+         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "AppCell")
+         tableView.register(UITableViewHeaderFooterView.self, forHeaderFooterViewReuseIdentifier: "SectionHeader")
++        tableView.keyboardDismissMode = .interactive
+         
+         if #available(iOS 17, *) {
+             tableView.allowsSelection = true
+@@ -62,14 +62,12 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+         let sourcesChanged = context.coordinator.sources != sources
+         let searchChanged = context.coordinator.searchText != searchText
+         let filterChanged = context.coordinator.filter != filter
+-        let fieldsChanged = context.coordinator.fieldDisplay != fieldDisplay
+         
+         context.coordinator.sources = sources
+         context.coordinator.searchText = searchText
+         context.coordinator.filter = filter
+-        context.coordinator.fieldDisplay = fieldDisplay
+         
+-        if sourcesChanged || searchChanged || filterChanged || fieldsChanged {
++        if sourcesChanged || searchChanged || filterChanged {
+             context.coordinator.invalidateCache()
+         }
+     }
+@@ -79,7 +77,6 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
+             sources: sources,
+             searchText: searchText,
+             filter: filter,
+-            fieldDisplay: fieldDisplay,
+             onSelect: onSelect
+         )
+     }
+@@ -90,7 +87,6 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+     var sources: [SourceAppsView.LoadedSource]
+     var searchText: String
+     var filter: AppFilterState
+-    var fieldDisplay: AppFieldDisplayState
+     let onSelect: (SourceAppsView.SourceAppRoute) -> Void
+     
+     private var _groupedAppsByNameFirstLetter: [String: [(source: ASRepository, sourceURL: URL, app: ASRepository.App)]] = [:]
+@@ -118,19 +114,17 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         sources: [SourceAppsView.LoadedSource],
+         searchText: String,
+         filter: AppFilterState,
+-        fieldDisplay: AppFieldDisplayState,
+         onSelect: @escaping (SourceAppsView.SourceAppRoute) -> Void
+     ) {
+         self.sources = sources
+         self.searchText = searchText
+         self.filter = filter
+-        self.fieldDisplay = fieldDisplay
+         self.onSelect = onSelect
+         super.init()
+-        
++
+ 		invalidateCache()
+     }
+-    
++
+     private func _calculateSortedApps() -> [(source: ASRepository, sourceURL: URL, app: ASRepository.App)] {
+         let filtered = _allAppsWithSource.filter { entry in
+             let metadata = SourceRepositoryLoader.shared.appMetadata(for: entry.sourceURL, appIdentifier: entry.app.id, appName: entry.app.currentName)
+@@ -181,7 +175,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         entry = _sortedApps[indexPath.row]
+ 
+         cell.contentConfiguration = UIHostingConfiguration {
+-            SourceAppsCellView(source: entry.source, sourceURL: entry.sourceURL, app: entry.app, fieldDisplay: fieldDisplay)
++            SourceAppsCellView(source: entry.source, sourceURL: entry.sourceURL, app: entry.app)
+         }
+         return cell
+     }
+@@ -223,64 +217,4 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
+         _sortedSectionTitles.firstIndex(of: title) ?? 0
+     }
+     
+-    func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+-        let entry: (source: ASRepository, sourceURL: URL, app: ASRepository.App)
+-        entry = _sortedApps[indexPath.row]
+-        
+-        return UIContextMenuConfiguration(
+-            identifier: nil,
+-            previewProvider: nil
+-        ) { _ in
+-            let versionsMenu = UIMenu(
+-                title: .localized("Copy Download URLs"),
+-                image: UIImage(systemName: "list.bullet"),
+-                children: self._contextActions(for: entry.app, with: { version in
+-                    UIPasteboard.general.string = version?.absoluteString
+-                }, image: UIImage(systemName: "doc.on.clipboard"))
+-            )
+-            
+-            let downloadsMenu = UIMenu(
+-                title: .localized("Previous Versions"),
+-                image: UIImage(systemName: "square.and.arrow.down.on.square"),
+-                children: self._contextActions(for: entry.app, with: { version in
+-                    if let url = version {
+-                        _ = DownloadManager.shared.startDownload(
+-                            from: url,
+-                            id: entry.app.currentUniqueId
+-                        )
+-                    }
+-                }, image: UIImage(systemName: "arrow.down"))
+-            )
+-            
+-            return UIMenu(children: [downloadsMenu, versionsMenu])
+-        }
+-    }
+-    
+-    // MARK: Actions
+-    
+-    private func _contextActions(
+-        for app: ASRepository.App,
+-        with action: @escaping (URL?) -> Void,
+-        image: UIImage?
+-    ) -> [UIAction] {
+-        if let versions = app.versions, !versions.isEmpty {
+-            return versions.map { version in
+-                UIAction(
+-                    title: version.version,
+-                    image: image
+-                ) { _ in
+-                    action(version.downloadURL)
+-                }
+-            }
+-        } else {
+-            return [
+-                UIAction(
+-                    title: app.currentVersion ?? "",
+-                    image: image
+-                ) { _ in
+-                    action(app.currentDownloadUrl)
+-                }
+-            ]
+-        }
+-    }
+ }}
+diff --git a/Ksign/Views/Sources/SourcesAddView.swift b/Ksign/Views/Sources/SourcesAddView.swift
+index 5087ec1..1e54804 100644
+--- a/Ksign/Views/Sources/SourcesAddView.swift
++++ b/Ksign/Views/Sources/SourcesAddView.swift
+@@ -40,13 +40,6 @@ struct SourcesAddView: View {
+ 						
+ 					}
+ 					
+-					Button(.localized("分享"), systemImage: "doc.on.clipboard") {
+-						UIPasteboard.general.string = Storage.shared.getSources().map {
+-							$0.sourceURL!.absoluteString
+-						}.joined(separator: "\n")
+-						UINotificationFeedbackGenerator().notificationOccurred(.success)
+-						UIAlertController.showAlertWithOk(title: .localized("成功"), message: .localized("All sources copied to clipboard."))
+-					}
+ 				} footer: {
+ 					Text(.localized("Supports importing from KravaSign/MapleSign and ESign"))
+ 				}
+@@ -56,7 +49,7 @@ struct SourcesAddView: View {
+ 				
+ 				if !_isImporting {
+ 					NBToolbarButton(
+-						.localized("保存"),
++						.localized("添加"),
+ 						style: .text,
+ 						placement: .confirmationAction,
+ 						isDisabled: _sourceURL.isEmpty
+-- 
+2.51.1
+

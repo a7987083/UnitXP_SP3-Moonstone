@@ -1,0 +1,166 @@
+From 636769e870519b7bc4cf4d7868568af152418b8f Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 7 Sep 2026 10:03:51 +0200
+Subject: [PATCH 47/47] zonoe alphaone1 add safe keyboard dismissal and build
+ identity
+
+---
+ Ksign.xcodeproj/project.pbxproj |  4 +-
+ Ksign/FeatherApp.swift          | 98 +++++++++++++++++++++++++++++++++
+ Ksign/Resources/Info.plist      |  2 +
+ 3 files changed, 102 insertions(+), 2 deletions(-)
+
+diff --git a/Ksign.xcodeproj/project.pbxproj b/Ksign.xcodeproj/project.pbxproj
+index 4b8058b..b673df8 100644
+--- a/Ksign.xcodeproj/project.pbxproj
++++ b/Ksign.xcodeproj/project.pbxproj
+@@ -452,7 +452,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 1;
++				CURRENT_PROJECT_VERSION = 101;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+@@ -520,7 +520,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 1;
++				CURRENT_PROJECT_VERSION = 101;
+ 				DEAD_CODE_STRIPPING = YES;
+ 				DEPLOYMENT_POSTPROCESSING = YES;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index da6db88..dec99a4 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -73,6 +73,7 @@ struct FeatherApp: App {
+ 					}.ignoresSafeArea()
+ 				}
+ 			}
++			.zonoeKeyboardDismissal()
+ 		}
+ 	}
+ 	
+@@ -150,6 +151,103 @@ struct FeatherApp: App {
+ 
+ }
+ 
++private struct ZonoeKeyboardDismissModifier: ViewModifier {
++	func body(content: Content) -> some View {
++		content
++			.scrollDismissesKeyboard(.interactively)
++			.background(ZonoeKeyboardDismissBridge().frame(width: 0, height: 0))
++	}
++}
++
++private struct ZonoeKeyboardDismissBridge: UIViewRepresentable {
++	func makeCoordinator() -> Coordinator {
++		Coordinator()
++	}
++
++	func makeUIView(context: Context) -> WindowProbeView {
++		let view = WindowProbeView()
++		view.onWindowChange = { [weak coordinator = context.coordinator] window in
++			coordinator?.install(in: window)
++		}
++		return view
++	}
++
++	func updateUIView(_ uiView: WindowProbeView, context: Context) {
++		context.coordinator.install(in: uiView.window)
++	}
++
++	static func dismantleUIView(_ uiView: WindowProbeView, coordinator: Coordinator) {
++		coordinator.uninstall()
++	}
++
++	final class Coordinator: NSObject, UIGestureRecognizerDelegate {
++		private weak var installedWindow: UIWindow?
++		private lazy var recognizer: UITapGestureRecognizer = {
++			let value = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
++			value.cancelsTouchesInView = false
++			value.delaysTouchesBegan = false
++			value.delaysTouchesEnded = false
++			value.delegate = self
++			return value
++		}()
++
++		func install(in window: UIWindow?) {
++			guard let window, window !== installedWindow else { return }
++			uninstall()
++			window.addGestureRecognizer(recognizer)
++			installedWindow = window
++		}
++
++		func uninstall() {
++			installedWindow?.removeGestureRecognizer(recognizer)
++			installedWindow = nil
++		}
++
++		@objc private func dismissKeyboard() {
++			UIApplication.shared.zonoeResignFirstResponder()
++		}
++
++		func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
++			var view = touch.view
++			while let current = view {
++				if current is UIControl || current is UITextView {
++					return false
++				}
++				view = current.superview
++			}
++			return true
++		}
++
++		func gestureRecognizer(
++			_ gestureRecognizer: UIGestureRecognizer,
++			shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
++		) -> Bool {
++			true
++		}
++	}
++
++	final class WindowProbeView: UIView {
++		var onWindowChange: ((UIWindow?) -> Void)?
++
++		override func didMoveToWindow() {
++			super.didMoveToWindow()
++			onWindowChange?(window)
++		}
++	}
++}
++
++private extension View {
++	func zonoeKeyboardDismissal() -> some View {
++		modifier(ZonoeKeyboardDismissModifier())
++	}
++}
++
++private extension UIApplication {
++	func zonoeResignFirstResponder() {
++		sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
++	}
++}
++
+ class AppDelegate: NSObject, UIApplicationDelegate {
+     func application(
+         _ application: UIApplication,
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 2b7d659..048e456 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -2,6 +2,8 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
++	<key>ZonoeReleaseVersion</key>
++	<string>v3.0.0-alphaone1</string>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+ 	<true/>
+ 	<key>LSApplicationQueriesSchemes</key>
+-- 
+2.51.1
+
