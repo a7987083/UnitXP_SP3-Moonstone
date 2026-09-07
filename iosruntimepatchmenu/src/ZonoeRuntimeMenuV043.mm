@@ -22,6 +22,16 @@ static NSString *ZN43HexString(NSData *data) {
     return s;
 }
 
+// Methods implemented by the included v0.4.0/v0.4.2 layers. Keep these in a
+// declaration-only category so Clang does not treat them as missing V043 methods.
+@interface ZNRuntimeMenuControllerV040 (V043BaseMethods)
+- (void)zn40_addInfoCard:(NSString *)title lines:(NSArray<NSString *> *)lines y:(CGFloat *)y width:(CGFloat)width;
+- (void)zn40_addActionCardY:(CGFloat *)y width:(CGFloat)width titles:(NSArray<NSString *> *)titles selectors:(NSArray<NSString *> *)selectors;
+- (void)zn40_updateContentHeight:(CGFloat)y;
+- (void)addSection:(NSString *)title subtitle:(NSString *)subtitle y:(CGFloat *)y width:(CGFloat)width;
+- (void)renderPage;
+@end
+
 @interface ZNRuntimeMenuControllerV040 (V043)
 - (void)zn43_renderDebug;
 - (void)zn43_makeUI:(UIWindow *)window;
@@ -33,11 +43,6 @@ static NSString *ZN43HexString(NSData *data) {
 - (void)zn43_copyRuntimeValidation:(id)sender;
 - (void)zn43_clearRuntimeValidation:(id)sender;
 - (void)zn43_showMessage:(NSString *)title body:(NSString *)body;
-- (void)zn40_addInfoCard:(NSString *)title lines:(NSArray<NSString *> *)lines y:(CGFloat *)y width:(CGFloat)width;
-- (void)zn40_addActionCardY:(CGFloat *)y width:(CGFloat)width titles:(NSArray<NSString *> *)titles selectors:(NSArray<NSString *> *)selectors;
-- (void)zn40_updateContentHeight:(CGFloat)y;
-- (void)addSection:(NSString *)title subtitle:(NSString *)subtitle y:(CGFloat *)y width:(CGFloat)width;
-- (void)renderPage;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (V043)
