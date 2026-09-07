@@ -1,1 +1,1 @@
-1b13fcd557f5034620ac044895f67d8e06462bd65d9056cf010cbeb37459f968  zonoe_v3.0.0-alphaone2_TrollStore.ipa
+facd82e07fcb9f87f900287cfa3e70fd419b10247a5440ad4d518409e5f32c9a  zonoe_v3.0.0-alphaone3_TrollStore.ipa
