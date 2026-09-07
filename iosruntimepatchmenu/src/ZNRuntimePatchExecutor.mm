@@ -2,11 +2,14 @@
 #import <mach/mach.h>
 #import <libkern/OSCacheControl.h>
 #import <objc/runtime.h>
+#import <sys/mman.h>
+#import <errno.h>
 
 static const void *kZNExpectedBytesKey = &kZNExpectedBytesKey;
 static const void *kZNPatchBytesKey = &kZNPatchBytesKey;
 static const void *kZNOriginalBytesKey = &kZNOriginalBytesKey;
 static const void *kZNWroteMemoryKey = &kZNWroteMemoryKey;
+static const void *kZNTargetWritableKey = &kZNTargetWritableKey;
 
 @implementation ZNPatchActionDescriptor (ZNRuntimePatchExecution)
 - (NSData *)zn_expectedBytes { return objc_getAssociatedObject(self, kZNExpectedBytesKey); }
@@ -17,6 +20,8 @@ static const void *kZNWroteMemoryKey = &kZNWroteMemoryKey;
 - (void)setZn_originalBytes:(NSData *)v { objc_setAssociatedObject(self, kZNOriginalBytesKey, [v copy], OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 - (BOOL)zn_wroteRuntimeMemory { return [objc_getAssociatedObject(self, kZNWroteMemoryKey) boolValue]; }
 - (void)setZn_wroteRuntimeMemory:(BOOL)v { objc_setAssociatedObject(self, kZNWroteMemoryKey, @(v), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+- (BOOL)zn_targetWritable { return [objc_getAssociatedObject(self, kZNTargetWritableKey) boolValue]; }
+- (void)setZn_targetWritable:(BOOL)v { objc_setAssociatedObject(self, kZNTargetWritableKey, @(v), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 @end
 
 static NSString *ZNKernError(kern_return_t kr) {
@@ -39,64 +44,34 @@ static BOOL ZNReadMemory(uintptr_t address, NSUInteger length, NSData **outData,
     return YES;
 }
 
-static BOOL ZNRegionForAddress(uintptr_t address, vm_address_t *regionStart,
-                               vm_size_t *regionSize, vm_prot_t *protection,
-                               vm_prot_t *maxProtection, NSString **error) {
-    vm_address_t start = (vm_address_t)address;
-    vm_size_t size = 0;
-    vm_region_basic_info_data_t info = {};
-    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT;
-    memory_object_name_t objectName = MACH_PORT_NULL;
-    kern_return_t kr = vm_region(mach_task_self(), &start, &size, VM_REGION_BASIC_INFO,
-                                 (vm_region_info_t)&info, &count, &objectName);
-    if (objectName != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), objectName);
-    if (kr != KERN_SUCCESS || address < start || address >= start + size) {
-        if (error) *error = [NSString stringWithFormat:@"查询内存区域失败：%@", ZNKernError(kr)];
-        return NO;
-    }
-    if (regionStart) *regionStart = start;
-    if (regionSize) *regionSize = size;
-    if (protection) *protection = info.protection;
-    if (maxProtection) *maxProtection = info.max_protection;
-    return YES;
-}
-
-static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
+static BOOL ZNWriteMemory(uintptr_t address, NSData *data, BOOL targetWritable, NSString **error) {
     if (!address || !data.length) { if (error) *error = @"写入地址或数据无效"; return NO; }
-    vm_address_t regionStart = 0;
-    vm_size_t regionSize = 0;
-    vm_prot_t oldProt = 0, maxProt = 0;
-    if (!ZNRegionForAddress(address, &regionStart, &regionSize, &oldProt, &maxProt, error)) return NO;
-    if ((vm_address_t)address + data.length > regionStart + regionSize) {
-        if (error) *error = @"Patch 跨越多个 VM region，当前执行器拒绝写入";
-        return NO;
-    }
 
     vm_size_t pageSize = vm_page_size;
-    vm_address_t pageStart = ((vm_address_t)address) & ~((vm_address_t)pageSize - 1);
-    vm_address_t end = ((vm_address_t)address) + data.length;
-    vm_address_t pageEnd = (end + pageSize - 1) & ~((vm_address_t)pageSize - 1);
-    vm_size_t protectSize = pageEnd - pageStart;
-    BOOL changedProtection = !(oldProt & VM_PROT_WRITE);
+    uintptr_t pageStart = address & ~((uintptr_t)pageSize - 1);
+    uintptr_t end = address + data.length;
+    uintptr_t pageEnd = (end + pageSize - 1) & ~((uintptr_t)pageSize - 1);
+    size_t protectSize = (size_t)(pageEnd - pageStart);
 
-    if (changedProtection) {
-        // No JIT: only make the existing mapping temporarily writable. Never request W+X.
-        // VM_PROT_COPY asks for a private COW mapping; stock iOS may still reject signed __TEXT.
-        vm_prot_t writeProt = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY;
-        kern_return_t kr = vm_protect(mach_task_self(), pageStart, protectSize, FALSE, writeProt);
-        if (kr != KERN_SUCCESS) {
-            if (error) *error = [NSString stringWithFormat:@"当前内存权限不支持运行时写入：%@（prot=%x max=%x）", ZNKernError(kr), oldProt, maxProt];
+    if (!targetWritable) {
+        // Bytes Patch is a code-target backend. No JIT and never W+X: temporarily
+        // switch existing code pages RX -> RW, write, then restore RW -> RX.
+        if (mprotect((void *)pageStart, protectSize, PROT_READ | PROT_WRITE) != 0) {
+            int e = errno;
+            if (error) *error = [NSString stringWithFormat:@"当前内存权限不支持运行时代码写入：mprotect RW errno=%d (%s)", e, strerror(e)];
             return NO;
         }
     }
 
     memcpy((void *)address, data.bytes, data.length);
-    kern_return_t restoreKR = KERN_SUCCESS;
-    if (changedProtection) restoreKR = vm_protect(mach_task_self(), pageStart, protectSize, FALSE, oldProt);
-    if (oldProt & VM_PROT_EXECUTE) sys_icache_invalidate((void *)address, data.length);
-    if (restoreKR != KERN_SUCCESS) {
-        if (error) *error = [NSString stringWithFormat:@"写入完成但恢复内存权限失败：%@", ZNKernError(restoreKR)];
-        return NO;
+
+    if (!targetWritable) {
+        if (mprotect((void *)pageStart, protectSize, PROT_READ | PROT_EXEC) != 0) {
+            int e = errno;
+            if (error) *error = [NSString stringWithFormat:@"写入完成但恢复 RX 权限失败：errno=%d (%s)", e, strerror(e)];
+            return NO;
+        }
+        sys_icache_invalidate((void *)address, data.length);
     }
 
     NSData *verify = nil;
@@ -184,12 +159,12 @@ static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
         NSData *target = step[@"target"];
         if ([before isEqualToData:target]) { a.state = enabled ? ZNPatchStateEnabled : ZNPatchStateDisabled; a.lastError = @""; continue; }
         NSString *writeError = nil;
-        if (!ZNWriteMemory(a.resolvedAddress, target, &writeError)) {
+        if (!ZNWriteMemory(a.resolvedAddress, target, a.zn_targetWritable, &writeError)) {
             for (NSDictionary *done in [changed reverseObjectEnumerator]) {
                 ZNPatchActionDescriptor *ra = done[@"action"];
                 NSData *rb = done[@"before"];
                 NSString *ignored = nil;
-                ZNWriteMemory(ra.resolvedAddress, rb, &ignored);
+                ZNWriteMemory(ra.resolvedAddress, rb, ra.zn_targetWritable, &ignored);
                 ra.zn_wroteRuntimeMemory = NO;
             }
             self.failedTransactions++;
@@ -220,6 +195,7 @@ static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
     memcpy(buf, originalBytes, sizeof(originalBytes));
     ZNPatchActionDescriptor *a = [[ZNPatchActionDescriptor alloc] initWithIdentifier:@"executor_selftest" type:ZNPatchActionTypeBytes];
     a.resolvedAddress = (uintptr_t)buf;
+    a.zn_targetWritable = YES;
     a.zn_expectedBytes = [NSData dataWithBytes:originalBytes length:sizeof(originalBytes)];
     a.zn_patchBytes = [NSData dataWithBytes:patchedBytes length:sizeof(patchedBytes)];
     NSString *e1 = nil, *e2 = nil;
@@ -235,7 +211,7 @@ static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
 }
 
 - (NSString *)diagnosticReport {
-    return [NSString stringWithFormat:@"Runtime Patch Executor 0.4.1\n模式: No JIT / 原位内存写入 / expected 校验 / read-back / 事务回滚\n成功事务: %lu  失败事务: %lu\n最近结果: %@\n",
+    return [NSString stringWithFormat:@"Runtime Patch Executor 0.4.1\n模式: No JIT / 代码页 RX→RW→RX / expected 校验 / read-back / 事务回滚\n成功事务: %lu  失败事务: %lu\n最近结果: %@\n",
             (unsigned long)self.successfulTransactions, (unsigned long)self.failedTransactions, self.lastResult ?: @""];
 }
 @end
