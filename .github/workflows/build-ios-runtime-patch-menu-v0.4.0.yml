@@ -1,4 +1,4 @@
-name: Build iOS Runtime Patch Menu v0.4.0
+name: Build iOS Runtime Patch Menu v0.4.1
 
 on:
   push:
@@ -29,10 +29,11 @@ jobs:
         run: |
           set -euxo pipefail
           grep -q '0.4.0-runtime-foundation' iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm
-          grep -q 'v0.4.0a UI hotfix layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm
           grep -q 'v0.4.0b touch-policy scope fix' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm
           grep -q 'delaysContentTouches = !developerPage' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm
-          grep -q 'return @\[@"玩家", @"战斗", @"移动", @"其他", @"设置", @"主题"\]' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm
+          grep -q 'Runtime Patch Executor 0.4.1' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
+          grep -q 'expectedBytes 为空' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
+          grep -q '事务已回滚' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
           grep -q 'ZNPatchActionTypeIL2CPPMethod' iosruntimepatchmenu/src/ZNPatchCore.h
           grep -q 'il2cpp_class_from_name' iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
           grep -q 'line 2 is optional' iosruntimepatchmenu/src/ZNDeveloperGate.mm
@@ -41,24 +42,26 @@ jobs:
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm \
             iosruntimepatchmenu/src/ZNPatchCore.mm \
+            iosruntimepatchmenu/src/ZNPatchCoreV041.mm \
+            iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm \
             iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
           ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm
 
-      - name: Build Runtime Foundation
+      - name: Build Runtime Patch Executor
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 \
-            ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV0402.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm"
-          mkdir -p dist-v040
-          cp .theos/obj/ZonoePatchV03.dylib dist-v040/ZonoePatch_v0.4.0b_RuntimeFoundation_TouchFix.dylib
-          shasum -a 256 dist-v040/ZonoePatch_v0.4.0b_RuntimeFoundation_TouchFix.dylib | tee dist-v040/SHA256.txt
+            ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV0402.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNPatchCoreV041.mm src/ZNRuntimePatchExecutor.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm"
+          mkdir -p dist-v041
+          cp .theos/obj/ZonoePatchV03.dylib dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib
+          shasum -a 256 dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib | tee dist-v041/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v040/ZonoePatch_v0.4.0b_RuntimeFoundation_TouchFix.dylib
+          out=iosruntimepatchmenu/dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib
           file "$out"
           otool -L "$out"
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
@@ -69,9 +72,11 @@ jobs:
           nm -gU "$out" | grep '_ZonoePatchIsVisible'
           nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
           strings "$out" | grep -q '0.4.0-runtime-foundation'
+          strings "$out" | grep -q 'Runtime Patch Executor 0.4.1'
+          strings "$out" | grep -q 'expectedBytes'
+          strings "$out" | grep -q '事务已回滚'
           strings "$out" | grep -q 'No JIT'
           strings "$out" | grep -q 'il2cpp_domain_get'
-          strings "$out" | grep -q 'il2cpp_class_from_name'
           ! strings "$out" | grep -q 'LocalTicketV2 transport installed'
           ! strings "$out" | grep -q 'zonoe://device-auth'
           ! strings "$out" | grep -q 'ZonoeHostGetUDID'
@@ -79,8 +84,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.4.0b-RuntimeFoundation-TouchFix
+          name: ZonoePatch-v0.4.1-RuntimePatchExecutor
           path: |
-            iosruntimepatchmenu/dist-v040/ZonoePatch_v0.4.0b_RuntimeFoundation_TouchFix.dylib
-            iosruntimepatchmenu/dist-v040/SHA256.txt
+            iosruntimepatchmenu/dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib
+            iosruntimepatchmenu/dist-v041/SHA256.txt
           if-no-files-found: error
