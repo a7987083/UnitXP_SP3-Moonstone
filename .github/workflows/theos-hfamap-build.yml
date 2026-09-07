@@ -1,9 +1,9 @@
-name: HFAMapUniversal v1.8.9 MenuFrameworkAnchorProbe
+name: HFAMapUniversal v1.9.0 CustomStateCallerProbe
 
 on:
   push:
     branches:
-      - feature/login-ip-tracer-dylib-v2-hfamap187
+      - feature/login-ip-tracer-dylib-v2-hfamap187-v190
     paths:
       - 'hfamap/**'
       - '.github/scripts/hfamap_v189_patch.py'
@@ -26,61 +26,151 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Apply v1.8.9 MenuFrameworkAnchorProbe
+      - name: Apply v1.9.0 CustomStateCallerProbe
         run: |
           python3 .github/scripts/hfamap_v189_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("hfamap/src/HFAMapPatchExecutionTrace.m")
+          s = p.read_text()
+
+          anchor = "static uintptr_t HFAFindFunctionStart(uintptr_t caller) {\n"
+          helper = r'''static int HFAIdentifierIsCustomSwitch(const char *identifier) {
+              HFAFeatureDefinition *definition =
+                  HFAFeatureDefinitionForIdentifier(identifier);
+              return definition && definition->type[0] &&
+                     strcmp(definition->type, "customSwitch") == 0;
+          }
+
+          static void HFAProbeCallerWindow(const char *identifier, uintptr_t caller) {
+              if (!identifier || !*identifier || !caller ||
+                  !HFAIdentifierIsCustomSwitch(identifier))
+                  return;
+
+              Dl_info callerInfo = {0};
+              if (!dladdr((void *)caller, &callerInfo) || !callerInfo.dli_fbase)
+                  return;
+
+              uintptr_t base = (uintptr_t)callerInfo.dli_fbase;
+              uintptr_t callerRVA = caller - base;
+              HFALog("[CUSTOM-CALLER-PROBE] identifier=%s image=%s caller=%p callerRVA=%llX\\n",
+                     identifier,
+                     callerInfo.dli_fname ? HFABase(callerInfo.dli_fname) : "?",
+                     (void *)caller, (unsigned long long)callerRVA);
+
+              const uintptr_t before = 0x80u;
+              const uintptr_t after = 0x100u;
+              uintptr_t start = caller > before ? caller - before : caller;
+              uintptr_t end = caller + after;
+
+              for (uintptr_t row = start; row < end; row += 0x20u) {
+                  uint32_t words[8] = {0};
+                  unsigned have = 0;
+                  for (unsigned j = 0; j < 8; j++) {
+                      uintptr_t pc = row + (uintptr_t)j * 4u;
+                      if (pc >= end || !HFAReadable(pc, 4)) break;
+                      memcpy(&words[j], (const void *)pc, 4);
+                      have++;
+                  }
+                  if (!have) continue;
+                  HFALog("[CUSTOM-CALLER-CODE] identifier=%s rowRVA=%llX words=%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X\\n",
+                         identifier, (unsigned long long)(row - base),
+                         words[0], words[1], words[2], words[3],
+                         words[4], words[5], words[6], words[7]);
+              }
+
+              for (uintptr_t pc = start; pc < end; pc += 4u) {
+                  if (!HFAReadable(pc, 4)) continue;
+                  uint32_t word = 0;
+                  memcpy(&word, (const void *)pc, 4);
+
+                  const char *kind = NULL;
+                  uintptr_t target = 0;
+                  if ((word & 0xFC000000u) == 0x94000000u) {
+                      kind = "BL";
+                      int64_t displacement =
+                          HFASignExtend(word & 0x03FFFFFFu, 26) << 2;
+                      target = (uintptr_t)((int64_t)pc + displacement);
+                  } else if ((word & 0xFC000000u) == 0x14000000u) {
+                      kind = "B";
+                      int64_t displacement =
+                          HFASignExtend(word & 0x03FFFFFFu, 26) << 2;
+                      target = (uintptr_t)((int64_t)pc + displacement);
+                  } else if ((word & 0xFFFFFC1Fu) == 0xD63F0000u) {
+                      unsigned reg = (word >> 5) & 31u;
+                      HFALog("[CUSTOM-CALL-INDIRECT] identifier=%s pcRVA=%llX kind=BLR reg=x%u word=%08X\\n",
+                             identifier, (unsigned long long)(pc - base), reg, word);
+                      continue;
+                  } else {
+                      continue;
+                  }
+
+                  Dl_info targetInfo = {0};
+                  dladdr((void *)target, &targetInfo);
+                  uintptr_t targetRVA = targetInfo.dli_fbase
+                      ? target - (uintptr_t)targetInfo.dli_fbase : 0;
+                  HFALog("[CUSTOM-CALL] identifier=%s pcRVA=%llX kind=%s word=%08X target=%p targetImage=%s targetRVA=%llX\\n",
+                         identifier, (unsigned long long)(pc - base), kind, word,
+                         (void *)target,
+                         targetInfo.dli_fname ? HFABase(targetInfo.dli_fname) : "?",
+                         (unsigned long long)targetRVA);
+              }
+          }
+
+          static uintptr_t HFAFindFunctionStart(uintptr_t caller) {
+          '''
+
+          if s.count(anchor) != 1:
+              raise SystemExit(f"expected caller anchor once, found {s.count(anchor)}")
+          s = s.replace(anchor, helper, 1)
+
+          old = "    site->calls++;\n    site->lastResult = result;\n    if (!site->hookLogged) {\n"
+          new = "    site->calls++;\n    site->lastResult = result;\n    if (site->calls == 1)\n        HFAProbeCallerWindow(identifier, caller);\n    if (!site->hookLogged) {\n"
+          if s.count(old) != 1:
+              raise SystemExit(f"expected state update once, found {s.count(old)}")
+          s = s.replace(old, new, 1)
+
+          old_marker = "[HFALearn v1.8.9 MenuFrameworkAnchorProbe] loaded"
+          new_marker = "[HFALearn v1.9.0 CustomStateCallerProbe] loaded"
+          if s.count(old_marker) != 1:
+              raise SystemExit(f"expected patch marker once, found {s.count(old_marker)}")
+          s = s.replace(old_marker, new_marker, 1)
+          p.write_text(s)
+
+          q = Path("hfamap/src/HFAMapLegacy.m")
+          l = q.read_text()
+          old_marker = "[HFALearn UI v1.8.9 MenuFrameworkAnchorProbe] loaded"
+          new_marker = "[HFALearn UI v1.9.0 CustomStateCallerProbe] loaded"
+          if l.count(old_marker) != 1:
+              raise SystemExit(f"expected legacy marker once, found {l.count(old_marker)}")
+          q.write_text(l.replace(old_marker, new_marker, 1))
+          PY
           git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
           git diff -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
 
-      - name: Build and verify HFAMapUniversal v1.8.9
+      - name: Build and verify HFAMapUniversal v1.9.0
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.8.9_MenuFrameworkAnchorProbe.dylib"
+          out="dist/HFAMapUniversal_v1.9.0_CustomStateCallerProbe.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
-          shasum -a 256 "$out" | tee dist/SHA256_v1.8.9.txt
-          strings "$out" | grep -q "HFALearn v1.8.9 MenuFrameworkAnchorProbe"
-          strings "$out" | grep -q "HFALearn UI v1.8.9 MenuFrameworkAnchorProbe"
-          strings "$out" | grep -q "Made by Laxus for iOSGods.com!"
-          strings "$out" | grep -q "Made for iOSGods.com"
+          shasum -a 256 "$out" | tee dist/SHA256_v1.9.0.txt
+          strings "$out" | grep -q "HFALearn v1.9.0 CustomStateCallerProbe"
+          strings "$out" | grep -q "HFALearn UI v1.9.0 CustomStateCallerProbe"
+          strings "$out" | grep -q "\[CUSTOM-CALLER-PROBE\]"
+          strings "$out" | grep -q "\[CUSTOM-CALLER-CODE\]"
+          strings "$out" | grep -q "\[CUSTOM-CALL\]"
+          strings "$out" | grep -q "\[CUSTOM-CALL-INDIRECT\]"
           strings "$out" | grep -q "\[FEATURE-SCHEMA\]"
           strings "$out" | grep -q "\[MENU-ANCHOR\]"
-          strings "$out" | grep -q "\[MENU-ANCHOR-BLOCK\]"
           strings "$out" | grep -q "\[CUSTOM-IDENTIFIER\]"
-          strings "$out" | grep -q "armed-customSwitch"
-          strings "$out" | grep -q "\[KEY-REGISTER-HOOK\]"
-          strings "$out" | grep -q "\[KEY-REGISTER-BEGIN\]"
-          strings "$out" | grep -q "\[KEY-REGISTER-END\]"
-          strings "$out" | grep -q "\[MODULE-NORMALIZE\]"
-          strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
-          strings "$out" | grep -q "\[AUTO-CONTROL-TARGET\]"
-          strings "$out" | grep -q "\[AUTO-STAGE\]"
-          strings "$out" | grep -q "\[KEY2-PATH-BEGIN\]"
-          strings "$out" | grep -q "\[KEY2-XREF\]"
-          strings "$out" | grep -q "\[KEY2-PATH-END\]"
-          strings "$out" | grep -q "\[AUTO-TARGET-BEGIN\]"
-          strings "$out" | grep -q "\[AUTO-TARGET-END\]"
-          strings "$out" | grep -q "\[AUTO-TRAVERSAL-END\]"
-          strings "$out" | grep -q "\[FULL-SCAN-BEGIN\]"
-          strings "$out" | grep -q "\[FULL-MAPPING\]"
-          strings "$out" | grep -q "\[FULL-SCAN-END\]"
-          strings "$out" | grep -q "\[AUTO-SCAN\]"
-          strings "$out" | grep -q "\[AUTO-TARGET\]"
-          strings "$out" | grep -q "\[GROUP-MAPPING\]"
-          strings "$out" | grep -q "\[CUSTOM-BLOCK\]"
-          strings "$out" | grep -q "\[CUSTOM-INVOKE\]"
-          strings "$out" | grep -q "\[SECRET02\]"
-          strings "$out" | grep -q "\[ACTION-IMP\]"
-          strings "$out" | grep -q "\[CUSTOM-QUERY-INSTALL\]"
           strings "$out" | grep -q "\[CUSTOM-STATE\]"
-          strings "$out" | grep -q "\[CUSTOM-HOOK-TARGET\]"
-          strings "$out" | grep -q "\[CUSTOM-TRAMPOLINE\]"
-          strings "$out" | grep -q "\[MAPPING\]"
-          strings "$out" | grep -q "\[MAP-DECRYPT\]"
-          strings "$out" | grep -q "\[MAP-DECRYPT-SKIP\]"
+          strings "$out" | grep -q "\[FULL-MAPPING\]"
+          strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
           strings "$out" | grep -q "HFAMap_Mapping.log"
           ls -lh "$out"
 
@@ -89,15 +179,15 @@ jobs:
           git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hfamap/dist/HFAMapUniversal_v1.8.9_MenuFrameworkAnchorProbe.dylib hfamap/dist/SHA256_v1.8.9.txt
-          git commit -m "Publish HFAMapUniversal v1.8.9 dylib [skip ci]" || exit 0
-          git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187
+          git add -f hfamap/dist/HFAMapUniversal_v1.9.0_CustomStateCallerProbe.dylib hfamap/dist/SHA256_v1.9.0.txt
+          git commit -m "Publish HFAMapUniversal v1.9.0 dylib [skip ci]" || exit 0
+          git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187-v190
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.8.9-MenuFrameworkAnchorProbe
+          name: HFAMapUniversal-v1.9.0-CustomStateCallerProbe
           path: |
-            hfamap/dist/HFAMapUniversal_v1.8.9_MenuFrameworkAnchorProbe.dylib
-            hfamap/dist/SHA256_v1.8.9.txt
+            hfamap/dist/HFAMapUniversal_v1.9.0_CustomStateCallerProbe.dylib
+            hfamap/dist/SHA256_v1.9.0.txt
           if-no-files-found: error
