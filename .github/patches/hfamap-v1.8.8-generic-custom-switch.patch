@@ -1,0 +1,59 @@
+diff --git a/hfamap/src/HFAMapPatchExecutionTrace.m b/hfamap/src/HFAMapPatchExecutionTrace.m
+--- a/hfamap/src/HFAMapPatchExecutionTrace.m
++++ b/hfamap/src/HFAMapPatchExecutionTrace.m
+@@
+ typedef struct {
+     uintptr_t caller;
+     SEL query;
+-    char identifier[16];
++    char identifier[96];
+     uintptr_t lastResult;
+     unsigned calls;
+     unsigned hookLogged;
+ } HFAStateSite;
+@@
+ static HFAFeatureDefinition *HFAFeatureDefinitionForKey(const char *key) {
+     if (!key || !*key) return NULL;
+     for (unsigned i = 0; i < gFeatureDefinitionCount; i++)
+         if (strcmp(gFeatureDefinitions[i].key, key) == 0)
+             return &gFeatureDefinitions[i];
+     return NULL;
+ }
++
++static int HFAKnownFeatureIdentifier(const char *identifier) {
++    if (!identifier || !*identifier) return 0;
++    for (unsigned i = 0; i < gFeatureDefinitionCount; i++) {
++        if (strcmp(gFeatureDefinitions[i].identifier, identifier) == 0)
++            return 1;
++    }
++    return 0;
++}
+@@
+ void HFARegisterCustomBlock(id value, const char *identifier) {
+-    if (!value || !identifier ||
+-        (strcmp(identifier, "Fuel") != 0 && strcmp(identifier, "Boost") != 0))
++    if (!value || !identifier || !HFAKnownFeatureIdentifier(identifier))
+         return;
+@@
+ static uintptr_t HFACustomStateQuery(id self, SEL _cmd, id argument) {
+     Class owner = object_getClass(self);
+     HFAQueryHook *hook = HFAQueryHookFor(owner, _cmd);
+     if (!hook || !hook->original) return 0;
+-    char identifier[16] = {0};
++    char identifier[96] = {0};
+     if (argument && [argument isKindOfClass:[NSString class]]) {
+         const char *s = [(NSString *)argument UTF8String];
+-        if (s && (strcmp(s, "Fuel") == 0 || strcmp(s, "Boost") == 0))
++        if (s && HFAKnownFeatureIdentifier(s))
+             snprintf(identifier, sizeof(identifier), "%s", s);
+     }
+     uintptr_t caller = (uintptr_t)__builtin_return_address(0);
+     uintptr_t result = ((uintptr_t(*)(id,SEL,id))hook->original)(self, _cmd, argument);
+     if (!identifier[0]) return result;
++
++    HFALog("[CUSTOM-IDENTIFIER] identifier=%s source=state-query\n", identifier);
+@@
+ __attribute__((constructor)) static void HFAInit(void) {
+-    HFALog("[HFALearn v1.8.7 KeyRegisterProbe] loaded\n");
++    HFALog("[HFALearn v1.8.8 GenericCustomSwitchProbe] loaded\n");
+ }
