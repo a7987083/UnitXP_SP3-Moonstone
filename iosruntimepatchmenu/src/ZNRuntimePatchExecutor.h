@@ -8,6 +8,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy,nullable) NSData *zn_patchBytes;
 @property(nonatomic,copy,nullable) NSData *zn_originalBytes;
 @property(nonatomic,assign) BOOL zn_wroteRuntimeMemory;
+// v0.4.1 Bytes Patch defaults to an executable/code target. Set YES only for
+// a target that is already writable (used by self-test; ValuePatch will own data targets later).
+@property(nonatomic,assign) BOOL zn_targetWritable;
 @end
 
 @interface ZNRuntimePatchExecutor : NSObject
