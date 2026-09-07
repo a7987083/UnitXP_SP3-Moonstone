@@ -1,0 +1,274 @@
+diff --git a/Ksign/Backend/Storage/Storage+Shared.swift b/Ksign/Backend/Storage/Storage+Shared.swift
+index 0a3c8d7..7bdbd2a 100644
+--- a/Ksign/Backend/Storage/Storage+Shared.swift
++++ b/Ksign/Backend/Storage/Storage+Shared.swift
+@@ -52,6 +52,11 @@ struct AnyApp: Identifiable {
+ 	}
+ }
+ 
++struct LibrarySigningRoute: Hashable {
++	let appUUID: String
++	let signAndInstall: Bool
++}
++
+ protocol AppInfoPresentable {
+ 	var name: String? { get }
+ 	var version: String? { get }
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index 8444bc1..1f27a36 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -155,6 +155,95 @@ private struct ZonoeKeyboardDismissModifier: ViewModifier {
+ 	func body(content: Content) -> some View {
+ 		content
+ 			.scrollDismissesKeyboard(.interactively)
++			.background(ZonoeKeyboardDismissBridge().frame(width: 0, height: 0))
++	}
++}
++
++private struct ZonoeKeyboardDismissBridge: UIViewRepresentable {
++	func makeCoordinator() -> Coordinator { Coordinator() }
++
++	func makeUIView(context: Context) -> WindowProbeView {
++		let view = WindowProbeView()
++		view.onWindowChange = { [weak coordinator = context.coordinator] window in
++			coordinator?.install(in: window)
++		}
++		return view
++	}
++
++	func updateUIView(_ uiView: WindowProbeView, context: Context) {
++		context.coordinator.install(in: uiView.window)
++	}
++
++	static func dismantleUIView(_ uiView: WindowProbeView, coordinator: Coordinator) {
++		coordinator.uninstall()
++	}
++
++	final class Coordinator: NSObject, UIGestureRecognizerDelegate {
++		private weak var installedWindow: UIWindow?
++		private var observers: [NSObjectProtocol] = []
++		private lazy var recognizer: UITapGestureRecognizer = {
++			let recognizer = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
++			recognizer.cancelsTouchesInView = false
++			recognizer.delaysTouchesBegan = false
++			recognizer.delaysTouchesEnded = false
++			recognizer.delegate = self
++			recognizer.isEnabled = false
++			return recognizer
++		}()
++
++		override init() {
++			super.init()
++			let center = NotificationCenter.default
++			observers.append(center.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
++				self?.recognizer.isEnabled = true
++			})
++			observers.append(center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
++				self?.recognizer.isEnabled = false
++			})
++		}
++
++		deinit {
++			for observer in observers { NotificationCenter.default.removeObserver(observer) }
++		}
++
++		func install(in window: UIWindow?) {
++			guard let window, window !== installedWindow else { return }
++			uninstall()
++			window.addGestureRecognizer(recognizer)
++			installedWindow = window
++		}
++
++		func uninstall() {
++			installedWindow?.removeGestureRecognizer(recognizer)
++			installedWindow = nil
++		}
++
++		@objc private func dismissKeyboard() {
++			UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
++		}
++
++		func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
++			var view = touch.view
++			while let current = view {
++				if current is UIControl || current is UITextView { return false }
++				view = current.superview
++			}
++			return true
++		}
++
++		func gestureRecognizer(
++			_ gestureRecognizer: UIGestureRecognizer,
++			shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
++		) -> Bool { true }
++	}
++
++	final class WindowProbeView: UIView {
++		var onWindowChange: ((UIWindow?) -> Void)?
++
++		override func didMoveToWindow() {
++			super.didMoveToWindow()
++			onWindowChange?(window)
++		}
+ 	}
+ }
+ 
+diff --git a/Ksign/Views/Library/LibraryCellView.swift b/Ksign/Views/Library/LibraryCellView.swift
+index 3a112b7..7704b78 100644
+--- a/Ksign/Views/Library/LibraryCellView.swift
++++ b/Ksign/Views/Library/LibraryCellView.swift
+@@ -20,11 +20,12 @@ struct LibraryCellView: View {
+ 	
+ 	var app: AppInfoPresentable
+ 	@Binding var selectedInfoAppPresenting: AnyApp?
+-	@Binding var selectedSigningAppPresenting: AnyApp?
+ 	@Binding var selectedInstallAppPresenting: AnyApp?
+ 	@Binding var selectedAppDylibsPresenting: AnyApp?
+ 	@Binding var selectedApps: Set<String>
++	let onRequestSigning: (AppInfoPresentable, Bool) -> Void
+ 	@State private var _showActionSheet = false
++	@State private var _pendingSigningRequest = false
+ 	@State private var _isSharing = false
+ 	
+ 	private var _isSelected: Bool {
+@@ -95,6 +96,13 @@ struct LibraryCellView: View {
+ 				_actionSheetButtons(for: app)
+ 			}
+ 		}
++		.onChange(of: _showActionSheet) { isPresented in
++			guard !isPresented, _pendingSigningRequest else { return }
++			_pendingSigningRequest = false
++			DispatchQueue.main.async {
++				onRequestSigning(app, false)
++			}
++		}
+ 		.swipeActions {
+ 			if !isEditing {
+ 				_actions(for: app)
+@@ -166,7 +174,7 @@ extension LibraryCellView {
+ 				selectedInstallAppPresenting = AnyApp(base: app)
+ 			}
+ 			Button(.localized("重新签名"), systemImage: "signature") {
+-				selectedSigningAppPresenting = AnyApp(base: app)
++				onRequestSigning(app, false)
+ 			}
+ 			Button("分享", systemImage: "square.and.arrow.up") {
+ 				_share(app)
+@@ -192,7 +200,7 @@ extension LibraryCellView {
+ 			}
+ 			
+ 			Button(.localized("重新签名")) {
+-				selectedSigningAppPresenting = AnyApp(base: app)
++				_requestSigning()
+ 			}
+ 			
+ 			Button("分享") {
+@@ -200,7 +208,7 @@ extension LibraryCellView {
+ 			}
+ 		} else {
+ 			Button(.localized("签名")) {
+-				selectedSigningAppPresenting = AnyApp(base: app)
++				_requestSigning()
+ 			}
+ 			
+ 			Button("分享") {
+@@ -248,6 +256,11 @@ extension LibraryCellView {
+ 			}
+ 		}
+ 	}
++
++	private func _requestSigning() {
++		_pendingSigningRequest = true
++		_showActionSheet = false
++	}
+ 	
+ 	@ViewBuilder
+ 	private func _buttonActions(for app: AppInfoPresentable) -> some View {
+@@ -264,7 +277,7 @@ extension LibraryCellView {
+ 				}
+ 			} else {
+ 				Button {
+-					selectedSigningAppPresenting = AnyApp(base: app)
++					onRequestSigning(app, false)
+ 				} label: {
+ 					FRExpirationPillView(
+ 						title: .localized("签名"),
+diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
+index 024c908..e95c658 100644
+--- a/Ksign/Views/Library/LibraryView.swift
++++ b/Ksign/Views/Library/LibraryView.swift
+@@ -14,9 +14,9 @@ import ZIPFoundation
+ // MARK: - View
+ struct LibraryView: View {
+ 	@StateObject var downloadManager = DownloadManager.shared
++	@State private var _navigationPath = NavigationPath()
+ 	
+ 	@State private var _selectedInfoAppPresenting: AnyApp?
+-	@State private var _selectedSigningAppPresenting: AnyApp?
+ 	@State private var _selectedInstallAppPresenting: AnyApp?
+ 	@State private var _selectedAppDylibsPresenting: AnyApp?
+ 	@State private var _isBulkSigningPresenting = false
+@@ -73,7 +73,7 @@ struct LibraryView: View {
+ 	
+ 	// MARK: Body
+     var body: some View {
+-		NBNavigationView("") {
++		NavigationStack(path: $_navigationPath) {
+ 			TabView(selection: $_resourceTab) {
+ 				_appResourcePage.tag(0)
+ 				_fileResourcePage(tab: 1).tag(1)
+@@ -207,14 +207,19 @@ struct LibraryView: View {
+ 			}
+ 			.onChange(of: _resourceTab) { _ in _finishSelection(); _reloadResourceFiles() }
+ 			.onChange(of: _selectedTab) { _ in _finishSelection() }
+-			.navigationDestination(isPresented: Binding(
+-				get: { _selectedSigningAppPresenting != nil },
+-				set: { if !$0 { _selectedSigningAppPresenting = nil } }
+-			)) {
+-				if let app = _selectedSigningAppPresenting {
+-					SigningView(app: app.base, signAndInstall: app.signAndInstall)
++			.navigationDestination(for: LibrarySigningRoute.self) { route in
++				if let app = _signingApp(for: route.appUUID) {
++					SigningView(app: app, signAndInstall: route.signAndInstall)
++				} else {
++					VStack(spacing: 12) {
++						Image(systemName: "questionmark.app")
++							.font(.largeTitle)
++						Text("应用不存在")
++					}
++					.foregroundStyle(.secondary)
+ 				}
+ 			}
++			.navigationTitle("")
+         }
+         .onChange(of: _isEditMode) { state in
+             if !state.isEditing {
+@@ -248,10 +253,25 @@ extension LibraryView {
+ 	}
+ 
+ 	@ViewBuilder private func _appRow(_ app: AppInfoPresentable) -> some View {
+-		LibraryCellView(app: app, selectedInfoAppPresenting: $_selectedInfoAppPresenting, selectedSigningAppPresenting: $_selectedSigningAppPresenting, selectedInstallAppPresenting: $_selectedInstallAppPresenting, selectedAppDylibsPresenting: $_selectedAppDylibsPresenting, selectedApps: $_selectedApps)
++		LibraryCellView(
++			app: app,
++			selectedInfoAppPresenting: $_selectedInfoAppPresenting,
++			selectedInstallAppPresenting: $_selectedInstallAppPresenting,
++			selectedAppDylibsPresenting: $_selectedAppDylibsPresenting,
++			selectedApps: $_selectedApps,
++			onRequestSigning: { requestedApp, signAndInstall in
++				guard let uuid = requestedApp.uuid else { return }
++				_navigationPath.append(LibrarySigningRoute(appUUID: uuid, signAndInstall: signAndInstall))
++			}
++		)
+ 			.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+ 	}
+ 
++	private func _signingApp(for uuid: String) -> AppInfoPresentable? {
++		(_importedApps.first(where: { $0.uuid == uuid }) as AppInfoPresentable?)
++			?? (_signedApps.first(where: { $0.uuid == uuid }) as AppInfoPresentable?)
++	}
++
+ 	@ViewBuilder private func _fileResourcePage(tab: Int) -> some View {
+ 		NBListAdaptable {
+ 			NBSection(tab == 1 ? "Zip" : "动态库", secondary: _files(for: tab).count.description) {
+

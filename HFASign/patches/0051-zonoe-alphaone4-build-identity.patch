@@ -1,0 +1,36 @@
+diff --git a/Ksign.xcodeproj/project.pbxproj b/Ksign.xcodeproj/project.pbxproj
+index bb088e1..3e744f3 100644
+--- a/Ksign.xcodeproj/project.pbxproj
++++ b/Ksign.xcodeproj/project.pbxproj
+@@ -452,7 +452,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 103;
++				CURRENT_PROJECT_VERSION = 104;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+@@ -520,7 +520,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 103;
++				CURRENT_PROJECT_VERSION = 104;
+ 				DEAD_CODE_STRIPPING = YES;
+ 				DEPLOYMENT_POSTPROCESSING = YES;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 801edb9..601d58c 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -3,7 +3,7 @@
+ <plist version="1.0">
+ <dict>
+ 	<key>ZonoeReleaseVersion</key>
+-	<string>v3.0.0-alphaone3</string>
++	<string>v3.0.0-alphaone4</string>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+ 	<true/>
+ 	<key>LSApplicationQueriesSchemes</key>
+
