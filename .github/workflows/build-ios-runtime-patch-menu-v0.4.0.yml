@@ -1,4 +1,4 @@
-name: Build iOS Runtime Patch Menu v0.4.1
+name: Build iOS Runtime Patch Menu v0.4.2
 
 on:
   push:
@@ -30,11 +30,16 @@ jobs:
           set -euxo pipefail
           grep -q '0.4.0-runtime-foundation' iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm
           grep -q 'v0.4.0b touch-policy scope fix' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm
-          grep -q 'delaysContentTouches = !developerPage' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm
+          grep -q 'v0.4.2 UI/diagnostics layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm
+          grep -q 'numberOfLines = 0' iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm
+          grep -q 'Executable Page Probe 0.4.2' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
+          grep -q '__TEXT,__znprobe' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
+          grep -q 'RX→RW→写入→恢复→RX→执行' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
+          grep -q 'dyldDebounce=400ms' iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm
+          grep -q 'main-thread delay=' iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm
           grep -q 'Runtime Patch Executor 0.4.1' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
           grep -q 'expectedBytes 为空' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
           grep -q '事务已回滚' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
-          grep -q 'mprotect' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
           grep -q 'ZNPatchActionTypeIL2CPPMethod' iosruntimepatchmenu/src/ZNPatchCore.h
           grep -q 'il2cpp_class_from_name' iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
           grep -q 'line 2 is optional' iosruntimepatchmenu/src/ZNDeveloperGate.mm
@@ -42,29 +47,33 @@ jobs:
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm \
+            iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm \
             iosruntimepatchmenu/src/ZNPatchCore.mm \
             iosruntimepatchmenu/src/ZNPatchCoreV041.mm \
             iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm \
+            iosruntimepatchmenu/src/ZNExecutablePageProbe.mm \
+            iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm \
             iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
-          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm
+          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm
 
-      - name: Build Runtime Patch Executor
+      - name: Build v0.4.2 Probe Diagnostics
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 \
-            ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV0402.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNPatchCoreV041.mm src/ZNRuntimePatchExecutor.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm"
-          mkdir -p dist-v041
-          cp .theos/obj/ZonoePatchV03.dylib dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib
-          shasum -a 256 dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib | tee dist-v041/SHA256.txt
+            ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV042.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNPatchCoreV041.mm src/ZNRuntimePatchExecutor.mm src/ZNExecutablePageProbe.mm src/ZNRuntimeDiagnosticsV042.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm"
+          mkdir -p dist-v042
+          cp .theos/obj/ZonoePatchV03.dylib dist-v042/ZonoePatch_v0.4.2_ProbeDiagnostics.dylib
+          shasum -a 256 dist-v042/ZonoePatch_v0.4.2_ProbeDiagnostics.dylib | tee dist-v042/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib
+          out=iosruntimepatchmenu/dist-v042/ZonoePatch_v0.4.2_ProbeDiagnostics.dylib
           file "$out"
           otool -L "$out"
+          otool -l "$out" | grep -A4 '__znprobe'
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
           nm -gU "$out" | grep '_ZonoePatchGetVersion'
           nm -gU "$out" | grep '_ZonoePatchStart'
@@ -73,9 +82,13 @@ jobs:
           nm -gU "$out" | grep '_ZonoePatchIsVisible'
           nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
           nm -gU "$out" | grep 'ZNRuntimePatchExecutor'
+          nm -gU "$out" | grep 'ZNExecutablePageProbe'
           nm -u "$out" | grep '_mprotect'
           strings "$out" | grep -q '0.4.0-runtime-foundation'
           strings "$out" | grep -q 'zn_expectedBytes'
+          strings "$out" | grep -q 'Executable Page Probe 0.4.2'
+          strings "$out" | grep -q 'main-thread delay='
+          strings "$out" | grep -q 'dyld-debounce'
           strings "$out" | grep -q 'No JIT'
           strings "$out" | grep -q 'il2cpp_domain_get'
           ! strings "$out" | grep -q 'LocalTicketV2 transport installed'
@@ -85,8 +98,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.4.1-RuntimePatchExecutor
+          name: ZonoePatch-v0.4.2-ProbeDiagnostics
           path: |
-            iosruntimepatchmenu/dist-v041/ZonoePatch_v0.4.1_RuntimePatchExecutor.dylib
-            iosruntimepatchmenu/dist-v041/SHA256.txt
+            iosruntimepatchmenu/dist-v042/ZonoePatch_v0.4.2_ProbeDiagnostics.dylib
+            iosruntimepatchmenu/dist-v042/SHA256.txt
           if-no-files-found: error
