@@ -25,10 +25,98 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
+      - name: Apply v1.8.8 GenericCustomSwitchProbe
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s = p.read_text()
+          replacements = [
+              (
+                  '    char identifier[16];\n',
+                  '    char identifier[96];\n',
+              ),
+              (
+                  '''static HFAFeatureDefinition *HFAFeatureDefinitionForKey(const char *key) {
+    if (!key || !*key) return NULL;
+    for (unsigned i = 0; i < gFeatureDefinitionCount; i++)
+        if (strcmp(gFeatureDefinitions[i].key, key) == 0)
+            return &gFeatureDefinitions[i];
+    return NULL;
+}
+''',
+                  '''static HFAFeatureDefinition *HFAFeatureDefinitionForKey(const char *key) {
+    if (!key || !*key) return NULL;
+    for (unsigned i = 0; i < gFeatureDefinitionCount; i++)
+        if (strcmp(gFeatureDefinitions[i].key, key) == 0)
+            return &gFeatureDefinitions[i];
+    return NULL;
+}
+
+static int HFAKnownFeatureIdentifier(const char *identifier) {
+    if (!identifier || !*identifier) return 0;
+    for (unsigned i = 0; i < gFeatureDefinitionCount; i++) {
+        if (strcmp(gFeatureDefinitions[i].identifier, identifier) == 0)
+            return 1;
+    }
+    return 0;
+}
+''',
+              ),
+              (
+                  '''void HFARegisterCustomBlock(id value, const char *identifier) {
+    if (!value || !identifier ||
+        (strcmp(identifier, "Fuel") != 0 && strcmp(identifier, "Boost") != 0))
+        return;
+''',
+                  '''void HFARegisterCustomBlock(id value, const char *identifier) {
+    if (!value || !identifier || !HFAKnownFeatureIdentifier(identifier))
+        return;
+''',
+              ),
+              (
+                  '''    char identifier[16] = {0};
+    if (argument && [argument isKindOfClass:[NSString class]]) {
+        const char *s = [(NSString *)argument UTF8String];
+        if (s && (strcmp(s, "Fuel") == 0 || strcmp(s, "Boost") == 0))
+            snprintf(identifier, sizeof(identifier), "%s", s);
+    }
+''',
+                  '''    char identifier[96] = {0};
+    if (argument && [argument isKindOfClass:[NSString class]]) {
+        const char *s = [(NSString *)argument UTF8String];
+        if (s && HFAKnownFeatureIdentifier(s))
+            snprintf(identifier, sizeof(identifier), "%s", s);
+    }
+''',
+              ),
+              (
+                  '''    if (!identifier[0]) return result;
+
+    HFAStateSite *site = HFAStateSiteFor(caller, _cmd, identifier);
+''',
+                  '''    if (!identifier[0]) return result;
+
+    HFALog("[CUSTOM-IDENTIFIER] identifier=%s source=state-query\\n", identifier);
+    HFAStateSite *site = HFAStateSiteFor(caller, _cmd, identifier);
+''',
+              ),
+              (
+                  '[HFALearn v1.8.7 KeyRegisterProbe] loaded',
+                  '[HFALearn v1.8.8 GenericCustomSwitchProbe] loaded',
+              ),
+          ]
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit(f'expected source fragment not found: {old[:80]!r}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m
+          git diff -- hfamap/src/HFAMapPatchExecutionTrace.m
+
       - name: Build and verify HFAMapUniversal v1.8.8
         run: |
-          git apply --check .github/patches/hfamap-v1.8.8-generic-custom-switch.patch
-          git apply .github/patches/hfamap-v1.8.8-generic-custom-switch.patch
           cd hfamap
           make clean
           make FINALPACKAGE=1
@@ -74,6 +162,7 @@ jobs:
 
       - name: Publish raw dylib
         run: |
+          git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f hfamap/dist/HFAMapUniversal_v1.8.8_GenericCustomSwitchProbe.dylib hfamap/dist/SHA256_v1.8.8.txt
