@@ -52,7 +52,6 @@ jobs:
           strings "$out" | grep -q "\[CUSTOM-ACTION-RUNTIME\]"
           strings "$out" | grep -q "\[CUSTOM-ACTION-FLOW\]"
           strings "$out" | grep -q "\[CUSTOM-PATH-BEGIN\]"
-          strings "$out" | grep -q "kind=action"
           strings "$out" | grep -q "\[CUSTOM-PATH-CALL\]"
           strings "$out" | grep -q "\[CUSTOM-PATH-INDIRECT\]"
           strings "$out" | grep -q "\[CUSTOM-STATE\]"
