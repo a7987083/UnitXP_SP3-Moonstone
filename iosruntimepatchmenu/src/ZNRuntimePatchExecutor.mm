@@ -1,6 +1,5 @@
 #import "ZNRuntimePatchExecutor.h"
 #import <mach/mach.h>
-#import <mach/mach_vm.h>
 #import <libkern/OSCacheControl.h>
 #import <objc/runtime.h>
 
@@ -28,28 +27,28 @@ static NSString *ZNKernError(kern_return_t kr) {
 static BOOL ZNReadMemory(uintptr_t address, NSUInteger length, NSData **outData, NSString **error) {
     if (!address || !length) { if (error) *error = @"地址或长度无效"; return NO; }
     NSMutableData *data = [NSMutableData dataWithLength:length];
-    mach_vm_size_t readSize = 0;
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)address,
-                                              (mach_vm_size_t)length,
-                                              (mach_vm_address_t)data.mutableBytes, &readSize);
+    vm_size_t readSize = 0;
+    kern_return_t kr = vm_read_overwrite(mach_task_self(), (vm_address_t)address,
+                                         (vm_size_t)length,
+                                         (vm_address_t)data.mutableBytes, &readSize);
     if (kr != KERN_SUCCESS || readSize != length) {
-        if (error) *error = [NSString stringWithFormat:@"读取失败：%@，read=%llu/%lu", ZNKernError(kr), readSize, (unsigned long)length];
+        if (error) *error = [NSString stringWithFormat:@"读取失败：%@，read=%lu/%lu", ZNKernError(kr), (unsigned long)readSize, (unsigned long)length];
         return NO;
     }
     if (outData) *outData = data;
     return YES;
 }
 
-static BOOL ZNRegionForAddress(uintptr_t address, mach_vm_address_t *regionStart,
-                               mach_vm_size_t *regionSize, vm_prot_t *protection,
+static BOOL ZNRegionForAddress(uintptr_t address, vm_address_t *regionStart,
+                               vm_size_t *regionSize, vm_prot_t *protection,
                                vm_prot_t *maxProtection, NSString **error) {
-    mach_vm_address_t start = (mach_vm_address_t)address;
-    mach_vm_size_t size = 0;
-    vm_region_basic_info_data_64_t info = {};
-    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
-    mach_port_t objectName = MACH_PORT_NULL;
-    kern_return_t kr = mach_vm_region(mach_task_self(), &start, &size, VM_REGION_BASIC_INFO_64,
-                                      (vm_region_info_t)&info, &count, &objectName);
+    vm_address_t start = (vm_address_t)address;
+    vm_size_t size = 0;
+    vm_region_basic_info_data_t info = {};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT;
+    memory_object_name_t objectName = MACH_PORT_NULL;
+    kern_return_t kr = vm_region(mach_task_self(), &start, &size, VM_REGION_BASIC_INFO,
+                                 (vm_region_info_t)&info, &count, &objectName);
     if (objectName != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), objectName);
     if (kr != KERN_SUCCESS || address < start || address >= start + size) {
         if (error) *error = [NSString stringWithFormat:@"查询内存区域失败：%@", ZNKernError(kr)];
@@ -64,27 +63,27 @@ static BOOL ZNRegionForAddress(uintptr_t address, mach_vm_address_t *regionStart
 
 static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
     if (!address || !data.length) { if (error) *error = @"写入地址或数据无效"; return NO; }
-    mach_vm_address_t regionStart = 0;
-    mach_vm_size_t regionSize = 0;
+    vm_address_t regionStart = 0;
+    vm_size_t regionSize = 0;
     vm_prot_t oldProt = 0, maxProt = 0;
     if (!ZNRegionForAddress(address, &regionStart, &regionSize, &oldProt, &maxProt, error)) return NO;
-    if ((mach_vm_address_t)address + data.length > regionStart + regionSize) {
+    if ((vm_address_t)address + data.length > regionStart + regionSize) {
         if (error) *error = @"Patch 跨越多个 VM region，当前执行器拒绝写入";
         return NO;
     }
 
     vm_size_t pageSize = vm_page_size;
-    mach_vm_address_t pageStart = ((mach_vm_address_t)address) & ~((mach_vm_address_t)pageSize - 1);
-    mach_vm_address_t end = ((mach_vm_address_t)address) + data.length;
-    mach_vm_address_t pageEnd = (end + pageSize - 1) & ~((mach_vm_address_t)pageSize - 1);
-    mach_vm_size_t protectSize = pageEnd - pageStart;
+    vm_address_t pageStart = ((vm_address_t)address) & ~((vm_address_t)pageSize - 1);
+    vm_address_t end = ((vm_address_t)address) + data.length;
+    vm_address_t pageEnd = (end + pageSize - 1) & ~((vm_address_t)pageSize - 1);
+    vm_size_t protectSize = pageEnd - pageStart;
     BOOL changedProtection = !(oldProt & VM_PROT_WRITE);
 
     if (changedProtection) {
         // No JIT: only make the existing mapping temporarily writable. Never request W+X.
         // VM_PROT_COPY asks for a private COW mapping; stock iOS may still reject signed __TEXT.
         vm_prot_t writeProt = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY;
-        kern_return_t kr = mach_vm_protect(mach_task_self(), pageStart, protectSize, FALSE, writeProt);
+        kern_return_t kr = vm_protect(mach_task_self(), pageStart, protectSize, FALSE, writeProt);
         if (kr != KERN_SUCCESS) {
             if (error) *error = [NSString stringWithFormat:@"当前内存权限不支持运行时写入：%@（prot=%x max=%x）", ZNKernError(kr), oldProt, maxProt];
             return NO;
@@ -93,7 +92,7 @@ static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
 
     memcpy((void *)address, data.bytes, data.length);
     kern_return_t restoreKR = KERN_SUCCESS;
-    if (changedProtection) restoreKR = mach_vm_protect(mach_task_self(), pageStart, protectSize, FALSE, oldProt);
+    if (changedProtection) restoreKR = vm_protect(mach_task_self(), pageStart, protectSize, FALSE, oldProt);
     if (oldProt & VM_PROT_EXECUTE) sys_icache_invalidate((void *)address, data.length);
     if (restoreKR != KERN_SUCCESS) {
         if (error) *error = [NSString stringWithFormat:@"写入完成但恢复内存权限失败：%@", ZNKernError(restoreKR)];
@@ -122,71 +121,41 @@ static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
     dispatch_once(&onceToken, ^{ s = [ZNRuntimePatchExecutor new]; });
     return s;
 }
-- (instancetype)init {
-    self = [super init];
-    if (!self) return nil;
-    _lastResult = @"尚未执行";
-    return self;
-}
+- (instancetype)init { self = [super init]; if (!self) return nil; _lastResult = @"尚未执行"; return self; }
 
 - (BOOL)prepareAction:(ZNPatchActionDescriptor *)a enabling:(BOOL)enabling current:(NSData **)current restore:(NSData **)restore error:(NSString **)error {
     if (a.type != ZNPatchActionTypeBytes) {
         if (error) *error = [NSString stringWithFormat:@"%@：v0.4.1 仅执行 Bytes Patch", a.identifier];
-        a.state = ZNPatchStateUnsupported;
-        return NO;
+        a.state = ZNPatchStateUnsupported; return NO;
     }
     if (!a.resolvedAddress) {
         if (error) *error = [NSString stringWithFormat:@"%@：目标地址尚未解析", a.identifier];
-        a.state = ZNPatchStateTargetMissing;
-        return NO;
+        a.state = ZNPatchStateTargetMissing; return NO;
     }
     NSData *patch = a.zn_patchBytes;
     NSData *expected = a.zn_expectedBytes;
-    if (!patch.length) {
-        if (error) *error = [NSString stringWithFormat:@"%@：patchBytes 为空", a.identifier];
-        a.state = ZNPatchStateFailed;
-        return NO;
-    }
-    if (!expected.length) {
-        if (error) *error = [NSString stringWithFormat:@"%@：expectedBytes 为空；为避免覆盖未知版本，执行器拒绝盲写", a.identifier];
-        a.state = ZNPatchStateFailed;
-        return NO;
-    }
-    if (expected.length != patch.length) {
-        if (error) *error = [NSString stringWithFormat:@"%@：expectedBytes 与 patchBytes 长度不同", a.identifier];
-        a.state = ZNPatchStateFailed;
-        return NO;
-    }
+    if (!patch.length) { if (error) *error = [NSString stringWithFormat:@"%@：patchBytes 为空", a.identifier]; a.state = ZNPatchStateFailed; return NO; }
+    if (!expected.length) { if (error) *error = [NSString stringWithFormat:@"%@：expectedBytes 为空；为避免覆盖未知版本，执行器拒绝盲写", a.identifier]; a.state = ZNPatchStateFailed; return NO; }
+    if (expected.length != patch.length) { if (error) *error = [NSString stringWithFormat:@"%@：expectedBytes 与 patchBytes 长度不同", a.identifier]; a.state = ZNPatchStateFailed; return NO; }
 
     NSData *now = nil;
     NSString *readError = nil;
     if (!ZNReadMemory(a.resolvedAddress, patch.length, &now, &readError)) {
         if (error) *error = [NSString stringWithFormat:@"%@：%@", a.identifier, readError ?: @"读取失败"];
-        a.state = ZNPatchStateFailed;
-        return NO;
+        a.state = ZNPatchStateFailed; return NO;
     }
     NSData *knownRestore = a.zn_originalBytes ?: expected;
     if (enabling) {
-        if ([now isEqualToData:patch]) {
-            if (!a.zn_originalBytes) a.zn_originalBytes = expected;
-        } else if (![now isEqualToData:expected]) {
+        if ([now isEqualToData:patch]) { if (!a.zn_originalBytes) a.zn_originalBytes = expected; }
+        else if (![now isEqualToData:expected]) {
             if (error) *error = [NSString stringWithFormat:@"%@：当前字节既不是 expected 也不是 patch，拒绝覆盖", a.identifier];
-            a.state = ZNPatchStateByteMismatch;
-            return NO;
-        } else {
-            a.zn_originalBytes = now;
-            knownRestore = now;
-        }
+            a.state = ZNPatchStateByteMismatch; return NO;
+        } else { a.zn_originalBytes = now; knownRestore = now; }
     } else {
-        if (!knownRestore.length) {
-            if (error) *error = [NSString stringWithFormat:@"%@：没有可恢复的原始字节", a.identifier];
-            a.state = ZNPatchStateConflict;
-            return NO;
-        }
+        if (!knownRestore.length) { if (error) *error = [NSString stringWithFormat:@"%@：没有可恢复的原始字节", a.identifier]; a.state = ZNPatchStateConflict; return NO; }
         if (![now isEqualToData:patch] && ![now isEqualToData:knownRestore]) {
             if (error) *error = [NSString stringWithFormat:@"%@：当前字节发生第三方变化，拒绝恢复", a.identifier];
-            a.state = ZNPatchStateConflict;
-            return NO;
+            a.state = ZNPatchStateConflict; return NO;
         }
     }
     if (current) *current = now;
@@ -201,11 +170,8 @@ static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
         NSData *current = nil, *restore = nil;
         NSString *e = nil;
         if (![self prepareAction:a enabling:enabled current:&current restore:&restore error:&e]) {
-            self.failedTransactions++;
-            self.lastResult = e ?: @"预检失败";
-            a.lastError = self.lastResult;
-            if (error) *error = self.lastResult;
-            return NO;
+            self.failedTransactions++; self.lastResult = e ?: @"预检失败"; a.lastError = self.lastResult;
+            if (error) *error = self.lastResult; return NO;
         }
         NSData *target = enabled ? a.zn_patchBytes : restore;
         [plan addObject:@{@"action":a, @"before":current, @"target":target ?: [NSData data]}];
@@ -216,11 +182,7 @@ static BOOL ZNWriteMemory(uintptr_t address, NSData *data, NSString **error) {
         ZNPatchActionDescriptor *a = step[@"action"];
         NSData *before = step[@"before"];
         NSData *target = step[@"target"];
-        if ([before isEqualToData:target]) {
-            a.state = enabled ? ZNPatchStateEnabled : ZNPatchStateDisabled;
-            a.lastError = @"";
-            continue;
-        }
+        if ([before isEqualToData:target]) { a.state = enabled ? ZNPatchStateEnabled : ZNPatchStateDisabled; a.lastError = @""; continue; }
         NSString *writeError = nil;
         if (!ZNWriteMemory(a.resolvedAddress, target, &writeError)) {
             for (NSDictionary *done in [changed reverseObjectEnumerator]) {
