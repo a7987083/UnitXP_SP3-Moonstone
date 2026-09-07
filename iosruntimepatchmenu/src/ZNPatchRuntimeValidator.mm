@@ -1,7 +1,7 @@
 #import "ZNPatchRuntimeValidator.h"
 #import "ZNPatchCore.h"
 #import "ZNExecutablePageProbe.h"
-#import <mach/mach.h>
+#import <mach-o/loader.h>
 #import <libkern/OSCacheControl.h>
 #import <sys/mman.h>
 #import <errno.h>
@@ -53,7 +53,6 @@ static BOOL ZN43ParseRVA(NSString *input, uint64_t *outRVA, NSString **error) {
     errno = 0;
     unsigned long long value = strtoull(c, &end, 0);
     if (errno != 0 || end == c || (end && *end != '\0')) {
-        // Existing patch JSON commonly stores hex without a 0x prefix.
         errno = 0;
         end = NULL;
         value = strtoull(c, &end, 16);
@@ -82,55 +81,88 @@ static int ZN43POSIXProtection(vm_prot_t p) {
 }
 
 typedef struct {
-    vm_address_t start;
-    vm_size_t size;
+    uintptr_t start;
+    uintptr_t end;
     vm_prot_t protection;
     vm_prot_t maxProtection;
-} ZN43RegionInfo;
+    char segmentName[17];
+} ZN43SegmentInfo;
 
-static BOOL ZN43QueryRegion(uintptr_t address, NSUInteger length, ZN43RegionInfo *outInfo, NSString **error) {
-    vm_address_t region = (vm_address_t)address;
-    vm_size_t regionSize = 0;
-    vm_region_basic_info_data_t info = {};
-    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT;
-    mach_port_t objectName = MACH_PORT_NULL;
-    kern_return_t kr = vm_region(mach_task_self(), &region, &regionSize,
-                                 VM_REGION_BASIC_INFO,
-                                 (vm_region_info_t)&info, &count, &objectName);
-    if (objectName != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), objectName);
-    if (kr != KERN_SUCCESS) {
-        if (error) *error = [NSString stringWithFormat:@"vm_region 失败：%s (%d)", mach_error_string(kr), kr];
+// iOS public SDK does not export vm_region/mach_vm_region for app linking.
+// For a patch that is explicitly target-image + RVA, the loaded Mach-O segment
+// table is a stronger source of truth anyway: it proves the address belongs to
+// that image and provides the segment's intended init/max protections.
+static BOOL ZN43QueryImageSegment(uintptr_t imageBase,
+                                  uintptr_t address,
+                                  NSUInteger length,
+                                  ZN43SegmentInfo *outInfo,
+                                  NSString **error) {
+    if (!imageBase || !address || !length) {
+        if (error) *error = @"Image/地址/长度无效";
         return NO;
     }
 
-    uint64_t end = (uint64_t)address + (uint64_t)length;
-    uint64_t regionEnd = (uint64_t)region + (uint64_t)regionSize;
-    if ((uint64_t)address < (uint64_t)region || end > regionEnd) {
-        if (error) *error = @"Patch 跨越不同 VM region，首版验证拒绝执行";
+    const struct mach_header_64 *mh = (const struct mach_header_64 *)imageBase;
+    if (mh->magic != MH_MAGIC_64) {
+        if (error) *error = @"目标不是当前支持的 64-bit Mach-O image";
         return NO;
     }
-    if (outInfo) {
-        outInfo->start = region;
-        outInfo->size = regionSize;
-        outInfo->protection = info.protection;
-        outInfo->maxProtection = info.max_protection;
+
+    const uint8_t *commands = (const uint8_t *)(mh + 1);
+    const uint8_t *commandEnd = commands + mh->sizeofcmds;
+    const struct load_command *lc = (const struct load_command *)commands;
+    uint64_t imageVMBase = UINT64_MAX;
+
+    for (uint32_t i = 0; i < mh->ncmds; i++) {
+        if ((const uint8_t *)lc + sizeof(struct load_command) > commandEnd || lc->cmdsize < sizeof(struct load_command) || (const uint8_t *)lc + lc->cmdsize > commandEnd) {
+            if (error) *error = @"Mach-O load commands 损坏";
+            return NO;
+        }
+        if (lc->cmd == LC_SEGMENT_64 && lc->cmdsize >= sizeof(struct segment_command_64)) {
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+            if (strncmp(seg->segname, SEG_TEXT, 16) == 0) imageVMBase = seg->vmaddr;
+        }
+        lc = (const struct load_command *)((const uint8_t *)lc + lc->cmdsize);
     }
-    return YES;
+    if (imageVMBase == UINT64_MAX) {
+        if (error) *error = @"未找到 __TEXT segment";
+        return NO;
+    }
+
+    lc = (const struct load_command *)commands;
+    uint64_t wantedEnd = (uint64_t)address + (uint64_t)length;
+    for (uint32_t i = 0; i < mh->ncmds; i++) {
+        if (lc->cmd == LC_SEGMENT_64 && lc->cmdsize >= sizeof(struct segment_command_64)) {
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+            if (seg->vmaddr >= imageVMBase) {
+                uintptr_t runtimeStart = imageBase + (uintptr_t)(seg->vmaddr - imageVMBase);
+                uintptr_t runtimeEnd = runtimeStart + (uintptr_t)seg->vmsize;
+                if (address >= runtimeStart && wantedEnd <= (uint64_t)runtimeEnd) {
+                    if (outInfo) {
+                        memset(outInfo, 0, sizeof(*outInfo));
+                        outInfo->start = runtimeStart;
+                        outInfo->end = runtimeEnd;
+                        outInfo->protection = seg->initprot;
+                        outInfo->maxProtection = seg->maxprot;
+                        memcpy(outInfo->segmentName, seg->segname, 16);
+                        outInfo->segmentName[16] = '\0';
+                    }
+                    return YES;
+                }
+            }
+        }
+        lc = (const struct load_command *)((const uint8_t *)lc + lc->cmdsize);
+    }
+
+    if (error) *error = @"Offset 不落在目标 Mach-O 的任何 segment 内";
+    return NO;
 }
 
 static BOOL ZN43Read(uintptr_t address, NSUInteger length, NSData **outData, NSString **error) {
     if (!address || !length) { if (error) *error = @"读取地址或长度无效"; return NO; }
-    NSMutableData *data = [NSMutableData dataWithLength:length];
-    vm_size_t readSize = 0;
-    kern_return_t kr = vm_read_overwrite(mach_task_self(),
-                                         (vm_address_t)address,
-                                         (vm_size_t)length,
-                                         (vm_address_t)data.mutableBytes,
-                                         &readSize);
-    if (kr != KERN_SUCCESS || readSize != (vm_size_t)length) {
-        if (error) *error = [NSString stringWithFormat:@"读取失败：%s (%d)，read=%llu/%lu",
-                             mach_error_string(kr), kr,
-                             (unsigned long long)readSize, (unsigned long)length];
+    NSData *data = [NSData dataWithBytes:(const void *)address length:length];
+    if (data.length != length) {
+        if (error) *error = @"读取长度异常";
         return NO;
     }
     if (outData) *outData = data;
@@ -142,10 +174,6 @@ static void ZN43RefreshCurrent(uintptr_t address, NSUInteger length, void (^sett
     if (ZN43Read(address, length, &fresh, NULL) && setter) setter(fresh);
 }
 
-// Writes one already-loaded code range on a capable developer device. The original
-// protection is restored exactly. If the restore step fails, rollback bytes are
-// immediately copied back while the range is still writable, then protection
-// restoration is attempted once more before returning failure.
 static BOOL ZN43WriteTransition(uintptr_t address,
                                 NSData *target,
                                 NSData *rollback,
@@ -217,6 +245,7 @@ static BOOL ZN43WriteTransition(uintptr_t address,
 @property(nonatomic,assign,readwrite,getter=isApplied) BOOL applied;
 @property(nonatomic,copy,readwrite) NSString *lastResult;
 @property(nonatomic,copy) NSString *protectionDescription;
+@property(nonatomic,copy) NSString *segmentDescription;
 @end
 
 @implementation ZNPatchRuntimeValidator
@@ -234,6 +263,7 @@ static BOOL ZN43WriteTransition(uintptr_t address,
     _target = @"UnityFramework";
     _lastResult = @"尚未配置";
     _protectionDescription = @"未知";
+    _segmentDescription = @"未知";
     return self;
 }
 
@@ -264,6 +294,7 @@ static BOOL ZN43WriteTransition(uintptr_t address,
         self.validated = NO;
         self.applied = NO;
         self.protectionDescription = @"未知";
+        self.segmentDescription = @"未知";
         self.lastResult = @"已配置，等待读取验证";
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-validate] configured target=%@ rva=0x%llX patch=%@",
                                              self.target, self.rva, ZN43Hex(self.patchBytes)]];
@@ -285,30 +316,32 @@ static BOOL ZN43WriteTransition(uintptr_t address,
             if (error) *error = self.lastResult;
             return NO;
         }
-
+        uintptr_t imageBase = (uintptr_t)[module[@"base"] unsignedLongLongValue];
         uintptr_t address = [[ZNModuleManager sharedManager] runtimeAddressForModule:self.target rva:self.rva];
-        if (!address) {
+        if (!imageBase || !address) {
             self.validated = NO;
             self.lastResult = @"Runtime Address 解析失败";
             if (error) *error = self.lastResult;
             return NO;
         }
 
-        ZN43RegionInfo region = {};
+        ZN43SegmentInfo segment = {};
         NSString *e = nil;
-        if (!ZN43QueryRegion(address, self.patchBytes.length, &region, &e)) {
+        if (!ZN43QueryImageSegment(imageBase, address, self.patchBytes.length, &segment, &e)) {
             self.validated = NO;
-            self.lastResult = e ?: @"VM region 查询失败";
+            self.lastResult = e ?: @"Mach-O segment 查询失败";
             if (error) *error = self.lastResult;
             return NO;
         }
         self.runtimeAddress = address;
+        self.segmentDescription = [NSString stringWithUTF8String:segment.segmentName] ?: @"?";
         self.protectionDescription = [NSString stringWithFormat:@"%@  max=%@",
-                                      ZN43ProtectionString(region.protection),
-                                      ZN43ProtectionString(region.maxProtection)];
-        if ((region.protection & VM_PROT_EXECUTE) == 0) {
+                                      ZN43ProtectionString(segment.protection),
+                                      ZN43ProtectionString(segment.maxProtection)];
+        if ((segment.protection & VM_PROT_EXECUTE) == 0 || (segment.protection & VM_PROT_READ) == 0) {
             self.validated = NO;
-            self.lastResult = [NSString stringWithFormat:@"目标不是 executable region：%@", self.protectionDescription];
+            self.lastResult = [NSString stringWithFormat:@"目标不是 R-X executable segment：%@ %@",
+                               self.segmentDescription, self.protectionDescription];
             if (error) *error = self.lastResult;
             return NO;
         }
@@ -346,8 +379,8 @@ static BOOL ZN43WriteTransition(uintptr_t address,
         }
 
         self.validated = YES;
-        self.lastResult = [NSString stringWithFormat:@"Binary/Runtime 预检 PASS：%@ + 0x%llX，现场 Original=%@",
-                           self.target, self.rva, ZN43Hex(self.capturedOriginalBytes)];
+        self.lastResult = [NSString stringWithFormat:@"Binary/Runtime 预检 PASS：%@ + 0x%llX，%@，现场 Original=%@",
+                           self.target, self.rva, self.segmentDescription, ZN43Hex(self.capturedOriginalBytes)];
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-validate] %@", self.lastResult]];
         return YES;
     }
@@ -395,16 +428,19 @@ static BOOL ZN43WriteTransition(uintptr_t address,
             return NO;
         }
 
-        ZN43RegionInfo region = {};
-        if (!ZN43QueryRegion(self.runtimeAddress, self.patchBytes.length, &region, &e)) {
-            self.lastResult = e ?: @"VM region 查询失败";
+        NSDictionary *module = [[ZNModuleManager sharedManager] moduleNamed:self.target];
+        uintptr_t imageBase = (uintptr_t)[module[@"base"] unsignedLongLongValue];
+        ZN43SegmentInfo segment = {};
+        if (!ZN43QueryImageSegment(imageBase, self.runtimeAddress, self.patchBytes.length, &segment, &e)) {
+            self.lastResult = e ?: @"Mach-O segment 查询失败";
             if (error) *error = self.lastResult;
             return NO;
         }
+
         if (!ZN43WriteTransition(self.runtimeAddress,
                                  self.patchBytes,
                                  self.capturedOriginalBytes,
-                                 region.protection,
+                                 segment.protection,
                                  &e)) {
             self.applied = NO;
             __weak typeof(self) weakSelf = self;
@@ -419,7 +455,7 @@ static BOOL ZN43WriteTransition(uintptr_t address,
         __weak typeof(self) weakSelf = self;
         ZN43RefreshCurrent(self.runtimeAddress, self.patchBytes.length, ^(NSData *fresh) { weakSelf.currentBytes = fresh; });
         self.lastResult = [NSString stringWithFormat:@"Runtime Patch PASS：write / read-back / %@ restore / icache",
-                           ZN43ProtectionString(region.protection)];
+                           ZN43ProtectionString(segment.protection)];
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-validate] %@", self.lastResult]];
         return YES;
     }
@@ -452,16 +488,18 @@ static BOOL ZN43WriteTransition(uintptr_t address,
             return NO;
         }
 
-        ZN43RegionInfo region = {};
-        if (!ZN43QueryRegion(self.runtimeAddress, self.patchBytes.length, &region, &e)) {
-            self.lastResult = e ?: @"VM region 查询失败";
+        NSDictionary *module = [[ZNModuleManager sharedManager] moduleNamed:self.target];
+        uintptr_t imageBase = (uintptr_t)[module[@"base"] unsignedLongLongValue];
+        ZN43SegmentInfo segment = {};
+        if (!ZN43QueryImageSegment(imageBase, self.runtimeAddress, self.patchBytes.length, &segment, &e)) {
+            self.lastResult = e ?: @"Mach-O segment 查询失败";
             if (error) *error = self.lastResult;
             return NO;
         }
         if (!ZN43WriteTransition(self.runtimeAddress,
                                  self.capturedOriginalBytes,
                                  self.patchBytes,
-                                 region.protection,
+                                 segment.protection,
                                  &e)) {
             self.lastResult = [NSString stringWithFormat:@"恢复 FAIL：%@", e ?: @"写入失败"];
             if (error) *error = self.lastResult;
@@ -495,6 +533,7 @@ static BOOL ZN43WriteTransition(uintptr_t address,
         self.validated = NO;
         self.applied = NO;
         self.protectionDescription = @"未知";
+        self.segmentDescription = @"未知";
         self.lastResult = @"尚未配置";
     }
 }
@@ -516,8 +555,8 @@ static BOOL ZN43WriteTransition(uintptr_t address,
             [NSString stringWithFormat:@"Patch：%@", ZN43Hex(self.patchBytes)],
             [NSString stringWithFormat:@"Live Original：%@", self.capturedOriginalBytes.length ? ZN43Hex(self.capturedOriginalBytes) : @"未捕获"],
             [NSString stringWithFormat:@"Current：%@", self.currentBytes.length ? ZN43Hex(self.currentBytes) : @"未读取"],
-            [NSString stringWithFormat:@"VM：%@    Applied：%@", self.protectionDescription ?: @"未知", self.applied ? @"YES" : @"NO"],
-            [NSString stringWithFormat:@"结果：%@", self.lastResult ?: @""]
+            [NSString stringWithFormat:@"Segment：%@    VM：%@", self.segmentDescription ?: @"未知", self.protectionDescription ?: @"未知"],
+            [NSString stringWithFormat:@"Applied：%@    结果：%@", self.applied ? @"YES" : @"NO", self.lastResult ?: @""]
         ];
     }
 }
