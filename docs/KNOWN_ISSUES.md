@@ -1,6 +1,6 @@
 # zonoe / HFASign v3 已知问题与验证状态
 
-> `v3.0.0-alphaone2` 已通过 CI 编译、解析回归、元数据校验和 IPA 打包。新增的软件源进度/剪贴板状态、UDID 复制提示、证书导入文件名与证书中文详情尚待真机回归，不能仅凭 CI 宣称交互验收完成。
+> `v3.0.0-alphaone3` 已通过 CI 编译、解析回归、元数据校验和 IPA 打包。SigningView 子页面、Apple App Store 详情导航及软件源添加成功后的弹窗关闭仍需真机回归。
 
 ## 状态定义
 
@@ -11,7 +11,7 @@
 ## 当前问题
 
 - alpha21 的 appstore_v2 解码材料来自已验证 QNQSourceLab v0.7.2 IPA；CI 只能证明编译和打包，具体第三方源可用性及 App 数量仍以真机/实服回归为准。
-- 全局键盘手势使用 `cancelsTouchesInView = false` 并跳过 UIKit 输入控件，以避免重现按钮/导航点击被拦截；SwiftUI 各复杂表单仍需真机验证。
+- alphaone3 已删除 UIWindow 级键盘收起手势，避免拦截 SwiftUI `NavigationLink`；键盘滚动收起仍由 `scrollDismissesKeyboard(.interactively)` 提供。
 
 | 优先级 | 问题 | 当前判断 | 相关位置 | 状态 |
 |---|---|---|---|---|

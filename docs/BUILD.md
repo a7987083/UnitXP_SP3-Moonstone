@@ -1,6 +1,6 @@
 # zonoe / HFASign v3 构建说明
 
-> 当前发布：`v3.0.0-alphaone2`，代码提交 `b5037ae616d8afb0ab37aa1e62bf8902046dd0d0`，发布提交 `9bdd336ea532ec911f651aa99180a1880dd38115`，Actions Run `34124709373` 成功，IPA SHA256 `1b13fcd557f5034620ac044895f67d8e06462bd65d9056cf010cbeb37459f968`。历史 alpha14 内容仅作旧版本记录。
+> 当前发布：`v3.0.0-alphaone3`，代码提交 `5ee8ce6d98b7f93b6d775dea0ccde2fe375280dd`，发布提交 `316645e5a996639e38748584392ca5252a5449f4`，Actions Run `34133291093` 成功，IPA SHA256 `facd82e07fcb9f87f900287cfa3e70fd419b10247a5440ad4d518409e5f32c9a`。历史 alpha14 内容仅作旧版本记录。
 
 ## 权威构建基线
 

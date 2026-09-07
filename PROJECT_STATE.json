@@ -1,17 +1,17 @@
 {
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "branch": "work/hfapatchipa-ksign-v3",
-  "version": "v3.0.0-alphaone2",
-  "build": 102,
+  "version": "v3.0.0-alphaone3",
+  "build": 103,
   "ksign_baseline": "03a3a9c86897d79f9faf8106037b9971841d56a0",
-  "code_commit": "b5037ae616d8afb0ab37aa1e62bf8902046dd0d0",
-  "publish_commit": "9bdd336ea532ec911f651aa99180a1880dd38115",
-  "workflow_run_id": 34124709373,
+  "code_commit": "5ee8ce6d98b7f93b6d775dea0ccde2fe375280dd",
+  "publish_commit": "316645e5a996639e38748584392ca5252a5449f4",
+  "workflow_run_id": 34133291093,
   "workflow_conclusion": "success",
-  "ipa": "HFASign/dist/zonoe_v3.0.0-alphaone2_TrollStore.ipa",
-  "sha256": "1b13fcd557f5034620ac044895f67d8e06462bd65d9056cf010cbeb37459f968",
-  "latest_patch": "0048-zonoe-alphaone2-source-certificate-feedback.patch",
+  "ipa": "HFASign/dist/zonoe_v3.0.0-alphaone3_TrollStore.ipa",
+  "sha256": "facd82e07fcb9f87f900287cfa3e70fd419b10247a5440ad4d518409e5f32c9a",
+  "latest_patch": "0049-zonoe-alphaone3-fix-navigation-and-clipboard-completion.patch",
   "ci_verified": true,
   "device_regression_pending": true,
-  "next_task": "Run device regression for source add progress, immediate clipboard prompt/duplicate state, UDID copy alert, certificate import filenames, and Chinese certificate details."
+  "next_task": "Run device regression for SigningView child navigation, Apple App Store details, and clipboard prompt dismissal after a successful source add."
 }
