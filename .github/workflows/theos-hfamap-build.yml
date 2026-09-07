@@ -1,4 +1,4 @@
-name: HFAMapUniversal v1.8.8 GenericCustomSwitchProbe
+name: HFAMapUniversal v1.8.9 MenuFrameworkAnchorProbe
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - feature/login-ip-tracer-dylib-v2-hfamap187
     paths:
       - 'hfamap/**'
+      - '.github/scripts/hfamap_v189_patch.py'
       - '.github/workflows/theos-hfamap-build.yml'
   workflow_dispatch:
 
@@ -25,24 +26,31 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Apply v1.8.8 GenericCustomSwitchProbe
+      - name: Apply v1.8.9 MenuFrameworkAnchorProbe
         run: |
-          python3 .github/scripts/hfamap_v188_patch.py
-          git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m
-          git diff -- hfamap/src/HFAMapPatchExecutionTrace.m
+          python3 .github/scripts/hfamap_v189_patch.py
+          git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git diff -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
 
-      - name: Build and verify HFAMapUniversal v1.8.8
+      - name: Build and verify HFAMapUniversal v1.8.9
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.8.8_GenericCustomSwitchProbe.dylib"
+          out="dist/HFAMapUniversal_v1.8.9_MenuFrameworkAnchorProbe.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
-          shasum -a 256 "$out" | tee dist/SHA256_v1.8.8.txt
-          strings "$out" | grep -q "HFALearn v1.8.8 GenericCustomSwitchProbe"
+          shasum -a 256 "$out" | tee dist/SHA256_v1.8.9.txt
+          strings "$out" | grep -q "HFALearn v1.8.9 MenuFrameworkAnchorProbe"
+          strings "$out" | grep -q "HFALearn UI v1.8.9 MenuFrameworkAnchorProbe"
+          strings "$out" | grep -q "Made by Laxus for iOSGods.com!"
+          strings "$out" | grep -q "Made for iOSGods.com"
+          strings "$out" | grep -q "\[FEATURE-SCHEMA\]"
+          strings "$out" | grep -q "\[MENU-ANCHOR\]"
+          strings "$out" | grep -q "\[MENU-ANCHOR-BLOCK\]"
           strings "$out" | grep -q "\[CUSTOM-IDENTIFIER\]"
+          strings "$out" | grep -q "armed-customSwitch"
           strings "$out" | grep -q "\[KEY-REGISTER-HOOK\]"
           strings "$out" | grep -q "\[KEY-REGISTER-BEGIN\]"
           strings "$out" | grep -q "\[KEY-REGISTER-END\]"
@@ -78,18 +86,18 @@ jobs:
 
       - name: Publish raw dylib
         run: |
-          git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m
+          git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hfamap/dist/HFAMapUniversal_v1.8.8_GenericCustomSwitchProbe.dylib hfamap/dist/SHA256_v1.8.8.txt
-          git commit -m "Publish HFAMapUniversal v1.8.8 dylib [skip ci]" || exit 0
+          git add -f hfamap/dist/HFAMapUniversal_v1.8.9_MenuFrameworkAnchorProbe.dylib hfamap/dist/SHA256_v1.8.9.txt
+          git commit -m "Publish HFAMapUniversal v1.8.9 dylib [skip ci]" || exit 0
           git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.8.8-GenericCustomSwitchProbe
+          name: HFAMapUniversal-v1.8.9-MenuFrameworkAnchorProbe
           path: |
-            hfamap/dist/HFAMapUniversal_v1.8.8_GenericCustomSwitchProbe.dylib
-            hfamap/dist/SHA256_v1.8.8.txt
+            hfamap/dist/HFAMapUniversal_v1.8.9_MenuFrameworkAnchorProbe.dylib
+            hfamap/dist/SHA256_v1.8.9.txt
           if-no-files-found: error
