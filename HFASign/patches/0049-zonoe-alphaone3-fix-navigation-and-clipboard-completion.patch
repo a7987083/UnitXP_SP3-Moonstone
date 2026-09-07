@@ -1,0 +1,225 @@
+From 5ffb73209252aba46b2632fa44e65d8bb752fb5c Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 7 Sep 2026 11:26:02 -0300
+Subject: [PATCH] zonoe alphaone3 fix navigation and clipboard completion
+
+---
+ Ksign.xcodeproj/project.pbxproj               |  4 +-
+ .../Sources/SourceRepositoryLoader.swift      |  7 ++
+ Ksign/FeatherApp.swift                        | 84 -------------------
+ Ksign/Resources/Info.plist                    |  2 +-
+ Ksign/Views/Appstore/AppstoreView.swift       | 12 ++-
+ 5 files changed, 18 insertions(+), 91 deletions(-)
+
+diff --git a/Ksign.xcodeproj/project.pbxproj b/Ksign.xcodeproj/project.pbxproj
+index fa4d9a5..bb088e1 100644
+--- a/Ksign.xcodeproj/project.pbxproj
++++ b/Ksign.xcodeproj/project.pbxproj
+@@ -452,7 +452,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 102;
++				CURRENT_PROJECT_VERSION = 103;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+ 				DEVELOPMENT_TEAM = "";
+ 				ENABLE_PREVIEWS = YES;
+@@ -520,7 +520,7 @@
+ 				CODE_SIGN_ENTITLEMENTS = "Ksign/Supporting Files/Feather.entitlements";
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Manual;
+-				CURRENT_PROJECT_VERSION = 102;
++				CURRENT_PROJECT_VERSION = 103;
+ 				DEAD_CODE_STRIPPING = YES;
+ 				DEPLOYMENT_POSTPROCESSING = YES;
+ 				DEVELOPMENT_ASSET_PATHS = "";
+diff --git a/Ksign/Backend/Sources/SourceRepositoryLoader.swift b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+index a0ecab1..be2d73c 100644
+--- a/Ksign/Backend/Sources/SourceRepositoryLoader.swift
++++ b/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+@@ -634,6 +634,11 @@ final class SourceImportCoordinator: ObservableObject {
+ 		}
+ 	}
+ 
++	func finishClipboardImport() {
++		clipboardCandidates.removeAll()
++		isShowingClipboardPrompt = false
++	}
++
+ 	static func extractURLs(from text: String) -> [URL] {
+ 		var strings = ASDeobfuscator(with: text).decode()
+ 		strings.append(text)
+@@ -716,6 +721,8 @@ struct SourceClipboardPrompt: View {
+ 					if success {
+ 						importedURLs.insert(key)
+ 						UINotificationFeedbackGenerator().notificationOccurred(.success)
++						coordinator.finishClipboardImport()
++						dismiss()
+ 					}
+ 				}
+ 			}
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+index dec99a4..8444bc1 100644
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -155,84 +155,6 @@ private struct ZonoeKeyboardDismissModifier: ViewModifier {
+ 	func body(content: Content) -> some View {
+ 		content
+ 			.scrollDismissesKeyboard(.interactively)
+-			.background(ZonoeKeyboardDismissBridge().frame(width: 0, height: 0))
+-	}
+-}
+-
+-private struct ZonoeKeyboardDismissBridge: UIViewRepresentable {
+-	func makeCoordinator() -> Coordinator {
+-		Coordinator()
+-	}
+-
+-	func makeUIView(context: Context) -> WindowProbeView {
+-		let view = WindowProbeView()
+-		view.onWindowChange = { [weak coordinator = context.coordinator] window in
+-			coordinator?.install(in: window)
+-		}
+-		return view
+-	}
+-
+-	func updateUIView(_ uiView: WindowProbeView, context: Context) {
+-		context.coordinator.install(in: uiView.window)
+-	}
+-
+-	static func dismantleUIView(_ uiView: WindowProbeView, coordinator: Coordinator) {
+-		coordinator.uninstall()
+-	}
+-
+-	final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+-		private weak var installedWindow: UIWindow?
+-		private lazy var recognizer: UITapGestureRecognizer = {
+-			let value = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+-			value.cancelsTouchesInView = false
+-			value.delaysTouchesBegan = false
+-			value.delaysTouchesEnded = false
+-			value.delegate = self
+-			return value
+-		}()
+-
+-		func install(in window: UIWindow?) {
+-			guard let window, window !== installedWindow else { return }
+-			uninstall()
+-			window.addGestureRecognizer(recognizer)
+-			installedWindow = window
+-		}
+-
+-		func uninstall() {
+-			installedWindow?.removeGestureRecognizer(recognizer)
+-			installedWindow = nil
+-		}
+-
+-		@objc private func dismissKeyboard() {
+-			UIApplication.shared.zonoeResignFirstResponder()
+-		}
+-
+-		func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+-			var view = touch.view
+-			while let current = view {
+-				if current is UIControl || current is UITextView {
+-					return false
+-				}
+-				view = current.superview
+-			}
+-			return true
+-		}
+-
+-		func gestureRecognizer(
+-			_ gestureRecognizer: UIGestureRecognizer,
+-			shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+-		) -> Bool {
+-			true
+-		}
+-	}
+-
+-	final class WindowProbeView: UIView {
+-		var onWindowChange: ((UIWindow?) -> Void)?
+-
+-		override func didMoveToWindow() {
+-			super.didMoveToWindow()
+-			onWindowChange?(window)
+-		}
+ 	}
+ }
+ 
+@@ -242,12 +164,6 @@ private extension View {
+ 	}
+ }
+ 
+-private extension UIApplication {
+-	func zonoeResignFirstResponder() {
+-		sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+-	}
+-}
+-
+ class AppDelegate: NSObject, UIApplicationDelegate {
+     func application(
+         _ application: UIApplication,
+diff --git a/Ksign/Resources/Info.plist b/Ksign/Resources/Info.plist
+index 7c4573d..801edb9 100644
+--- a/Ksign/Resources/Info.plist
++++ b/Ksign/Resources/Info.plist
+@@ -3,7 +3,7 @@
+ <plist version="1.0">
+ <dict>
+ 	<key>ZonoeReleaseVersion</key>
+-	<string>v3.0.0-alphaone2</string>
++	<string>v3.0.0-alphaone3</string>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+ 	<true/>
+ 	<key>LSApplicationQueriesSchemes</key>
+diff --git a/Ksign/Views/Appstore/AppstoreView.swift b/Ksign/Views/Appstore/AppstoreView.swift
+index 42fe648..278f168 100644
+--- a/Ksign/Views/Appstore/AppstoreView.swift
++++ b/Ksign/Views/Appstore/AppstoreView.swift
+@@ -55,7 +55,6 @@ struct AppstoreView: View {
+     @AppStorage("zonoe.appleStoreDevice") private var deviceRaw = AppleStoreSearchService.Device.iphone.rawValue
+     @State private var query = ""
+     @State private var showRegions = false
+-    @State private var selected: AppleStoreProduct?
+     private var device: Binding<AppleStoreSearchService.Device> { .init(get: { .init(rawValue: deviceRaw) ?? .iphone }, set: { deviceRaw = $0.rawValue }) }
+ 
+     var body: some View {
+@@ -65,7 +64,11 @@ struct AppstoreView: View {
+                 if service.isLoading { HStack { Spacer(); ProgressView(); Spacer() } }
+                 if let error = service.errorMessage { Text(error).foregroundStyle(.red).font(.footnote) }
+                 if !service.products.isEmpty { Section("\(service.products.count) 个结果") { ForEach(service.products) { product in
+-                    Button { selected = product } label: { AppleStoreProductRow(product: product) }.buttonStyle(.plain)
++                    NavigationLink {
++                        AppleStoreProductDetail(product: product)
++                    } label: {
++                        AppleStoreProductRow(product: product, showsDisclosureIndicator: false)
++                    }
+                 } } }
+             }
+             .navigationTitle("App Store")
+@@ -73,7 +76,6 @@ struct AppstoreView: View {
+             .onSubmit(of: .search) { Task { await service.search(term: query, country: region, device: device.wrappedValue) } }
+             .toolbar { Button { showRegions = true } label: { Label(regionName(region), systemImage: "globe") } }
+             .sheet(isPresented: $showRegions) { AppleStoreRegionPicker(region: $region) }
+-            .navigationDestinationIfAvailable(item: $selected) { AppleStoreProductDetail(product: $0) }
+             .onChange(of: region) { _ in if !query.isEmpty { Task { await service.search(term: query, country: region, device: device.wrappedValue) } } }
+             .onChange(of: deviceRaw) { _ in if !query.isEmpty { Task { await service.search(term: query, country: region, device: device.wrappedValue) } } }
+         }
+@@ -83,10 +85,12 @@ struct AppstoreView: View {
+ 
+ private struct AppleStoreProductRow: View {
+     let product: AppleStoreProduct
++    var showsDisclosureIndicator = true
+     var body: some View { HStack(spacing: 12) {
+         AsyncImage(url: product.artworkUrl100 ?? product.artworkUrl512) { image in image.resizable() } placeholder: { Image(systemName:"app.fill").resizable().scaledToFit().padding(12).foregroundStyle(.secondary) }.frame(width:58,height:58).clipShape(RoundedRectangle(cornerRadius:13))
+         VStack(alignment:.leading,spacing:3) { Text(product.name).font(.headline).lineLimit(1); if let artist = product.artistName { Text(artist).font(.caption).foregroundStyle(.secondary) }; Text([product.version.map { "版本 \($0)" }, product.formattedPrice, product.primaryGenreName].compactMap{$0}.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary) }
+-        Spacer(); Image(systemName:"chevron.right").foregroundStyle(.tertiary)
++        Spacer()
++        if showsDisclosureIndicator { Image(systemName:"chevron.right").foregroundStyle(.tertiary) }
+     }.padding(.vertical,4) }
+ }
+ 
+-- 
+2.51.1
+
