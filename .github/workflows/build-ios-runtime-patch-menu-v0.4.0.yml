@@ -84,13 +84,14 @@ jobs:
           nm -gU "$out" | grep 'ZNRuntimePatchExecutor'
           nm -gU "$out" | grep 'ZNExecutablePageProbe'
           nm -u "$out" | grep '_mprotect'
-          strings "$out" | grep -q '0.4.0-runtime-foundation'
-          strings "$out" | grep -q 'zn_expectedBytes'
-          strings "$out" | grep -q 'No JIT'
-          strings "$out" | grep -q 'il2cpp_domain_get'
-          ! strings "$out" | grep -q 'LocalTicketV2 transport installed'
-          ! strings "$out" | grep -q 'zonoe://device-auth'
-          ! strings "$out" | grep -q 'ZonoeHostGetUDID'
+          strings "$out" > /tmp/zonoe_v042_strings.txt
+          grep -q '0.4.0-runtime-foundation' /tmp/zonoe_v042_strings.txt
+          grep -q 'zn_expectedBytes' /tmp/zonoe_v042_strings.txt
+          grep -q 'No JIT' /tmp/zonoe_v042_strings.txt
+          grep -q 'il2cpp_domain_get' /tmp/zonoe_v042_strings.txt
+          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v042_strings.txt
+          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v042_strings.txt
+          ! grep -q 'ZonoeHostGetUDID' /tmp/zonoe_v042_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
