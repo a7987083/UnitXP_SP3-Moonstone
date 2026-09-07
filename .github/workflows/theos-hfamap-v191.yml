@@ -1,0 +1,80 @@
+name: HFAMapUniversal v1.9.1 DynamicTargetProbe
+
+on:
+  push:
+    branches:
+      - feature/login-ip-tracer-dylib-v2-hfamap187-v191
+    paths:
+      - 'hfamap/**'
+      - '.github/scripts/hfamap_v189_patch.py'
+      - '.github/scripts/hfamap_v191_patch.py'
+      - '.github/workflows/theos-hfamap-v191.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Apply v1.9.1 DynamicTargetProbe
+        run: |
+          python3 .github/scripts/hfamap_v189_patch.py
+          python3 .github/scripts/hfamap_v191_patch.py
+          git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git diff -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+
+      - name: Build and verify HFAMapUniversal v1.9.1
+        run: |
+          cd hfamap
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/HFAMapUniversal_v1.9.1_DynamicTargetProbe.dylib"
+          cp .theos/obj/HFAMapUniversal.dylib "$out"
+          file "$out"
+          shasum -a 256 "$out" | tee dist/SHA256_v1.9.1.txt
+          strings "$out" | grep -q "HFALearn v1.9.1 DynamicTargetProbe"
+          strings "$out" | grep -q "HFALearn UI v1.9.1 DynamicTargetProbe"
+          strings "$out" | grep -q "\[SELECTED\]"
+          strings "$out" | grep -q "\[SELECTED-LINE\]"
+          strings "$out" | grep -q "\[DYNAMIC-TARGET\]"
+          strings "$out" | grep -q "\[DYNAMIC-TARGET-ACTIVE\]"
+          strings "$out" | grep -q "\[DYNAMIC-TARGET-KV\]"
+          strings "$out" | grep -q "\[DYNAMIC-TARGET-LINE\]"
+          strings "$out" | grep -q "\[FEATURE-SCHEMA\]"
+          strings "$out" | grep -q "\[MENU-ANCHOR\]"
+          strings "$out" | grep -q "\[CUSTOM-IDENTIFIER\]"
+          strings "$out" | grep -q "\[CUSTOM-STATE\]"
+          strings "$out" | grep -q "\[FULL-MAPPING\]"
+          strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
+          strings "$out" | grep -q "HFAMap_Mapping.log"
+          ls -lh "$out"
+
+      - name: Publish raw dylib
+        run: |
+          git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f hfamap/dist/HFAMapUniversal_v1.9.1_DynamicTargetProbe.dylib hfamap/dist/SHA256_v1.9.1.txt
+          git commit -m "Publish HFAMapUniversal v1.9.1 dylib [skip ci]" || exit 0
+          git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187-v191
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: HFAMapUniversal-v1.9.1-DynamicTargetProbe
+          path: |
+            hfamap/dist/HFAMapUniversal_v1.9.1_DynamicTargetProbe.dylib
+            hfamap/dist/SHA256_v1.9.1.txt
+          if-no-files-found: error
