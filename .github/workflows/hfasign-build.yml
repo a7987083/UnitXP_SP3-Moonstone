@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alphaone4 fixes SigningView route transactions and restores safe keyboard dismissal
+# alphaone5 restores modal SigningView ownership and keeps keyboard dismissal isolated
 
 on:
   push:
@@ -58,6 +58,8 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0049-zonoe-alphaone3-fix-navigation-and-clipboard-completion.patch
           git -C HFASignBuild apply ../HFASign/patches/0050-zonoe-alphaone4-fix-signing-navigation-and-keyboard-dismissal.patch
           git -C HFASignBuild apply ../HFASign/patches/0051-zonoe-alphaone4-build-identity.patch
+          git -C HFASignBuild apply ../HFASign/patches/0052-zonoe-alphaone5-restore-modal-signing-navigation.patch
+          git -C HFASignBuild apply ../HFASign/patches/0053-zonoe-alphaone5-build-identity.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
@@ -118,7 +120,7 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alphaone4 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alphaone5 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -132,20 +134,20 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone4_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone5_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alphaone4_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alphaone5_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 104
-          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone4
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 105
+          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone5
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist" | grep -qx public.data
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:1:LSItemContentTypes:0' "$plist" | grep -qx com.apple.framework
-          strings "$plist" | grep -q alphaone4
+          strings "$plist" | grep -q alphaone5
           grep -q 'Button("筛选")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
           ! grep -q 'Button("字段")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
           ! grep -q 'contextMenuConfigurationForRowAt' HFASignBuild/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
@@ -163,21 +165,25 @@ jobs:
           grep -q 'coordinator.finishClipboardImport()' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift
           grep -q 'ZonoeKeyboardDismissBridge' HFASignBuild/Ksign/FeatherApp.swift
           grep -q 'recognizer.isEnabled = false' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'NavigationStack(path: \$_navigationPath)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
-          grep -q 'navigationDestination(for: LibrarySigningRoute.self)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
-          ! grep -q '_selectedSigningAppPresenting' HFASignBuild/Ksign/Views/Library/LibraryView.swift
+          grep -q 'NBNavigationView("")' HFASignBuild/Ksign/Views/Library/LibraryView.swift
+          grep -q 'fullScreenCover(item: \$_selectedSigningAppPresenting)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
+          grep -q 'NBNavigationView(app.name ?? .localized("未知"), displayMode: .inline)' HFASignBuild/Ksign/Views/Signing/SigningView.swift
+          grep -q 'NBToolbarButton(role: .dismiss)' HFASignBuild/Ksign/Views/Signing/SigningView.swift
+          ! grep -q 'NavigationStack(path: \$_navigationPath)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
+          ! grep -q 'navigationDestination(for: LibrarySigningRoute.self)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
+          ! grep -q '_interactiveBackGesture' HFASignBuild/Ksign/Views/Signing/SigningView.swift
           grep -q 'AppleStoreProductDetail(product: product)' HFASignBuild/Ksign/Views/Appstore/AppstoreView.swift
       - name: Publish alpha IPA
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/zonoe_v3.0.0-alphaone4_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alphaone4 IPA [skip ci]"
+          git add -f HFASign/dist/zonoe_v3.0.0-alphaone5_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alphaone5 IPA [skip ci]"
           git push origin HEAD:work/hfapatchipa-ksign-v3
       - uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alphaone4
+          name: zonoe-v3.0.0-alphaone5
           path: |
-            HFASign/dist/zonoe_v3.0.0-alphaone4_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alphaone5_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
