@@ -1,5 +1,7 @@
 # zonoe / HFASign v3 已知问题与验证状态
 
+> `v3.0.0-alphaone2` 已通过 CI 编译、解析回归、元数据校验和 IPA 打包。新增的软件源进度/剪贴板状态、UDID 复制提示、证书导入文件名与证书中文详情尚待真机回归，不能仅凭 CI 宣称交互验收完成。
+
 ## 状态定义
 
 - **CI 已验证**：GitHub Actions Release build/打包成功。

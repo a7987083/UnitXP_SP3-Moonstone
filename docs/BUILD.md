@@ -1,5 +1,7 @@
 # zonoe / HFASign v3 构建说明
 
+> 当前发布：`v3.0.0-alphaone2`，代码提交 `b5037ae616d8afb0ab37aa1e62bf8902046dd0d0`，发布提交 `9bdd336ea532ec911f651aa99180a1880dd38115`，Actions Run `34124709373` 成功，IPA SHA256 `1b13fcd557f5034620ac044895f67d8e06462bd65d9056cf010cbeb37459f968`。历史 alpha14 内容仅作旧版本记录。
+
 ## 权威构建基线
 
 - 仓库：`https://github.com/a7987083/UnitXP_SP3-Moonstone.git`
