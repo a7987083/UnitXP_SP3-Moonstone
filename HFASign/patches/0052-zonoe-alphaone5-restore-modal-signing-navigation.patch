@@ -1,19 +1,16 @@
 diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/LibraryView.swift
 --- a/Ksign/Views/Library/LibraryView.swift
 +++ b/Ksign/Views/Library/LibraryView.swift
-@@ -16,2 +16,1 @@ struct LibraryView: View {
- 	@StateObject var downloadManager = DownloadManager.shared
--	@State private var _navigationPath = NavigationPath()
-@@ -20,2 +19,3 @@ struct LibraryView: View {
+@@ -19,2 +19,3 @@ struct LibraryView: View {
  	@State private var _selectedInfoAppPresenting: AnyApp?
 +	@State private var _selectedSigningAppPresenting: AnyApp?
  	@State private var _selectedInstallAppPresenting: AnyApp?
-@@ -75,3 +75,3 @@ struct LibraryView: View {
+@@ -75,3 +76,3 @@ struct LibraryView: View {
      var body: some View {
 -		NavigationStack(path: $_navigationPath) {
 +		NBNavigationView("") {
  			TabView(selection: $_resourceTab) {
-@@ -209,16 +209,7 @@ struct LibraryView: View {
+@@ -209,14 +210,5 @@ struct LibraryView: View {
  			.onChange(of: _selectedTab) { _ in _finishSelection() }
 -			.navigationDestination(for: LibrarySigningRoute.self) { route in
 -				if let app = _signingApp(for: route.appUUID) {
@@ -32,19 +29,16 @@ diff --git a/Ksign/Views/Library/LibraryView.swift b/Ksign/Views/Library/Library
  			}
 -			.navigationTitle("")
          }
-         .onChange(of: _isEditMode) { state in
-@@ -263,6 +254,5 @@ extension LibraryView {
- 			selectedApps: $_selectedApps,
+@@ -262,4 +254,3 @@ extension LibraryView {
  			onRequestSigning: { requestedApp, signAndInstall in
 -				guard let uuid = requestedApp.uuid else { return }
 -				_navigationPath.append(LibrarySigningRoute(appUUID: uuid, signAndInstall: signAndInstall))
 +				_selectedSigningAppPresenting = AnyApp(base: requestedApp, signAndInstall: signAndInstall)
  			}
- 		)
 diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
 --- a/Ksign/Views/Signing/SigningView.swift
 +++ b/Ksign/Views/Signing/SigningView.swift
-@@ -69,2 +69,3 @@ struct SigningView: View {
+@@ -70,2 +70,3 @@ struct SigningView: View {
      var body: some View {
 +		NBNavigationView(app.name ?? .localized("未知"), displayMode: .inline) {
  			Form {
