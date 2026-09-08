@@ -1,0 +1,43 @@
+name: Fix v0.5.0 Consolidation Generator
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-consolidation
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch generator and remove helper
+        run: |
+          set -euxo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/build-ios-runtime-patch-menu-consolidated.yml')
+          s=p.read_text()
+          needle="              text = text.replace('// v0.2.4 remains the immutable visual baseline. v0.4 only layers runtime core,', '// v0.2.4 visual primitives remain embedded as the immutable visual baseline. v0.5 only layers runtime core,')\n"
+          insert=needle + "              text = text.replace('static const NSInteger kZNThemeCategoryIndex = 6;\\n', '')\n"
+          if "text.replace('static const NSInteger kZNThemeCategoryIndex" not in s:
+              if needle not in s:
+                  raise SystemExit('generator insertion point missing')
+              s=s.replace(needle,insert,1)
+          trigger_block="              trigger = Path('iosruntimepatchmenu/BUILD_TRIGGER_V050.txt')\n              if trigger.exists():\n                  trigger.unlink()\n"
+          marker="              export_wf = Path('.github/workflows/export-runtime-menu-sources.yml')\n"
+          if "BUILD_TRIGGER_V050.txt" not in s:
+              if marker not in s:
+                  raise SystemExit('trigger cleanup insertion point missing')
+              s=s.replace(marker,trigger_block+marker,1)
+          p.write_text(s)
+          Path('.github/workflows/fix-consolidation-generator.yml').unlink()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'ci(runtime-patch): fix v0.5.0 consolidation generator'
+          git push origin HEAD:feature/runtime-patch-menu-consolidation
