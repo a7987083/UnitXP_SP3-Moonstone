@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(ZonoeLocalAuthPhase1V02 LANGUAGES C CXX OBJC OBJCXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_library(ZonoeLocalAuthPhase1V02 SHARED src/ZonoeLocalAuthPhase1V02.mm)
+set_target_properties(ZonoeLocalAuthPhase1V02 PROPERTIES OUTPUT_NAME "ZonoeLocalAuth_Phase1_v0.2" PREFIX "" SUFFIX ".dylib" XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO" XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO" XCODE_ATTRIBUTE_ENABLE_BITCODE "NO")
+target_compile_options(ZonoeLocalAuthPhase1V02 PRIVATE -fobjc-arc)
+target_link_libraries(ZonoeLocalAuthPhase1V02 PRIVATE "-framework Foundation" "-framework UIKit" "-lobjc")
