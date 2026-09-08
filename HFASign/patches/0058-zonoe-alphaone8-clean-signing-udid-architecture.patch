@@ -159,7 +159,7 @@ new file mode 100644
 diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
 --- a/Ksign/Views/Signing/SigningView.swift
 +++ b/Ksign/Views/Signing/SigningView.swift
-@@ -1,13 +1,6 @@
+@@ -73,13 +73,6 @@ struct SigningView: View {
  			Form {
  				_customizationOptions(for: app)
  				_cert()
@@ -177,7 +177,7 @@ diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/Signing
 diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
 --- a/Ksign/Utilities/Handlers/SigningHandler.swift
 +++ b/Ksign/Utilities/Handlers/SigningHandler.swift
-@@ -1,51 +1,16 @@
+@@ -252,51 +252,16 @@ extension SigningHandler {
  	private func configureZonoeUDIDCallback(in infoDictionary: NSMutableDictionary, options: Options) {
 -		let marker = "zonoe.udid.callback"
 -		let previousScheme = infoDictionary["ZonoeUDIDCallbackScheme"] as? String
@@ -197,7 +197,7 @@ diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Han
 +		)
 +		let configuration = useCase.execute(request)
 +		ZonoeUDIDCallbackPlistAdapter().apply(configuration, to: infoDictionary)
-+		
++
 +		if let configuration {
 +			OperationProgressManager.shared.log("已注册 zonoe UDID 回调：\(configuration.callbackURLString)")
  		}
