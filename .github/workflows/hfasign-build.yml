@@ -69,6 +69,7 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0057-zonoe-alphaone7-build-identity.patch
           git -C HFASignBuild apply ../HFASign/patches/0058-zonoe-alphaone8-clean-signing-udid-architecture.patch
           git -C HFASignBuild apply ../HFASign/patches/0059-zonoe-alphaone8-build-identity.patch
+          git -C HFASignBuild apply ../HFASign/patches/0061-zonoe-alphaone8-udid-nonce-localhost-bridge.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
@@ -203,6 +204,8 @@ jobs:
           ! grep -q 'UUID().uuidString' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
           grep -q 'yyyyMMddHHmm' HFASignBuild/Ksign/Features/Signing/Infrastructure/ZonoeUDIDCallbackInfrastructure.swift
           grep -q 'UUID().uuidString' HFASignBuild/Ksign/Features/Signing/Application/ConfigureZonoeUDIDCallbackUseCase.swift
+          grep -q 'app.get("bridge", "result", ":nonce")' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
+          grep -q 'prepareBridgeResult(udid: udid, nonce: requestNonce)' HFASignBuild/Ksign/FeatherApp.swift
       - name: Publish SHA256 metadata
         run: |
           git config user.name "github-actions[bot]"
