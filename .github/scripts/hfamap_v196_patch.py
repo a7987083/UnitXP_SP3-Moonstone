@@ -33,6 +33,10 @@ static __thread unsigned gBuiltinDispatchDepth;
 static __thread unsigned gBuiltinDispatchEvent;
 static __thread char gBuiltinDispatchIdentifier[96];
 
+static void HFAProbeCodePath(const char *kind, const char *identifier,
+                             uintptr_t center, uintptr_t before,
+                             uintptr_t after);
+
 static HFABuiltinDispatchHook *HFABuiltinDispatchHookFor(Class owner, SEL sel) {
     for (Class cls = owner; cls; cls = class_getSuperclass(cls)) {
         for (unsigned i = 0; i < gBuiltinDispatchHookCount; i++) {
