@@ -1,0 +1,40 @@
+name: HFAPatch consumer regression
+
+on:
+  push:
+    branches:
+      - feature/zonoe-hfapatch-nativehook-consumer-test
+    paths:
+      - 'HFASign/scripts/HFAPatchConsumerCore.swift'
+      - 'HFASign/scripts/HFAPatchConsumerRegressionMain.swift'
+      - '.github/workflows/hfapatch-consumer-regression.yml'
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile consumer core
+        run: |
+          set -euxo pipefail
+          xcrun swiftc \
+            HFASign/scripts/HFAPatchConsumerCore.swift \
+            HFASign/scripts/HFAPatchConsumerRegressionMain.swift \
+            -o /tmp/hfapatch-consumer-regression
+      - name: Run SuperStarSMTOWN package regression
+        run: |
+          set -euxo pipefail
+          mkdir -p HFASign/dist/hfapatch-consumer-test
+          /tmp/hfapatch-consumer-regression | tee HFASign/dist/hfapatch-consumer-test/result.txt
+          grep -q 'HFAPATCH_CONSUMER_OK schema=com.hfa.patch/v1 features=3 targets=2' HFASign/dist/hfapatch-consumer-test/result.txt
+          grep -q 'FEATURE id=1 .* replay=patchList' HFASign/dist/hfapatch-consumer-test/result.txt
+          grep -q 'FEATURE id=2 .* replay=patchList' HFASign/dist/hfapatch-consumer-test/result.txt
+          grep -q 'FEATURE id=k1 .* replay=nativeHook/sourceDependent(SuperStarSMTOWN.dylib)' HFASign/dist/hfapatch-consumer-test/result.txt
+          grep -q 'NATIVEHOOK_BLOCKER jsonCarriesAddressesOnly=1 requiredSourceImage=SuperStarSMTOWN.dylib portableReplacementPayload=0' HFASign/dist/hfapatch-consumer-test/result.txt
+      - name: Upload consumer test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HFAPatch-NativeHook-Consumer-Regression
+          path: HFASign/dist/hfapatch-consumer-test/result.txt
+          if-no-files-found: error
