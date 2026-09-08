@@ -78,7 +78,7 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 +	}
 +
  	func openProfileSettings() {
- diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
 --- a/Ksign/FeatherApp.swift
 +++ b/Ksign/FeatherApp.swift
 @@ -4,2 +4,3 @@
