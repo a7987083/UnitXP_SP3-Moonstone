@@ -1,7 +1,7 @@
 diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
 --- a/Ksign/FeatherApp.swift
 +++ b/Ksign/FeatherApp.swift
-@@ -20,25 +20,35 @@
+@@ -20,25 +20,38 @@
  		}
  		if let callbackComponents {
 -			let openCallback: (String?) -> Void = { nonce in
