@@ -67,3 +67,10 @@ jobs:
           done
           echo '=== SigningHandler 235-330 ==='
           nl -ba HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift | sed -n '235,330p'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alphaone7-signing-source
+          path: |
+            HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
+            HFASignBuild/Ksign/Views/Signing/SigningView.swift
+          if-no-files-found: error
