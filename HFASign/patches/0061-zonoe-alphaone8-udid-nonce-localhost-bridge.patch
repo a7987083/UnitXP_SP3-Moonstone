@@ -1,13 +1,7 @@
 diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
 --- a/Ksign/Backend/Server/UDIDService.swift
 +++ b/Ksign/Backend/Server/UDIDService.swift
-@@
- final class UDIDService {
- 	static let shared = UDIDService()
- 	static let didUpdateNotification = Notification.Name("zonoe.didUpdateUDID")
- 	static let port = 14302
- 	static let pendingCallbackKey = "zonoe.pendingUDIDCallback"
- 	private var server: Application?
+@@ -7,2 +7,9 @@
  	private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 +	private let bridgeLock = NSLock()
 +	private var bridgeResults: [String: BridgeResult] = [:]
@@ -16,12 +10,8 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 +		let udid: String
 +		let expiresAt: Date
 +	}
-@@
- 			app.get("profile.mobileconfig") { _ in
- 				guard let data = self.bundledProfile(named: "UDIDRequest") else {
- 					return Response(status: .internalServerError)
- 				}
- 				return Response(status: .ok, headers: ["Content-Type": "application/x-apple-aspen-config"], body: .init(data: data))
+ 
+@@ -25,2 +32,25 @@
  			}
 +			app.get("bridge", "result", ":nonce") { req -> Response in
 +				guard let nonce = req.parameters.get("nonce"),
@@ -47,11 +37,8 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 +				)
 +			}
  			app.post("udid") { req -> Response in
-@@
- 	func savePendingCallback(_ callback: URL) {
- 		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
- 	}
-+
+@@ -40,2 +70,40 @@
+ 
 +	func prepareBridgeResult(udid: String, nonce: String, completion: @escaping (Bool) -> Void) {
 +		guard isValidBridgeNonce(nonce), !udid.isEmpty else {
 +			completion(false)
@@ -89,27 +76,24 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 +		let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
 +		return value.unicodeScalars.allSatisfy { allowed.contains($0) }
 +	}
- }
-diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
++
+ 	func openProfileSettings() {
+ diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
 --- a/Ksign/FeatherApp.swift
 +++ b/Ksign/FeatherApp.swift
-@@
- 	private func _handleUDIDRequest(_ url: URL) {
- 		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID") ?? ""
- 		guard !udid.isEmpty else {
- 			UIAlertController.showAlertWithOk(title: "尚未获取 UDID", message: "请先到设置中点击“获取”。")
- 			return
- 		}
- 		let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+@@ -4,2 +4,3 @@
+ 		let callbackComponents = components?.queryItems?.first(where: { $0.name == "callback" })?.value.flatMap { URLComponents(string: $0) }
 +		let requestNonce = components?.queryItems?.first(where: { $0.name == "nonce" })?.value
- 		if let callback = components?.queryItems?.first(where: { $0.name == "callback" })?.value,
--		   var callbackComponents = URLComponents(string: callback) {
+ 		guard !udid.isEmpty else {
+@@ -19,8 +20,25 @@
+ 		}
+-		if var callbackComponents {
 -			var items = callbackComponents.queryItems ?? []
 -			items.removeAll { $0.name == "udid" }
 -			items.append(URLQueryItem(name: "udid", value: udid))
 -			callbackComponents.queryItems = items
 -			if let target = callbackComponents.url { UIApplication.shared.open(target) }
-+		   let callbackComponents = URLComponents(string: callback) {
++		if let callbackComponents {
 +			let openCallback: (String?) -> Void = { nonce in
 +				var targetComponents = callbackComponents
 +				var items = targetComponents.queryItems ?? []
@@ -123,14 +107,13 @@ diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
 +			}
 +
 +			if let requestNonce, !requestNonce.isEmpty {
-+				UDIDService.shared.prepareBridgeResult(udid: udid, nonce: requestNonce) { _ in
-+					DispatchQueue.main.async { openCallback(requestNonce) }
++				UDIDService.shared.prepareBridgeResult(udid: udid, nonce: requestNonce) { prepared in
++					DispatchQueue.main.async {
++						if prepared { openCallback(requestNonce) }
++						else { openCallback(nil) }
++					}
 +				}
 +			} else {
 +				openCallback(nil)
 +			}
  		} else {
- 			UIPasteboard.general.string = udid
- 			UIAlertController.showAlertWithOk(title: "UDID 已复制", message: udid)
- 		}
- 	}
