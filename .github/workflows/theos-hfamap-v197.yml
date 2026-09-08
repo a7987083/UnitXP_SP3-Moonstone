@@ -47,7 +47,11 @@ jobs:
           old='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        HFAResolveDynamicRegistrationCandidates(identifier, type);\n        return;\n'''
           new='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        return;\n'''
           if s.count(old)!=1: raise SystemExit(f'normalize feature type expected 1, got {s.count(old)}')
-          p.write_text(s.replace(old,new,1))
+          s=s.replace(old,new,1)
+          old_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.6 CustomSwitchBuiltinDispatchProbe] loaded\\n");\n    HFAInstallDynamicRegistrationHooks();\n}\n'''
+          new_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.6 CustomSwitchBuiltinDispatchProbe] loaded\\n");\n}\n'''
+          if s.count(old_ctor)!=1: raise SystemExit(f'normalize ctor expected 1, got {s.count(old_ctor)}')
+          p.write_text(s.replace(old_ctor,new_ctor,1))
           PY
           python3 .github/scripts/hfamap_v197_patch.py
           python3 - <<'PY'
@@ -57,7 +61,11 @@ jobs:
           old='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        if (strcmp(type, "customSwitch") == 0)\n            HFAAssociateNativeHookWithCustomSwitch(identifier);\n        return;\n'''
           new='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        HFAResolveDynamicRegistrationCandidates(identifier, type);\n        if (strcmp(type, "customSwitch") == 0)\n            HFAAssociateNativeHookWithCustomSwitch(identifier);\n        return;\n'''
           if s.count(old)!=1: raise SystemExit(f'restore feature type expected 1, got {s.count(old)}')
-          p.write_text(s.replace(old,new,1))
+          s=s.replace(old,new,1)
+          old_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.7 CustomSwitchNativeHookProbe] loaded\\n");\n    _dyld_register_func_for_add_image(HFANativeImageAdded);\n}\n'''
+          new_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.7 CustomSwitchNativeHookProbe] loaded\\n");\n    HFAInstallDynamicRegistrationHooks();\n    _dyld_register_func_for_add_image(HFANativeImageAdded);\n}\n'''
+          if s.count(old_ctor)!=1: raise SystemExit(f'restore ctor expected 1, got {s.count(old_ctor)}')
+          p.write_text(s.replace(old_ctor,new_ctor,1))
           PY
           git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
           git diff -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
