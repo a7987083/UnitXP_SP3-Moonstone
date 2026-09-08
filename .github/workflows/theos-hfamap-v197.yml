@@ -1,0 +1,87 @@
+name: HFAMapUniversal v1.9.7 CustomSwitchNativeHookProbe
+
+on:
+  push:
+    branches:
+      - feature/login-ip-tracer-dylib-v2-hfamap187-v197
+    paths:
+      - 'hfamap/**'
+      - '.github/scripts/hfamap_v189_patch.py'
+      - '.github/scripts/hfamap_v192_patch.py'
+      - '.github/scripts/hfamap_v193_patch.py'
+      - '.github/scripts/hfamap_v194_patch.py'
+      - '.github/scripts/hfamap_v195_patch.py'
+      - '.github/scripts/hfamap_v196_patch.py'
+      - '.github/scripts/hfamap_v197_patch.py'
+      - '.github/workflows/theos-hfamap-v197.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Apply v1.9.7 CustomSwitchNativeHookProbe
+        run: |
+          python3 .github/scripts/hfamap_v189_patch.py
+          python3 .github/scripts/hfamap_v192_patch.py
+          python3 .github/scripts/hfamap_v193_patch.py
+          python3 .github/scripts/hfamap_v194_patch.py
+          python3 .github/scripts/hfamap_v195_patch.py
+          python3 .github/scripts/hfamap_v196_patch.py
+          python3 .github/scripts/hfamap_v197_patch.py
+          git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git diff -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+
+      - name: Build and verify HFAMapUniversal v1.9.7
+        run: |
+          cd hfamap
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/HFAMapUniversal_v1.9.7_CustomSwitchNativeHookProbe.dylib"
+          cp .theos/obj/HFAMapUniversal.dylib "$out"
+          file "$out"
+          shasum -a 256 "$out" | tee dist/SHA256_v1.9.7.txt
+          strings "$out" | grep -q "HFALearn v1.9.7 CustomSwitchNativeHookProbe"
+          strings "$out" | grep -q "HFALearn UI v1.9.7 CustomSwitchNativeHookProbe"
+          strings "$out" | grep -q "\[CUSTOM-NATIVE-HOOK-IMAGE\]"
+          strings "$out" | grep -q "\[CUSTOM-NATIVE-HOOK-API\]"
+          strings "$out" | grep -q "\[CUSTOM-NATIVE-HOOK-SCAN\]"
+          strings "$out" | grep -q "\[CUSTOM-NATIVE-HOOK-REGISTER\]"
+          strings "$out" | grep -q "\[CUSTOM-NATIVE-HOOK-ASSOC\]"
+          strings "$out" | grep -q "\[CUSTOM-NATIVE-HOOK-MAPPING\]"
+          strings "$out" | grep -q "\[CUSTOM-BUILTIN-DISPATCH\]"
+          strings "$out" | grep -q "\[CUSTOM-ACTION-RUNTIME\]"
+          strings "$out" | grep -q "\[FULL-MAPPING\]"
+          strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
+          ls -lh "$out"
+
+      - name: Publish raw dylib
+        run: |
+          git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f hfamap/dist/HFAMapUniversal_v1.9.7_CustomSwitchNativeHookProbe.dylib hfamap/dist/SHA256_v1.9.7.txt
+          git commit -m "Publish HFAMapUniversal v1.9.7 dylib [skip ci]" || exit 0
+          git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187-v197
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: HFAMapUniversal-v1.9.7-CustomSwitchNativeHookProbe
+          path: |
+            hfamap/dist/HFAMapUniversal_v1.9.7_CustomSwitchNativeHookProbe.dylib
+            hfamap/dist/SHA256_v1.9.7.txt
+          if-no-files-found: error
