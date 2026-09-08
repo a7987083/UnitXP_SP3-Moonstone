@@ -206,47 +206,5 @@ extern "C" __attribute__((visibility("default"))) void ZonoePatchSubmitHostIdent
     });
 }
 
-// Keep the stable v0.4 menu untouched. This category only changes the base
-// category list so `其他` follows the independent q permission.
-@interface ZNRuntimeMenuControllerV040 : NSObject
-@end
-
-@interface ZNRuntimeMenuControllerV040 (ZNQDeveloperGate)
-- (NSArray<NSString *> *)zn44_baseCategories;
-- (NSArray<NSString *> *)zn44_baseSymbols;
-@end
-
-@implementation ZNRuntimeMenuControllerV040 (ZNQDeveloperGate)
-
-- (NSArray<NSString *> *)zn44_baseCategories {
-    NSMutableArray<NSString *> *items = [NSMutableArray arrayWithArray:@[@"首页", @"玩家", @"战斗", @"移动"]];
-    if ([ZNDeveloperGate sharedGate].otherAuthorized) [items addObject:@"其他"];
-    [items addObjectsFromArray:@[@"设置", @"主题"]];
-    return items;
-}
-
-- (NSArray<NSString *> *)zn44_baseSymbols {
-    NSMutableArray<NSString *> *items = [NSMutableArray arrayWithArray:@[@"house.fill", @"person.fill", @"bolt.fill", @"location.north.fill"]];
-    if ([ZNDeveloperGate sharedGate].otherAuthorized) [items addObject:@"square.grid.2x2.fill"];
-    [items addObjectsFromArray:@[@"gearshape.fill", @"paintpalette.fill"]];
-    return items;
-}
-
-@end
-
-static void ZNSwapDeveloperGateMethod(Class cls, SEL original, SEL replacement) {
-    Method a = class_getInstanceMethod(cls, original);
-    Method b = class_getInstanceMethod(cls, replacement);
-    if (a && b) method_exchangeImplementations(a, b);
-}
-
-__attribute__((constructor(107))) static void ZNInstallIndependentDeveloperCategoryGate(void) {
-    @autoreleasepool {
-        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
-        if (!cls) return;
-        ZNSwapDeveloperGateMethod(cls, @selector(zn40_baseCategories), @selector(zn44_baseCategories));
-        ZNSwapDeveloperGateMethod(cls, @selector(zn40_baseSymbols), @selector(zn44_baseSymbols));
-        [[ZNDeveloperGate sharedGate] refresh];
-        [[ZNRuntimeLogger sharedLogger] log:@"developer category gate installed: g=Diagnostics/Debug, q=Other"];
-    }
-}
+// Sidebar/UI ownership intentionally lives only in ZonoeRuntimeMenu.mm.
+// ZNDeveloperGate exposes q/g permission state and marker metadata only.
