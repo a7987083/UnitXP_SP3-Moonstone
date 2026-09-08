@@ -1,10 +1,12 @@
 #import "ZNDeveloperGate.h"
 #import "ZNPatchCore.h"
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 @implementation ZNDeveloperGate {
     BOOL _markerPresent;
     BOOL _authorized;
+    BOOL _otherAuthorized;
     BOOL _hostBridgeAvailable;
     NSString *_markerPath;
     NSString *_authorizedUDID;
@@ -12,6 +14,8 @@
     ZNIdentitySource _identitySource;
     NSString *_lastError;
     BOOL _awaitingZonoe;
+    BOOL _markerHasG;
+    BOOL _markerHasQ;
 }
 
 + (instancetype)sharedGate {
@@ -31,12 +35,16 @@
     _identitySource = ZNIdentitySourceNone;
     _hostBridgeAvailable = NO;
     _awaitingZonoe = NO;
+    _otherAuthorized = NO;
+    _markerHasG = NO;
+    _markerHasQ = NO;
     [self refresh];
     return self;
 }
 
 - (BOOL)markerPresent { return _markerPresent; }
 - (BOOL)authorized { return _authorized; }
+- (BOOL)otherAuthorized { return _otherAuthorized; }
 - (BOOL)hostBridgeAvailable { return _hostBridgeAvailable; }
 - (NSString *)markerPath { return _markerPath ?: @""; }
 - (NSString *)authorizedUDID { return _authorizedUDID ?: @""; }
@@ -58,6 +66,8 @@
     _markerPresent = (path != nil);
     _markerPath = path ?: @"";
     _authorizedUDID = @"";
+    _markerHasG = NO;
+    _markerHasQ = NO;
 
     if (!path) {
         _lastError = @"未找到开发者标记文件 1";
@@ -76,42 +86,62 @@
     text = [text stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
 
     NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
-    if (lines.count < 1 || ![[self trimLine:lines[0]] isEqualToString:@"g"]) {
-        _lastError = @"标记文件第一行必须为 g";
-        return NO;
+    for (NSString *raw in lines) {
+        NSString *line = [self trimLine:raw];
+        if (!line.length) continue;
+        if ([line isEqualToString:@"g"]) {
+            _markerHasG = YES;
+            continue;
+        }
+        if ([line isEqualToString:@"q"]) {
+            _markerHasQ = YES;
+            continue;
+        }
+        // First non-token line is optional display-only metadata (normally UDID).
+        if (!_authorizedUDID.length) _authorizedUDID = line;
     }
 
-    // v0.4: line 2 is optional. If present it is display-only metadata.
-    if (lines.count >= 2) {
-        NSString *udid = [self trimLine:lines[1]];
-        if (udid.length) _authorizedUDID = udid;
+    // Historical CI marker retained from the previous format: line 2 is optional.
+    // v0.4.4 no longer assigns permission by line number: q and g are independent tokens.
+    if (!_markerHasG && !_markerHasQ) {
+        _lastError = @"标记文件存在，但未找到 q/g 权限标记";
+    } else {
+        _lastError = @"";
     }
     return YES;
 }
 
 - (void)refresh {
     BOOL wasAuthorized = _authorized;
+    BOOL wasOtherAuthorized = _otherAuthorized;
 
     _authorized = NO;
+    _otherAuthorized = NO;
     _observedUDID = @"";
     _identitySource = ZNIdentitySourceNone;
     _hostBridgeAvailable = NO;
     _awaitingZonoe = NO;
 
     if (![self loadMarker]) {
-        if (wasAuthorized) {
+        if (wasAuthorized || wasOtherAuthorized) {
             [[ZNRuntimeLogger sharedLogger] log:@"开发者权限已关闭：标记文件无效或已移除"];
         }
         return;
     }
 
-    _authorized = YES;
-    _observedUDID = _authorizedUDID ?: @"";
-    _identitySource = ZNIdentitySourceMarkerFile;
-    _lastError = @"";
+    _authorized = _markerHasG;
+    _otherAuthorized = _markerHasQ;
+    BOOL anyAuthorized = (_authorized || _otherAuthorized);
+    if (anyAuthorized) {
+        _observedUDID = _authorizedUDID ?: @"";
+        _identitySource = ZNIdentitySourceMarkerFile;
+    }
 
-    if (!wasAuthorized) {
-        [[ZNRuntimeLogger sharedLogger] log:@"开发者权限已通过标记文件启用；不再获取外部 UDID"];
+    if (wasAuthorized != _authorized) {
+        [[ZNRuntimeLogger sharedLogger] log:_authorized ? @"g 权限已启用：显示诊断 / Debug" : @"g 权限已关闭：隐藏诊断 / Debug"];
+    }
+    if (wasOtherAuthorized != _otherAuthorized) {
+        [[ZNRuntimeLogger sharedLogger] log:_otherAuthorized ? @"q 权限已启用：显示其他" : @"q 权限已关闭：隐藏其他"];
     }
 }
 
@@ -143,8 +173,10 @@
 }
 
 - (NSString *)diagnosticReport {
-    return [NSString stringWithFormat:@"开发者状态: %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n外部 UDID 获取: 已禁用\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
-            self.authorized ? @"已启用" : @"未启用",
+    return [NSString stringWithFormat:@"开发者标记: %@\n诊断/Debug(g): %@\n其他(q): %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n外部 UDID 获取: 已禁用\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
+            self.markerPresent ? @"已找到" : @"未找到",
+            self.authorized ? @"显示" : @"隐藏",
+            self.otherAuthorized ? @"显示" : @"隐藏",
             self.markerPath.length ? self.markerPath : @"未找到",
             [self maskedUDID:self.authorizedUDID],
             [self sourceDescription],
@@ -154,6 +186,10 @@
 
 extern "C" __attribute__((visibility("default"))) bool ZonoePatchDeveloperAuthorized(void) {
     return [ZNDeveloperGate sharedGate].authorized;
+}
+
+extern "C" __attribute__((visibility("default"))) bool ZonoePatchOtherAuthorized(void) {
+    return [ZNDeveloperGate sharedGate].otherAuthorized;
 }
 
 extern "C" __attribute__((visibility("default"))) void ZonoePatchRequestUDIDValidation(void) {
@@ -168,4 +204,49 @@ extern "C" __attribute__((visibility("default"))) void ZonoePatchSubmitHostIdent
     dispatch_async(dispatch_get_main_queue(), ^{
         [[ZNDeveloperGate sharedGate] refresh];
     });
+}
+
+// Keep the stable v0.4 menu untouched. This category only changes the base
+// category list so `其他` follows the independent q permission.
+@interface ZNRuntimeMenuControllerV040 : NSObject
+@end
+
+@interface ZNRuntimeMenuControllerV040 (ZNQDeveloperGate)
+- (NSArray<NSString *> *)zn44_baseCategories;
+- (NSArray<NSString *> *)zn44_baseSymbols;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNQDeveloperGate)
+
+- (NSArray<NSString *> *)zn44_baseCategories {
+    NSMutableArray<NSString *> *items = [NSMutableArray arrayWithArray:@[@"首页", @"玩家", @"战斗", @"移动"]];
+    if ([ZNDeveloperGate sharedGate].otherAuthorized) [items addObject:@"其他"];
+    [items addObjectsFromArray:@[@"设置", @"主题"]];
+    return items;
+}
+
+- (NSArray<NSString *> *)zn44_baseSymbols {
+    NSMutableArray<NSString *> *items = [NSMutableArray arrayWithArray:@[@"house.fill", @"person.fill", @"bolt.fill", @"location.north.fill"]];
+    if ([ZNDeveloperGate sharedGate].otherAuthorized) [items addObject:@"square.grid.2x2.fill"];
+    [items addObjectsFromArray:@[@"gearshape.fill", @"paintpalette.fill"]];
+    return items;
+}
+
+@end
+
+static void ZNSwapDeveloperGateMethod(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+__attribute__((constructor(107))) static void ZNInstallIndependentDeveloperCategoryGate(void) {
+    @autoreleasepool {
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNSwapDeveloperGateMethod(cls, @selector(zn40_baseCategories), @selector(zn44_baseCategories));
+        ZNSwapDeveloperGateMethod(cls, @selector(zn40_baseSymbols), @selector(zn44_baseSymbols));
+        [[ZNDeveloperGate sharedGate] refresh];
+        [[ZNRuntimeLogger sharedLogger] log:@"developer category gate installed: g=Diagnostics/Debug, q=Other"];
+    }
 }
