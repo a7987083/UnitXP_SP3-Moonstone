@@ -1,4 +1,5 @@
 #import "ZNPatchJSONImporter.h"
+#import "ZNDeveloperGate.h"
 #import <errno.h>
 #import <stdlib.h>
 
@@ -87,7 +88,7 @@ static void ZNJIWalk(id node, NSString *path, NSString *parentTarget, NSString *
     NSString *group=ownGroup.length?ownGroup:parentGroup;
 
     id ov=ZNJIValue(d,@[@"offset",@"rva",@"address",@"addr",@"location"]);
-    id ev=ZNJIValue(d,@[@"enabled",@"patch",@"bytes",@"patchbytes",@"data",@"value",@"on",@"enable",@"replacement",@"replace"]);
+    id ev=ZNJIValue(d,@[@"enabled",@"patch",@"patchdata",@"bytes",@"patchbytes",@"data",@"value",@"on",@"enable",@"replacement",@"replace"]);
     uint64_t rva=0; NSString *hex=ZNJIHex(ev);
     if (ov && hex.length && ZNJIParseRVA(ov,&rva)) {
         [out addObject:@{@"target":target?:@"",@"offset":[NSString stringWithFormat:@"0x%llX",rva],@"enabled":hex,@"title":title?:@"",@"group":group.length?group:@"Imported",@"path":path?:@"$",@"confidence":@1.0}];
@@ -108,12 +109,15 @@ static void ZNJIWalk(id node, NSString *path, NSString *parentTarget, NSString *
 
 @implementation ZNPatchJSONImporter
 + (NSArray<NSString *> *)discoverJSONFiles {
-    // User contract: JSON lives directly in the game's data-root
-    // Library/Application Support directory. Do not recurse and do not scan
-    // Documents/Library/tmp. `.hfapatch.json` is naturally included because
-    // its pathExtension is still `json`.
+    // marker sibling JSON scan: file `1` defines the exact game-data directory.
+    // Scan only that directory's immediate children; never recurse.
+    ZNDeveloperGate *gate=[ZNDeveloperGate sharedGate];
+    [gate refresh];
+    NSString *marker=gate.markerPath;
+    if (!marker.length) return @[];
+
+    NSString *root=[marker stringByDeletingLastPathComponent];
     NSFileManager *fm=NSFileManager.defaultManager;
-    NSString *root=[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
     BOOL isDir=NO;
     if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) return @[];
 
@@ -124,10 +128,10 @@ static void ZNJIWalk(id node, NSString *path, NSString *parentTarget, NSString *
     NSMutableArray<NSString *> *found=[NSMutableArray array];
     for (NSString *name in names) {
         if (![[name.pathExtension lowercaseString] isEqualToString:@"json"]) continue;
-        NSString *path=[root stringByAppendingPathComponent:name];
+        NSString *candidate=[root stringByAppendingPathComponent:name];
         BOOL childDir=NO;
-        if (![fm fileExistsAtPath:path isDirectory:&childDir] || childDir) continue;
-        [found addObject:path];
+        if (![fm fileExistsAtPath:candidate isDirectory:&childDir] || childDir) continue;
+        [found addObject:candidate];
     }
     [found sortUsingComparator:^NSComparisonResult(NSString *a,NSString *b){ return [a.lastPathComponent localizedStandardCompare:b.lastPathComponent]; }];
     return found;
@@ -138,7 +142,7 @@ static void ZNJIWalk(id node, NSString *path, NSString *parentTarget, NSString *
     NSError *je=nil; id root=[NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingFragmentsAllowed error:&je];
     if (!root) { if(error)*error=[NSString stringWithFormat:@"JSON 解析失败：%@",je.localizedDescription?:@"未知错误"]; return nil; }
     NSMutableArray *raw=[NSMutableArray array]; ZNJIWalk(root,@"$",@"",@"",@"Imported",ZNJIAliases(root),raw);
-    if (!raw.count) { if(error)*error=@"未识别到 offset + enabled/patch/bytes 组合"; return nil; }
+    if (!raw.count) { if(error)*error=@"未识别到 offset + enabled/patch/patchData/bytes 组合"; return nil; }
 
     NSMutableArray *out=[NSMutableArray array]; NSMutableSet *seen=[NSMutableSet set];
     for (NSDictionary *r in raw) {
