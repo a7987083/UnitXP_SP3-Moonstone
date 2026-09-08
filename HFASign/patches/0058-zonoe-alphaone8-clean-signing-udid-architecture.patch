@@ -1,0 +1,244 @@
+diff --git a/Ksign/Features/Signing/Domain/ZonoeUDIDCallback.swift b/Ksign/Features/Signing/Domain/ZonoeUDIDCallback.swift
+new file mode 100644
+--- /dev/null
++++ b/Ksign/Features/Signing/Domain/ZonoeUDIDCallback.swift
+@@ -0,0 +1,27 @@
++import Foundation
++
++struct ZonoeUDIDCallbackRequest: Equatable {
++    let enabled: Bool
++    let customBundleIdentifier: String?
++    let plistBundleIdentifier: String?
++}
++
++struct ZonoeUDIDCallbackConfiguration: Equatable {
++    let scheme: String
++    let host: String
++
++    var callbackURLString: String {
++        "\(scheme)://\(host)"
++    }
++}
++
++enum ZonoeUDIDCallbackMetadata {
++    static let marker = "zonoe.udid.callback"
++    static let schemeKey = "ZonoeUDIDCallbackScheme"
++    static let hostKey = "ZonoeUDIDCallbackHost"
++    static let host = "udid-callback"
++}
++
++protocol ZonoeUDIDCallbackSchemeGenerating {
++    func makeScheme(bundleIdentifier: String, date: Date, nonce: String) -> String
++}
++diff --git a/Ksign/Features/Signing/Application/ConfigureZonoeUDIDCallbackUseCase.swift b/Ksign/Features/Signing/Application/ConfigureZonoeUDIDCallbackUseCase.swift
++new file mode 100644
++--- /dev/null
+++++ b/Ksign/Features/Signing/Application/ConfigureZonoeUDIDCallbackUseCase.swift
++@@ -0,0 +1,38 @@
+++import Foundation
+++
+++struct ConfigureZonoeUDIDCallbackUseCase {
+++    private let generator: ZonoeUDIDCallbackSchemeGenerating
+++    private let now: () -> Date
+++    private let nonce: () -> String
+++
+++    init(
+++        generator: ZonoeUDIDCallbackSchemeGenerating,
+++        now: @escaping () -> Date = Date.init,
+++        nonce: @escaping () -> String = { UUID().uuidString }
+++    ) {
+++        self.generator = generator
+++        self.now = now
+++        self.nonce = nonce
+++    }
+++
+++    func execute(_ request: ZonoeUDIDCallbackRequest) -> ZonoeUDIDCallbackConfiguration? {
+++        guard request.enabled else { return nil }
+++
+++        let customID = request.customBundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+++        let bundleIdentifier: String
+++        if let customID, !customID.isEmpty {
+++            bundleIdentifier = customID
+++        } else {
+++            bundleIdentifier = request.plistBundleIdentifier ?? "unknown"
+++        }
+++
+++        return ZonoeUDIDCallbackConfiguration(
+++            scheme: generator.makeScheme(
+++                bundleIdentifier: bundleIdentifier,
+++                date: now(),
+++                nonce: nonce()
+++            ),
+++            host: ZonoeUDIDCallbackMetadata.host
+++        )
+++    }
+++}
++diff --git a/Ksign/Features/Signing/Infrastructure/ZonoeUDIDCallbackInfrastructure.swift b/Ksign/Features/Signing/Infrastructure/ZonoeUDIDCallbackInfrastructure.swift
++new file mode 100644
++--- /dev/null
+++++ b/Ksign/Features/Signing/Infrastructure/ZonoeUDIDCallbackInfrastructure.swift
++@@ -0,0 +1,56 @@
+++import Foundation
+++
+++struct DefaultZonoeUDIDCallbackSchemeGenerator: ZonoeUDIDCallbackSchemeGenerating {
+++    func makeScheme(bundleIdentifier: String, date: Date, nonce: String) -> String {
+++        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-")
+++        let sanitized = bundleIdentifier.unicodeScalars
+++            .map { allowed.contains($0) ? String($0) : "-" }
+++            .joined()
+++            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+++            .lowercased()
+++
+++        let formatter = DateFormatter()
+++        formatter.locale = Locale(identifier: "en_US_POSIX")
+++        formatter.calendar = Calendar(identifier: .gregorian)
+++        formatter.dateFormat = "yyyyMMddHHmm"
+++
+++        let cleanNonce = nonce.replacingOccurrences(of: "-", with: "").lowercased()
+++        let identifier = sanitized.isEmpty ? "unknown" : sanitized
+++        return "zonoe-\(identifier)-\(formatter.string(from: date))-\(cleanNonce)"
+++    }
+++}
+++
+++struct ZonoeUDIDCallbackPlistAdapter {
+++    func apply(_ configuration: ZonoeUDIDCallbackConfiguration?, to infoDictionary: NSMutableDictionary) {
+++        let previousScheme = infoDictionary[ZonoeUDIDCallbackMetadata.schemeKey] as? String
+++        var urlTypes = (infoDictionary["CFBundleURLTypes"] as? [[String: Any]]) ?? []
+++
+++        urlTypes.removeAll { type in
+++            if (type["CFBundleURLName"] as? String) == ZonoeUDIDCallbackMetadata.marker {
+++                return true
+++            }
+++            guard let previousScheme else { return false }
+++            return (type["CFBundleURLSchemes"] as? [String])?.contains(previousScheme) == true
+++        }
+++
+++        infoDictionary.removeObject(forKey: ZonoeUDIDCallbackMetadata.schemeKey)
+++        infoDictionary.removeObject(forKey: ZonoeUDIDCallbackMetadata.hostKey)
+++
+++        guard let configuration else {
+++            if urlTypes.isEmpty {
+++                infoDictionary.removeObject(forKey: "CFBundleURLTypes")
+++            } else {
+++                infoDictionary["CFBundleURLTypes"] = urlTypes
+++            }
+++            return
+++        }
+++
+++        urlTypes.append([
+++            "CFBundleURLName": ZonoeUDIDCallbackMetadata.marker,
+++            "CFBundleURLSchemes": [configuration.scheme]
+++        ])
+++        infoDictionary["CFBundleURLTypes"] = urlTypes
+++        infoDictionary[ZonoeUDIDCallbackMetadata.schemeKey] = configuration.scheme
+++        infoDictionary[ZonoeUDIDCallbackMetadata.hostKey] = configuration.host
+++    }
+++}
++diff --git a/Ksign/Features/Signing/Presentation/ZonoeUDIDCallbackSection.swift b/Ksign/Features/Signing/Presentation/ZonoeUDIDCallbackSection.swift
++new file mode 100644
++--- /dev/null
+++++ b/Ksign/Features/Signing/Presentation/ZonoeUDIDCallbackSection.swift
++@@ -0,0 +1,17 @@
+++import SwiftUI
+++import NimbleViews
+++
+++struct ZonoeUDIDCallbackSection: View {
+++    @Binding var isEnabled: Bool?
+++
+++    var body: some View {
+++        NBSection("zonoe") {
+++            Toggle("注册 zonoe UDID 回调", isOn: Binding(
+++                get: { isEnabled == true },
+++                set: { isEnabled = $0 }
+++            ))
+++        } footer: {
+++            Text("签名时生成唯一 URL Scheme，供注入的 dylib 通过 zonoe://udid 获取并接收本机 UDID。")
+++        }
+++    }
+++}
++diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
++--- a/Ksign/Views/Signing/SigningView.swift
+++++ b/Ksign/Views/Signing/SigningView.swift
++@@ -1,13 +1,6 @@
++ 			Form {
++ 				_customizationOptions(for: app)
++ 				_cert()
++-				NBSection("zonoe") {
++-					Toggle("注册 zonoe UDID 回调", isOn: Binding(
++-						get: { _temporaryOptions.zonoeUDIDCallbackEnabled == true },
++-						set: { _temporaryOptions.zonoeUDIDCallbackEnabled = $0 }
++-					))
++-				} footer: {
++-					Text("签名时生成唯一 URL Scheme，供注入的 dylib 通过 zonoe://udid 获取并接收本机 UDID。")
++-				}
+++				ZonoeUDIDCallbackSection(isEnabled: $_temporaryOptions.zonoeUDIDCallbackEnabled)
++ 				_customizationProperties(for: app)
++ 			}
++diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
++--- a/Ksign/Utilities/Handlers/SigningHandler.swift
+++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
++@@ -1,51 +1,16 @@
++ 	private func configureZonoeUDIDCallback(in infoDictionary: NSMutableDictionary, options: Options) {
++-		let marker = "zonoe.udid.callback"
++-		let previousScheme = infoDictionary["ZonoeUDIDCallbackScheme"] as? String
++-		var urlTypes = (infoDictionary["CFBundleURLTypes"] as? [[String: Any]]) ?? []
++-
++-		urlTypes.removeAll { type in
++-			if (type["CFBundleURLName"] as? String) == marker { return true }
++-			guard let previousScheme else { return false }
++-			return (type["CFBundleURLSchemes"] as? [String])?.contains(previousScheme) == true
+++		let request = ZonoeUDIDCallbackRequest(
+++			enabled: options.zonoeUDIDCallbackEnabled == true,
+++			customBundleIdentifier: options.appIdentifier,
+++			plistBundleIdentifier: infoDictionary["CFBundleIdentifier"] as? String
+++		)
+++		let useCase = ConfigureZonoeUDIDCallbackUseCase(
+++			generator: DefaultZonoeUDIDCallbackSchemeGenerator()
+++		)
+++		let configuration = useCase.execute(request)
+++		ZonoeUDIDCallbackPlistAdapter().apply(configuration, to: infoDictionary)
+++		
+++		if let configuration {
+++			OperationProgressManager.shared.log("已注册 zonoe UDID 回调：\(configuration.callbackURLString)")
++ 		}
++-
++-		infoDictionary.removeObject(forKey: "ZonoeUDIDCallbackScheme")
++-		infoDictionary.removeObject(forKey: "ZonoeUDIDCallbackHost")
++-
++-		guard options.zonoeUDIDCallbackEnabled == true else {
++-			if urlTypes.isEmpty { infoDictionary.removeObject(forKey: "CFBundleURLTypes") }
++-			else { infoDictionary["CFBundleURLTypes"] = urlTypes }
++-			return
++-		}
++-
++-		let customID = options.appIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
++-		let bundleID: String
++-		if let customID, !customID.isEmpty { bundleID = customID }
++-		else { bundleID = (infoDictionary["CFBundleIdentifier"] as? String) ?? "unknown" }
++-
++-		let callbackScheme = makeZonoeUDIDCallbackScheme(bundleID: bundleID)
++-		urlTypes.append([
++-			"CFBundleURLName": marker,
++-			"CFBundleURLSchemes": [callbackScheme]
++-		])
++-		infoDictionary["CFBundleURLTypes"] = urlTypes
++-		infoDictionary["ZonoeUDIDCallbackScheme"] = callbackScheme
++-		infoDictionary["ZonoeUDIDCallbackHost"] = "udid-callback"
++-		OperationProgressManager.shared.log("已注册 zonoe UDID 回调：\(callbackScheme)://udid-callback")
++ 	}
++-
++-	private func makeZonoeUDIDCallbackScheme(bundleID: String, date: Date = Date()) -> String {
++-		let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-")
++-		let sanitized = bundleID.unicodeScalars
++-			.map { allowed.contains($0) ? String($0) : "-" }
++-			.joined()
++-			.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
++-			.lowercased()
++-		let formatter = DateFormatter()
++-		formatter.locale = Locale(identifier: "en_US_POSIX")
++-		formatter.calendar = Calendar(identifier: .gregorian)
++-		formatter.dateFormat = "yyyyMMddHHmm"
++-		let nonce = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
++-		let identifier = sanitized.isEmpty ? "unknown" : sanitized
++-		return "zonoe-\(identifier)-\(formatter.string(from: date))-\(nonce)"
++-	}
