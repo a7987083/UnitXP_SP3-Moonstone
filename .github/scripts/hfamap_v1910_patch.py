@@ -29,6 +29,8 @@ s = s.replace(old, new, 1)
 anchor = r'''static void HFAAssociateNativeHookWithCustomSwitch(const char *identifier) {
 '''
 helper = r'''
+static int HFAReadable(uintptr_t address, size_t length);
+
 static int HFANativeTargetRangeForImage(uint32_t imageIndex, uintptr_t rva,
                                         uintptr_t *addressOut,
                                         int instructionOnly) {
