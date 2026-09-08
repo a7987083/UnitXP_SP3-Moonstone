@@ -1,4 +1,4 @@
-name: Build iOS Runtime Patch Menu v0.4.8
+name: Build iOS Runtime Patch Menu v0.4.9
 
 on:
   push:
@@ -32,6 +32,7 @@ jobs:
           grep -q 'v0.4.3 developer runtime-validation layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV043.mm
           grep -q 'v0.4.4 developer binary-builder layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm
           grep -q 'v0.4.8 JSON import layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV048.mm
+          grep -q 'v0.4.9 Shared-Site Probe' iosruntimepatchmenu/src/ZonoeRuntimeMenuV049.mm
           grep -q 'marker-sibling auto JSON import' iosruntimepatchmenu/src/ZonoeRuntimeMenuV048.mm
           grep -q 'UIDocumentPickerModeOpen' iosruntimepatchmenu/src/ZonoeRuntimeMenuV048.mm
           grep -q 'coordinateReadingItemAtURL' iosruntimepatchmenu/src/ZonoeRuntimeMenuV048.mm
@@ -52,31 +53,38 @@ jobs:
           grep -q 'Runtime Patch PASS' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'otherAuthorized' iosruntimepatchmenu/src/ZNDeveloperGate.h
           grep -q 'developer category gate installed' iosruntimepatchmenu/src/ZNDeveloperGate.mm
-          grep -q 'ZonoeRuntimeMenuV048.mm' iosruntimepatchmenu/Makefile
+          grep -q 'kZNSSPSharedRVA' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
+          grep -q 'method_setImplementation' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
+          grep -q 'SSP-DEFERRED' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
+          grep -q 'ZonoePatch_SharedSiteProbe.log' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
+          grep -q 'ZonoeRuntimeMenuV049.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZNSharedSiteProbe.mm' iosruntimepatchmenu/Makefile
           ! grep -REn 'MAP_JIT|pthread_jit_write_protect_np|task_for_pid' \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV045.mm \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV048.mm \
+            iosruntimepatchmenu/src/ZonoeRuntimeMenuV049.mm \
+            iosruntimepatchmenu/src/ZNSharedSiteProbe.mm \
             iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm \
             iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm \
             iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm \
             iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
-          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV048.mm
+          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV049.mm
 
-      - name: Build v0.4.8 Marker-Sibling Auto JSON
+      - name: Build v0.4.9 Shared-Site Probe
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-v048
-          cp .theos/obj/ZonoePatchV03.dylib dist-v048/ZonoePatch_v0.4.8_AutoJSON.dylib
-          shasum -a 256 dist-v048/ZonoePatch_v0.4.8_AutoJSON.dylib | tee dist-v048/SHA256.txt
+          mkdir -p dist-v049
+          cp .theos/obj/ZonoePatchV03.dylib dist-v049/ZonoePatch_v0.4.9_SharedSiteProbe.dylib
+          shasum -a 256 dist-v049/ZonoePatch_v0.4.9_SharedSiteProbe.dylib | tee dist-v049/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v048/ZonoePatch_v0.4.8_AutoJSON.dylib
+          out=iosruntimepatchmenu/dist-v049/ZonoePatch_v0.4.9_SharedSiteProbe.dylib
           file "$out"
           otool -L "$out"
           otool -l "$out" | grep -A4 '__znprobe'
@@ -87,21 +95,24 @@ jobs:
           nm -gU "$out" | grep 'ZNStaticBinaryBuilder'
           nm -gU "$out" | grep 'ZNStaticDispatchRuntime'
           nm -gU "$out" | grep 'ZNPatchRuntimeValidator'
+          nm -gU "$out" | grep 'ZNSharedSiteProbe'
           nm -u "$out" | grep '_mprotect'
-          strings "$out" > /tmp/zonoe_v048_strings.txt
-          grep -q 'v0.4.8 marker-sibling auto JSON import + coordinated manual fallback installed' /tmp/zonoe_v048_strings.txt
-          grep -q 'Marker-Sibling Auto JSON + Manual Fallback' /tmp/zonoe_v048_strings.txt
-          grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v048_strings.txt
-          grep -q 'runtime validation installed' /tmp/zonoe_v048_strings.txt
-          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v048_strings.txt
-          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v048_strings.txt
-          ! grep -q 'ZonoeHostGetUDID' /tmp/zonoe_v048_strings.txt
+          strings "$out" > /tmp/zonoe_v049_strings.txt
+          grep -q 'v0.4.9 shared-site setActive probe UI installed' /tmp/zonoe_v049_strings.txt
+          grep -q 'Shared-Site setActive Probe' /tmp/zonoe_v049_strings.txt
+          grep -q 'ZonoePatch_SharedSiteProbe.log' /tmp/zonoe_v049_strings.txt
+          grep -q 'SSP-DEFERRED' /tmp/zonoe_v049_strings.txt
+          grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v049_strings.txt
+          grep -q 'runtime validation installed' /tmp/zonoe_v049_strings.txt
+          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v049_strings.txt
+          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v049_strings.txt
+          ! grep -q 'ZonoeHostGetUDID' /tmp/zonoe_v049_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.4.8-AutoJSON
+          name: ZonoePatch-v0.4.9-SharedSiteProbe
           path: |
-            iosruntimepatchmenu/dist-v048/ZonoePatch_v0.4.8_AutoJSON.dylib
-            iosruntimepatchmenu/dist-v048/SHA256.txt
+            iosruntimepatchmenu/dist-v049/ZonoePatch_v0.4.9_SharedSiteProbe.dylib
+            iosruntimepatchmenu/dist-v049/SHA256.txt
           if-no-files-found: error
