@@ -2,6 +2,7 @@
 #import "ZNPatchCore.h"
 #import <objc/runtime.h>
 #import <dlfcn.h>
+#import <stdlib.h>
 
 static const uint64_t kZNSSPPostersOnlyRVA  = 0x2E1BCA0ULL;
 static const uint64_t kZNSSPSharedRVA       = 0x2E25904ULL;
