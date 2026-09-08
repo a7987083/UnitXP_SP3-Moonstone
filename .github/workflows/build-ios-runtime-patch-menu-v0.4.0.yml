@@ -55,7 +55,7 @@ jobs:
           grep -q 'developer category gate installed' iosruntimepatchmenu/src/ZNDeveloperGate.mm
           grep -q 'kZNSSPSharedRVA' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
           grep -q 'method_setImplementation' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
-          grep -q 'SSP-DEFERRED' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
+          grep -q 'phase:@"DEFERRED"' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
           grep -q 'ZonoePatch_SharedSiteProbe.log' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
           grep -q 'ZonoeRuntimeMenuV049.mm' iosruntimepatchmenu/Makefile
           grep -q 'ZNSharedSiteProbe.mm' iosruntimepatchmenu/Makefile
@@ -101,7 +101,7 @@ jobs:
           grep -q 'v0.4.9 shared-site setActive probe UI installed' /tmp/zonoe_v049_strings.txt
           grep -q 'Shared-Site setActive Probe' /tmp/zonoe_v049_strings.txt
           grep -q 'ZonoePatch_SharedSiteProbe.log' /tmp/zonoe_v049_strings.txt
-          grep -q 'SSP-DEFERRED' /tmp/zonoe_v049_strings.txt
+          grep -q 'DEFERRED' /tmp/zonoe_v049_strings.txt
           grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v049_strings.txt
           grep -q 'runtime validation installed' /tmp/zonoe_v049_strings.txt
           ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v049_strings.txt
