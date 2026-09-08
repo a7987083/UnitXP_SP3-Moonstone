@@ -43,7 +43,7 @@ static void StoreOrig(Class cls, SEL sel, IMP imp) {
     if (!imp) return;
     os_unfair_lock_lock(&gLock);
     if (!gOrig) gOrig = [NSMutableDictionary dictionary];
-    gOrig[KeyFor(cls, sel)] = [NSValue valueWithPointer:imp];
+    gOrig[KeyFor(cls, sel)] = [NSValue value:&imp withObjCType:@encode(IMP)];
     os_unfair_lock_unlock(&gLock);
 }
 
@@ -53,7 +53,11 @@ static IMP OrigFor(id self, SEL sel) {
         os_unfair_lock_lock(&gLock);
         NSValue *v = gOrig[KeyFor(cls, sel)];
         os_unfair_lock_unlock(&gLock);
-        if (v) return [v pointerValue];
+        if (v) {
+            IMP imp = NULL;
+            [v getValue:&imp size:sizeof(imp)];
+            return imp;
+        }
         cls = class_getSuperclass(cls);
     }
     return NULL;
