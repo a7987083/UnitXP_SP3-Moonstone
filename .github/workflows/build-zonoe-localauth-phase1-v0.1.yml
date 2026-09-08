@@ -1,0 +1,48 @@
+name: Build Zonoe LocalAuth Phase1 v0.1
+on:
+  push:
+    branches: [feature/login10195diag-v0.1]
+    paths:
+      - 'zonoe_localauth_phase1_v0.1/**'
+      - '.github/workflows/build-zonoe-localauth-phase1-v0.1.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure iOS arm64
+        run: |
+          cmake -S zonoe_localauth_phase1_v0.1 -B build-zonoe-localauth-p1-v01 -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-zonoe-localauth-p1-v01 --config Release --target ZonoeLocalAuthPhase1V01 --parallel 4
+      - name: Locate and verify dylib
+        run: |
+          set -euo pipefail
+          DYLIB="$(find build-zonoe-localauth-p1-v01 -type f -name 'ZonoeLocalAuth_Phase1_v0.1.dylib' | head -1)"
+          test -n "$DYLIB"
+          echo "DYLIB=$DYLIB" >> "$GITHUB_ENV"
+          file "$DYLIB"
+          file "$DYLIB" | grep -q 'arm64'
+          otool -hv "$DYLIB"
+      - name: Package
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist/ZonoeLocalAuth-Phase1-v0.1
+          cp "$DYLIB" dist/ZonoeLocalAuth-Phase1-v0.1/
+          cp zonoe_localauth_phase1_v0.1/README.md dist/ZonoeLocalAuth-Phase1-v0.1/
+          shasum -a 256 "$DYLIB" > dist/ZonoeLocalAuth-Phase1-v0.1/SHA256.txt
+          ditto -c -k --sequesterRsrc --keepParent dist/ZonoeLocalAuth-Phase1-v0.1 dist/ZonoeLocalAuth-Phase1-v0.1-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZonoeLocalAuth-Phase1-v0.1-arm64
+          path: |
+            dist/ZonoeLocalAuth-Phase1-v0.1-arm64.zip
+            dist/ZonoeLocalAuth-Phase1-v0.1/ZonoeLocalAuth_Phase1_v0.1.dylib
+            dist/ZonoeLocalAuth-Phase1-v0.1/SHA256.txt
