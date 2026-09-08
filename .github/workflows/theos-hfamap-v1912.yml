@@ -1,0 +1,131 @@
+name: HFAMapUniversal v1.9.12 NativeHookExportTimingFix
+
+on:
+  push:
+    branches:
+      - feature/login-ip-tracer-dylib-v2-hfamap187-v1912
+    paths:
+      - 'hfamap/**'
+      - '.github/scripts/hfamap_v189_patch.py'
+      - '.github/scripts/hfamap_v192_patch.py'
+      - '.github/scripts/hfamap_v193_patch.py'
+      - '.github/scripts/hfamap_v194_patch.py'
+      - '.github/scripts/hfamap_v195_patch.py'
+      - '.github/scripts/hfamap_v196_patch.py'
+      - '.github/scripts/hfamap_v197_patch.py'
+      - '.github/scripts/hfamap_v198_patch.py'
+      - '.github/scripts/hfamap_v199_patch.py'
+      - '.github/scripts/hfamap_v1910_patch.py'
+      - '.github/scripts/hfamap_v1911_patch.py'
+      - '.github/scripts/hfamap_v1912_patch.py'
+      - '.github/workflows/theos-hfamap-v1912.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Apply v1.9.12 NativeHookExportTimingFix
+        run: |
+          python3 .github/scripts/hfamap_v189_patch.py
+          python3 .github/scripts/hfamap_v192_patch.py
+          python3 .github/scripts/hfamap_v193_patch.py
+          python3 .github/scripts/hfamap_v194_patch.py
+          python3 .github/scripts/hfamap_v195_patch.py
+          python3 .github/scripts/hfamap_v196_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          old_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        HFAResolveDynamicRegistrationCandidates(identifier, type);\n        return;\n'''
+          new_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        return;\n'''
+          if s.count(old_feature)!=1: raise SystemExit(f'normalize feature type expected 1, got {s.count(old_feature)}')
+          s=s.replace(old_feature,new_feature,1)
+          old_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.6 CustomSwitchBuiltinDispatchProbe] loaded\\n");\n    HFAInstallDynamicRegistrationHooks();\n}\n'''
+          new_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.6 CustomSwitchBuiltinDispatchProbe] loaded\\n");\n}\n'''
+          if s.count(old_ctor)!=1: raise SystemExit(f'normalize constructor expected 1, got {s.count(old_ctor)}')
+          p.write_text(s.replace(old_ctor,new_ctor,1))
+          PY
+          python3 .github/scripts/hfamap_v197_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          old_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        if (strcmp(type, "customSwitch") == 0)\n            HFAAssociateNativeHookWithCustomSwitch(identifier);\n        return;\n'''
+          new_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        HFAResolveDynamicRegistrationCandidates(identifier, type);\n        if (strcmp(type, "customSwitch") == 0)\n            HFAAssociateNativeHookWithCustomSwitch(identifier);\n        return;\n'''
+          if s.count(old_feature)!=1: raise SystemExit(f'restore feature type expected 1, got {s.count(old_feature)}')
+          s=s.replace(old_feature,new_feature,1)
+          old_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.7 CustomSwitchNativeHookProbe] loaded\\n");\n    _dyld_register_func_for_add_image(HFANativeImageAdded);\n}\n'''
+          new_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.7 CustomSwitchNativeHookProbe] loaded\\n");\n    _dyld_register_func_for_add_image(HFANativeImageAdded);\n    HFAInstallDynamicRegistrationHooks();\n}\n'''
+          if s.count(old_ctor)!=1: raise SystemExit(f'restore constructor expected 1, got {s.count(old_ctor)}')
+          p.write_text(s.replace(old_ctor,new_ctor,1))
+          PY
+          python3 .github/scripts/hfamap_v198_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          anchor='''static int64_t HFAStaticSignExtend(uint64_t value, unsigned bits) {\n'''
+          prototypes='''static int HFAReadable(uintptr_t address, size_t length);\nstatic uintptr_t HFAStripCodePointer(uintptr_t value);\nstatic uintptr_t HFAResolveTrampoline(uintptr_t original);\n\n'''
+          if s.count(anchor)!=1: raise SystemExit(f'prototype anchor expected 1, got {s.count(anchor)}')
+          s=s.replace(anchor,prototypes+anchor,1)
+          p.write_text(s)
+          PY
+          python3 .github/scripts/hfamap_v199_patch.py
+          python3 .github/scripts/hfamap_v1910_patch.py
+          python3 .github/scripts/hfamap_v1911_patch.py
+          python3 .github/scripts/hfamap_v1912_patch.py
+          git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git diff -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+
+      - name: Build and verify HFAMapUniversal v1.9.12
+        run: |
+          cd hfamap
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/HFAMapUniversal_v1.9.12_NativeHookExportTimingFix.dylib"
+          cp .theos/obj/HFAMapUniversal.dylib "$out"
+          file "$out"
+          shasum -a 256 "$out" | tee dist/SHA256_v1.9.12.txt
+          strings "$out" | grep -q "HFALearn v1.9.12 NativeHookExportTimingFix"
+          strings "$out" | grep -q "HFALearn UI v1.9.12 NativeHookExportTimingFix"
+          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-SOURCE\]"
+          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-PREP\]"
+          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-EXPORT\]"
+          strings "$out" | grep -q "customSwitch"
+          strings "$out" | grep -q "nativeHook"
+          strings "$out" | grep -q "originalSlot"
+          strings "$out" | grep -q "\[FULL-MAPPING\]"
+          strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
+          ls -lh "$out"
+
+      - name: Publish raw dylib
+        run: |
+          git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f hfamap/dist/HFAMapUniversal_v1.9.12_NativeHookExportTimingFix.dylib hfamap/dist/SHA256_v1.9.12.txt
+          git commit -m "Publish HFAMapUniversal v1.9.12 dylib [skip ci]" || exit 0
+          git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187-v1912
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: HFAMapUniversal-v1.9.12-NativeHookExportTimingFix
+          path: |
+            hfamap/dist/HFAMapUniversal_v1.9.12_NativeHookExportTimingFix.dylib
+            hfamap/dist/SHA256_v1.9.12.txt
+          if-no-files-found: error
