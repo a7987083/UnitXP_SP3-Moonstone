@@ -86,10 +86,9 @@
     [self.contentView addSubview:targetCard];y+=66;
 
     if(ws.showJSONFiles){
-        NSUInteger shown=MIN((NSUInteger)20,ws.jsonFiles.count);CGFloat h=34+shown*34+(ws.jsonFiles.count>shown?18:0);UIView *list=[self cardAtY:y height:h width:width compact:NO];
-        UILabel *t=[self label:[NSString stringWithFormat:@"游戏数据目录 JSON · %lu",(unsigned long)ws.jsonFiles.count] size:11.0 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];t.frame=CGRectMake(13,7,list.bounds.size.width-26,18);[list addSubview:t];
-        for(NSUInteger i=0;i<shown;i++){NSString *p=ws.jsonFiles[i];NSString *home=NSHomeDirectory();NSString *display=[p hasPrefix:home]?[p substringFromIndex:home.length]:p.lastPathComponent;UIButton *b=[self zn40_button:display selector:@selector(zn44_jsonTapped:) frame:CGRectMake(13,29+i*34,list.bounds.size.width-26,28)];b.tag=446000+i;b.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft;b.titleLabel.lineBreakMode=NSLineBreakByTruncatingMiddle;[list addSubview:b];}
-        if(ws.jsonFiles.count>shown){UILabel *more=[self label:[NSString stringWithFormat:@"仅显示前 %lu 个",(unsigned long)shown] size:8.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];more.frame=CGRectMake(13,29+shown*34,list.bounds.size.width-26,15);[list addSubview:more];}
+        NSUInteger shown=ws.jsonFiles.count;CGFloat h=34+shown*34;UIView *list=[self cardAtY:y height:h width:width compact:NO];
+        UILabel *t=[self label:[NSString stringWithFormat:@"Application Support JSON · %lu",(unsigned long)ws.jsonFiles.count] size:11.0 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];t.frame=CGRectMake(13,7,list.bounds.size.width-26,18);[list addSubview:t];
+        for(NSUInteger i=0;i<shown;i++){NSString *p=ws.jsonFiles[i];UIButton *b=[self zn40_button:p.lastPathComponent selector:@selector(zn44_jsonTapped:) frame:CGRectMake(13,29+i*34,list.bounds.size.width-26,28)];b.tag=446000+i;b.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft;b.titleLabel.lineBreakMode=NSLineBreakByTruncatingMiddle;[list addSubview:b];}
         [self.contentView addSubview:list];y+=h+8;
     }
 
@@ -112,10 +111,8 @@
 
     if(ws.lastOutputPaths.count){NSMutableArray *lines=[NSMutableArray array];for(NSUInteger i=0;i<MIN((NSUInteger)4,ws.lastOutputPaths.count);i++){NSString *p=ws.lastOutputPaths[i];[lines addObject:[p hasPrefix:NSHomeDirectory()]?[p substringFromIndex:NSHomeDirectory().length]:p];}[self zn40_addInfoCard:@"最近输出" lines:lines y:&y width:width];}
 
-    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];[runtime refresh];
-    if(runtime.records.count){[self addSection:@"已生成 Static Dispatch" subtitle:@"当前安装包已预处理 · 这里只切换 RW selectedTarget，不修改 RX" y:&y width:width];
-        NSUInteger shown=MIN((NSUInteger)40,runtime.records.count);for(NSUInteger i=0;i<shown;i++){ZNStaticPatchRecord *r=runtime.records[i];UIView *c=[self cardAtY:y height:48 width:width compact:NO];UILabel *l=[self label:[NSString stringWithFormat:@"%@ · %@+0x%llX",r.title,r.target,r.siteRVA] size:9.4 weight:UIFontWeightMedium color:self.theme.primaryTextColor];l.frame=CGRectMake(13,6,c.bounds.size.width-94,17);l.lineBreakMode=NSLineBreakByTruncatingMiddle;[c addSubview:l];UILabel *g=[self label:[NSString stringWithFormat:@"%@ · PatchID %u",r.group,r.patchID] size:8.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];g.frame=CGRectMake(13,24,c.bounds.size.width-94,15);[c addSubview:g];UIButton *b=[self zn40_button:r.enabled?@"ON":@"OFF" selector:@selector(zn44_toggleStatic:) frame:CGRectMake(c.bounds.size.width-72,7,60,34)];b.tag=447000+i;[c addSubview:b];[self.contentView addSubview:c];y+=54;}}
-
+    // Runtime ON/OFF switches intentionally live only in the single `功能`
+    // category (v0.4.5). `其他` remains builder/import/validation only.
     [self zn40_updateContentHeight:y];
 }
 
