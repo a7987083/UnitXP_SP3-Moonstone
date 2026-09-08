@@ -1,4 +1,4 @@
-name: Build iOS Runtime Patch Menu v0.4.6
+name: Build iOS Runtime Patch Menu v0.4.7
 
 on:
   push:
@@ -31,48 +31,46 @@ jobs:
           grep -q '0.4.0-runtime-foundation' iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm
           grep -q 'v0.4.3 developer runtime-validation layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV043.mm
           grep -q 'v0.4.4 developer binary-builder layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm
-          grep -q 'v0.4.6 UI cleanup + marker-sibling JSON scan release' iosruntimepatchmenu/src/ZonoeRuntimeMenuV045.mm
+          grep -q 'v0.4.7 manual JSON import layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV047.mm
+          grep -q 'UIDocumentPickerViewController' iosruntimepatchmenu/src/ZonoeRuntimeMenuV047.mm
+          grep -q 'UIDocumentPickerModeImport' iosruntimepatchmenu/src/ZonoeRuntimeMenuV047.mm
+          grep -q 'didPickDocumentsAtURLs' iosruntimepatchmenu/src/ZonoeRuntimeMenuV047.mm
+          grep -q 'zn44_importJSON:' iosruntimepatchmenu/src/ZonoeRuntimeMenuV047.mm
           grep -q 'arrayWithObject:@"功能"' iosruntimepatchmenu/src/ZonoeRuntimeMenuV045.mm
-          grep -q 'marker sibling JSON scan' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
-          grep -q 'markerPath' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
-          grep -q 'contentsOfDirectoryAtPath' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
-          ! grep -q 'enumeratorAtPath' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
           grep -q 'patchdata' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
           grep -q 'JSON original is ignored' iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm
-          grep -q 'unclaimed zero-filled file-backed segment gaps' iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm
           grep -q 'selectedTarget' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
           grep -q 'app-owned images only' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-          grep -q 'offset.*rva.*address' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
           grep -q 'JSON original' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
           grep -q 'Temporary runtime apply' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.h
-          grep -q 'JSON "original" is intentionally ignored' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'Runtime Patch PASS' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'otherAuthorized' iosruntimepatchmenu/src/ZNDeveloperGate.h
           grep -q 'developer category gate installed' iosruntimepatchmenu/src/ZNDeveloperGate.mm
-          grep -q 'ZonoeRuntimeMenuV045.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZonoeRuntimeMenuV047.mm' iosruntimepatchmenu/Makefile
           ! grep -REn 'MAP_JIT|pthread_jit_write_protect_np|task_for_pid' \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm \
             iosruntimepatchmenu/src/ZonoeRuntimeMenuV045.mm \
+            iosruntimepatchmenu/src/ZonoeRuntimeMenuV047.mm \
             iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm \
             iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm \
             iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm \
             iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
-          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV045.mm
+          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV047.mm
 
-      - name: Build v0.4.6 JSON sibling scan
+      - name: Build v0.4.7 Manual JSON Picker
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-v046
-          cp .theos/obj/ZonoePatchV03.dylib dist-v046/ZonoePatch_v0.4.6_JSONSiblingScan.dylib
-          shasum -a 256 dist-v046/ZonoePatch_v0.4.6_JSONSiblingScan.dylib | tee dist-v046/SHA256.txt
+          mkdir -p dist-v047
+          cp .theos/obj/ZonoePatchV03.dylib dist-v047/ZonoePatch_v0.4.7_ManualJSONPicker.dylib
+          shasum -a 256 dist-v047/ZonoePatch_v0.4.7_ManualJSONPicker.dylib | tee dist-v047/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v046/ZonoePatch_v0.4.6_JSONSiblingScan.dylib
+          out=iosruntimepatchmenu/dist-v047/ZonoePatch_v0.4.7_ManualJSONPicker.dylib
           file "$out"
           otool -L "$out"
           otool -l "$out" | grep -A4 '__znprobe'
@@ -84,20 +82,20 @@ jobs:
           nm -gU "$out" | grep 'ZNStaticDispatchRuntime'
           nm -gU "$out" | grep 'ZNPatchRuntimeValidator'
           nm -u "$out" | grep '_mprotect'
-          strings "$out" > /tmp/zonoe_v046_strings.txt
-          grep -q 'v0.4.6 single Function category + marker-sibling JSON scan installed' /tmp/zonoe_v046_strings.txt
-          grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v046_strings.txt
-          grep -q '0.4.0-runtime-foundation' /tmp/zonoe_v046_strings.txt
-          grep -q 'runtime validation installed' /tmp/zonoe_v046_strings.txt
-          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v046_strings.txt
-          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v046_strings.txt
-          ! grep -q 'ZonoeHostGetUDID' /tmp/zonoe_v046_strings.txt
+          strings "$out" > /tmp/zonoe_v047_strings.txt
+          grep -q 'v0.4.7 manual UIDocumentPicker JSON import installed' /tmp/zonoe_v047_strings.txt
+          grep -q 'Manual JSON Import + Binary Builder' /tmp/zonoe_v047_strings.txt
+          grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v047_strings.txt
+          grep -q 'runtime validation installed' /tmp/zonoe_v047_strings.txt
+          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v047_strings.txt
+          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v047_strings.txt
+          ! grep -q 'ZonoeHostGetUDID' /tmp/zonoe_v047_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.4.6-JSONSiblingScan
+          name: ZonoePatch-v0.4.7-ManualJSONPicker
           path: |
-            iosruntimepatchmenu/dist-v046/ZonoePatch_v0.4.6_JSONSiblingScan.dylib
-            iosruntimepatchmenu/dist-v046/SHA256.txt
+            iosruntimepatchmenu/dist-v047/ZonoePatch_v0.4.7_ManualJSONPicker.dylib
+            iosruntimepatchmenu/dist-v047/SHA256.txt
           if-no-files-found: error
