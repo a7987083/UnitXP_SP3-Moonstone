@@ -5,6 +5,7 @@
 #import "ZNStaticPatchFormat.h"
 #import <mach-o/loader.h>
 #import <mach/machine.h>
+#import <mach/vm_prot.h>
 #import <sys/mman.h>
 #import <sys/stat.h>
 #import <fcntl.h>
@@ -14,118 +15,866 @@
 #import <vector>
 #import <algorithm>
 
-struct ZNBSection { uint64_t fileStart,fileEnd,addr,size; uint32_t flags; };
-struct ZNBSegment { uint64_t vmaddr,vmsize,fileoff,filesize; vm_prot_t initprot,maxprot; char name[17]; std::vector<ZNBSection> sections; };
-struct ZNBGap { uint64_t fileoff,size,rva; size_t segIndex; };
-struct ZNBSite { __unsafe_unretained ZNBinaryPatchRow *row; uint64_t rva,fileoff,window; size_t segIndex; NSData *original; NSData *enabled; };
+// Binary Builder V1 deliberately does not grow the Mach-O. It only consumes
+// zero-filled, file-backed gaps that are not claimed by any section. If a safe
+// executable/data gap cannot be proven, generation fails instead of guessing.
 
-static uint64_t ZNBAlign(uint64_t v,uint64_t a){return (v+a-1)&~(a-1);} 
-static int64_t ZNBSX(uint64_t v,int bits){uint64_t m=1ULL<<(bits-1);return (int64_t)((v^m)-m);} 
-static uint32_t ZNBRead32(const uint8_t *p){uint32_t v;memcpy(&v,p,4);return v;} static void ZNBWrite32(uint8_t *p,uint32_t v){memcpy(p,&v,4);} 
-static BOOL ZNBZero(const uint8_t *base,uint64_t off,uint64_t len){for(uint64_t i=0;i<len;i++)if(base[off+i])return NO;return YES;}
+struct ZNBSection {
+    uint64_t fileStart;
+    uint64_t fileEnd;
+    uint64_t addr;
+    uint64_t size;
+    uint32_t flags;
+};
 
-static BOOL ZNBParse(uint8_t *base,size_t size,std::vector<ZNBSegment> &segs,uint64_t &imageVMBase,NSString **error){
-    if(size<sizeof(mach_header_64)){if(error)*error=@"Mach-O 太小";return NO;} mach_header_64 *mh=(mach_header_64 *)base;
-    if(mh->magic!=MH_MAGIC_64){if(error)*error=@"Binary Builder V1 仅支持 thin 64-bit Mach-O";return NO;}
-    if(mh->cputype!=CPU_TYPE_ARM64){if(error)*error=@"目标不是 arm64/arm64e Mach-O";return NO;}
-    if(sizeof(*mh)+(uint64_t)mh->sizeofcmds>size){if(error)*error=@"Mach-O load commands 越界";return NO;}
-    imageVMBase=UINT64_MAX; uint8_t *p=base+sizeof(*mh), *end=p+mh->sizeofcmds;
-    for(uint32_t i=0;i<mh->ncmds;i++){
-        if(p+sizeof(load_command)>end){if(error)*error=@"load command 损坏";return NO;} load_command *lc=(load_command *)p;
-        if(lc->cmdsize<sizeof(load_command)||p+lc->cmdsize>end){if(error)*error=@"load command size 损坏";return NO;}
-        if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(segment_command_64)){
-            segment_command_64 *sg=(segment_command_64 *)p; if(sg->fileoff+sg->filesize>size){if(error)*error=@"segment file range 越界";return NO;}
-            ZNBSegment s={};s.vmaddr=sg->vmaddr;s.vmsize=sg->vmsize;s.fileoff=sg->fileoff;s.filesize=sg->filesize;s.initprot=sg->initprot;s.maxprot=sg->maxprot;memcpy(s.name,sg->segname,16);s.name[16]=0;
-            if(strncmp(sg->segname,SEG_TEXT,16)==0) imageVMBase=sg->vmaddr;
-            if(lc->cmdsize>=sizeof(segment_command_64)+(uint64_t)sg->nsects*sizeof(section_64)){
-                section_64 *sec=(section_64 *)(sg+1); for(uint32_t j=0;j<sg->nsects;j++){
-                    uint32_t type=sec[j].flags&SECTION_TYPE; if(type==S_ZEROFILL||type==S_GB_ZEROFILL||type==S_THREAD_LOCAL_ZEROFILL)continue;
-                    if(!sec[j].size||!sec[j].offset)continue; uint64_t fs=sec[j].offset,fe=fs+sec[j].size; if(fe>size)continue;
-                    s.sections.push_back({fs,fe,sec[j].addr,sec[j].size,sec[j].flags});
+struct ZNBSegment {
+    uint64_t vmaddr;
+    uint64_t vmsize;
+    uint64_t fileoff;
+    uint64_t filesize;
+    vm_prot_t initprot;
+    vm_prot_t maxprot;
+    char name[17];
+    std::vector<ZNBSection> sections;
+};
+
+struct ZNBGap {
+    uint64_t fileoff;
+    uint64_t size;
+    uint64_t rva;
+    size_t segIndex;
+};
+
+struct ZNBSite {
+    __unsafe_unretained ZNBinaryPatchRow *row;
+    uint64_t rva;
+    uint64_t fileoff;
+    uint64_t window;
+    size_t segIndex;
+    NSData *original;
+    NSData *enabled;
+};
+
+static uint64_t ZNBAlign(uint64_t value, uint64_t alignment) {
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+static int64_t ZNBSX(uint64_t value, int bits) {
+    uint64_t sign = 1ULL << (bits - 1);
+    return (int64_t)((value ^ sign) - sign);
+}
+
+static uint32_t ZNBRead32(const uint8_t *p) {
+    uint32_t value = 0;
+    memcpy(&value, p, sizeof(value));
+    return value;
+}
+
+static void ZNBWrite32(uint8_t *p, uint32_t value) {
+    memcpy(p, &value, sizeof(value));
+}
+
+static BOOL ZNBZero(const uint8_t *base, uint64_t offset, uint64_t length) {
+    for (uint64_t i = 0; i < length; i++) {
+        if (base[offset + i] != 0) return NO;
+    }
+    return YES;
+}
+
+static BOOL ZNBParse(uint8_t *base,
+                     size_t size,
+                     std::vector<ZNBSegment> &segments,
+                     uint64_t &imageVMBase,
+                     NSString **error) {
+    if (size < sizeof(struct mach_header_64)) {
+        if (error) *error = @"Mach-O 太小";
+        return NO;
+    }
+
+    struct mach_header_64 *mh = (struct mach_header_64 *)base;
+    if (mh->magic != MH_MAGIC_64) {
+        if (error) *error = @"Binary Builder V1 仅支持 thin 64-bit Mach-O";
+        return NO;
+    }
+    if (mh->cputype != CPU_TYPE_ARM64) {
+        if (error) *error = @"目标不是 arm64/arm64e Mach-O";
+        return NO;
+    }
+    if (sizeof(*mh) + (uint64_t)mh->sizeofcmds > size) {
+        if (error) *error = @"Mach-O load commands 越界";
+        return NO;
+    }
+
+    imageVMBase = UINT64_MAX;
+    uint8_t *cursor = base + sizeof(*mh);
+    uint8_t *commandEnd = cursor + mh->sizeofcmds;
+
+    for (uint32_t i = 0; i < mh->ncmds; i++) {
+        if (cursor + sizeof(struct load_command) > commandEnd) {
+            if (error) *error = @"load command 损坏";
+            return NO;
+        }
+        struct load_command *lc = (struct load_command *)cursor;
+        if (lc->cmdsize < sizeof(struct load_command) || cursor + lc->cmdsize > commandEnd) {
+            if (error) *error = @"load command size 损坏";
+            return NO;
+        }
+
+        if (lc->cmd == LC_SEGMENT_64 && lc->cmdsize >= sizeof(struct segment_command_64)) {
+            struct segment_command_64 *seg = (struct segment_command_64 *)cursor;
+            if (seg->fileoff + seg->filesize > size) {
+                if (error) *error = @"segment file range 越界";
+                return NO;
+            }
+
+            ZNBSegment parsed = {};
+            parsed.vmaddr = seg->vmaddr;
+            parsed.vmsize = seg->vmsize;
+            parsed.fileoff = seg->fileoff;
+            parsed.filesize = seg->filesize;
+            parsed.initprot = seg->initprot;
+            parsed.maxprot = seg->maxprot;
+            memcpy(parsed.name, seg->segname, 16);
+            parsed.name[16] = 0;
+
+            if (strncmp(seg->segname, SEG_TEXT, 16) == 0) imageVMBase = seg->vmaddr;
+
+            uint64_t sectionBytes = (uint64_t)seg->nsects * sizeof(struct section_64);
+            if (lc->cmdsize >= sizeof(struct segment_command_64) + sectionBytes) {
+                struct section_64 *sec = (struct section_64 *)(seg + 1);
+                for (uint32_t j = 0; j < seg->nsects; j++) {
+                    uint32_t type = sec[j].flags & SECTION_TYPE;
+                    if (type == S_ZEROFILL || type == S_GB_ZEROFILL || type == S_THREAD_LOCAL_ZEROFILL) continue;
+                    if (!sec[j].size || !sec[j].offset) continue;
+                    uint64_t fileStart = sec[j].offset;
+                    uint64_t fileEnd = fileStart + sec[j].size;
+                    if (fileEnd > size) continue;
+                    parsed.sections.push_back({fileStart, fileEnd, sec[j].addr, sec[j].size, sec[j].flags});
                 }
             }
-            segs.push_back(s);
-        } p+=lc->cmdsize;
+            segments.push_back(parsed);
+        }
+        cursor += lc->cmdsize;
     }
-    if(imageVMBase==UINT64_MAX){if(error)*error=@"未找到 __TEXT segment";return NO;} return YES;
+
+    if (imageVMBase == UINT64_MAX) {
+        if (error) *error = @"未找到 __TEXT segment";
+        return NO;
+    }
+    return YES;
 }
 
-static BOOL ZNBRVAToFile(const std::vector<ZNBSegment>&segs,uint64_t baseVM,uint64_t rva,uint64_t len,uint64_t &file,size_t &idx){
-    uint64_t va=baseVM+rva; for(size_t i=0;i<segs.size();i++){const ZNBSegment&s=segs[i];if(va>=s.vmaddr&&va+len<=s.vmaddr+s.filesize){file=s.fileoff+(va-s.vmaddr);idx=i;return YES;}}return NO;
-}
-static uint64_t ZNBFileToRVA(const ZNBSegment&s,uint64_t baseVM,uint64_t off){return s.vmaddr+(off-s.fileoff)-baseVM;}
-
-static std::vector<ZNBGap> ZNBGaps(const uint8_t *base,const std::vector<ZNBSegment>&segs,uint64_t baseVM,BOOL executable,uint64_t need,const std::vector<uint64_t>&sites){
-    std::vector<ZNBGap> out; for(size_t si=0;si<segs.size();si++){const ZNBSegment&s=segs[si];
-        if(executable){if(!(s.initprot&VM_PROT_EXECUTE))continue;}else{if(!(s.initprot&VM_PROT_WRITE))continue;}
-        if(!s.filesize||s.sections.empty())continue; std::vector<std::pair<uint64_t,uint64_t>> rs; for(auto&q:s.sections)if(q.fileStart>=s.fileoff&&q.fileEnd<=s.fileoff+s.filesize)rs.push_back({q.fileStart,q.fileEnd});
-        if(rs.empty())continue;std::sort(rs.begin(),rs.end());uint64_t cursor=rs[0].second;
-        for(size_t i=1;i<=rs.size();i++){uint64_t next=(i<rs.size()?rs[i].first:s.fileoff+s.filesize);if(next>cursor){uint64_t a=ZNBAlign(cursor,executable?16:8);if(next>a&&next-a>=need&&ZNBZero(base,a,need)){
-                    uint64_t rva=ZNBFileToRVA(s,baseVM,a);BOOL reach=YES;if(executable)for(uint64_t site:sites){int64_t d0=(int64_t)rva-(int64_t)site,d1=(int64_t)(rva+need)-(int64_t)site;if(d0<=-(1LL<<27)||d0>=(1LL<<27)||d1<=-(1LL<<27)||d1>=(1LL<<27)){reach=NO;break;}}
-                    if(reach)out.push_back({a,next-a,rva,si});}
-            }if(i<rs.size())cursor=std::max(cursor,rs[i].second);}
-    }std::sort(out.begin(),out.end(),[](const ZNBGap&a,const ZNBGap&b){return a.size>b.size;});return out;
-}
-
-static BOOL ZNBEncodeB(uint64_t from,uint64_t to,BOOL link,uint32_t *out){int64_t d=(int64_t)to-(int64_t)from;if((d&3)||d<-(1LL<<27)||d>=(1LL<<27))return NO;uint32_t imm=(uint32_t)((d>>2)&0x03FFFFFF);*out=(link?0x94000000u:0x14000000u)|imm;return YES;}
-static BOOL ZNBEncodeADRP(uint64_t from,uint64_t to,uint32_t *out){int64_t pages=((int64_t)(to&~0xFFFULL)-(int64_t)(from&~0xFFFULL))>>12;if(pages<-(1LL<<20)||pages>=(1LL<<20))return NO;uint64_t u=(uint64_t)pages&0x1FFFFF;*out=0x90000000u|((uint32_t)(u&3)<<29)|((uint32_t)((u>>2)&0x7FFFF)<<5)|17u;return YES;}
-static uint32_t ZNBLdrX17(uint64_t target){uint32_t imm=(uint32_t)((target&0xFFFULL)>>3);return 0xF9400000u|(imm<<10)|(17u<<5)|17u;}
-static BOOL ZNBIsRet(uint32_t x){return (x&0xFFFFFC1Fu)==0xD65F0000u;} static BOOL ZNBIsBR(uint32_t x){return (x&0xFFFFFC1Fu)==0xD61F0000u;}
-
-static BOOL ZNBRelocate(uint32_t ins,uint64_t src,uint64_t dst,uint64_t winStart,uint64_t winEnd,uint32_t *out,BOOL *terminal,NSString **error){
-    *terminal=NO;
-    if((ins&0x7C000000u)==0x14000000u){BOOL link=(ins&0x80000000u)!=0;int64_t d=ZNBSX(ins&0x03FFFFFFu,26)<<2;uint64_t target=(uint64_t)((int64_t)src+d);if(target>=winStart&&target<winEnd){if(error)*error=@"PC-relative B/BL 指向被覆盖窗口内部，V1 拒绝生成";return NO;}if(!ZNBEncodeB(dst,target,link,out)){if(error)*error=@"重定位 B/BL 超出 ±128MB";return NO;}*terminal=!link;return YES;}
-    if((ins&0xFF000010u)==0x54000000u || (ins&0x7E000000u)==0x34000000u || (ins&0x3B000000u)==0x18000000u){int64_t d=ZNBSX((ins>>5)&0x7FFFFu,19)<<2;uint64_t target=(uint64_t)((int64_t)src+d);if(target>=winStart&&target<winEnd){if(error)*error=@"PC-relative imm19 指向被覆盖窗口内部";return NO;}int64_t nd=(int64_t)target-(int64_t)dst;if((nd&3)||nd<-(1LL<<20)||nd>=(1LL<<20)){if(error)*error=@"重定位 imm19 超出 ±1MB";return NO;}*out=(ins&~0x00FFFFE0u)|(((uint32_t)(nd>>2)&0x7FFFFu)<<5);return YES;}
-    if((ins&0x7E000000u)==0x36000000u){int64_t d=ZNBSX((ins>>5)&0x3FFFu,14)<<2;uint64_t target=(uint64_t)((int64_t)src+d);if(target>=winStart&&target<winEnd){if(error)*error=@"TBZ/TBNZ 指向被覆盖窗口内部";return NO;}int64_t nd=(int64_t)target-(int64_t)dst;if((nd&3)||nd<-(1LL<<15)||nd>=(1LL<<15)){if(error)*error=@"重定位 TBZ/TBNZ 超出 ±32KB";return NO;}*out=(ins&~0x0007FFE0u)|(((uint32_t)(nd>>2)&0x3FFFu)<<5);return YES;}
-    uint32_t adrMask=ins&0x9F000000u;if(adrMask==0x10000000u||adrMask==0x90000000u){uint64_t imm=((uint64_t)((ins>>5)&0x7FFFF)<<2)|((ins>>29)&3);int64_t simm=ZNBSX(imm,21);uint64_t target;if(adrMask==0x90000000u)target=(uint64_t)((int64_t)(src&~0xFFFULL)+(simm<<12));else target=(uint64_t)((int64_t)src+simm);if(target>=winStart&&target<winEnd){if(error)*error=@"ADR/ADRP 指向被覆盖窗口内部";return NO;}int64_t nimm=adrMask==0x90000000u?(((int64_t)(target&~0xFFFULL)-(int64_t)(dst&~0xFFFULL))>>12):((int64_t)target-(int64_t)dst);if(nimm<-(1LL<<20)||nimm>=(1LL<<20)){if(error)*error=@"重定位 ADR/ADRP 超范围";return NO;}uint64_t u=(uint64_t)nimm&0x1FFFFF;*out=(ins&~((3u<<29)|(0x7FFFFu<<5)))|((uint32_t)(u&3)<<29)|((uint32_t)((u>>2)&0x7FFFF)<<5);return YES;}
-    *out=ins;if(ZNBIsRet(ins)||ZNBIsBR(ins))*terminal=YES;return YES;
+static BOOL ZNBRVAToFile(const std::vector<ZNBSegment> &segments,
+                         uint64_t imageVMBase,
+                         uint64_t rva,
+                         uint64_t length,
+                         uint64_t &fileOffset,
+                         size_t &segmentIndex) {
+    uint64_t va = imageVMBase + rva;
+    for (size_t i = 0; i < segments.size(); i++) {
+        const ZNBSegment &seg = segments[i];
+        if (va >= seg.vmaddr && va + length <= seg.vmaddr + seg.filesize) {
+            fileOffset = seg.fileoff + (va - seg.vmaddr);
+            segmentIndex = i;
+            return YES;
+        }
+    }
+    return NO;
 }
 
-static BOOL ZNBInboundInterior(const uint8_t *base,const std::vector<ZNBSegment>&segs,uint64_t baseVM,uint64_t site,uint64_t len){uint64_t end=site+len;
-    for(const ZNBSegment&s:segs){if(!(s.initprot&VM_PROT_EXECUTE))continue;for(const ZNBSection&q:s.sections){if(q.fileEnd<=q.fileStart)continue;for(uint64_t off=q.fileStart;off+4<=q.fileEnd;off+=4){uint32_t ins=ZNBRead32(base+off);uint64_t src=q.addr+(off-q.fileStart)-baseVM,target=0;BOOL has=NO;
-                if((ins&0x7C000000u)==0x14000000u){target=(uint64_t)((int64_t)src+(ZNBSX(ins&0x03FFFFFFu,26)<<2));has=YES;}
-                else if((ins&0xFF000010u)==0x54000000u||(ins&0x7E000000u)==0x34000000u){target=(uint64_t)((int64_t)src+(ZNBSX((ins>>5)&0x7FFFFu,19)<<2));has=YES;}
-                else if((ins&0x7E000000u)==0x36000000u){target=(uint64_t)((int64_t)src+(ZNBSX((ins>>5)&0x3FFFu,14)<<2));has=YES;}
-                if(has&&target>site&&target<end)return YES;}}}return NO;}
-
-static BOOL ZNBVariant(uint8_t *base,uint64_t fileoff,uint64_t rva,uint64_t reserved,NSData *source,uint64_t sourceRVA,uint64_t winStart,uint64_t winEnd,uint64_t resume,NSString **error){
-    const uint32_t NOP=0xD503201Fu;for(uint64_t p=0;p<reserved;p+=4)ZNBWrite32(base+fileoff+p,NOP);ZNBWrite32(base+fileoff,0xA8C147F0u);
-    BOOL terminalSeen=NO;const uint8_t *src=(const uint8_t *)source.bytes;for(NSUInteger i=0;i<source.length;i+=4){uint32_t ins=ZNBRead32(src+i),rel=0;BOOL term=NO;if(!ZNBRelocate(ins,sourceRVA+i,rva+4+i,winStart,winEnd,&rel,&term,error))return NO;ZNBWrite32(base+fileoff+4+i,rel);if(term)terminalSeen=YES;}
-    if(!terminalSeen){uint32_t b=0;if(!ZNBEncodeB(rva+4+source.length,resume,NO,&b)){if(error)*error=@"Variant 返回原代码超出 ±128MB";return NO;}ZNBWrite32(base+fileoff+4+source.length,b);}return YES;
+static uint64_t ZNBFileToRVA(const ZNBSegment &segment, uint64_t imageVMBase, uint64_t fileOffset) {
+    return segment.vmaddr + (fileOffset - segment.fileoff) - imageVMBase;
 }
 
-static void ZNBCopyFixed(char *dst,size_t cap,NSString *s){memset(dst,0,cap);NSData *d=[s dataUsingEncoding:NSUTF8StringEncoding];if(!d.length)return;memcpy(dst,d.bytes,std::min(cap-1,(size_t)d.length));}
+static BOOL ZNBInstructionRange(const std::vector<ZNBSegment> &segments,
+                                uint64_t imageVMBase,
+                                uint64_t rva,
+                                uint64_t length) {
+    uint64_t va = imageVMBase + rva;
+    for (const ZNBSegment &seg : segments) {
+        if (!(seg.initprot & VM_PROT_EXECUTE)) continue;
+        for (const ZNBSection &sec : seg.sections) {
+            if (!(sec.flags & (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS))) continue;
+            if (va >= sec.addr && va + length <= sec.addr + sec.size) return YES;
+        }
+    }
+    return NO;
+}
 
-static BOOL ZNBBuildTarget(NSString *target,NSArray<ZNBinaryPatchRow *> *rows,NSString *folder,NSString **outPath,NSDictionary **meta,NSString **error){
-    NSDictionary *module=[[ZNModuleManager sharedManager] moduleNamed:target];if(!module){if(error)*error=[NSString stringWithFormat:@"目标模块未加载：%@",target];return NO;}NSString *input=module[@"path"];if(!input.length){if(error)*error=@"无法取得目标 Mach-O 路径";return NO;}
-    NSString *name=input.lastPathComponent.length?input.lastPathComponent:target;NSString *output=[folder stringByAppendingPathComponent:[name stringByAppendingString:@".znpatched"]];NSFileManager *fm=NSFileManager.defaultManager;[fm removeItemAtPath:output error:nil];NSError *copyErr=nil;if(![fm copyItemAtPath:input toPath:output error:&copyErr]){if(error)*error=[NSString stringWithFormat:@"复制目标失败：%@",copyErr.localizedDescription];return NO;}
-    int fd=open(output.fileSystemRepresentation,O_RDWR);if(fd<0){if(error)*error=@"打开输出文件失败";[fm removeItemAtPath:output error:nil];return NO;}struct stat st={};if(fstat(fd,&st)!=0||st.st_size<=0){close(fd);[fm removeItemAtPath:output error:nil];if(error)*error=@"读取输出文件大小失败";return NO;}
-    size_t size=(size_t)st.st_size;uint8_t *base=(uint8_t *)mmap(NULL,size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);if(base==MAP_FAILED){close(fd);[fm removeItemAtPath:output error:nil];if(error)*error=@"mmap 输出文件失败";return NO;}
-    BOOL success=NO;NSString *local=nil;std::vector<ZNBSegment>segs;uint64_t baseVM=0;do{
-        if(!ZNBParse(base,size,segs,baseVM,&local))break;std::vector<ZNBSite>sites;std::vector<uint64_t>siteRVAs;
-        for(ZNBinaryPatchRow *r in rows){NSData *enabled=r.validator.patchBytes,*live=r.validator.capturedOriginalBytes;if(!enabled.length||!live.length||enabled.length!=live.length||(enabled.length&3)){local=@"Patch 必须已验证且长度为 4-byte 倍数";break;}uint64_t rv=r.validator.rva,fo=0;size_t si=0;if(!ZNBRVAToFile(segs,baseVM,rv,enabled.length,fo,si)){local=[NSString stringWithFormat:@"%@+0x%llX 无法映射到 file offset",target,rv];break;}if(!(segs[si].initprot&VM_PROT_EXECUTE)){local=[NSString stringWithFormat:@"%@+0x%llX 不在 executable segment",target,rv];break;}NSData *disk=[NSData dataWithBytes:base+fo length:enabled.length];if(![disk isEqualToData:live]){local=[NSString stringWithFormat:@"%@+0x%llX 磁盘原字节与 Live Original 不一致",target,rv];break;}if(ZNBInboundInterior(base,segs,baseVM,rv,enabled.length)){local=[NSString stringWithFormat:@"%@+0x%llX 覆盖窗口内部存在直接分支目标，V1 拒绝",target,rv];break;}sites.push_back({r,rv,fo,(uint64_t)enabled.length,si,disk,enabled});siteRVAs.push_back(rv);}
-        if(local)break;for(size_t a=0;a<sites.size();a++)for(size_t b=a+1;b<sites.size();b++){uint64_t a0=sites[a].rva,a1=a0+sites[a].window,b0=sites[b].rva,b1=b0+sites[b].window;if(a0<b1&&b0<a1){local=@"Patch 覆盖窗口互相重叠";break;}}if(local)break;
-        uint64_t codeNeed=0;for(auto&s:sites){uint64_t vs=ZNBAlign(4+s.window+4,16);codeNeed=ZNBAlign(codeNeed,16)+16+vs+vs;}codeNeed+=32;uint64_t dataNeed=ZNBAlign(sizeof(ZN44StaticHeader)+sites.size()*sizeof(ZN44StaticEntry),8);
-        auto cg=ZNBGaps(base,segs,baseVM,YES,codeNeed,siteRVAs),dg=ZNBGaps(base,segs,baseVM,NO,dataNeed,{});if(cg.empty()){local=@"无安全 executable gap：V1 不会把任意 0 区当 code cave";break;}if(dg.empty()){local=@"无安全 writable gap：V1 拒绝生成";break;}ZNBGap code=cg[0],data=dg[0];
-        ZN44StaticHeader *hdr=(ZN44StaticHeader *)(base+data.fileoff);memset(hdr,0,dataNeed);hdr->magic0=ZN44_STATIC_MAGIC0;hdr->magic1=ZN44_STATIC_MAGIC1;hdr->version=ZN44_STATIC_VERSION;hdr->count=(uint32_t)sites.size();hdr->entrySize=sizeof(ZN44StaticEntry);ZN44StaticEntry *entries=(ZN44StaticEntry *)(hdr+1);
-        uint64_t cursor=code.fileoff;const uint32_t NOP=0xD503201Fu;
-        for(size_t i=0;i<sites.size();i++){ZNBSite&s=sites[i];cursor=ZNBAlign(cursor,16);uint64_t thunkFO=cursor,thunkRVA=ZNBFileToRVA(segs[code.segIndex],baseVM,thunkFO);cursor+=16;uint64_t vs=ZNBAlign(4+s.window+4,16);uint64_t offFO=ZNBAlign(cursor,16),offRVA=ZNBFileToRVA(segs[code.segIndex],baseVM,offFO);cursor=offFO+vs;uint64_t onFO=ZNBAlign(cursor,16),onRVA=ZNBFileToRVA(segs[code.segIndex],baseVM,onFO);cursor=onFO+vs;
-            uint64_t entryRVA=data.rva+sizeof(ZN44StaticHeader)+i*sizeof(ZN44StaticEntry);uint32_t adrp=0;if(!ZNBEncodeADRP(thunkRVA+4,entryRVA,&adrp)){local=@"Thunk → selectedTarget ADRP 超出 ±4GB";break;}uint64_t pageoff=entryRVA&0xFFFULL;if(pageoff&7){local=@"selectedTarget 未 8-byte 对齐";break;}ZNBWrite32(base+thunkFO,0xA9BF47F0u);ZNBWrite32(base+thunkFO+4,adrp);ZNBWrite32(base+thunkFO+8,ZNBLdrX17(entryRVA));ZNBWrite32(base+thunkFO+12,0xD61F0220u);
-            if(!ZNBVariant(base,offFO,offRVA,vs,s.original,s.rva,s.rva,s.rva+s.window,s.rva+s.window,&local))break;if(!ZNBVariant(base,onFO,onRVA,vs,s.enabled,s.rva,s.rva,s.rva+s.window,s.rva+s.window,&local))break;
-            uint32_t siteB=0;if(!ZNBEncodeB(s.rva,thunkRVA,NO,&siteB)){local=@"Site → thunk 超出 ±128MB";break;}ZNBWrite32(base+s.fileoff,siteB);for(uint64_t p=4;p<s.window;p+=4)ZNBWrite32(base+s.fileoff+p,NOP);
-            ZN44StaticEntry &e=entries[i];memset(&e,0,sizeof(e));e.offRVA=offRVA;e.onRVA=onRVA;e.siteRVA=s.rva;e.windowLength=(uint32_t)s.window;e.patchID=(uint32_t)i+1;e.enabledLength=(uint32_t)s.enabled.length;ZNBCopyFixed(e.title,sizeof(e.title),s.row.title.length?s.row.title:[NSString stringWithFormat:@"Patch #%u",e.patchID]);ZNBCopyFixed(e.group,sizeof(e.group),s.row.group.length?s.row.group:@"Imported");
-        }if(local)break;msync(base,size,MS_SYNC);success=YES;if(meta)*meta=@{@"target":target,@"input":input,@"output":output,@"patchCount":@(sites.size()),@"codeGapRVA":[NSString stringWithFormat:@"0x%llX",code.rva],@"dataGapRVA":[NSString stringWithFormat:@"0x%llX",data.rva],@"needsResign":@YES};if(outPath)*outPath=output;
-    }while(0);munmap(base,size);close(fd);if(!success){[fm removeItemAtPath:output error:nil];if(error)*error=local?:@"生成失败";}return success;
+static std::vector<ZNBGap> ZNBGaps(const uint8_t *base,
+                                   const std::vector<ZNBSegment> &segments,
+                                   uint64_t imageVMBase,
+                                   BOOL executable,
+                                   uint64_t needed,
+                                   const std::vector<uint64_t> &sites) {
+    std::vector<ZNBGap> result;
+
+    for (size_t segmentIndex = 0; segmentIndex < segments.size(); segmentIndex++) {
+        const ZNBSegment &seg = segments[segmentIndex];
+        if (executable) {
+            if (!(seg.initprot & VM_PROT_EXECUTE)) continue;
+        } else {
+            if (!(seg.initprot & VM_PROT_WRITE)) continue;
+        }
+        if (!seg.filesize || seg.sections.empty()) continue;
+
+        std::vector<std::pair<uint64_t, uint64_t>> ranges;
+        for (const ZNBSection &sec : seg.sections) {
+            if (sec.fileStart >= seg.fileoff && sec.fileEnd <= seg.fileoff + seg.filesize) {
+                ranges.push_back({sec.fileStart, sec.fileEnd});
+            }
+        }
+        if (ranges.empty()) continue;
+        std::sort(ranges.begin(), ranges.end());
+
+        uint64_t cursor = ranges.front().second;
+        for (size_t i = 1; i <= ranges.size(); i++) {
+            uint64_t nextStart = (i < ranges.size()) ? ranges[i].first : (seg.fileoff + seg.filesize);
+            if (nextStart > cursor) {
+                uint64_t aligned = ZNBAlign(cursor, executable ? 16 : 8);
+                if (nextStart > aligned && nextStart - aligned >= needed && ZNBZero(base, aligned, needed)) {
+                    uint64_t gapRVA = ZNBFileToRVA(seg, imageVMBase, aligned);
+                    BOOL reachable = YES;
+                    if (executable) {
+                        for (uint64_t site : sites) {
+                            int64_t deltaStart = (int64_t)gapRVA - (int64_t)site;
+                            int64_t deltaEnd = (int64_t)(gapRVA + needed) - (int64_t)site;
+                            if (deltaStart <= -(1LL << 27) || deltaStart >= (1LL << 27) ||
+                                deltaEnd <= -(1LL << 27) || deltaEnd >= (1LL << 27)) {
+                                reachable = NO;
+                                break;
+                            }
+                        }
+                    }
+                    if (reachable) result.push_back({aligned, nextStart - aligned, gapRVA, segmentIndex});
+                }
+            }
+            if (i < ranges.size()) cursor = std::max(cursor, ranges[i].second);
+        }
+    }
+
+    std::sort(result.begin(), result.end(), [](const ZNBGap &a, const ZNBGap &b) {
+        return a.size > b.size;
+    });
+    return result;
+}
+
+static BOOL ZNBEncodeB(uint64_t fromRVA, uint64_t toRVA, BOOL link, uint32_t *outInstruction) {
+    int64_t delta = (int64_t)toRVA - (int64_t)fromRVA;
+    if ((delta & 3) || delta < -(1LL << 27) || delta >= (1LL << 27)) return NO;
+    uint32_t imm26 = (uint32_t)((delta >> 2) & 0x03FFFFFF);
+    *outInstruction = (link ? 0x94000000u : 0x14000000u) | imm26;
+    return YES;
+}
+
+static BOOL ZNBEncodeADRPX17(uint64_t fromRVA, uint64_t toRVA, uint32_t *outInstruction) {
+    int64_t pages = ((int64_t)(toRVA & ~0xFFFULL) - (int64_t)(fromRVA & ~0xFFFULL)) >> 12;
+    if (pages < -(1LL << 20) || pages >= (1LL << 20)) return NO;
+    uint64_t imm = (uint64_t)pages & 0x1FFFFF;
+    *outInstruction = 0x90000000u |
+                      ((uint32_t)(imm & 3) << 29) |
+                      ((uint32_t)((imm >> 2) & 0x7FFFF) << 5) |
+                      17u;
+    return YES;
+}
+
+static uint32_t ZNBLdrX17FromX17(uint64_t targetRVA) {
+    uint32_t imm12 = (uint32_t)((targetRVA & 0xFFFULL) >> 3);
+    return 0xF9400000u | (imm12 << 10) | (17u << 5) | 17u;
+}
+
+static BOOL ZNBIsRET(uint32_t instruction) {
+    return (instruction & 0xFFFFFC1Fu) == 0xD65F0000u;
+}
+
+static BOOL ZNBIsBR(uint32_t instruction) {
+    return (instruction & 0xFFFFFC1Fu) == 0xD61F0000u;
+}
+
+static BOOL ZNBRelocate(uint32_t instruction,
+                        uint64_t sourceRVA,
+                        uint64_t destinationRVA,
+                        uint64_t windowStart,
+                        uint64_t windowEnd,
+                        uint32_t *outInstruction,
+                        BOOL *terminal,
+                        NSString **error) {
+    *terminal = NO;
+
+    // B / BL, imm26.
+    if ((instruction & 0x7C000000u) == 0x14000000u) {
+        BOOL link = (instruction & 0x80000000u) != 0;
+        int64_t delta = ZNBSX(instruction & 0x03FFFFFFu, 26) << 2;
+        uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"PC-relative B/BL 指向被覆盖窗口内部，V1 拒绝生成";
+            return NO;
+        }
+        if (!ZNBEncodeB(destinationRVA, target, link, outInstruction)) {
+            if (error) *error = @"重定位 B/BL 超出 ±128MB";
+            return NO;
+        }
+        *terminal = !link;
+        return YES;
+    }
+
+    // B.cond / CBZ / CBNZ / LDR literal family, imm19.
+    if ((instruction & 0xFF000010u) == 0x54000000u ||
+        (instruction & 0x7E000000u) == 0x34000000u ||
+        (instruction & 0x3B000000u) == 0x18000000u) {
+        int64_t delta = ZNBSX((instruction >> 5) & 0x7FFFFu, 19) << 2;
+        uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"PC-relative imm19 指向被覆盖窗口内部";
+            return NO;
+        }
+        int64_t newDelta = (int64_t)target - (int64_t)destinationRVA;
+        if ((newDelta & 3) || newDelta < -(1LL << 20) || newDelta >= (1LL << 20)) {
+            if (error) *error = @"重定位 imm19 超出 ±1MB";
+            return NO;
+        }
+        *outInstruction = (instruction & ~0x00FFFFE0u) |
+                          (((uint32_t)(newDelta >> 2) & 0x7FFFFu) << 5);
+        return YES;
+    }
+
+    // TBZ / TBNZ, imm14.
+    if ((instruction & 0x7E000000u) == 0x36000000u) {
+        int64_t delta = ZNBSX((instruction >> 5) & 0x3FFFu, 14) << 2;
+        uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"TBZ/TBNZ 指向被覆盖窗口内部";
+            return NO;
+        }
+        int64_t newDelta = (int64_t)target - (int64_t)destinationRVA;
+        if ((newDelta & 3) || newDelta < -(1LL << 15) || newDelta >= (1LL << 15)) {
+            if (error) *error = @"重定位 TBZ/TBNZ 超出 ±32KB";
+            return NO;
+        }
+        *outInstruction = (instruction & ~0x0007FFE0u) |
+                          (((uint32_t)(newDelta >> 2) & 0x3FFFu) << 5);
+        return YES;
+    }
+
+    // ADR / ADRP.
+    uint32_t adrMask = instruction & 0x9F000000u;
+    if (adrMask == 0x10000000u || adrMask == 0x90000000u) {
+        uint64_t imm = ((uint64_t)((instruction >> 5) & 0x7FFFF) << 2) | ((instruction >> 29) & 3);
+        int64_t signedImm = ZNBSX(imm, 21);
+        uint64_t target = 0;
+        if (adrMask == 0x90000000u) {
+            target = (uint64_t)((int64_t)(sourceRVA & ~0xFFFULL) + (signedImm << 12));
+        } else {
+            target = (uint64_t)((int64_t)sourceRVA + signedImm);
+        }
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"ADR/ADRP 指向被覆盖窗口内部";
+            return NO;
+        }
+
+        int64_t newImm = 0;
+        if (adrMask == 0x90000000u) {
+            newImm = ((int64_t)(target & ~0xFFFULL) - (int64_t)(destinationRVA & ~0xFFFULL)) >> 12;
+        } else {
+            newImm = (int64_t)target - (int64_t)destinationRVA;
+        }
+        if (newImm < -(1LL << 20) || newImm >= (1LL << 20)) {
+            if (error) *error = @"重定位 ADR/ADRP 超范围";
+            return NO;
+        }
+        uint64_t u = (uint64_t)newImm & 0x1FFFFF;
+        *outInstruction = (instruction & ~((3u << 29) | (0x7FFFFu << 5))) |
+                          ((uint32_t)(u & 3) << 29) |
+                          ((uint32_t)((u >> 2) & 0x7FFFF) << 5);
+        return YES;
+    }
+
+    // Everything else in V1 is copied only if it is not PC-relative according
+    // to the supported classes above. RET/BR are terminal after the copy.
+    *outInstruction = instruction;
+    if (ZNBIsRET(instruction) || ZNBIsBR(instruction)) *terminal = YES;
+    return YES;
+}
+
+static BOOL ZNBInboundInterior(const uint8_t *base,
+                               const std::vector<ZNBSegment> &segments,
+                               uint64_t imageVMBase,
+                               uint64_t siteRVA,
+                               uint64_t length) {
+    uint64_t endRVA = siteRVA + length;
+
+    for (const ZNBSegment &seg : segments) {
+        if (!(seg.initprot & VM_PROT_EXECUTE)) continue;
+        for (const ZNBSection &sec : seg.sections) {
+            if (!(sec.flags & (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS))) continue;
+            if (sec.fileEnd <= sec.fileStart) continue;
+
+            for (uint64_t offset = sec.fileStart; offset + 4 <= sec.fileEnd; offset += 4) {
+                uint32_t instruction = ZNBRead32(base + offset);
+                uint64_t sourceRVA = sec.addr + (offset - sec.fileStart) - imageVMBase;
+                uint64_t targetRVA = 0;
+                BOOL hasDirectTarget = NO;
+
+                if ((instruction & 0x7C000000u) == 0x14000000u) {
+                    targetRVA = (uint64_t)((int64_t)sourceRVA + (ZNBSX(instruction & 0x03FFFFFFu, 26) << 2));
+                    hasDirectTarget = YES;
+                } else if ((instruction & 0xFF000010u) == 0x54000000u ||
+                           (instruction & 0x7E000000u) == 0x34000000u) {
+                    targetRVA = (uint64_t)((int64_t)sourceRVA + (ZNBSX((instruction >> 5) & 0x7FFFFu, 19) << 2));
+                    hasDirectTarget = YES;
+                } else if ((instruction & 0x7E000000u) == 0x36000000u) {
+                    targetRVA = (uint64_t)((int64_t)sourceRVA + (ZNBSX((instruction >> 5) & 0x3FFFu, 14) << 2));
+                    hasDirectTarget = YES;
+                }
+
+                // Incoming branch to site start is valid; incoming branch to
+                // any displaced instruction after the first one is rejected.
+                if (hasDirectTarget && targetRVA > siteRVA && targetRVA < endRVA) return YES;
+            }
+        }
+    }
+    return NO;
+}
+
+static BOOL ZNBWriteVariant(uint8_t *base,
+                            uint64_t fileOffset,
+                            uint64_t variantRVA,
+                            uint64_t reserved,
+                            NSData *source,
+                            uint64_t sourceRVA,
+                            uint64_t windowStart,
+                            uint64_t windowEnd,
+                            uint64_t resumeRVA,
+                            NSString **error) {
+    const uint32_t NOP = 0xD503201Fu;
+    const uint32_t LDP_X16_X17_POST = 0xA8C147F0u;
+
+    for (uint64_t p = 0; p < reserved; p += 4) ZNBWrite32(base + fileOffset + p, NOP);
+
+    // Per-site thunk saves x16/x17. Every destination starts by restoring them,
+    // so an internal patch point does not require x16/x17 to be dead.
+    ZNBWrite32(base + fileOffset, LDP_X16_X17_POST);
+
+    const uint8_t *sourceBytes = (const uint8_t *)source.bytes;
+    BOOL terminalSeen = NO;
+    NSUInteger emittedLength = 0;
+    for (NSUInteger i = 0; i < source.length; i += 4) {
+        if (terminalSeen) break;
+        uint32_t instruction = ZNBRead32(sourceBytes + i);
+        uint32_t relocated = 0;
+        BOOL terminal = NO;
+        if (!ZNBRelocate(instruction,
+                         sourceRVA + i,
+                         variantRVA + 4 + i,
+                         windowStart,
+                         windowEnd,
+                         &relocated,
+                         &terminal,
+                         error)) {
+            return NO;
+        }
+        ZNBWrite32(base + fileOffset + 4 + i, relocated);
+        emittedLength = i + 4;
+        if (terminal) terminalSeen = YES;
+    }
+
+    if (!terminalSeen) {
+        uint32_t resumeBranch = 0;
+        uint64_t branchRVA = variantRVA + 4 + emittedLength;
+        if (!ZNBEncodeB(branchRVA, resumeRVA, NO, &resumeBranch)) {
+            if (error) *error = @"Variant 返回原代码超出 ±128MB";
+            return NO;
+        }
+        ZNBWrite32(base + fileOffset + 4 + emittedLength, resumeBranch);
+    }
+    return YES;
+}
+
+static void ZNBCopyFixed(char *destination, size_t capacity, NSString *string) {
+    memset(destination, 0, capacity);
+    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data.length || capacity == 0) return;
+    memcpy(destination, data.bytes, std::min(capacity - 1, (size_t)data.length));
+}
+
+static BOOL ZNBBuildTarget(NSString *target,
+                           NSArray<ZNBinaryPatchRow *> *rows,
+                           NSString *folder,
+                           NSString **outPath,
+                           NSDictionary **metadata,
+                           NSString **error) {
+    NSDictionary *module = [[ZNModuleManager sharedManager] moduleNamed:target];
+    if (!module) {
+        if (error) *error = [NSString stringWithFormat:@"目标模块未加载：%@", target];
+        return NO;
+    }
+
+    NSString *inputPath = module[@"path"];
+    if (!inputPath.length) {
+        if (error) *error = @"无法取得目标 Mach-O 路径";
+        return NO;
+    }
+
+    NSString *name = inputPath.lastPathComponent.length ? inputPath.lastPathComponent : target;
+    NSString *outputPath = [folder stringByAppendingPathComponent:[name stringByAppendingString:@".znpatched"]];
+    NSFileManager *fm = NSFileManager.defaultManager;
+    [fm removeItemAtPath:outputPath error:nil];
+
+    NSError *copyError = nil;
+    if (![fm copyItemAtPath:inputPath toPath:outputPath error:&copyError]) {
+        if (error) *error = [NSString stringWithFormat:@"复制目标失败：%@", copyError.localizedDescription ?: @"未知错误"];
+        return NO;
+    }
+
+    int fd = open(outputPath.fileSystemRepresentation, O_RDWR);
+    if (fd < 0) {
+        [fm removeItemAtPath:outputPath error:nil];
+        if (error) *error = [NSString stringWithFormat:@"打开输出文件失败：errno=%d", errno];
+        return NO;
+    }
+
+    struct stat st = {};
+    if (fstat(fd, &st) != 0 || st.st_size <= 0) {
+        close(fd);
+        [fm removeItemAtPath:outputPath error:nil];
+        if (error) *error = @"读取输出文件大小失败";
+        return NO;
+    }
+
+    size_t fileSize = (size_t)st.st_size;
+    uint8_t *base = (uint8_t *)mmap(NULL, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (base == MAP_FAILED) {
+        close(fd);
+        [fm removeItemAtPath:outputPath error:nil];
+        if (error) *error = @"mmap 输出文件失败";
+        return NO;
+    }
+
+    BOOL success = NO;
+    NSString *localError = nil;
+    std::vector<ZNBSegment> segments;
+    uint64_t imageVMBase = 0;
+
+    do {
+        if (!ZNBParse(base, fileSize, segments, imageVMBase, &localError)) break;
+
+        std::vector<ZNBSite> sites;
+        std::vector<uint64_t> siteRVAs;
+
+        for (ZNBinaryPatchRow *row in rows) {
+            NSData *enabled = row.validator.patchBytes;
+            NSData *liveOriginal = row.validator.capturedOriginalBytes;
+            if (!enabled.length || !liveOriginal.length || enabled.length != liveOriginal.length || (enabled.length & 3)) {
+                localError = @"Patch 必须已验证，且 Enabled/Original 长度一致并为 4-byte 倍数";
+                break;
+            }
+
+            uint64_t rva = row.validator.rva;
+            uint64_t fileOffset = 0;
+            size_t segmentIndex = 0;
+            if (!ZNBRVAToFile(segments, imageVMBase, rva, enabled.length, fileOffset, segmentIndex)) {
+                localError = [NSString stringWithFormat:@"%@+0x%llX 无法映射到 file offset", target, rva];
+                break;
+            }
+            if (!(segments[segmentIndex].initprot & VM_PROT_EXECUTE) ||
+                !ZNBInstructionRange(segments, imageVMBase, rva, enabled.length)) {
+                localError = [NSString stringWithFormat:@"%@+0x%llX 不在可确认的 ARM64 instruction section", target, rva];
+                break;
+            }
+
+            NSData *diskOriginal = [NSData dataWithBytes:base + fileOffset length:enabled.length];
+            if (![diskOriginal isEqualToData:liveOriginal]) {
+                localError = [NSString stringWithFormat:@"%@+0x%llX 磁盘原字节与 Live Original 不一致", target, rva];
+                break;
+            }
+
+            if (ZNBInboundInterior(base, segments, imageVMBase, rva, enabled.length)) {
+                localError = [NSString stringWithFormat:@"%@+0x%llX 覆盖窗口内部存在直接分支目标，V1 拒绝", target, rva];
+                break;
+            }
+
+            sites.push_back({row, rva, fileOffset, (uint64_t)enabled.length, segmentIndex, diskOriginal, enabled});
+            siteRVAs.push_back(rva);
+        }
+        if (localError) break;
+
+        for (size_t a = 0; a < sites.size(); a++) {
+            for (size_t b = a + 1; b < sites.size(); b++) {
+                uint64_t aStart = sites[a].rva;
+                uint64_t aEnd = aStart + sites[a].window;
+                uint64_t bStart = sites[b].rva;
+                uint64_t bEnd = bStart + sites[b].window;
+                if (aStart < bEnd && bStart < aEnd) {
+                    localError = @"Patch 覆盖窗口互相重叠";
+                    break;
+                }
+            }
+            if (localError) break;
+        }
+        if (localError) break;
+
+        // 24-byte per-site thunk:
+        //   STP X16,X17,[SP,#-16]!
+        //   ADRP X17, selectedTarget@PAGE
+        //   LDR X17,[X17,#pageoff]
+        //   CBNZ X17, +8
+        //   B OffVariant              ; boot-safe fallback before runtime init
+        //   BR X17                    ; runtime-selected OFF/ON target
+        const uint64_t thunkSize = 24;
+        uint64_t codeNeeded = 0;
+        for (const ZNBSite &site : sites) {
+            uint64_t variantSize = ZNBAlign(4 + site.window + 4, 16);
+            codeNeeded = ZNBAlign(codeNeeded, 16) + thunkSize + variantSize + variantSize;
+        }
+        codeNeeded += 32;
+
+        uint64_t dataNeeded = ZNBAlign(sizeof(ZN44StaticHeader) + sites.size() * sizeof(ZN44StaticEntry), 8);
+        std::vector<ZNBGap> codeGaps = ZNBGaps(base, segments, imageVMBase, YES, codeNeeded, siteRVAs);
+        std::vector<ZNBGap> dataGaps = ZNBGaps(base, segments, imageVMBase, NO, dataNeeded, {});
+        if (codeGaps.empty()) {
+            localError = @"无安全 executable gap：V1 不会把任意 0 区当 code cave";
+            break;
+        }
+        if (dataGaps.empty()) {
+            localError = @"无安全 writable gap：V1 拒绝生成";
+            break;
+        }
+
+        ZNBGap codeGap = codeGaps.front();
+        ZNBGap dataGap = dataGaps.front();
+
+        ZN44StaticHeader *header = (ZN44StaticHeader *)(base + dataGap.fileoff);
+        memset(header, 0, dataNeeded);
+        header->magic0 = ZN44_STATIC_MAGIC0;
+        header->magic1 = ZN44_STATIC_MAGIC1;
+        header->version = ZN44_STATIC_VERSION;
+        header->count = (uint32_t)sites.size();
+        header->entrySize = sizeof(ZN44StaticEntry);
+        ZN44StaticEntry *entries = (ZN44StaticEntry *)(header + 1);
+
+        const uint32_t STP_X16_X17_PRE = 0xA9BF47F0u;
+        const uint32_t CBNZ_X17_PLUS_8 = 0xB5000051u;
+        const uint32_t BR_X17 = 0xD61F0220u;
+        const uint32_t NOP = 0xD503201Fu;
+
+        uint64_t codeCursor = codeGap.fileoff;
+        for (size_t i = 0; i < sites.size(); i++) {
+            ZNBSite &site = sites[i];
+            codeCursor = ZNBAlign(codeCursor, 16);
+
+            uint64_t thunkFileOffset = codeCursor;
+            uint64_t thunkRVA = ZNBFileToRVA(segments[codeGap.segIndex], imageVMBase, thunkFileOffset);
+            codeCursor += thunkSize;
+
+            uint64_t variantSize = ZNBAlign(4 + site.window + 4, 16);
+            uint64_t offFileOffset = ZNBAlign(codeCursor, 16);
+            uint64_t offRVA = ZNBFileToRVA(segments[codeGap.segIndex], imageVMBase, offFileOffset);
+            codeCursor = offFileOffset + variantSize;
+
+            uint64_t onFileOffset = ZNBAlign(codeCursor, 16);
+            uint64_t onRVA = ZNBFileToRVA(segments[codeGap.segIndex], imageVMBase, onFileOffset);
+            codeCursor = onFileOffset + variantSize;
+
+            uint64_t entryRVA = dataGap.rva + sizeof(ZN44StaticHeader) + i * sizeof(ZN44StaticEntry);
+            if ((entryRVA & 7) != 0) {
+                localError = @"selectedTarget 未 8-byte 对齐";
+                break;
+            }
+
+            uint32_t adrp = 0;
+            if (!ZNBEncodeADRPX17(thunkRVA + 4, entryRVA, &adrp)) {
+                localError = @"Thunk → selectedTarget ADRP 超出 ±4GB";
+                break;
+            }
+
+            uint32_t offFallbackBranch = 0;
+            if (!ZNBEncodeB(thunkRVA + 16, offRVA, NO, &offFallbackBranch)) {
+                localError = @"Thunk boot-safe OFF fallback 超出 ±128MB";
+                break;
+            }
+
+            ZNBWrite32(base + thunkFileOffset + 0, STP_X16_X17_PRE);
+            ZNBWrite32(base + thunkFileOffset + 4, adrp);
+            ZNBWrite32(base + thunkFileOffset + 8, ZNBLdrX17FromX17(entryRVA));
+            ZNBWrite32(base + thunkFileOffset + 12, CBNZ_X17_PLUS_8);
+            ZNBWrite32(base + thunkFileOffset + 16, offFallbackBranch);
+            ZNBWrite32(base + thunkFileOffset + 20, BR_X17);
+
+            if (!ZNBWriteVariant(base,
+                                 offFileOffset,
+                                 offRVA,
+                                 variantSize,
+                                 site.original,
+                                 site.rva,
+                                 site.rva,
+                                 site.rva + site.window,
+                                 site.rva + site.window,
+                                 &localError)) {
+                break;
+            }
+
+            if (!ZNBWriteVariant(base,
+                                 onFileOffset,
+                                 onRVA,
+                                 variantSize,
+                                 site.enabled,
+                                 site.rva,
+                                 site.rva,
+                                 site.rva + site.window,
+                                 site.rva + site.window,
+                                 &localError)) {
+                break;
+            }
+
+            uint32_t siteBranch = 0;
+            if (!ZNBEncodeB(site.rva, thunkRVA, NO, &siteBranch)) {
+                localError = @"Site → thunk 超出 ±128MB";
+                break;
+            }
+            ZNBWrite32(base + site.fileoff, siteBranch);
+            for (uint64_t p = 4; p < site.window; p += 4) ZNBWrite32(base + site.fileoff + p, NOP);
+
+            ZN44StaticEntry &entry = entries[i];
+            memset(&entry, 0, sizeof(entry));
+            // selectedTarget intentionally remains zero on disk. The thunk has
+            // a signed OFF fallback, so target code is safe even if it executes
+            // before ZonoePatch.dylib initializes the RW pointer.
+            entry.offRVA = offRVA;
+            entry.onRVA = onRVA;
+            entry.siteRVA = site.rva;
+            entry.windowLength = (uint32_t)site.window;
+            entry.patchID = (uint32_t)i + 1;
+            entry.enabledLength = (uint32_t)site.enabled.length;
+            ZNBCopyFixed(entry.title,
+                         sizeof(entry.title),
+                         site.row.title.length ? site.row.title : [NSString stringWithFormat:@"Patch #%u", entry.patchID]);
+            ZNBCopyFixed(entry.group,
+                         sizeof(entry.group),
+                         site.row.group.length ? site.row.group : @"Imported");
+        }
+        if (localError) break;
+
+        if (msync(base, fileSize, MS_SYNC) != 0) {
+            localError = [NSString stringWithFormat:@"msync 失败：errno=%d", errno];
+            break;
+        }
+
+        success = YES;
+        if (metadata) {
+            *metadata = @{
+                @"target": target,
+                @"input": inputPath,
+                @"output": outputPath,
+                @"patchCount": @(sites.size()),
+                @"codeGapRVA": [NSString stringWithFormat:@"0x%llX", codeGap.rva],
+                @"dataGapRVA": [NSString stringWithFormat:@"0x%llX", dataGap.rva],
+                @"bootSafeOffFallback": @YES,
+                @"needsResign": @YES,
+            };
+        }
+        if (outPath) *outPath = outputPath;
+    } while (0);
+
+    munmap(base, fileSize);
+    close(fd);
+
+    if (!success) {
+        [fm removeItemAtPath:outputPath error:nil];
+        if (error) *error = localError ?: @"生成失败";
+    }
+    return success;
 }
 
 @implementation ZNStaticBinaryBuilder
-+ (BOOL)buildWorkspace:(ZNBinaryPatchWorkspace *)workspace outputs:(NSArray<NSString *> **)outputs report:(NSString **)report error:(NSString **)error {
-    if(!workspace||workspace.hasAnyApplied){if(error)*error=@"生成前必须恢复所有临时 Runtime Patch";return NO;}if(!workspace.filledCount){if(error)*error=@"没有 Patch";return NO;}
-    NSMutableDictionary<NSString *,NSMutableArray<ZNBinaryPatchRow *> *> *groups=[NSMutableDictionary dictionary];
-    for(ZNBinaryPatchRow *r in workspace.rows){if(!r.offsetText.length&&!r.enabledText.length)continue;if(!r.validated||!r.validator){if(error)*error=@"所有已填写 Patch 必须先“读取验证”通过";return NO;}NSString *t=(r.explicitTarget&&r.target.length)?r.target:workspace.defaultTarget;if(!groups[t])groups[t]=[NSMutableArray array];[groups[t] addObject:r];}
-    NSString *root=[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/ZonoePatchOutput"];NSDateFormatter *fmt=[NSDateFormatter new];fmt.dateFormat=@"yyyyMMdd-HHmmss";NSString *folder=[root stringByAppendingPathComponent:[fmt stringFromDate:NSDate.date]];NSError *dirErr=nil;if(![NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:&dirErr]){if(error)*error=dirErr.localizedDescription;return NO;}
-    NSMutableArray *paths=[NSMutableArray array],*metas=[NSMutableArray array];__block NSString *fail=nil;for(NSString *target in groups){NSString *p=nil;NSDictionary *m=nil;NSString *e=nil;if(!ZNBBuildTarget(target,groups[target],folder,&p,&m,&e)){fail=[NSString stringWithFormat:@"%@：%@",target,e?:@"生成失败"];break;}[paths addObject:p];if(m)[metas addObject:m];}
-    if(fail){[NSFileManager.defaultManager removeItemAtPath:folder error:nil];if(error)*error=fail;return NO;}
-    NSDictionary *rep=@{@"format":@"com.zonoe.static-dispatch/v1",@"generatedAt":@([[NSDate date] description]),@"targets":metas,@"notes":@[@"JSON original is ignored",@"OFF bytes are captured/verified from the installed original binary",@"Runtime toggles only RW selectedTarget pointers",@"Output Mach-O must be re-signed before installation",@"V1 uses only unclaimed zero-filled file-backed segment gaps and rejects unsafe layouts"]};NSData *json=[NSJSONSerialization dataWithJSONObject:rep options:NSJSONWritingPrettyPrinted error:nil];NSString *rp=[folder stringByAppendingPathComponent:@"build_report.json"];[json writeToFile:rp atomically:YES];[paths addObject:rp];if(outputs)*outputs=paths;if(report)*report=[NSString stringWithFormat:@"生成成功：%lu 个目标 · %lu 个 Patch\n输出：%@\n必须重新签名后安装",(unsigned long)groups.count,(unsigned long)workspace.filledCount,folder];return YES;
+
++ (BOOL)buildWorkspace:(ZNBinaryPatchWorkspace *)workspace
+               outputs:(NSArray<NSString *> **)outputs
+                report:(NSString **)report
+                 error:(NSString **)error {
+    if (!workspace || workspace.hasAnyApplied) {
+        if (error) *error = @"生成前必须恢复所有临时 Runtime Patch";
+        return NO;
+    }
+    if (!workspace.filledCount) {
+        if (error) *error = @"没有 Patch";
+        return NO;
+    }
+
+    NSMutableDictionary<NSString *, NSMutableArray<ZNBinaryPatchRow *> *> *groups = [NSMutableDictionary dictionary];
+    for (ZNBinaryPatchRow *row in workspace.rows) {
+        if (!row.offsetText.length && !row.enabledText.length) continue;
+        if (!row.validated || !row.validator) {
+            if (error) *error = @"所有已填写 Patch 必须先“读取验证”通过";
+            return NO;
+        }
+        NSString *target = (row.explicitTarget && row.target.length) ? row.target : workspace.defaultTarget;
+        if (!groups[target]) groups[target] = [NSMutableArray array];
+        [groups[target] addObject:row];
+    }
+
+    NSString *root = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/ZonoePatchOutput"];
+    NSDateFormatter *formatter = [NSDateFormatter new];
+    formatter.dateFormat = @"yyyyMMdd-HHmmss";
+    NSString *folder = [root stringByAppendingPathComponent:[formatter stringFromDate:[NSDate date]]];
+
+    NSError *directoryError = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:folder
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:&directoryError]) {
+        if (error) *error = directoryError.localizedDescription ?: @"创建输出目录失败";
+        return NO;
+    }
+
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *metadata = [NSMutableArray array];
+    NSString *failure = nil;
+
+    for (NSString *target in groups) {
+        NSString *path = nil;
+        NSDictionary *targetMetadata = nil;
+        NSString *targetError = nil;
+        if (!ZNBBuildTarget(target, groups[target], folder, &path, &targetMetadata, &targetError)) {
+            failure = [NSString stringWithFormat:@"%@：%@", target, targetError ?: @"生成失败"];
+            break;
+        }
+        if (path.length) [paths addObject:path];
+        if (targetMetadata) [metadata addObject:targetMetadata];
+    }
+
+    if (failure) {
+        [NSFileManager.defaultManager removeItemAtPath:folder error:nil];
+        if (error) *error = failure;
+        return NO;
+    }
+
+    NSDictionary *reportObject = @{
+        @"format": @"com.zonoe.static-dispatch/v1",
+        @"generatedAt": [[NSDate date] description],
+        @"targets": metadata,
+        @"notes": @[
+            @"JSON original is ignored",
+            @"OFF bytes are captured/verified from the installed original binary",
+            @"Runtime toggles only RW selectedTarget pointers",
+            @"Each thunk has a signed OFF fallback before runtime pointer initialization",
+            @"Output Mach-O must be re-signed before installation",
+            @"V1 uses only unclaimed zero-filled file-backed segment gaps and rejects unsafe layouts",
+        ],
+    };
+
+    NSData *json = [NSJSONSerialization dataWithJSONObject:reportObject options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *reportPath = [folder stringByAppendingPathComponent:@"build_report.json"];
+    [json writeToFile:reportPath atomically:YES];
+    [paths addObject:reportPath];
+
+    if (outputs) *outputs = paths;
+    if (report) {
+        *report = [NSString stringWithFormat:@"生成成功：%lu 个目标 · %lu 个 Patch\n输出：%@\n必须重新签名后安装",
+                   (unsigned long)groups.count,
+                   (unsigned long)workspace.filledCount,
+                   folder];
+    }
+    return YES;
 }
+
 @end
