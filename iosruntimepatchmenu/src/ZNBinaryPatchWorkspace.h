@@ -31,6 +31,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)ensureDefaultRows;
 - (void)addEmptyRow;
+- (NSString *)addFeature;
+- (void)addPatchToFeature:(NSString *)featureName;
+- (BOOL)renameFeature:(NSString *)oldName to:(NSString *)newName error:(NSString * _Nullable * _Nullable)error;
 - (void)updateOffset:(NSString *)text row:(NSUInteger)index;
 - (void)updateEnabled:(NSString *)text row:(NSUInteger)index;
 - (void)updateDefaultTarget:(NSString *)text;
