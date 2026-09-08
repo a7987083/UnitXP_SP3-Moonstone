@@ -31,9 +31,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)ensureDefaultRows;
 - (void)addEmptyRow;
-- (NSString *)addFeature;
-- (void)addPatchToFeature:(NSString *)featureName;
-- (BOOL)renameFeature:(NSString *)oldName to:(NSString *)newName error:(NSString * _Nullable * _Nullable)error;
 - (void)updateOffset:(NSString *)text row:(NSUInteger)index;
 - (void)updateEnabled:(NSString *)text row:(NSUInteger)index;
 - (void)updateDefaultTarget:(NSString *)text;
@@ -48,6 +45,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)applyAll:(NSString * _Nullable * _Nullable)error;
 - (BOOL)restoreAll:(NSString * _Nullable * _Nullable)error;
 - (void)setBuildOutputs:(NSArray<NSString *> *)paths status:(NSString *)status;
+@end
+
+@interface ZNBinaryPatchWorkspace (ZNFeatureEditing)
+- (NSString *)addFeature;
+- (void)addPatchToFeature:(NSString *)featureName;
+- (BOOL)renameFeature:(NSString *)oldName to:(NSString *)newName error:(NSString * _Nullable * _Nullable)error;
 @end
 
 NS_ASSUME_NONNULL_END
