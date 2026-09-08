@@ -1,0 +1,45 @@
+diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/SigningView.swift
+--- a/Ksign/Views/Signing/SigningView.swift
++++ b/Ksign/Views/Signing/SigningView.swift
+@@ -73,6 +73,7 @@ struct SigningView: View {
+ 			Form {
+ 				_customizationOptions(for: app)
+ 				_cert()
++				_zonoeUDIDCallback()
+ 				_customizationProperties(for: app)
+ 			}
+@@ -248,6 +249,20 @@ extension SigningView {
+ 	}
+ 	
+ 	@ViewBuilder
++	private func _zonoeUDIDCallback() -> some View {
++		NBSection("zonoe") {
++			Toggle("注册 zonoe UDID 回调", isOn: Binding(
++				get: { _temporaryOptions.zonoeUDIDCallbackEnabled == true },
++				set: { _temporaryOptions.zonoeUDIDCallbackEnabled = $0 }
++			))
++		} footer: {
++			Text("签名时生成唯一 URL Scheme，供注入的 dylib 通过 zonoe://udid 获取并接收本机 UDID。")
++		}
++	}
++	
++	@ViewBuilder
+ 	private func _customizationProperties(for app: AppInfoPresentable) -> some View {
+ 		NBSection(.localized("Advanced")) {
+ 			DisclosureGroup(.localized("Modify")) {
+diff --git a/Ksign/Views/Signing/Shared/SigningOptionsView.swift b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+--- a/Ksign/Views/Signing/Shared/SigningOptionsView.swift
++++ b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+@@ -146,12 +146,6 @@ struct SigningOptionsView: View {
+             _toggle("同时注入应用扩展", systemImage: "syringe", isOn: $options.injectIntoExtensions,
+                     temporaryValue: temporaryOptions?.injectIntoExtensions)
+         }
+-
+-		NBSection("zonoe") {
+-			_toggleOptional("注册 zonoe UDID 回调", systemImage: "link", value: $options.zonoeUDIDCallbackEnabled)
+-		} footer: {
+-			Text("签名时生成唯一 URL Scheme，供注入的 dylib 通过 zonoe://udid 获取并接收本机 UDID。")
+-		}
+ 
+         NBSection("实验性功能") {
+             _toggle(
