@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(ZonoeLocalAuthPhase2T2 LANGUAGES C CXX OBJC OBJCXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_library(ZonoeLocalAuthPhase2T2 SHARED src/ZonoeLocalAuthPhase2T2.mm)
+set_target_properties(ZonoeLocalAuthPhase2T2 PROPERTIES OUTPUT_NAME "ZonoeLocalAuth_Phase2_T2" PREFIX "" SUFFIX ".dylib" XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO" XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO" XCODE_ATTRIBUTE_ENABLE_BITCODE "NO")
+target_compile_options(ZonoeLocalAuthPhase2T2 PRIVATE -fobjc-arc)
+target_link_libraries(ZonoeLocalAuthPhase2T2 PRIVATE "-framework Foundation" "-lobjc")
