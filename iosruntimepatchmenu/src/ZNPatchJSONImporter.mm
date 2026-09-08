@@ -42,7 +42,7 @@ static NSString *ZNJIHex(id value) {
     }
     NSString *input = ZNJIString(value); if (!input.length) return nil;
     NSMutableString *s = [NSMutableString string];
-    NSCharacterSet *hex = NSCharacterSet.hexadecimalDigitCharacterSet;
+    NSCharacterSet *hex = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"];
     for (NSUInteger i=0;i<input.length;i++) {
         unichar c=[input characterAtIndex:i];
         if ([[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:c] || c==':' || c=='-' || c==',' || c=='_') continue;
