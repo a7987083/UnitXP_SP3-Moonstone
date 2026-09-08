@@ -108,14 +108,27 @@ static void ZNJIWalk(id node, NSString *path, NSString *parentTarget, NSString *
 
 @implementation ZNPatchJSONImporter
 + (NSArray<NSString *> *)discoverJSONFiles {
-    NSMutableArray *found=[NSMutableArray array]; NSFileManager *fm=NSFileManager.defaultManager; NSString *home=NSHomeDirectory();
-    for (NSString *root in @[[home stringByAppendingPathComponent:@"Documents"],[home stringByAppendingPathComponent:@"Library/Application Support"]]) {
-        BOOL dir=NO; if (![fm fileExistsAtPath:root isDirectory:&dir]||!dir) continue;
-        NSDirectoryEnumerator *en=[fm enumeratorAtPath:root];
-        for (NSString *rel in en) { if ([[rel.pathExtension lowercaseString] isEqualToString:@"json"]) [found addObject:[root stringByAppendingPathComponent:rel]]; if (found.count>=100) break; }
-        if (found.count>=100) break;
+    // User contract: JSON lives directly in the game's data-root
+    // Library/Application Support directory. Do not recurse and do not scan
+    // Documents/Library/tmp. `.hfapatch.json` is naturally included because
+    // its pathExtension is still `json`.
+    NSFileManager *fm=NSFileManager.defaultManager;
+    NSString *root=[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+    BOOL isDir=NO;
+    if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) return @[];
+
+    NSError *dirError=nil;
+    NSArray<NSString *> *names=[fm contentsOfDirectoryAtPath:root error:&dirError];
+    if (!names) return @[];
+
+    NSMutableArray<NSString *> *found=[NSMutableArray array];
+    for (NSString *name in names) {
+        if (![[name.pathExtension lowercaseString] isEqualToString:@"json"]) continue;
+        NSString *path=[root stringByAppendingPathComponent:name];
+        BOOL childDir=NO;
+        if (![fm fileExistsAtPath:path isDirectory:&childDir] || childDir) continue;
+        [found addObject:path];
     }
-    for (NSString *name in ([fm contentsOfDirectoryAtPath:home error:nil]?:@[])) if ([[name.pathExtension lowercaseString] isEqualToString:@"json"]) [found addObject:[home stringByAppendingPathComponent:name]];
     [found sortUsingComparator:^NSComparisonResult(NSString *a,NSString *b){ return [a.lastPathComponent localizedStandardCompare:b.lastPathComponent]; }];
     return found;
 }
