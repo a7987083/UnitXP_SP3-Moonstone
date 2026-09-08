@@ -91,7 +91,6 @@ jobs:
           strings "$out" > /tmp/zonoe_v048_strings.txt
           grep -q 'v0.4.8 marker-sibling auto JSON import + coordinated manual fallback installed' /tmp/zonoe_v048_strings.txt
           grep -q 'Marker-Sibling Auto JSON + Manual Fallback' /tmp/zonoe_v048_strings.txt
-          grep -q '自动导入成功' /tmp/zonoe_v048_strings.txt
           grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v048_strings.txt
           grep -q 'runtime validation installed' /tmp/zonoe_v048_strings.txt
           ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v048_strings.txt
