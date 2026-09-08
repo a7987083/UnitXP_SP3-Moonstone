@@ -3,7 +3,7 @@
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNPatchCore.h"
 
-// v0.4.5 UI cleanup layer.
+// v0.4.6 UI cleanup + marker-sibling JSON scan release.
 // Public runtime Patch UI is intentionally reduced to one `功能` category.
 // `其他` remains q-gated for the developer Binary Builder; g still controls
 // Diagnostics + Debug. All generated Static Dispatch records are shown in 功能.
@@ -147,12 +147,12 @@
 
 - (void)zn45_makeUI:(UIWindow *)window {
     [self zn45_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.5    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.6    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn45_tick:(NSTimer *)timer {
     [self zn45_tick:timer];
-    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.5    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.6    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -174,6 +174,6 @@ __attribute__((constructor(111))) static void ZNInstallV045FunctionUI(void){
         ZNSwapV045(cls,@selector(themeTapped:),@selector(zn45_themeTapped:));
         ZNSwapV045(cls,@selector(makeUI:),@selector(zn45_makeUI:));
         ZNSwapV045(cls,@selector(tick:),@selector(zn45_tick:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.4.5 single Function category installed; q=Other, g=Diagnostics/Debug"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.4.6 single Function category + marker-sibling JSON scan installed; q=Other, g=Diagnostics/Debug"];
     }
 }
