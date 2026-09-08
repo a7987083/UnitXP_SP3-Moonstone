@@ -1,0 +1,136 @@
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@
+ final class UDIDService {
+ 	static let shared = UDIDService()
+ 	static let didUpdateNotification = Notification.Name("zonoe.didUpdateUDID")
+ 	static let port = 14302
+ 	static let pendingCallbackKey = "zonoe.pendingUDIDCallback"
+ 	private var server: Application?
+ 	private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
++	private let bridgeLock = NSLock()
++	private var bridgeResults: [String: BridgeResult] = [:]
++
++	private struct BridgeResult {
++		let udid: String
++		let expiresAt: Date
++	}
+@@
+ 			app.get("profile.mobileconfig") { _ in
+ 				guard let data = self.bundledProfile(named: "UDIDRequest") else {
+ 					return Response(status: .internalServerError)
+ 				}
+ 				return Response(status: .ok, headers: ["Content-Type": "application/x-apple-aspen-config"], body: .init(data: data))
+ 			}
++			app.get("bridge", "result", ":nonce") { req -> Response in
++				guard let nonce = req.parameters.get("nonce"),
++					  let result = self.consumeBridgeResult(for: nonce) else {
++					return Response(status: .notFound, headers: ["Connection": "close"])
++				}
++
++				let object: [String: String] = ["nonce": nonce, "udid": result.udid]
++				guard let data = try? JSONSerialization.data(withJSONObject: object),
++					  let body = String(data: data, encoding: .utf8) else {
++					return Response(status: .internalServerError, headers: ["Connection": "close"])
++				}
++
++				self.endBackgroundTask()
++				return Response(
++					status: .ok,
++					headers: [
++						"Content-Type": "application/json; charset=utf-8",
++						"Content-Length": "\(data.count)",
++						"Connection": "close"
++					],
++					body: .init(string: body)
++				)
++			}
+ 			app.post("udid") { req -> Response in
+@@
+ 	func savePendingCallback(_ callback: URL) {
+ 		UserDefaults.standard.set(callback.absoluteString, forKey: Self.pendingCallbackKey)
+ 	}
++
++	func prepareBridgeResult(udid: String, nonce: String, completion: @escaping (Bool) -> Void) {
++		guard isValidBridgeNonce(nonce), !udid.isEmpty else {
++			completion(false)
++			return
++		}
++
++		start { result in
++			switch result {
++			case .success:
++				self.bridgeLock.lock()
++				let now = Date()
++				self.bridgeResults = self.bridgeResults.filter { $0.value.expiresAt > now }
++				self.bridgeResults[nonce] = BridgeResult(udid: udid, expiresAt: now.addingTimeInterval(90))
++				self.bridgeLock.unlock()
++				completion(true)
++			case .failure:
++				completion(false)
++			}
++		}
++	}
++
++	private func consumeBridgeResult(for nonce: String) -> BridgeResult? {
++		guard isValidBridgeNonce(nonce) else { return nil }
++		bridgeLock.lock()
++		defer { bridgeLock.unlock() }
++
++		guard let result = bridgeResults.removeValue(forKey: nonce), result.expiresAt > Date() else {
++			return nil
++		}
++		return result
++	}
++
++	private func isValidBridgeNonce(_ value: String) -> Bool {
++		guard (16...128).contains(value.count) else { return false }
++		let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
++		return value.unicodeScalars.allSatisfy { allowed.contains($0) }
++	}
+ }
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@
+ 	private func _handleUDIDRequest(_ url: URL) {
+ 		let udid = UserDefaults.standard.string(forKey: "zonoe.deviceUDID") ?? ""
+ 		guard !udid.isEmpty else {
+ 			UIAlertController.showAlertWithOk(title: "尚未获取 UDID", message: "请先到设置中点击“获取”。")
+ 			return
+ 		}
+ 		let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
++		let requestNonce = components?.queryItems?.first(where: { $0.name == "nonce" })?.value
+ 		if let callback = components?.queryItems?.first(where: { $0.name == "callback" })?.value,
+-		   var callbackComponents = URLComponents(string: callback) {
+-			var items = callbackComponents.queryItems ?? []
+-			items.removeAll { $0.name == "udid" }
+-			items.append(URLQueryItem(name: "udid", value: udid))
+-			callbackComponents.queryItems = items
+-			if let target = callbackComponents.url { UIApplication.shared.open(target) }
++		   let callbackComponents = URLComponents(string: callback) {
++			let openCallback: (String?) -> Void = { nonce in
++				var targetComponents = callbackComponents
++				var items = targetComponents.queryItems ?? []
++				items.removeAll { $0.name == "udid" || $0.name == "nonce" }
++				items.append(URLQueryItem(name: "udid", value: udid))
++				if let nonce, !nonce.isEmpty {
++					items.append(URLQueryItem(name: "nonce", value: nonce))
++				}
++				targetComponents.queryItems = items
++				if let target = targetComponents.url { UIApplication.shared.open(target) }
++			}
++
++			if let requestNonce, !requestNonce.isEmpty {
++				UDIDService.shared.prepareBridgeResult(udid: udid, nonce: requestNonce) { _ in
++					DispatchQueue.main.async { openCallback(requestNonce) }
++				}
++			} else {
++				openCallback(nil)
++			}
+ 		} else {
+ 			UIPasteboard.general.string = udid
+ 			UIAlertController.showAlertWithOk(title: "UDID 已复制", message: udid)
+ 		}
+ 	}
