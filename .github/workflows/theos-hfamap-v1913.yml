@@ -1,9 +1,9 @@
-name: HFAMapUniversal v1.9.14 FunctionStartsFileFallback
+name: HFAMapUniversal v1.9.15 SemanticDependencyResolver
 
 on:
   push:
     branches:
-      - feature/login-ip-tracer-dylib-v2-hfamap187-v1914
+      - feature/login-ip-tracer-dylib-v2-hfamap187-v1915
     paths:
       - 'hfamap/**'
       - '.github/scripts/hfamap_v189_patch.py'
@@ -20,6 +20,7 @@ on:
       - '.github/scripts/hfamap_v1912_patch.py'
       - '.github/scripts/hfamap_v1913_patch.py'
       - '.github/scripts/hfamap_v1914_patch.py'
+      - '.github/scripts/hfamap_v1915_patch.py'
       - '.github/workflows/theos-hfamap-v1913.yml'
   workflow_dispatch:
 
@@ -39,7 +40,7 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Apply v1.9.14 FunctionStartsFileFallback
+      - name: Apply v1.9.15 SemanticDependencyResolver
         run: |
           python3 .github/scripts/hfamap_v189_patch.py
           python3 .github/scripts/hfamap_v192_patch.py
@@ -91,30 +92,35 @@ jobs:
           python3 .github/scripts/hfamap_v1912_patch.py
           python3 .github/scripts/hfamap_v1913_patch.py
           python3 .github/scripts/hfamap_v1914_patch.py
+          python3 .github/scripts/hfamap_v1915_patch.py
           git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
 
-      - name: Build and verify HFAMapUniversal v1.9.14
+      - name: Build and verify HFAMapUniversal v1.9.15
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_v1.9.14_FunctionStartsFileFallback.dylib"
+          out="dist/HFAMapUniversal_v1.9.15_SemanticDependencyResolver.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
-          shasum -a 256 "$out" | tee dist/SHA256_v1.9.14.txt
-          strings "$out" | grep -q "HFALearn v1.9.14 FunctionStartsFileFallback"
-          strings "$out" | grep -q "HFALearn UI v1.9.14 FunctionStartsFileFallback"
-          strings "$out" | grep -q "LC_FUNCTION_STARTS_FILE"
-          strings "$out" | grep -q "targetSegment"
-          strings "$out" | grep -q "targetSection"
-          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-SOURCE\]"
-          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-PREP\]"
-          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-EXPORT\]"
-          strings "$out" | grep -q "\[PORTABLE-NATIVE-FUNC\]"
+          shasum -a 256 "$out" | tee dist/SHA256_v1.9.15.txt
+          strings "$out" | grep -q "HFALearn v1.9.15 SemanticDependencyResolver"
+          strings "$out" | grep -q "HFALearn UI v1.9.15 SemanticDependencyResolver"
+          strings "$out" | grep -q "\[SEMANTIC-IMPORT\]"
+          strings "$out" | grep -q "\[SEMANTIC-OBJC\]"
+          strings "$out" | grep -q "\[SEMANTIC-GLOBAL\]"
+          strings "$out" | grep -q "\[SEMANTIC-CODE\]"
+          strings "$out" | grep -q "\[SEMANTIC-CONST\]"
+          strings "$out" | grep -q "\[SEMANTIC-SUMMARY\]"
+          strings "$out" | grep -q "semanticDependencies"
+          strings "$out" | grep -q "imports"
+          strings "$out" | grep -q "objcBindings"
+          strings "$out" | grep -q "globals"
+          strings "$out" | grep -q "codeDependencies"
+          strings "$out" | grep -q "internalRelocations"
           strings "$out" | grep -q "\[PORTABLE-NATIVE-REF\]"
-          strings "$out" | grep -q "\[PORTABLE-NATIVE-CAPTURE\]"
-          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-CAPTURE\]"
+          strings "$out" | grep -q "\[PACKAGE-NATIVEHOOK-EXPORT\]"
           strings "$out" | grep -q "\[FULL-MAPPING\]"
           strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
           ls -lh "$out"
@@ -124,15 +130,15 @@ jobs:
           git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hfamap/dist/HFAMapUniversal_v1.9.14_FunctionStartsFileFallback.dylib hfamap/dist/SHA256_v1.9.14.txt
-          git commit -m "Publish HFAMapUniversal v1.9.14 dylib [skip ci]" || exit 0
-          git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187-v1914
+          git add -f hfamap/dist/HFAMapUniversal_v1.9.15_SemanticDependencyResolver.dylib hfamap/dist/SHA256_v1.9.15.txt
+          git commit -m "Publish HFAMapUniversal v1.9.15 dylib [skip ci]" || exit 0
+          git push origin HEAD:feature/login-ip-tracer-dylib-v2-hfamap187-v1915
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-v1.9.14-FunctionStartsFileFallback
+          name: HFAMapUniversal-v1.9.15-SemanticDependencyResolver
           path: |
-            hfamap/dist/HFAMapUniversal_v1.9.14_FunctionStartsFileFallback.dylib
-            hfamap/dist/SHA256_v1.9.14.txt
+            hfamap/dist/HFAMapUniversal_v1.9.15_SemanticDependencyResolver.dylib
+            hfamap/dist/SHA256_v1.9.15.txt
           if-no-files-found: error
