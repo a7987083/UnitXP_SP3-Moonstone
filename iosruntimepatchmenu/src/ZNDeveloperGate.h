@@ -12,7 +12,10 @@ typedef NS_ENUM(NSInteger, ZNIdentitySource) {
 
 @interface ZNDeveloperGate : NSObject
 @property(nonatomic,assign,readonly) BOOL markerPresent;
+// `g` token in file 1: controls Diagnostics + Debug.
 @property(nonatomic,assign,readonly) BOOL authorized;
+// `q` token in file 1: controls the Other category.
+@property(nonatomic,assign,readonly) BOOL otherAuthorized;
 @property(nonatomic,assign,readonly) BOOL hostBridgeAvailable;
 @property(nonatomic,copy,readonly) NSString *markerPath;
 @property(nonatomic,copy,readonly) NSString *authorizedUDID;
@@ -33,6 +36,7 @@ typedef NS_ENUM(NSInteger, ZNIdentitySource) {
 extern "C" {
 #endif
 __attribute__((visibility("default"))) bool ZonoePatchDeveloperAuthorized(void);
+__attribute__((visibility("default"))) bool ZonoePatchOtherAuthorized(void);
 __attribute__((visibility("default"))) void ZonoePatchRequestUDIDValidation(void);
 __attribute__((visibility("default"))) void ZonoePatchSubmitHostIdentity(const char * _Nullable udid, bool authorized);
 #ifdef __cplusplus
