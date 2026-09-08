@@ -70,6 +70,16 @@ jobs:
           p.write_text(s.replace(old_ctor,new_ctor,1))
           PY
           python3 .github/scripts/hfamap_v198_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          anchor='''static int64_t HFAStaticSignExtend(uint64_t value, unsigned bits) {\n'''
+          prototypes='''static int HFAReadable(uintptr_t address, size_t length);\nstatic uintptr_t HFAStripCodePointer(uintptr_t value);\nstatic uintptr_t HFAResolveTrampoline(uintptr_t original);\n\n'''
+          if s.count(anchor)!=1: raise SystemExit(f'prototype anchor expected 1, got {s.count(anchor)}')
+          s=s.replace(anchor,prototypes+anchor,1)
+          p.write_text(s)
+          PY
           python3 .github/scripts/hfamap_v199_patch.py
           git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
           git diff -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
