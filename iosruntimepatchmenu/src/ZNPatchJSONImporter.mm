@@ -2,6 +2,10 @@
 #import "ZNDeveloperGate.h"
 #import <errno.h>
 #import <stdlib.h>
+#import <dirent.h>
+#import <string.h>
+
+static NSString *gZNJIDiscoveryStatus = @"尚未扫描 JSON";
 
 static NSString *ZNJIKey(id key) {
     if (![key isKindOfClass:NSString.class]) return @"";
@@ -107,38 +111,89 @@ static void ZNJIWalk(id node, NSString *path, NSString *parentTarget, NSString *
     }];
 }
 
+static void ZNJICollectJSONNamesPOSIX(NSString *root, NSMutableOrderedSet<NSString *> *names, NSString **posixError) {
+    const char *fs=[root fileSystemRepresentation];
+    errno=0;
+    DIR *dir=opendir(fs);
+    if (!dir) {
+        if (posixError) *posixError=[NSString stringWithFormat:@"opendir errno=%d (%s)",errno,strerror(errno)];
+        return;
+    }
+    struct dirent *ent=NULL;
+    while ((ent=readdir(dir))!=NULL) {
+        if (!ent->d_name[0] || !strcmp(ent->d_name,".") || !strcmp(ent->d_name,"..")) continue;
+        NSString *name=[[NSString alloc] initWithUTF8String:ent->d_name];
+        if (!name.length) continue;
+        if ([[name.pathExtension lowercaseString] isEqualToString:@"json"]) [names addObject:name];
+    }
+    closedir(dir);
+}
+
 @implementation ZNPatchJSONImporter
 + (NSArray<NSString *> *)discoverJSONFiles {
-    // marker sibling JSON scan: file `1` defines the exact game-data directory.
-    // Scan only that directory's immediate children; never recurse.
+    // The file `1` is the only anchor. JSON can have any basename but must be
+    // an immediate sibling of `1`. No recursive scan, no fixed Documents/
+    // Application Support assumption, and no BundleID-derived filename.
     ZNDeveloperGate *gate=[ZNDeveloperGate sharedGate];
     [gate refresh];
     NSString *marker=gate.markerPath;
-    if (!marker.length) return @[];
+    if (!marker.length) {
+        gZNJIDiscoveryStatus=@"自动扫描失败：未找到文件 1";
+        return @[];
+    }
 
     NSString *root=[marker stringByDeletingLastPathComponent];
     NSFileManager *fm=NSFileManager.defaultManager;
     BOOL isDir=NO;
-    if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) return @[];
+    if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) {
+        gZNJIDiscoveryStatus=[NSString stringWithFormat:@"自动扫描失败：1 的父目录不存在 · %@",root];
+        return @[];
+    }
 
-    NSError *dirError=nil;
-    NSArray<NSString *> *names=[fm contentsOfDirectoryAtPath:root error:&dirError];
-    if (!names) return @[];
+    NSError *foundationError=nil;
+    NSArray<NSString *> *foundationNames=[fm contentsOfDirectoryAtPath:root error:&foundationError];
+    NSMutableOrderedSet<NSString *> *names=[NSMutableOrderedSet orderedSet];
+    for (NSString *name in foundationNames ?: @[]) {
+        if ([[name.pathExtension lowercaseString] isEqualToString:@"json"]) [names addObject:name];
+    }
+
+    // Device fallback: if Foundation listing fails or unexpectedly sees zero
+    // JSON siblings, ask libc for the same exact directory (still non-recursive).
+    NSString *posixError=nil;
+    if (!foundationNames || names.count==0) ZNJICollectJSONNamesPOSIX(root,names,&posixError);
 
     NSMutableArray<NSString *> *found=[NSMutableArray array];
     for (NSString *name in names) {
-        if (![[name.pathExtension lowercaseString] isEqualToString:@"json"]) continue;
         NSString *candidate=[root stringByAppendingPathComponent:name];
         BOOL childDir=NO;
         if (![fm fileExistsAtPath:candidate isDirectory:&childDir] || childDir) continue;
         [found addObject:candidate];
     }
     [found sortUsingComparator:^NSComparisonResult(NSString *a,NSString *b){ return [a.lastPathComponent localizedStandardCompare:b.lastPathComponent]; }];
+
+    NSString *method=(foundationNames?@"Foundation":@"POSIX");
+    if (found.count) {
+        gZNJIDiscoveryStatus=[NSString stringWithFormat:@"与 1 同目录：发现 %lu 个 JSON · %@",(unsigned long)found.count,method];
+    } else {
+        NSMutableArray<NSString *> *parts=[NSMutableArray arrayWithObject:[NSString stringWithFormat:@"与 1 同目录未发现 JSON · %@",root]];
+        if (foundationError) [parts addObject:[NSString stringWithFormat:@"Foundation: %@",foundationError.localizedDescription?:@"未知错误"]];
+        if (posixError.length) [parts addObject:[NSString stringWithFormat:@"POSIX: %@",posixError]];
+        gZNJIDiscoveryStatus=[parts componentsJoinedByString:@" · "];
+    }
     return found;
 }
 
++ (NSString *)discoveryStatus {
+    return gZNJIDiscoveryStatus ?: @"尚未扫描 JSON";
+}
+
 + (NSArray<NSDictionary *> *)importFile:(NSString *)path error:(NSString **)error {
-    NSData *data=[NSData dataWithContentsOfFile:path options:0 error:nil]; if (!data.length) { if(error)*error=@"JSON 文件读取失败或为空"; return nil; }
+    NSError *readError=nil;
+    NSData *data=[NSData dataWithContentsOfFile:path options:0 error:&readError];
+    if (!data.length) {
+        if(error)*error=[NSString stringWithFormat:@"JSON 文件读取失败或为空：%@%@",path.lastPathComponent?:@"未知文件",readError?[NSString stringWithFormat:@" · %@",readError.localizedDescription?:@"未知错误"]:@""];
+        return nil;
+    }
     NSError *je=nil; id root=[NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingFragmentsAllowed error:&je];
     if (!root) { if(error)*error=[NSString stringWithFormat:@"JSON 解析失败：%@",je.localizedDescription?:@"未知错误"]; return nil; }
     NSMutableArray *raw=[NSMutableArray array]; ZNJIWalk(root,@"$",@"",@"",@"Imported",ZNJIAliases(root),raw);
