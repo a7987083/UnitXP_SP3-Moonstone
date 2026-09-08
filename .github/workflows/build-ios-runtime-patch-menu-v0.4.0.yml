@@ -1,4 +1,4 @@
-name: Build iOS Runtime Patch Menu v0.4.3
+name: Build iOS Runtime Patch Menu v0.4.4
 
 on:
   push:
@@ -29,82 +29,68 @@ jobs:
         run: |
           set -euxo pipefail
           grep -q '0.4.0-runtime-foundation' iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm
-          grep -q 'v0.4.0b touch-policy scope fix' iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm
-          grep -q 'v0.4.2 UI/diagnostics layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm
           grep -q 'v0.4.3 developer runtime-validation layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV043.mm
-          grep -q 'Live Original' iosruntimepatchmenu/src/ZonoeRuntimeMenuV043.mm
+          grep -q 'v0.4.4 developer binary-builder layer' iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm
+          grep -q 'Universal JSON' iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm
+          grep -q 'Static Dispatch / No-JIT' iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm
+          grep -q 'JSON original is ignored' iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm
+          grep -q 'unclaimed zero-filled file-backed segment gaps' iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm
+          grep -q 'selectedTarget' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'app-owned images only' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
+          grep -q 'offset.*rva.*address' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
+          grep -q 'JSON original' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
           grep -q 'Temporary runtime apply' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.h
           grep -q 'JSON "original" is intentionally ignored' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
-          grep -q 'Executable Page Probe 未通过' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
-          grep -q '原字节已回滚' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'Runtime Patch PASS' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
-          grep -q 'numberOfLines = 0' iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm
-          grep -q 'Executable Page Probe 0.4.2' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
-          grep -q '__TEXT,__znprobe' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
-          grep -q 'RX→RW→写入→恢复→RX→执行' iosruntimepatchmenu/src/ZNExecutablePageProbe.mm
-          grep -q 'dyldDebounce=400ms' iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm
-          grep -q 'main-thread delay=' iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm
-          grep -q 'Runtime Patch Executor 0.4.1' iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm
-          grep -q 'ZNPatchActionTypeIL2CPPMethod' iosruntimepatchmenu/src/ZNPatchCore.h
-          grep -q 'il2cpp_class_from_name' iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
-          grep -q 'line 2 is optional' iosruntimepatchmenu/src/ZNDeveloperGate.mm
+          grep -q 'otherAuthorized' iosruntimepatchmenu/src/ZNDeveloperGate.h
+          grep -q 'developer category gate installed' iosruntimepatchmenu/src/ZNDeveloperGate.mm
           ! grep -REn 'MAP_JIT|pthread_jit_write_protect_np|task_for_pid' \
-            iosruntimepatchmenu/src/ZonoeRuntimeMenuV040.mm \
-            iosruntimepatchmenu/src/ZonoeRuntimeMenuV0401.mm \
-            iosruntimepatchmenu/src/ZonoeRuntimeMenuV0402.mm \
-            iosruntimepatchmenu/src/ZonoeRuntimeMenuV042.mm \
-            iosruntimepatchmenu/src/ZonoeRuntimeMenuV043.mm \
-            iosruntimepatchmenu/src/ZNPatchCore.mm \
-            iosruntimepatchmenu/src/ZNPatchCoreV041.mm \
-            iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm \
-            iosruntimepatchmenu/src/ZNExecutablePageProbe.mm \
-            iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm \
-            iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm \
-            iosruntimepatchmenu/src/ZNIL2CPPResolver.mm
-          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV043.mm
+            iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm \
+            iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm \
+            iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm \
+            iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm \
+            iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
+          ! grep -q 'zonoe://device-auth' iosruntimepatchmenu/src/ZonoeRuntimeMenuV044.mm
 
-      - name: Build v0.4.3 Runtime Validation
+      - name: Build v0.4.4 Binary Builder
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
-          make FINALPACKAGE=1 \
-            ZonoePatchV03_FILES="src/ZonoeRuntimeMenuV043.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNPatchCoreV041.mm src/ZNRuntimePatchExecutor.mm src/ZNExecutablePageProbe.mm src/ZNRuntimeDiagnosticsV042.mm src/ZNPatchRuntimeValidator.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm"
-          mkdir -p dist-v043
-          cp .theos/obj/ZonoePatchV03.dylib dist-v043/ZonoePatch_v0.4.3_RuntimeValidation.dylib
-          shasum -a 256 dist-v043/ZonoePatch_v0.4.3_RuntimeValidation.dylib | tee dist-v043/SHA256.txt
+          make FINALPACKAGE=1
+          mkdir -p dist-v044
+          cp .theos/obj/ZonoePatchV03.dylib dist-v044/ZonoePatch_v0.4.4_BinaryBuilder.dylib
+          shasum -a 256 dist-v044/ZonoePatch_v0.4.4_BinaryBuilder.dylib | tee dist-v044/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v043/ZonoePatch_v0.4.3_RuntimeValidation.dylib
+          out=iosruntimepatchmenu/dist-v044/ZonoePatch_v0.4.4_BinaryBuilder.dylib
           file "$out"
           otool -L "$out"
           otool -l "$out" | grep -A4 '__znprobe'
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
-          nm -gU "$out" | grep '_ZonoePatchGetVersion'
-          nm -gU "$out" | grep '_ZonoePatchStart'
-          nm -gU "$out" | grep '_ZonoePatchShow'
-          nm -gU "$out" | grep '_ZonoePatchHide'
-          nm -gU "$out" | grep '_ZonoePatchIsVisible'
           nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
-          nm -gU "$out" | grep 'ZNRuntimePatchExecutor'
-          nm -gU "$out" | grep 'ZNExecutablePageProbe'
+          nm -gU "$out" | grep '_ZonoePatchOtherAuthorized'
+          nm -gU "$out" | grep 'ZNBinaryPatchWorkspace'
+          nm -gU "$out" | grep 'ZNStaticBinaryBuilder'
+          nm -gU "$out" | grep 'ZNStaticDispatchRuntime'
           nm -gU "$out" | grep 'ZNPatchRuntimeValidator'
           nm -u "$out" | grep '_mprotect'
-          strings "$out" > /tmp/zonoe_v043_strings.txt
-          grep -q '0.4.0-runtime-foundation' /tmp/zonoe_v043_strings.txt
-          grep -q 'runtime validation installed' /tmp/zonoe_v043_strings.txt
-          grep -q 'il2cpp_domain_get' /tmp/zonoe_v043_strings.txt
-          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v043_strings.txt
-          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v043_strings.txt
-          ! grep -q 'ZonoeHostGetUDID' /tmp/zonoe_v043_strings.txt
+          strings "$out" > /tmp/zonoe_v044_strings.txt
+          grep -q 'v0.4.4 embedded patch editor / universal JSON / static binary builder installed' /tmp/zonoe_v044_strings.txt
+          grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v044_strings.txt
+          grep -q '0.4.0-runtime-foundation' /tmp/zonoe_v044_strings.txt
+          grep -q 'runtime validation installed' /tmp/zonoe_v044_strings.txt
+          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v044_strings.txt
+          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v044_strings.txt
+          ! grep -q 'ZonoeHostGetUDID' /tmp/zonoe_v044_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoePatch-v0.4.3-RuntimeValidation
+          name: ZonoePatch-v0.4.4-BinaryBuilder
           path: |
-            iosruntimepatchmenu/dist-v043/ZonoePatch_v0.4.3_RuntimeValidation.dylib
-            iosruntimepatchmenu/dist-v043/SHA256.txt
+            iosruntimepatchmenu/dist-v044/ZonoePatch_v0.4.4_BinaryBuilder.dylib
+            iosruntimepatchmenu/dist-v044/SHA256.txt
           if-no-files-found: error
