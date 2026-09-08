@@ -93,6 +93,15 @@ jobs:
           python3 .github/scripts/hfamap_v1913_patch.py
           python3 .github/scripts/hfamap_v1914_patch.py
           python3 .github/scripts/hfamap_v1915_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          old='#import <mach-o/loader.h>\n'
+          new='#import <mach-o/loader.h>\n#import <mach-o/nlist.h>\n'
+          if old not in s: raise SystemExit('mach-o loader include anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
           git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
 
       - name: Build and verify HFAMapUniversal v1.9.15
