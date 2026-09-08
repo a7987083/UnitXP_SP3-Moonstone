@@ -11,7 +11,7 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Reconstruct alphaone4 source
+      - name: Reconstruct current source
         run: |
           set -euxo pipefail
           git clone https://github.com/Nyasami/Ksign.git HFASignInspect
@@ -55,11 +55,15 @@ jobs:
             0048-zonoe-alphaone2-source-certificate-feedback.patch \
             0049-zonoe-alphaone3-fix-navigation-and-clipboard-completion.patch \
             0050-zonoe-alphaone4-fix-signing-navigation-and-keyboard-dismissal.patch \
-            0051-zonoe-alphaone4-build-identity.patch
+            0051-zonoe-alphaone4-build-identity.patch \
+            0052-zonoe-alphaone5-restore-modal-signing-navigation.patch \
+            0053-zonoe-alphaone5-build-identity.patch
           do
             git -C HFASignInspect apply "../HFASign/patches/$p"
           done
-          echo '=== LibraryView 1-300 ==='
-          nl -ba HFASignInspect/Ksign/Views/Library/LibraryView.swift | sed -n '1,300p'
-          echo '=== SigningView 1-190 ==='
-          nl -ba HFASignInspect/Ksign/Views/Signing/SigningView.swift | sed -n '1,190p'
+          echo '=== OptionsManager.swift ==='
+          nl -ba HFASignInspect/Ksign/Backend/Observable/OptionsManager.swift | sed -n '1,260p'
+          echo '=== SigningOptionsView.swift ==='
+          nl -ba HFASignInspect/Ksign/Views/Signing/Shared/SigningOptionsView.swift | sed -n '1,300p'
+          echo '=== SigningHandler.swift ==='
+          nl -ba HFASignInspect/Ksign/Utilities/Handlers/SigningHandler.swift | sed -n '1,340p'
