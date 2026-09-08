@@ -174,3 +174,76 @@ diff --git a/Ksign/Views/Signing/SigningView.swift b/Ksign/Views/Signing/Signing
 +				ZonoeUDIDCallbackSection(isEnabled: $_temporaryOptions.zonoeUDIDCallbackEnabled)
  				_customizationProperties(for: app)
  			}
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -250,57 +250,21 @@
+ 	}
+ 
+ 	private func configureZonoeUDIDCallback(in infoDictionary: NSMutableDictionary, options: Options) {
+-		let marker = "zonoe.udid.callback"
+-		let previousScheme = infoDictionary["ZonoeUDIDCallbackScheme"] as? String
+-		var urlTypes = (infoDictionary["CFBundleURLTypes"] as? [[String: Any]]) ?? []
++		let request = ZonoeUDIDCallbackRequest(
++			enabled: options.zonoeUDIDCallbackEnabled == true,
++			customBundleIdentifier: options.appIdentifier,
++			plistBundleIdentifier: infoDictionary["CFBundleIdentifier"] as? String
++		)
++		let useCase = ConfigureZonoeUDIDCallbackUseCase(
++			generator: DefaultZonoeUDIDCallbackSchemeGenerator()
++		)
++		let configuration = useCase.execute(request)
++		ZonoeUDIDCallbackPlistAdapter().apply(configuration, to: infoDictionary)
+ 
+-		urlTypes.removeAll { type in
+-			if (type["CFBundleURLName"] as? String) == marker { return true }
+-			guard let previousScheme else { return false }
+-			return (type["CFBundleURLSchemes"] as? [String])?.contains(previousScheme) == true
++		if let configuration {
++			OperationProgressManager.shared.log("已注册 zonoe UDID 回调：\(configuration.callbackURLString)")
+ 		}
+-
+-		infoDictionary.removeObject(forKey: "ZonoeUDIDCallbackScheme")
+-		infoDictionary.removeObject(forKey: "ZonoeUDIDCallbackHost")
+-
+-		guard options.zonoeUDIDCallbackEnabled == true else {
+-			if urlTypes.isEmpty { infoDictionary.removeObject(forKey: "CFBundleURLTypes") }
+-			else { infoDictionary["CFBundleURLTypes"] = urlTypes }
+-			return
+-		}
+-
+-		let customID = options.appIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+-		let bundleID: String
+-		if let customID, !customID.isEmpty { bundleID = customID }
+-		else { bundleID = (infoDictionary["CFBundleIdentifier"] as? String) ?? "unknown" }
+-
+-		let callbackScheme = makeZonoeUDIDCallbackScheme(bundleID: bundleID)
+-		urlTypes.append([
+-			"CFBundleURLName": marker,
+-			"CFBundleURLSchemes": [callbackScheme]
+-		])
+-		infoDictionary["CFBundleURLTypes"] = urlTypes
+-		infoDictionary["ZonoeUDIDCallbackScheme"] = callbackScheme
+-		infoDictionary["ZonoeUDIDCallbackHost"] = "udid-callback"
+-		OperationProgressManager.shared.log("已注册 zonoe UDID 回调：\(callbackScheme)://udid-callback")
+-	}
+-
+-	private func makeZonoeUDIDCallbackScheme(bundleID: String, date: Date = Date()) -> String {
+-		let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-")
+-		let sanitized = bundleID.unicodeScalars
+-			.map { allowed.contains($0) ? String($0) : "-" }
+-			.joined()
+-			.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+-			.lowercased()
+-		let formatter = DateFormatter()
+-		formatter.locale = Locale(identifier: "en_US_POSIX")
+-		formatter.calendar = Calendar(identifier: .gregorian)
+-		formatter.dateFormat = "yyyyMMddHHmm"
+-		let nonce = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+-		let identifier = sanitized.isEmpty ? "unknown" : sanitized
+-		return "zonoe-\(identifier)-\(formatter.string(from: date))-\(nonce)"
+ 	}
+-
+ 	private func applyPlistRule(_ rule: PlistMutationRule, to root: NSMutableDictionary) throws {
+ 		let path = rule.keyPath.trimmingCharacters(in: .whitespacesAndNewlines)
+ 		guard !path.isEmpty else { throw PlistMutationError.invalidValue("Key Path 为空") }
