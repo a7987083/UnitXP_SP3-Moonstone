@@ -1,0 +1,114 @@
+diff --git a/Ksign/Backend/Observable/OptionsManager.swift b/Ksign/Backend/Observable/OptionsManager.swift
+--- a/Ksign/Backend/Observable/OptionsManager.swift
++++ b/Ksign/Backend/Observable/OptionsManager.swift
+@@ -126,8 +126,9 @@ struct Options: Codable, Equatable {
+ 	/// Optional advanced packaging and mutation settings. Optional keeps old saved Options decodable.
+ 	var packageNameRule: PackageNameRule?
+ 	var plistRules: [PlistMutationRule]?
+ 	var autoInstallAfterSigning: Bool?
+ 	var keychainIsolation: Bool?
+ 	var fixDarkIcon: Bool?
+ 	var fixWhiteIcon: Bool?
++	var zonoeUDIDCallbackEnabled: Bool?
+ 	// default
+@@ -172,7 +173,8 @@ struct Options: Codable, Equatable {
+ 		packageNameRule: nil,
+ 		plistRules: nil,
+ 		autoInstallAfterSigning: false,
+ 		keychainIsolation: false,
+ 		fixDarkIcon: false,
+-		fixWhiteIcon: false
++		fixWhiteIcon: false,
++		zonoeUDIDCallbackEnabled: false
+ 	)
+ 	// extraction library values
+ 	static let extractionLibraryValues = ["Zip", "ZIPFoundation"]
+diff --git a/Ksign/Views/Signing/Shared/SigningOptionsView.swift b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+--- a/Ksign/Views/Signing/Shared/SigningOptionsView.swift
++++ b/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+@@ -143,10 +143,16 @@ struct SigningOptionsView: View {
+             Picker(selection: $options.injectFolder) {
+                 ForEach(Options.InjectFolder.allCases, id: \.rawValue) { value in
+                     Text(value.rawValue).tag(value)
+                 }
+             } label: { Label("注入目录", systemImage: "folder") }
+             _toggle("同时注入应用扩展", systemImage: "syringe", isOn: $options.injectIntoExtensions,
+                     temporaryValue: temporaryOptions?.injectIntoExtensions)
+         }
++
++		NBSection("zonoe") {
++			_toggleOptional("注册 zonoe UDID 回调", systemImage: "link", value: $options.zonoeUDIDCallbackEnabled)
++		} footer: {
++			Text("签名时生成唯一 URL Scheme，供注入的 dylib 通过 zonoe://udid 获取并接收本机 UDID。")
++		}
+ 
+         NBSection("实验性功能") {
+             _toggle(
+diff --git a/Ksign/Utilities/Handlers/SigningHandler.swift b/Ksign/Utilities/Handlers/SigningHandler.swift
+--- a/Ksign/Utilities/Handlers/SigningHandler.swift
++++ b/Ksign/Utilities/Handlers/SigningHandler.swift
+@@ -243,11 +243,64 @@ extension SigningHandler {
+ 		for rule in (options.plistRules ?? []).filter(\.isEnabled) {
+ 			do { try applyPlistRule(rule, to: infoDictionary) }
+ 			catch { throw PlistMutationError.invalidRule(rule.keyPath, error.localizedDescription) }
+ 		}
++		configureZonoeUDIDCallback(in: infoDictionary, options: options)
+ 		
+ 		try infoDictionary.write(to: app.appendingPathComponent("Info.plist"))
+ 	}
+ 
++	private func configureZonoeUDIDCallback(in infoDictionary: NSMutableDictionary, options: Options) {
++		let marker = "zonoe.udid.callback"
++		let previousScheme = infoDictionary["ZonoeUDIDCallbackScheme"] as? String
++		var urlTypes = (infoDictionary["CFBundleURLTypes"] as? [[String: Any]]) ?? []
++
++		urlTypes.removeAll { type in
++			if (type["CFBundleURLName"] as? String) == marker { return true }
++			guard let previousScheme else { return false }
++			return (type["CFBundleURLSchemes"] as? [String])?.contains(previousScheme) == true
++		}
++
++		infoDictionary.removeObject(forKey: "ZonoeUDIDCallbackScheme")
++		infoDictionary.removeObject(forKey: "ZonoeUDIDCallbackHost")
++
++		guard options.zonoeUDIDCallbackEnabled == true else {
++			if urlTypes.isEmpty { infoDictionary.removeObject(forKey: "CFBundleURLTypes") }
++			else { infoDictionary["CFBundleURLTypes"] = urlTypes }
++			return
++		}
++
++		let customID = options.appIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
++		let bundleID: String
++		if let customID, !customID.isEmpty { bundleID = customID }
++		else { bundleID = (infoDictionary["CFBundleIdentifier"] as? String) ?? "unknown" }
++
++		let callbackScheme = makeZonoeUDIDCallbackScheme(bundleID: bundleID)
++		urlTypes.append([
++			"CFBundleURLName": marker,
++			"CFBundleURLSchemes": [callbackScheme]
++		])
++		infoDictionary["CFBundleURLTypes"] = urlTypes
++		infoDictionary["ZonoeUDIDCallbackScheme"] = callbackScheme
++		infoDictionary["ZonoeUDIDCallbackHost"] = "udid-callback"
++		OperationProgressManager.shared.log("已注册 zonoe UDID 回调：\(callbackScheme)://udid-callback")
++	}
++
++	private func makeZonoeUDIDCallbackScheme(bundleID: String, date: Date = Date()) -> String {
++		let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-")
++		let sanitized = bundleID.unicodeScalars
++			.map { allowed.contains($0) ? String($0) : "-" }
++			.joined()
++			.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
++			.lowercased()
++		let formatter = DateFormatter()
++		formatter.locale = Locale(identifier: "en_US_POSIX")
++		formatter.calendar = Calendar(identifier: .gregorian)
++		formatter.dateFormat = "yyyyMMddHHmm"
++		let nonce = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
++		let identifier = sanitized.isEmpty ? "unknown" : sanitized
++		return "zonoe-\(identifier)-\(formatter.string(from: date))-\(nonce)"
++	}
++
+ 	private func applyPlistRule(_ rule: PlistMutationRule, to root: NSMutableDictionary) throws {
+ 		let path = rule.keyPath.trimmingCharacters(in: .whitespacesAndNewlines)
+ 		guard !path.isEmpty else { throw PlistMutationError.invalidValue("Key Path 为空") }
