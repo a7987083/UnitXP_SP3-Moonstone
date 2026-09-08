@@ -1,0 +1,202 @@
+name: Build iOS Runtime Patch Menu v0.5.0 Consolidated
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-consolidation
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Consolidate legacy menu sources
+        run: |
+          set -euxo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('iosruntimepatchmenu/src')
+          legacy = root / 'ZonoeRuntimeMenuV049.mm'
+          out = root / 'ZonoeRuntimeMenu.mm'
+
+          if legacy.exists():
+              def expand(name):
+                  p = root / name
+                  lines = []
+                  for line in p.read_text().splitlines():
+                      m = re.match(r'#include "(ZonoeRuntimeMenuV[^\"]+\.mm)"', line)
+                      if m:
+                          lines.append(f'// BEGIN inlined {m.group(1)}')
+                          lines.append(expand(m.group(1)))
+                          lines.append(f'// END inlined {m.group(1)}')
+                      else:
+                          lines.append(line)
+                  return '\n'.join(lines)
+
+              text = expand('ZonoeRuntimeMenuV049.mm') + '\n'
+              banner = (
+                  '// Zonoe Runtime Patch Menu — consolidated current source\n'
+                  '// v0.5.0 source consolidation baseline\n'
+                  '// Historical V0xx menu sources are retained by Git history only; this file is\n'
+                  '// the sole compiled menu/UI source. ZNDeveloperGate provides permission state\n'
+                  '// only and never owns sidebar/UI definitions.\n\n'
+              )
+              text = banner + text
+              text = text.replace('return "0.4.0-runtime-foundation";', 'return "0.5.0-menu-consolidated";')
+              text = text.replace('Runtime Patch Foundation 0.4.0 bootstrap（Stock iOS / No JIT）', 'Runtime Patch Menu 0.5.0 consolidated bootstrap（Stock iOS / No JIT）')
+
+              old = '''- (NSArray<NSString *> *)zn40_baseCategories {\n    return @[@"首页", @"玩家", @"战斗", @"移动", @"其他", @"设置", @"主题"];\n}\n\n- (NSArray<NSString *> *)zn40_baseSymbols {\n    return @[@"house.fill", @"person.fill", @"bolt.fill", @"location.north.fill", @"square.grid.2x2.fill", @"gearshape.fill", @"paintpalette.fill"];\n}\n'''
+              new = '''- (NSArray<NSString *> *)zn40_baseCategories {\n    NSMutableArray<NSString *> *items = [NSMutableArray arrayWithObject:@"功能"];\n    if ([ZNDeveloperGate sharedGate].otherAuthorized) [items addObject:@"其他"];\n    [items addObjectsFromArray:@[@"设置", @"主题"]];\n    return items;\n}\n\n- (NSArray<NSString *> *)zn40_baseSymbols {\n    NSMutableArray<NSString *> *items = [NSMutableArray arrayWithObject:@"switch.2"];\n    if ([ZNDeveloperGate sharedGate].otherAuthorized) [items addObject:@"square.grid.2x2.fill"];\n    [items addObjectsFromArray:@[@"gearshape.fill", @"paintpalette.fill"]];\n    return items;\n}\n'''
+              if old not in text:
+                  raise SystemExit('base category block not found')
+              text = text.replace(old, new, 1)
+              text = text.replace(' : @"首页";\n    self.categories = cats;', ' : @"功能";\n    self.categories = cats;', 1)
+              text = text.replace('    if ([cat isEqualToString:@"首页"]) [self zn40_replaceHomeVersionText];\n', '')
+
+              text = text.replace('- (NSArray<NSString *> *)zn401_baseCategories;\n- (NSArray<NSString *> *)zn401_baseSymbols;\n', '')
+              text = re.sub(r'\n- \(NSArray<NSString \*> \*\)zn401_baseCategories \{.*?\n\}\n\n- \(NSArray<NSString \*> \*\)zn401_baseSymbols \{.*?\n\}\n', '\n', text, count=1, flags=re.S)
+              text = text.replace('        ZNSwapInstanceMethodV0401(cls, @selector(zn40_baseCategories), @selector(zn401_baseCategories));\n', '')
+              text = text.replace('        ZNSwapInstanceMethodV0401(cls, @selector(zn40_baseSymbols), @selector(zn401_baseSymbols));\n', '')
+              text = text.replace('[[ZNRuntimeLogger sharedLogger] log:@"v0.4.0a UI fixes installed：首页已移除，诊断按钮即时触摸已启用"];', '[[ZNRuntimeLogger sharedLogger] log:@"UI touch/theme fixes installed; sidebar ownership remains centralized in ZonoeRuntimeMenu.mm"];')
+              text = text.replace('''    if ([cat isEqualToString:@"玩家"]) desired = 370.0;\n    else if ([cat isEqualToString:@"战斗"] || [cat isEqualToString:@"移动"]) desired = 390.0;\n    else if ([cat isEqualToString:@"其他"]) desired = 340.0;\n''', '''    if ([cat isEqualToString:@"其他"]) desired = 340.0;\n''', 1)
+
+              text = text.replace('- (NSArray<NSString *> *)zn45_baseCategories;\n- (NSArray<NSString *> *)zn45_baseSymbols;\n', '')
+              text = re.sub(r'\n- \(NSArray<NSString \*> \*\)zn45_baseCategories \{.*?\n\}\n\n- \(NSArray<NSString \*> \*\)zn45_baseSymbols \{.*?\n\}\n', '\n', text, count=1, flags=re.S)
+              text = text.replace('        ZNSwapV045(cls,@selector(zn40_baseCategories),@selector(zn45_baseCategories));\n', '')
+              text = text.replace('        ZNSwapV045(cls,@selector(zn40_baseSymbols),@selector(zn45_baseSymbols));\n', '')
+              text = text.replace('[bootstrap][main] v0.4.6 single Function category + marker-sibling JSON scan installed; q=Other, g=Diagnostics/Debug', '[bootstrap][main] Function page installed; sidebar ownership centralized; q=Other, g=Diagnostics/Debug')
+
+              text = text.replace('PatchCore 0.4.9    Shared-Site setActive Probe', 'PatchCore 0.5.0    Consolidated Menu + Shared-Site Probe')
+              text = text.replace('[bootstrap][main] v0.4.9 shared-site setActive probe UI installed', '[bootstrap][main] v0.5.0 consolidated menu + shared-site probe installed')
+              text = text.replace('- (void)themeTapped:(id)sender { (void)sender; if(self.compactMode)return; self.selectedCategory=kZNThemeCategoryIndex; [NSUserDefaults.standardUserDefaults setInteger:self.selectedCategory forKey:kZNSelectedCategoryKey]; self.contentScroll.contentOffset=CGPointZero; [self layoutForWindow:self.hostWindow initial:NO]; [self updateSidebar]; [self renderPage]; }', '- (void)themeTapped:(id)sender { (void)sender; if(self.compactMode)return; NSInteger idx=[self.categories indexOfObject:@"主题"]; if(idx==NSNotFound)return; self.selectedCategory=idx; [NSUserDefaults.standardUserDefaults setInteger:self.selectedCategory forKey:kZNSelectedCategoryKey]; self.contentScroll.contentOffset=CGPointZero; [self layoutForWindow:self.hostWindow initial:NO]; [self updateSidebar]; [self renderPage]; }')
+              text = text.replace('// v0.2.4 remains the immutable visual baseline. v0.4 only layers runtime core,', '// v0.2.4 visual primitives remain embedded as the immutable visual baseline. v0.5 only layers runtime core,')
+              out.write_text(text)
+
+              gate = root / 'ZNDeveloperGate.mm'
+              g = gate.read_text()
+              marker = '// Keep the stable v0.4 menu untouched. This category only changes the base\n'
+              pos = g.find(marker)
+              if pos < 0:
+                  raise SystemExit('developer gate UI block marker not found')
+              g = g[:pos] + '// Sidebar/UI ownership intentionally lives only in ZonoeRuntimeMenu.mm.\n// ZNDeveloperGate exposes q/g permission state and marker metadata only.\n'
+              gate.write_text(g)
+
+              mk = Path('iosruntimepatchmenu/Makefile')
+              m = mk.read_text().replace('src/ZonoeRuntimeMenuV049.mm', 'src/ZonoeRuntimeMenu.mm')
+              mk.write_text(m)
+
+              notes = Path('iosruntimepatchmenu/docs/releases')
+              notes.mkdir(parents=True, exist_ok=True)
+              (notes / 'v0.5.0.md').write_text('''# Runtime Patch Menu v0.5.0 — Source Consolidation\n\nBaseline parent: `0b64c3a4dffae9d55811561cacdfdcd9f2e9c4fa` (v0.4.9 Shared-Site Probe).\n\n- `src/ZonoeRuntimeMenu.mm` is the only compiled menu/UI source.\n- Historical `ZonoeRuntimeMenuV*.mm` files are retained by Git history, not the current source tree.\n- `ZNDeveloperGate.mm` owns only marker/q/g permission state; no sidebar/UI ownership.\n- Sidebar: 功能 / 其他(q) / 设置 / 主题 / 诊断(g) / Debug(g).\n- 首页 / 玩家 / 战斗 / 移动 are removed from the active sidebar.\n- v0.2.4 visual baseline, 20 themes, Full/Compact, JSON import, Builder, Static Dispatch, Runtime Validator and Shared-Site Probe are preserved.\n\nGoing forward, update `ZonoeRuntimeMenu.mm` directly. Do not create `ZonoeRuntimeMenuVxxx.mm` per release.\n''')
+
+              for old_file in root.glob('ZonoeRuntimeMenuV*.mm'):
+                  old_file.unlink()
+              export_wf = Path('.github/workflows/export-runtime-menu-sources.yml')
+              if export_wf.exists():
+                  export_wf.unlink()
+          else:
+              print('legacy menu chain already consolidated; build current source')
+          PY
+
+      - name: Source architecture assertions
+        run: |
+          set -euxo pipefail
+          menu=iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm
+          gate=iosruntimepatchmenu/src/ZNDeveloperGate.mm
+          makefile=iosruntimepatchmenu/Makefile
+          grep -q 'v0.5.0 source consolidation baseline' "$menu"
+          grep -q '0.5.0-menu-consolidated' "$menu"
+          grep -q 'marker-sibling auto JSON import' "$menu"
+          grep -q 'coordinateReadingItemAtURL' "$menu"
+          grep -q 'Shared-Site Probe' "$menu"
+          grep -q 'zn45_renderFeaturePage' "$menu"
+          grep -q 'arrayWithObject:@"功能"' "$menu"
+          grep -q 'otherAuthorized' "$menu"
+          ! grep -q '^#include "ZonoeRuntimeMenuV' "$menu"
+          test "$(grep -c '^- (NSArray<NSString \*> \*)zn40_baseCategories {' "$menu")" -eq 1
+          ! grep -q 'zn401_baseCategories' "$menu"
+          ! grep -q 'zn45_baseCategories' "$menu"
+          grep -q 'Sidebar/UI ownership intentionally lives only in ZonoeRuntimeMenu.mm' "$gate"
+          ! grep -q 'method_exchangeImplementations' "$gate"
+          ! grep -q 'baseCategories' "$gate"
+          grep -q 'src/ZonoeRuntimeMenu.mm' "$makefile"
+          ! grep -q 'src/ZonoeRuntimeMenuV' "$makefile"
+          ! find iosruntimepatchmenu/src -maxdepth 1 -name 'ZonoeRuntimeMenuV*.mm' -print | grep -q .
+          grep -q 'markerPath' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
+          grep -q 'JSON original is ignored' iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm
+          grep -q 'selectedTarget' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'kZNSSPSharedRVA' iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
+          ! grep -REn 'MAP_JIT|pthread_jit_write_protect_np|task_for_pid' iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build v0.5.0 Consolidated Menu
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v050
+          cp .theos/obj/ZonoePatchV03.dylib dist-v050/ZonoePatch_v0.5.0_ConsolidatedMenu.dylib
+          shasum -a 256 dist-v050/ZonoePatch_v0.5.0_ConsolidatedMenu.dylib | tee dist-v050/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-v050/ZonoePatch_v0.5.0_ConsolidatedMenu.dylib
+          file "$out"
+          otool -L "$out"
+          otool -l "$out" | grep -A4 '__znprobe'
+          nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
+          nm -gU "$out" | grep '_ZonoePatchOtherAuthorized'
+          nm -gU "$out" | grep 'ZNBinaryPatchWorkspace'
+          nm -gU "$out" | grep 'ZNStaticBinaryBuilder'
+          nm -gU "$out" | grep 'ZNStaticDispatchRuntime'
+          nm -gU "$out" | grep 'ZNPatchRuntimeValidator'
+          nm -gU "$out" | grep 'ZNSharedSiteProbe'
+          strings "$out" > /tmp/zonoe_v050_strings.txt
+          grep -q '0.5.0-menu-consolidated' /tmp/zonoe_v050_strings.txt
+          grep -q 'Consolidated Menu + Shared-Site Probe' /tmp/zonoe_v050_strings.txt
+          grep -q 'ZonoePatch_SharedSiteProbe.log' /tmp/zonoe_v050_strings.txt
+          grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v050_strings.txt
+          ! grep -q 'LocalTicketV2 transport installed' /tmp/zonoe_v050_strings.txt
+          ! grep -q 'zonoe://device-auth' /tmp/zonoe_v050_strings.txt
+
+      - name: Commit consolidated source
+        run: |
+          set -euxo pipefail
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -A
+            git commit -m 'refactor(runtime-patch): consolidate menu into single source'
+            git push origin HEAD:feature/runtime-patch-menu-consolidation
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoePatch-v0.5.0-ConsolidatedMenu
+          path: |
+            iosruntimepatchmenu/dist-v050/ZonoePatch_v0.5.0_ConsolidatedMenu.dylib
+            iosruntimepatchmenu/dist-v050/SHA256.txt
+          if-no-files-found: error
