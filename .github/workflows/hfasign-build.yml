@@ -1,11 +1,14 @@
 name: Build HFASign v3 alpha
-# alphaone5 restores modal SigningView ownership and keeps keyboard dismissal isolated
+# alphaone6 adds per-signing zonoe UDID callback Scheme registration
 
 on:
   push:
     branches: [work/hfapatchipa-ksign-v3]
     paths: ["HFASign/**", ".github/workflows/hfasign-build.yml"]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -60,6 +63,8 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0051-zonoe-alphaone4-build-identity.patch
           git -C HFASignBuild apply ../HFASign/patches/0052-zonoe-alphaone5-restore-modal-signing-navigation.patch
           git -C HFASignBuild apply ../HFASign/patches/0053-zonoe-alphaone5-build-identity.patch
+          git -C HFASignBuild apply ../HFASign/patches/0054-zonoe-alphaone6-signing-udid-callback-scheme.patch
+          git -C HFASignBuild apply ../HFASign/patches/0055-zonoe-alphaone6-build-identity.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
@@ -120,7 +125,7 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alphaone5 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alphaone6 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -134,20 +139,20 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone5_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone6_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alphaone5_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alphaone6_TrollStore.ipa > SHA256SUMS.txt
       - name: Verify product metadata and file import
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 105
-          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone5
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 106
+          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone6
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist" | grep -qx public.data
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:1:LSItemContentTypes:0' "$plist" | grep -qx com.apple.framework
-          strings "$plist" | grep -q alphaone5
+          strings "$plist" | grep -q alphaone6
           grep -q 'Button("筛选")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
           ! grep -q 'Button("字段")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
           ! grep -q 'contextMenuConfigurationForRowAt' HFASignBuild/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
@@ -173,17 +178,36 @@ jobs:
           ! grep -q 'navigationDestination(for: LibrarySigningRoute.self)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
           ! grep -q '_interactiveBackGesture' HFASignBuild/Ksign/Views/Signing/SigningView.swift
           grep -q 'AppleStoreProductDetail(product: product)' HFASignBuild/Ksign/Views/Appstore/AppstoreView.swift
-      - name: Publish alpha IPA
+          grep -q 'zonoeUDIDCallbackEnabled' HFASignBuild/Ksign/Backend/Observable/OptionsManager.swift
+          grep -q '注册 zonoe UDID 回调' HFASignBuild/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+          grep -q 'ZonoeUDIDCallbackScheme' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
+          grep -q 'zonoe.udid.callback' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
+          grep -q 'yyyyMMddHHmm' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
+          grep -q 'UUID().uuidString' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
+      - name: Publish SHA256 metadata
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/zonoe_v3.0.0-alphaone5_TrollStore.ipa HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alphaone5 IPA [skip ci]"
+          git add -f HFASign/dist/SHA256SUMS.txt
+          git commit -m "Publish zonoe v3.0.0-alphaone6 SHA256 [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          tag="v3.0.0-alphaone6"
+          ipa="HFASign/dist/zonoe_v3.0.0-alphaone6_TrollStore.ipa"
+          sums="HFASign/dist/SHA256SUMS.txt"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$ipa" "$sums" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "$ipa" "$sums" --repo "$GITHUB_REPOSITORY" --target work/hfapatchipa-ksign-v3 --title "zonoe v3.0.0-alphaone6" --prerelease --notes "Signing UDID callback Scheme registration."
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alphaone5
+          name: zonoe-v3.0.0-alphaone6
           path: |
-            HFASign/dist/zonoe_v3.0.0-alphaone5_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alphaone6_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
