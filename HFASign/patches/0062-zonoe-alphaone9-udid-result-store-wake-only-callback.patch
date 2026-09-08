@@ -1,0 +1,51 @@
+diff --git a/Ksign/FeatherApp.swift b/Ksign/FeatherApp.swift
+--- a/Ksign/FeatherApp.swift
++++ b/Ksign/FeatherApp.swift
+@@ -20,25 +20,35 @@
+ 		}
+ 		if let callbackComponents {
+-			let openCallback: (String?) -> Void = { nonce in
++			let openBridgeCallback: () -> Void = {
+ 				var targetComponents = callbackComponents
+ 				var items = targetComponents.queryItems ?? []
+ 				items.removeAll { $0.name == "udid" || $0.name == "nonce" }
+-				items.append(URLQueryItem(name: "udid", value: udid))
+-				if let nonce, !nonce.isEmpty {
+-					items.append(URLQueryItem(name: "nonce", value: nonce))
+-				}
+-				targetComponents.queryItems = items
++				targetComponents.queryItems = items.isEmpty ? nil : items
+ 				if let target = targetComponents.url { UIApplication.shared.open(target) }
+ 			}
++
++			let openLegacyCallback: () -> Void = {
++				var targetComponents = callbackComponents
++				var items = targetComponents.queryItems ?? []
++				items.removeAll { $0.name == "udid" || $0.name == "nonce" }
++				items.append(URLQueryItem(name: "udid", value: udid))
++				targetComponents.queryItems = items
++				if let target = targetComponents.url { UIApplication.shared.open(target) }
++			}
+ 
+ 			if let requestNonce, !requestNonce.isEmpty {
+ 				UDIDService.shared.prepareBridgeResult(udid: udid, nonce: requestNonce) { prepared in
+ 					DispatchQueue.main.async {
+-						if prepared { openCallback(requestNonce) }
+-						else { openCallback(nil) }
++						if prepared {
++							// New no-hook protocol: callback only wakes the signed app.
++							// The dylib keeps its nonce and consumes UDID from
++							// http://127.0.0.1:14302/bridge/result/<nonce> after activation.
++							openBridgeCallback()
++						} else {
++							// Preserve legacy behavior if the bridge could not be prepared.
++							openLegacyCallback()
++						}
+ 					}
+ 				}
+ 			} else {
+-				openCallback(nil)
++				// Existing callers without a nonce continue receiving ?udid=.
++				openLegacyCallback()
+ 			}
+ 		} else {
