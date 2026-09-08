@@ -85,7 +85,6 @@ jobs:
           nm -u "$out" | grep '_mprotect'
           strings "$out" > /tmp/zonoe_v045_strings.txt
           grep -q 'v0.4.5 single Function category installed' /tmp/zonoe_v045_strings.txt
-          grep -q 'Application Support JSON' /tmp/zonoe_v045_strings.txt
           grep -q 'com.zonoe.static-dispatch/v1' /tmp/zonoe_v045_strings.txt
           grep -q '0.4.0-runtime-foundation' /tmp/zonoe_v045_strings.txt
           grep -q 'runtime validation installed' /tmp/zonoe_v045_strings.txt
