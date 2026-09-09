@@ -1,57 +1,27 @@
 diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
 --- a/Ksign/Backend/Server/UDIDService.swift
 +++ b/Ksign/Backend/Server/UDIDService.swift
-@@ -1,6 +1,7 @@
- import Foundation
- import UIKit
+@@ -3,1 +3,2 @@
  import Vapor
 +import Darwin
- 
- final class UDIDService {
- 	static let shared = UDIDService()
-@@ -7,8 +8,10 @@ final class UDIDService {
- 	static let didUpdateNotification = Notification.Name("zonoe.didUpdateUDID")
+@@ -9,1 +10,2 @@
  	static let port = 14302
 +	static let bridgePorts = [14302, 49173, 50321, 51739, 53261, 54883]
- 	static let pendingCallbackKey = "zonoe.pendingUDIDCallback"
- 	private var server: Application?
+@@ -13,1 +15,2 @@
  	private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 +	private var activePort = Self.port
- 	private let bridgeLock = NSLock()
- 	private var bridgeResults: [String: BridgeResult] = [:]
- 
-@@ -22,7 +26,9 @@ final class UDIDService {
- 			var environment = Environment(name: "zonoe-udid", arguments: ["zonoe"])
- 			let app = Application(environment)
- 			app.http.server.configuration.hostname = "127.0.0.1"
+@@ -26,1 +29,3 @@
 -			app.http.server.configuration.port = Self.port
 +			let selectedPort = firstAvailableBridgePort() ?? Self.port
 +			activePort = selectedPort
 +			app.http.server.configuration.port = selectedPort
- 			app.routes.defaultMaxBodySize = "2mb"
- 
- 			app.get("profile.mobileconfig") { _ in
-@@ -34,7 +40,7 @@ final class UDIDService {
- 			}
- 			app.get("bridge", "result", ":nonce") { req -> Response in
- 				guard let nonce = req.parameters.get("nonce"),
+@@ -42,1 +47,1 @@
 -					  let result = self.consumeBridgeResult(for: nonce) else {
 +					  let result = self.bridgeResult(for: nonce) else {
- 					return Response(status: .notFound, headers: ["Connection": "close"])
- 				}
- 
-@@ -44,7 +50,6 @@ final class UDIDService {
- 					return Response(status: .internalServerError, headers: ["Connection": "close"])
- 				}
- 
+@@ -51,1 +56,0 @@
 -				self.endBackgroundTask()
- 				return Response(
- 					status: .ok,
- 					headers: [
-@@ -56,6 +61,14 @@ final class UDIDService {
- 					body: .init(string: body)
- 				)
- 			}
+@@ -62,1 +66,9 @@
+ 			app.post("udid") { req -> Response in
 +			app.post("bridge", "ack", ":nonce") { req -> Response in
 +				guard let nonce = req.parameters.get("nonce"), self.isValidBridgeNonce(nonce) else {
 +					return Response(status: .badRequest, headers: ["Connection": "close"])
@@ -60,13 +30,7 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 +				if acknowledged { self.endBackgroundTaskIfIdle() }
 +				return Response(status: acknowledged ? .noContent : .notFound, headers: ["Connection": "close"])
 +			}
- 			app.post("udid") { req -> Response in
- 				guard let buffer = req.body.data else { return Response(status: .badRequest) }
- 				var copy = buffer
-@@ -89,16 +102,53 @@ final class UDIDService {
- 		}
- 	}
- 
+@@ -92,12 +104,49 @@
 -	private func consumeBridgeResult(for nonce: String) -> BridgeResult? {
 +	private func bridgeResult(for nonce: String) -> BridgeResult? {
  		guard isValidBridgeNonce(nonce) else { return nil }
@@ -116,27 +80,15 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 +			}
 +		}
 +	}
- 
- 	private func isValidBridgeNonce(_ value: String) -> Bool {
- 		guard (16...128).contains(value.count) else { return false }
-@@ -145,11 +177,18 @@ final class UDIDService {
- 		}
- 	}
- 
+@@ -148,1 +197,1 @@
 -	private var profileURL: URL { URL(string: "http://127.0.0.1:\(Self.port)/profile.mobileconfig")! }
 +	private var profileURL: URL { URL(string: "http://127.0.0.1:\(activePort)/profile.mobileconfig")! }
- 
- 	private func bundledProfile(named name: String) -> Data? {
- 		guard let url = Bundle.main.url(forResource: name, withExtension: "mobileconfig") else { return nil }
+@@ -152,1 +201,9 @@
 -		return try? Data(contentsOf: url)
 +		guard let data = try? Data(contentsOf: url) else { return nil }
-+		guard name == "UDIDRequest",
-+			  let text = String(data: data, encoding: .utf8) else { return data }
++		guard name == "UDIDRequest", let text = String(data: data, encoding: .utf8) else { return data }
 +		let updated = text.replacingOccurrences(
 +			of: "http://127.0.0.1:14302/udid",
 +			with: "http://127.0.0.1:\(activePort)/udid"
 +		)
 +		return Data(updated.utf8)
- 	}
- 
- 	private func extractUDID(from input: Data) -> String? {
