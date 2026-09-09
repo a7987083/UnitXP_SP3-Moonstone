@@ -14,6 +14,7 @@ target_link_libraries(ZonoeLocalAuthPhase4DualMode PRIVATE
     "-framework Foundation"
     "-framework UIKit"
     "-framework QuartzCore"
+    "-framework CoreGraphics"
     objc
 )
 
