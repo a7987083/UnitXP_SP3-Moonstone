@@ -74,7 +74,6 @@ jobs:
               git -C HFASignBuild apply "../HFASign/patches/$patch"
           done
           python3 HFASign/scripts/apply_alphaone10_udid_reliability.py
-          git -C HFASignBuild apply ../HFASign/patches/0065-zonoe-alphaone10-build-identity.patch
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
@@ -110,7 +109,8 @@ jobs:
           grep -Fq 'let result = bridgeResults[nonce]' "$f"
           ! grep -Fq 'consumeBridgeResult(for: nonce)' "$f"
           grep -Fq 'with: "http://127.0.0.1:\(activePort)/udid"' "$f"
-          git -C HFASignBuild diff --name-only | grep -Eq '^Ksign/Backend/Server/UDIDService.swift$|^Ksign.xcodeproj/project.pbxproj$|^Ksign/Resources/Info.plist$'
+          grep -Fq 'CURRENT_PROJECT_VERSION = 110;' HFASignBuild/Ksign.xcodeproj/project.pbxproj
+          grep -Fq '<string>v3.0.0-alphaone10</string>' HFASignBuild/Ksign/Resources/Info.plist
 
       - name: Apply zonoe icon
         run: |
