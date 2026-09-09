@@ -1,0 +1,56 @@
+name: Build Zonoe LocalAuth Phase3 T3 Full
+on:
+  push:
+    branches: [feature/login10195diag-v0.1]
+    paths:
+      - 'zonoe_localauth_phase3_t3_full/**'
+      - '.github/workflows/build-zonoe-localauth-phase3-t3-full.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure iOS arm64
+        run: |
+          cmake -S zonoe_localauth_phase3_t3_full -B build-zonoe-localauth-p3-t3-full -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-zonoe-localauth-p3-t3-full --config Release --target ZonoeLocalAuthPhase3T3Full --parallel 4
+
+      - name: Locate and verify dylib
+        run: |
+          set -euo pipefail
+          DYLIB="$(find build-zonoe-localauth-p3-t3-full -type f -name 'ZonoeLocalAuth_Phase3_T3_Full.dylib' | head -1)"
+          test -n "$DYLIB"
+          echo "DYLIB=$DYLIB" >> "$GITHUB_ENV"
+          file "$DYLIB"
+          file "$DYLIB" | grep -q 'arm64'
+          otool -hv "$DYLIB"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          rm -rf dist-p3-t3-full
+          mkdir -p dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/server
+          cp "$DYLIB" dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/
+          cp zonoe_localauth_phase3_t3_full/README.md dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/
+          cp zonoe_localauth_phase3_t3_full/server/*.php dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/server/
+          shasum -a 256 "$DYLIB" > dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/SHA256.txt
+          ditto -c -k --sequesterRsrc --keepParent dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZonoeLocalAuth-Phase3-T3-Full-arm64
+          path: |
+            dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full-arm64.zip
+            dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/ZonoeLocalAuth_Phase3_T3_Full.dylib
+            dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/SHA256.txt
+            dist-p3-t3-full/ZonoeLocalAuth-Phase3-T3-Full/server
