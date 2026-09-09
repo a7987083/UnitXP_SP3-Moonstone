@@ -9,7 +9,7 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
  
  final class UDIDService {
  	static let shared = UDIDService()
-@@ -7,10 +8,13 @@ final class UDIDService {
+@@ -7,8 +8,10 @@ final class UDIDService {
  	static let didUpdateNotification = Notification.Name("zonoe.didUpdateUDID")
  	static let port = 14302
 +	static let bridgePorts = [14302, 49173, 50321, 51739, 53261, 54883]
@@ -63,7 +63,7 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
  			app.post("udid") { req -> Response in
  				guard let buffer = req.body.data else { return Response(status: .badRequest) }
  				var copy = buffer
-@@ -89,16 +102,35 @@ final class UDIDService {
+@@ -89,16 +102,53 @@ final class UDIDService {
  		}
  	}
  
@@ -119,7 +119,7 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
  
  	private func isValidBridgeNonce(_ value: String) -> Bool {
  		guard (16...128).contains(value.count) else { return false }
-@@ -145,11 +177,19 @@ final class UDIDService {
+@@ -145,11 +177,18 @@ final class UDIDService {
  		}
  	}
  
