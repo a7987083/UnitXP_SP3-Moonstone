@@ -145,4 +145,22 @@ replace_once(
 )
 
 path.write_text(text)
-print("alphaone10 UDID reliability transform applied")
+
+project_path = Path("HFASignBuild/Ksign.xcodeproj/project.pbxproj")
+project = project_path.read_text()
+old_build = "CURRENT_PROJECT_VERSION = 109;"
+count = project.count(old_build)
+if count != 2:
+    raise SystemExit(f"build identity: expected 2 matches, found {count}")
+project = project.replace(old_build, "CURRENT_PROJECT_VERSION = 110;")
+project_path.write_text(project)
+
+plist_path = Path("HFASignBuild/Ksign/Resources/Info.plist")
+plist = plist_path.read_text()
+old_release = "<string>v3.0.0-alphaone9</string>"
+if plist.count(old_release) != 1:
+    raise SystemExit(f"release identity: expected exactly one match, found {plist.count(old_release)}")
+plist = plist.replace(old_release, "<string>v3.0.0-alphaone10</string>", 1)
+plist_path.write_text(plist)
+
+print("alphaone10 UDID reliability + identity transform applied")
