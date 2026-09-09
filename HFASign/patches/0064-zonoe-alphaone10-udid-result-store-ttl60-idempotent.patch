@@ -1,7 +1,7 @@
 diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
 --- a/Ksign/Backend/Server/UDIDService.swift
 +++ b/Ksign/Backend/Server/UDIDService.swift
-@@ -33,11 +33,15 @@
+@@ -33,15 +33,20 @@
  			app.get("bridge", "result", ":nonce") { req -> Response in
  				guard let nonce = req.parameters.get("nonce"),
 -					  let result = self.consumeBridgeResult(for: nonce) else {
@@ -25,7 +25,7 @@ diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDS
 -				self.endBackgroundTask()
  				return Response(
  					status: .ok,
-@@ -82,12 +86,12 @@
+@@ -82,22 +87,24 @@
  				self.bridgeLock.lock()
  				let now = Date()
  				self.bridgeResults = self.bridgeResults.filter { $0.value.expiresAt > now }
