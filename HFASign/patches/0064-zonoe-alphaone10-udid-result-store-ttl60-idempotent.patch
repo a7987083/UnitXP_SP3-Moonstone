@@ -1,0 +1,55 @@
+diff --git a/Ksign/Backend/Server/UDIDService.swift b/Ksign/Backend/Server/UDIDService.swift
+--- a/Ksign/Backend/Server/UDIDService.swift
++++ b/Ksign/Backend/Server/UDIDService.swift
+@@ -33,11 +33,15 @@
+ 			app.get("bridge", "result", ":nonce") { req -> Response in
+ 				guard let nonce = req.parameters.get("nonce"),
+-					  let result = self.consumeBridgeResult(for: nonce) else {
++					  let result = self.bridgeResult(for: nonce) else {
+ 					return Response(status: .notFound, headers: ["Connection": "close"])
+ 				}
+ 
+-				let object: [String: String] = ["nonce": nonce, "udid": result.udid]
++				let remaining = max(0, Int(result.expiresAt.timeIntervalSinceNow.rounded(.down)))
++				let object: [String: Any] = [
++					"request": nonce,
++					"nonce": nonce,
++					"udid": result.udid,
++					"expires": remaining
++				]
+ 				guard let data = try? JSONSerialization.data(withJSONObject: object),
+ 					  let body = String(data: data, encoding: .utf8) else {
+ 					return Response(status: .internalServerError, headers: ["Connection": "close"])
+ 				}
+ 
+-				self.endBackgroundTask()
+ 				return Response(
+ 					status: .ok,
+@@ -82,12 +86,12 @@
+ 				self.bridgeLock.lock()
+ 				let now = Date()
+ 				self.bridgeResults = self.bridgeResults.filter { $0.value.expiresAt > now }
+-				self.bridgeResults[nonce] = BridgeResult(udid: udid, expiresAt: now.addingTimeInterval(90))
++				self.bridgeResults[nonce] = BridgeResult(udid: udid, expiresAt: now.addingTimeInterval(60))
+ 				self.bridgeLock.unlock()
+ 				completion(true)
+ 			case .failure:
+ 				completion(false)
+ 			}
+ 		}
+ 	}
+ 
+-	private func consumeBridgeResult(for nonce: String) -> BridgeResult? {
++	private func bridgeResult(for nonce: String) -> BridgeResult? {
+ 		guard isValidBridgeNonce(nonce) else { return nil }
+ 		bridgeLock.lock()
+ 		defer { bridgeLock.unlock() }
+ 
+-		guard let result = bridgeResults.removeValue(forKey: nonce), result.expiresAt > Date() else {
++		let now = Date()
++		bridgeResults = bridgeResults.filter { $0.value.expiresAt > now }
++		guard let result = bridgeResults[nonce], result.expiresAt > now else {
+ 			return nil
+ 		}
+ 		return result
+ 	}
