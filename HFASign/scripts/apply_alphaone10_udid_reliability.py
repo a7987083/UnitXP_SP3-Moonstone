@@ -107,7 +107,7 @@ new_store = '''\tprivate func bridgeResult(for nonce: String) -> BridgeResult? {
 \t}
 
 \tprivate func isPortAvailable(_ port: Int) -> Bool {
-\t\tlet descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+\t\tlet descriptor = Darwin.socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
 \t\tguard descriptor >= 0 else { return false }
 \t\tdefer { Darwin.close(descriptor) }
 
