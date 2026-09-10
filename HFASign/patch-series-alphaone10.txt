@@ -1,0 +1,56 @@
+# Canonical zonoe v3.0.0-alphaone10 patch series.
+# Order matches the production hfasign-build.yml baseline before reconstruction refactor.
+# Historical patches not listed here are intentionally not applied.
+# alphaone10 final reliability/identity is applied by apply_alphaone10_udid_reliability.py
+# because the preserved 0064 patch is malformed and must remain immutable history.
+
+0001-Rebrand-Ksign-baseline-as-HFASign-alpha1.patch
+0003-HFASign-alpha3-detailed-signing-and-import-fixes.patch
+0004-zonoe-alpha4-incremental.patch
+0005-zonoe-alpha5-import-resources-signing-ui.patch
+0006-zonoe-alpha6-resource-actions-signing-fix.patch
+0007-zonoe-alpha7-import-zip-library.patch
+0008-zonoe-alpha8-udid-schemes-encrypted-sources.patch
+0009-zonoe-alpha9-udid-zip-sources.patch
+0010-zonoe-alpha9-compile-pending-validation.patch
+0011-zonoe-alpha10-source-zip-udid-fixes.patch
+0012-zonoe-alpha11-source-identity-advanced-signing.patch
+0013-zonoe-alpha12-signing-paging-unlock.patch
+0014-Fix-source-unlock-URL-identity-collisions.patch
+0015-Fix-alpha12-signing-and-import-regressions.patch
+0016-zonoe-alpha15-signing-navigation-unlock.patch
+0019-Import-ZsignSwift-for-signature-validation.patch
+0026-zonoe-alpha16-consolidated-fixes.patch
+0027-zonoe-alpha17-fix-signing-layered-interactive-back.patch
+0028-zonoe-alpha17-fix-udid-profile-service-completion.patch
+0029-zonoe-alpha17-fix-legacy-source-unlock-post.patch
+0030-zonoe-alpha18-native-signing-navigation.patch
+0031-zonoe-alpha18-udid-localserver-301-return.patch
+0032-zonoe-alpha18-source-unlock-real-protocol.patch
+0033-zonoe-alpha18-compile-restore-commoncrypto.patch
+0034-zonoe-alpha19-source-payload-metadata.patch
+0035-zonoe-alpha19-source-app-ui-filters-fields.patch
+0036-zonoe-alpha19-apple-app-store-search.patch
+0037-zonoe-alpha19-tabs-and-files-settings.patch
+0038-zonoe-alpha19-compile-source-ui.patch
+0039-zonoe-alpha19-compile-category-filter.patch
+0040-zonoe-alpha20-qnq-source-payload-decoders.patch
+0041-zonoe-alpha20-localized-appstore-regions.patch
+0045-zonoe-alphaone1-import-QNQ-v0.7.2-source-pipeline.patch
+0046-zonoe-alphaone1-fix-source-and-settings-UI.patch
+0047-zonoe-alphaone1-keyboard-and-build-identity.patch
+0048-zonoe-alphaone2-source-certificate-feedback.patch
+0049-zonoe-alphaone3-fix-navigation-and-clipboard-completion.patch
+0050-zonoe-alphaone4-fix-signing-navigation-and-keyboard-dismissal.patch
+0051-zonoe-alphaone4-build-identity.patch
+0052-zonoe-alphaone5-restore-modal-signing-navigation.patch
+0053-zonoe-alphaone5-build-identity.patch
+0054-zonoe-alphaone6-signing-udid-callback-scheme.patch
+0055-zonoe-alphaone6-build-identity.patch
+0056-zonoe-alphaone7-show-udid-callback-on-signing-main.patch
+0057-zonoe-alphaone7-build-identity.patch
+0058-zonoe-alphaone8-clean-signing-udid-architecture.patch
+0059-zonoe-alphaone8-build-identity.patch
+0061-zonoe-alphaone8-udid-nonce-localhost-bridge.patch
+0062-zonoe-alphaone9-udid-result-store-wake-only-callback.patch
+0063-zonoe-alphaone9-build-identity.patch
