@@ -1,0 +1,1 @@
+13d7b0461da4f90d437dd04fe8992d9b34f64bd74323e14511628a4338e0a0df  dist/HFAMapUniversal_v1.9.22_SafeMenuPatchOnly.dylib
