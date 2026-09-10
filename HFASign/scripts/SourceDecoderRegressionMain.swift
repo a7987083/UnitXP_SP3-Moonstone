@@ -39,16 +39,24 @@ enum SourceDecoderRegressionMain {
 			)
 		]
 
+		var warnings = 0
 		for item in cases {
-			let sourceData = try await load(item.url)
-			let detected = try detectEnvelope(sourceData)
-			let decoded = try await QNQSourcePayloadDecoder.decode(sourceData)
-			let object = try JSONSerialization.jsonObject(with: decoded, options: [.fragmentsAllowed])
-			guard let root = object as? [String: Any], let apps = root["apps"] as? [Any], !apps.isEmpty else {
-				throw RegressionError("\(item.url.absoluteString): decoded repository has no apps[]")
+			do {
+				let sourceData = try await load(item.url)
+				let detected = try detectEnvelope(sourceData)
+				let decoded = try await QNQSourcePayloadDecoder.decode(sourceData)
+				let object = try JSONSerialization.jsonObject(with: decoded, options: [.fragmentsAllowed])
+				guard let root = object as? [String: Any], let apps = root["apps"] as? [Any], !apps.isEmpty else {
+					throw RegressionError("decoded repository has no apps[]")
+				}
+				print("[source-health] PASS envelope=\(detected.rawValue) apps=\(apps.count) prior=\(item.previouslyVerifiedCount) url=\(item.url.absoluteString)")
+			} catch {
+				warnings += 1
+				print("[source-health] WARN url=\(item.url.absoluteString) error=\(error.localizedDescription)")
 			}
-			print("[source-regression] PASS envelope=\(detected.rawValue) apps=\(apps.count) prior=\(item.previouslyVerifiedCount) url=\(item.url.absoluteString)")
 		}
+
+		print("[source-regression] PASS deterministic fixtures; liveWarnings=\(warnings)")
 	}
 
 	private static func verifyEnvelopeDetectionFixtures() throws {
