@@ -1,0 +1,6 @@
+v1.9.17 PayloadMaterializer REDO
+- Build materializedPayload from v1.9.16 REDO relocationPlan.
+- Capture replacement and helper code units.
+- Capture referenced constant windows.
+- Preserve symbolic imports/ObjC bindings/global roles.
+- Keep portablePayload=false when source runtime dependencies remain.
