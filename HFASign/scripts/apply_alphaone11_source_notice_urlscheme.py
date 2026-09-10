@@ -3,25 +3,17 @@ from pathlib import Path
 
 ROOT = Path("HFASignBuild")
 
-
-def replace_once(path: Path, old: str, new: str, label: str) -> None:
-    text = path.read_text()
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(f"{label}: expected exactly one match, found {count}")
-    path.write_text(text.replace(old, new, 1))
-
 # 1) Repository-level notice/header. Keep the existing table/list implementation intact.
 source_view = ROOT / "Ksign/Views/Sources/Apps/SourceAppsView.swift"
 text = source_view.read_text()
 needle = """    var body: some View {\n        ZStack {\n            if let sources, !sources.isEmpty {\n                SourceAppsTableRepresentableView(sources: sources, searchText: $searchText, filter: filter) { selectedRoute = $0 }.ignoresSafeArea()\n            } else { ProgressView() }\n        }\n"""
 replacement = """    var body: some View {\n        ZStack {\n            if let sources, !sources.isEmpty {\n                VStack(spacing: 0) {\n                    if let notice = repositoryNotice(for: sources) {\n                        VStack(alignment: .leading, spacing: 8) {\n                            HStack(spacing: 6) {\n                                Image(systemName: \"megaphone.fill\")\n                                Text(\"软件源公告\").font(.headline)\n                            }\n                            Text(notice)\n                                .font(.subheadline)\n                                .foregroundStyle(.secondary)\n                                .textSelection(.enabled)\n                                .fixedSize(horizontal: false, vertical: true)\n                        }\n                        .frame(maxWidth: .infinity, alignment: .leading)\n                        .padding(.horizontal, 16)\n                        .padding(.vertical, 12)\n                        .background(Color(uiColor: .secondarySystemGroupedBackground))\n                        Divider()\n                    }\n                    SourceAppsTableRepresentableView(sources: sources, searchText: $searchText, filter: filter) { selectedRoute = $0 }\n                        .ignoresSafeArea()\n                }\n            } else { ProgressView() }\n        }\n"""
-if needle not in text:
-    raise SystemExit("SourceAppsView body: final alphaone10 shape not found")
+if text.count(needle) != 1:
+    raise SystemExit(f"SourceAppsView body: expected one final alphaone10 shape, found {text.count(needle)}")
 text = text.replace(needle, replacement, 1)
 
 insert_before = "    var body: some View {\n"
-helper = """    private func repositoryNotice(for loaded: [LoadedSource]) -> String? {\n        guard loaded.count == 1 else { return nil }\n        let repository = loaded[0].repository\n        let parts = [repository.subtitle, repository.description]\n            .compactMap { value -> String? in\n                guard let value else { return nil }\n                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)\n                return trimmed.isEmpty ? nil : trimmed\n            }\n        guard !parts.isEmpty else { return nil }\n        return Array(NSOrderedSet(array: parts)).compactMap { $0 as? String }.joined(separator: \"\\n\\n\")\n    }\n\n"""
+helper = """    private func repositoryNotice(for loaded: [LoadedSource]) -> String? {\n        guard loaded.count == 1 else { return nil }\n        let repository = loaded[0].repository\n        var parts: [String] = []\n        for value in [repository.subtitle, repository.description] {\n            guard let value else { continue }\n            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)\n            if !trimmed.isEmpty, !parts.contains(trimmed) { parts.append(trimmed) }\n        }\n        return parts.isEmpty ? nil : parts.joined(separator: \"\\n\\n\")\n    }\n\n"""
 if text.count(insert_before) != 1:
     raise SystemExit(f"SourceAppsView helper insertion: expected one body, found {text.count(insert_before)}")
 text = text.replace(insert_before, helper + insert_before, 1)
@@ -56,7 +48,6 @@ import UIKit
 import SafariServices
 
 struct URLSchemeView: View {
-    @AppStorage("zonoe.webBookmarks") private var bookmarkData: Data = Data()
     @State private var bookmarks: [String] = UserDefaults.standard.stringArray(forKey: "zonoe.webBookmarks") ?? []
 
     var body: some View {
@@ -110,7 +101,7 @@ struct URLSchemeView: View {
             }
 
             Section("参数规则") {
-                Text("url / callback 参数建议完整进行 Percent-Encoding。仅接受 HTTP/HTTPS 作为 addsource、web、bookmark 的目标地址。")
+                Text("url / callback 参数建议完整进行 Percent-Encoding。addsource、web、bookmark 仅接受 HTTP/HTTPS 目标地址。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -146,7 +137,8 @@ struct URLSchemeView: View {
     }
 
     private func openWeb(_ value: String) {
-        guard let url = URL(string: value), let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+        guard let url = URL(string: value),
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return }
         let safari = SFSafariViewController(url: url)
         var top = root
@@ -156,7 +148,7 @@ struct URLSchemeView: View {
 }
 ''')
 
-# 4) Build identity: create a new release so the frozen alphaone10 artifact is never overwritten.
+# 4) Build identity: new release so frozen alphaone10 is never overwritten.
 project_path = ROOT / "Ksign.xcodeproj/project.pbxproj"
 project = project_path.read_text()
 if project.count("CURRENT_PROJECT_VERSION = 110;") != 2:
