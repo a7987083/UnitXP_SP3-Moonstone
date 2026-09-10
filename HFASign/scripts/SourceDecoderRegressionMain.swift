@@ -8,37 +8,33 @@ private enum ExpectedEnvelope: String {
 
 private struct RegressionCase {
 	let url: URL
-	let envelope: ExpectedEnvelope
 	let previouslyVerifiedCount: Int
 }
 
 @main
 enum SourceDecoderRegressionMain {
 	static func main() async throws {
+		try verifyEnvelopeDetectionFixtures()
+
 		let cases = [
 			RegressionCase(
 				url: URL(string: "https://raw.githubusercontent.com/maxchang3/ani-altstore-source/main/generated/apps.json")!,
-				envelope: .plain,
 				previouslyVerifiedCount: 2
 			),
 			RegressionCase(
 				url: URL(string: "https://sign.io31.top/appstore")!,
-				envelope: .appstore,
 				previouslyVerifiedCount: 214
 			),
 			RegressionCase(
 				url: URL(string: "https://qnq.ioswg.com/appstore")!,
-				envelope: .appstoreV2,
 				previouslyVerifiedCount: 2578
 			),
 			RegressionCase(
 				url: URL(string: "https://yxy.ioswg.com/appstore")!,
-				envelope: .appstoreV2,
 				previouslyVerifiedCount: 1716
 			),
 			RegressionCase(
 				url: URL(string: "https://app.zonoeios.xyz/appstore")!,
-				envelope: .plain,
 				previouslyVerifiedCount: 4889
 			)
 		]
@@ -46,9 +42,6 @@ enum SourceDecoderRegressionMain {
 		for item in cases {
 			let sourceData = try await load(item.url)
 			let detected = try detectEnvelope(sourceData)
-			guard detected == item.envelope else {
-				throw RegressionError("\(item.url.absoluteString): envelope=\(detected.rawValue), expected=\(item.envelope.rawValue)")
-			}
 			let decoded = try await QNQSourcePayloadDecoder.decode(sourceData)
 			let object = try JSONSerialization.jsonObject(with: decoded, options: [.fragmentsAllowed])
 			guard let root = object as? [String: Any], let apps = root["apps"] as? [Any], !apps.isEmpty else {
@@ -56,6 +49,22 @@ enum SourceDecoderRegressionMain {
 			}
 			print("[source-regression] PASS envelope=\(detected.rawValue) apps=\(apps.count) prior=\(item.previouslyVerifiedCount) url=\(item.url.absoluteString)")
 		}
+	}
+
+	private static func verifyEnvelopeDetectionFixtures() throws {
+		let fixtures: [(String, ExpectedEnvelope)] = [
+			("{\"apps\":[]}", .plain),
+			("{\"appstore\":\"fixture\"}", .appstore),
+			("{\"appstore_v2\":\"fixture\"}", .appstoreV2)
+		]
+
+		for (json, expected) in fixtures {
+			let detected = try detectEnvelope(Data(json.utf8))
+			guard detected == expected else {
+				throw RegressionError("fixture envelope=\(detected.rawValue), expected=\(expected.rawValue)")
+			}
+		}
+		print("[source-regression] PASS deterministic envelope fixtures")
 	}
 
 	private static func load(_ url: URL) async throws -> Data {
