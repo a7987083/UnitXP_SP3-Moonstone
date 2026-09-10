@@ -1,0 +1,1 @@
+6e1e0c6c653902ca56672b3ce6fe37b36cdf7b5f861309a5a30f9868cd6382f5  dist/HFAMapUniversal_v1.9.23_MultiWindowSafePatchOnly.dylib
