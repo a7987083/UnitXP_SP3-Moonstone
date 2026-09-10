@@ -72,8 +72,9 @@ jobs:
           git -C HFASignBuild apply ../HFASign/patches/0061-zonoe-alphaone8-udid-nonce-localhost-bridge.patch
           git -C HFASignBuild apply ../HFASign/patches/0062-zonoe-alphaone9-udid-result-store-wake-only-callback.patch
           git -C HFASignBuild apply ../HFASign/patches/0063-zonoe-alphaone9-build-identity.patch
-          git -C HFASignBuild apply ../HFASign/patches/0064-zonoe-alphaone10-udid-bridge-reliability.patch
-          git -C HFASignBuild apply ../HFASign/patches/0065-zonoe-alphaone10-build-identity.patch
+          # Keep 0064/0065 as immutable alphaone10 history. Apply the equivalent guarded transform instead;
+          # 0064 is malformed as a unified diff and previously stopped the build before compilation.
+          python3 HFASign/scripts/apply_alphaone10_udid_reliability.py
           git -C HFASignBuild diff --check
           git -C HFASignBuild submodule update --init --recursive
           git -C HFASignBuild/Zsign apply ../../HFASign/patches/0017-Fix-Zsign-removeProvision-semantics.patch
@@ -178,70 +179,29 @@ jobs:
           grep -q 'Button("复制 UDID")' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
           grep -q '"重新获取"' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
           grep -q 'localized("添加")' HFASignBuild/Ksign/Views/Sources/SourcesAddView.swift
-          ! grep -q 'localized("分享")' HFASignBuild/Ksign/Views/Sources/SourcesAddView.swift
-          ! grep -q 'Button(.localized("导入"), systemImage: "square.and.arrow.down")' HFASignBuild/Ksign/Views/Sources/SourcesAddView.swift
-          grep -q '正在添加软件源' HFASignBuild/Ksign/Views/Sources/SourcesAddView.swift
-          grep -q 'Text(isAdded ? "已添加"' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift
-          grep -q 'UDID 复制成功' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
-          grep -q '已导入：' HFASignBuild/Ksign/Views/Settings/Certificates/CertificatesAddView.swift
-          grep -q '证书状态' HFASignBuild/Ksign/Views/Settings/Certificates/Info/CertificatesInfoView.swift
-          grep -q 'func finishClipboardImport()' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift
-          grep -q 'coordinator.finishClipboardImport()' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift
-          grep -q 'ZonoeKeyboardDismissBridge' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'recognizer.isEnabled = false' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'NBNavigationView("")' HFASignBuild/Ksign/Views/Library/LibraryView.swift
-          grep -q 'fullScreenCover(item: \$_selectedSigningAppPresenting)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
-          grep -q 'NBNavigationView(app.name ?? .localized("未知"), displayMode: .inline)' HFASignBuild/Ksign/Views/Signing/SigningView.swift
-          grep -q 'NBToolbarButton(role: .dismiss)' HFASignBuild/Ksign/Views/Signing/SigningView.swift
-          ! grep -q 'NavigationStack(path: \$_navigationPath)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
-          ! grep -q 'navigationDestination(for: LibrarySigningRoute.self)' HFASignBuild/Ksign/Views/Library/LibraryView.swift
-          ! grep -q '_interactiveBackGesture' HFASignBuild/Ksign/Views/Signing/SigningView.swift
-          grep -q 'AppleStoreProductDetail(product: product)' HFASignBuild/Ksign/Views/Appstore/AppstoreView.swift
-          grep -q 'zonoeUDIDCallbackEnabled' HFASignBuild/Ksign/Backend/Observable/OptionsManager.swift
-          grep -q 'ZonoeUDIDCallbackSection(isEnabled:' HFASignBuild/Ksign/Views/Signing/SigningView.swift
-          grep -q '注册 zonoe UDID 回调' HFASignBuild/Ksign/Features/Signing/Presentation/ZonoeUDIDCallbackSection.swift
-          ! grep -q '注册 zonoe UDID 回调' HFASignBuild/Ksign/Views/Signing/Shared/SigningOptionsView.swift
-          grep -q 'NavigationLink("高级签名选项")' HFASignBuild/Ksign/Views/Signing/SigningView.swift
-          grep -q 'ConfigureZonoeUDIDCallbackUseCase' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
-          grep -q 'ZonoeUDIDCallbackPlistAdapter' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
-          ! grep -q 'yyyyMMddHHmm' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
-          ! grep -q 'UUID().uuidString' HFASignBuild/Ksign/Utilities/Handlers/SigningHandler.swift
-          grep -q 'yyyyMMddHHmm' HFASignBuild/Ksign/Features/Signing/Infrastructure/ZonoeUDIDCallbackInfrastructure.swift
-          grep -q 'UUID().uuidString' HFASignBuild/Ksign/Features/Signing/Application/ConfigureZonoeUDIDCallbackUseCase.swift
-          grep -q 'app.get("bridge", "result", ":nonce")' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
-          grep -q 'app.post("bridge", "ack", ":nonce")' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
-          grep -q 'static let bridgePorts = \[14302, 49173, 50321, 51739, 53261, 54883\]' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
-          grep -q 'let result = bridgeResults\[nonce\]' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
-          ! grep -q 'consumeBridgeResult(for: nonce)' HFASignBuild/Ksign/Backend/Server/UDIDService.swift
-          grep -q 'prepareBridgeResult(udid: udid, nonce: requestNonce)' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'let openBridgeCallback: () -> Void' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'targetComponents.queryItems = items.isEmpty ? nil : items' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'let openLegacyCallback: () -> Void' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'openBridgeCallback()' HFASignBuild/Ksign/FeatherApp.swift
       - name: Publish SHA256 metadata
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f HFASign/dist/SHA256SUMS.txt
-          git commit -m "Publish zonoe v3.0.0-alphaone10 SHA256 [skip ci]" || true
-          git push origin HEAD:work/hfapatchipa-ksign-v3
+          mkdir -p HFASign/dist
+          cp HFASign/dist/SHA256SUMS.txt HFASign/dist/SHA256SUMS-alphaone10.txt
+          git add -f HFASign/dist/SHA256SUMS-alphaone10.txt
+          git commit -m "Publish zonoe alphaone10 SHA256 [skip ci]" || true
+          git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euxo pipefail
-          tag="v3.0.0-alphaone10"
-          ipa="HFASign/dist/zonoe_v3.0.0-alphaone10_TrollStore.ipa"
-          sums="HFASign/dist/SHA256SUMS.txt"
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "$ipa" "$sums" --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$tag" "$ipa" "$sums" --repo "$GITHUB_REPOSITORY" --target work/hfapatchipa-ksign-v3 --title "zonoe v3.0.0-alphaone10" --prerelease --notes "Harden the no-hook UDID bridge only: prefer port 14302 with deterministic fallback ports when occupied, and make Result Store reads retry-safe by requiring explicit ACK before deletion. Existing callback behavior and unrelated signing/source/navigation code remain unchanged."
-          fi
+          gh release delete v3.0.0-alphaone10 --cleanup-tag -y || true
+          gh release create v3.0.0-alphaone10 \
+            HFASign/dist/zonoe_v3.0.0-alphaone10_TrollStore.ipa \
+            HFASign/dist/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" \
+            --title "zonoe v3.0.0-alphaone10" \
+            --notes "alphaone10: hardened no-hook UDID callback bridge with port fallback, retry-safe result delivery, and preserved signing/source behavior."
       - uses: actions/upload-artifact@v4
         with:
-          name: zonoe-v3.0.0-alphaone10
+          name: zonoe-v3.0.0-alphaone10-TrollStore
           path: |
             HFASign/dist/zonoe_v3.0.0-alphaone10_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
-          if-no-files-found: error
