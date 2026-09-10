@@ -70,6 +70,24 @@ old = 'if(ident[0]&&strstr(vcn,"Block"))HFARegisterCustomBlock(v,ident);'
 new = 'if(ident[0]&&strstr(vcn,"Block"))logf("        [PATCH-ONLY-BLOCK-SKIP] identifier=%s\\n",ident);'
 l = replace_once(l, old, new, "disable menu block hooking")
 
+# 9) The disabled legacy/native helpers are intentionally retained for source
+# history and possible future reactivation. Mark only those now-unreferenced
+# entry points as unused so the project's -Werror policy still passes.
+unused_helpers = [
+    ('static void HFANativeImageAdded(',
+     'static __attribute__((unused)) void HFANativeImageAdded('),
+    ('static unsigned HFAInstallDynamicRegistrationHooks(',
+     'static __attribute__((unused)) unsigned HFAInstallDynamicRegistrationHooks('),
+    ('static void HFAPrepareNativeHooksForPackageExport(',
+     'static __attribute__((unused)) void HFAPrepareNativeHooksForPackageExport('),
+    ('static unsigned HFAAppendNativeHookPackageFeatures(',
+     'static __attribute__((unused)) unsigned HFAAppendNativeHookPackageFeatures('),
+    ('static void HFALogMenuSemanticSummary(',
+     'static __attribute__((unused)) void HFALogMenuSemanticSummary('),
+]
+for old_sig, new_sig in unused_helpers:
+    s = replace_once(s, old_sig, new_sig, f"mark unused helper {old_sig}")
+
 # Version marker in the lightweight UI/logger.
 old = '[HFALearn UI v1.9.20 MenuSemanticSummary] loaded'
 new = '[HFALearn UI v1.9.21 PatchOnlyImmediateExport] loaded'
