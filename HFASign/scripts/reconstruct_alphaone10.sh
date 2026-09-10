@@ -28,9 +28,10 @@ done < "${SERIES_FILE}"
 
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone10_udid_reliability.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone10_udid_fixed_port_hotfix.py"
+python3 "${HFASIGN_DIR}/scripts/apply_alphaone11_source_notice_urlscheme.py"
 
 git -C "${BUILD_DIR}" diff --check
 git -C "${BUILD_DIR}" submodule update --init --recursive
 git -C "${BUILD_DIR}/Zsign" apply "${HFASIGN_DIR}/patches/0017-Fix-Zsign-removeProvision-semantics.patch"
 
-echo "Reconstructed zonoe v3.0.0-alphaone10 from canonical patch series + fixed-port UDID hotfix"
+echo "Reconstructed zonoe v3.0.0-alphaone11 from frozen alphaone10 baseline + additive feature transform"
