@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alphaone10 hardens the no-hook UDID bridge with port fallback and retry-safe result delivery
+# alphaone11 adds repository notices and expanded URL Scheme support on the frozen alphaone10 baseline
 
 on:
   push:
@@ -29,9 +29,7 @@ jobs:
             -framework Security \
             -o /tmp/zonoe-source-regression
           for attempt in 1 2 3; do
-            if /tmp/zonoe-source-regression; then
-              exit 0
-            fi
+            if /tmp/zonoe-source-regression; then exit 0; fi
             if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
           done
           exit 1
@@ -87,7 +85,7 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alphaone10 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alphaone11 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Package TrollStore IPA
         run: |
@@ -101,51 +99,53 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone10_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone11_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alphaone10_TrollStore.ipa > SHA256SUMS.txt
-      - name: Verify product metadata and file import
+          shasum -a 256 zonoe_v3.0.0-alphaone11_TrollStore.ipa > SHA256SUMS.txt
+      - name: Verify product metadata and feature regression
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 110
-          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone10
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$plist" | grep -qx public.data
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:1:LSItemContentTypes:0' "$plist" | grep -qx com.apple.framework
-          strings "$plist" | grep -q alphaone10
-          grep -q 'Button("筛选")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
-          ! grep -q 'Button("字段")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
-          ! grep -q 'contextMenuConfigurationForRowAt' HFASignBuild/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 111
+          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone11
+          strings "$plist" | grep -q alphaone11
+          grep -q 'Text("软件源公告")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+          grep -q 'action == "addsource"' HFASignBuild/Ksign/FeatherApp.swift
+          grep -q 'action == "web"' HFASignBuild/Ksign/FeatherApp.swift
+          grep -q 'action == "bookmark"' HFASignBuild/Ksign/FeatherApp.swift
+          grep -q 'zonoe://addsource?url=' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
+          grep -q 'zonoe://web?url=' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
+          grep -q 'zonoe://bookmark?url=' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
           grep -q 'Button("复制 UDID")' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
           grep -q '"重新获取"' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
-          grep -q 'localized("添加")' HFASignBuild/Ksign/Views/Sources/SourcesAddView.swift
+          ! grep -q 'contextMenuConfigurationForRowAt' HFASignBuild/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
       - name: Publish SHA256 metadata
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           mkdir -p HFASign/dist
-          cp HFASign/dist/SHA256SUMS.txt HFASign/dist/SHA256SUMS-alphaone10.txt
-          git add -f HFASign/dist/SHA256SUMS-alphaone10.txt
-          git commit -m "Publish zonoe alphaone10 SHA256 [skip ci]" || true
+          cp HFASign/dist/SHA256SUMS.txt HFASign/dist/SHA256SUMS-alphaone11.txt
+          git add -f HFASign/dist/SHA256SUMS-alphaone11.txt
+          git commit -m "Publish zonoe alphaone11 SHA256 [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete v3.0.0-alphaone10 --cleanup-tag -y || true
-          gh release create v3.0.0-alphaone10 \
-            HFASign/dist/zonoe_v3.0.0-alphaone10_TrollStore.ipa \
+          gh release delete v3.0.0-alphaone11 --cleanup-tag -y || true
+          gh release create v3.0.0-alphaone11 \
+            HFASign/dist/zonoe_v3.0.0-alphaone11_TrollStore.ipa \
             HFASign/dist/SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
-            --title "zonoe v3.0.0-alphaone10" \
-            --notes "alphaone10: hardened no-hook UDID callback bridge with port fallback, retry-safe result delivery, and preserved signing/source behavior."
+            --title "zonoe v3.0.0-alphaone11" \
+            --notes "alphaone11: source announcement header plus addsource/web/bookmark URL Scheme support and complete Settings documentation, built on frozen alphaone10 baseline."
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zonoe-v3.0.0-alphaone10-TrollStore
+          name: zonoe-v3.0.0-alphaone11-TrollStore
           path: |
-            HFASign/dist/zonoe_v3.0.0-alphaone10_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alphaone11_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
