@@ -142,8 +142,10 @@ jobs:
             --title "zonoe v3.0.0-alphaone10" \
             --notes "alphaone10: hardened no-hook UDID callback bridge with port fallback, retry-safe result delivery, and preserved signing/source behavior."
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: zonoe-v3.0.0-alphaone10-TrollStore
           path: |
             HFASign/dist/zonoe_v3.0.0-alphaone10_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
+          if-no-files-found: error
