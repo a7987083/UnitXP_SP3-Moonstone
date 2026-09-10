@@ -1,0 +1,32 @@
+{
+  "project": "zonoe / HFASign",
+  "repository": "a7987083/UnitXP_SP3-Moonstone",
+  "branch": "work/hfapatchipa-ksign-v3",
+  "version": "v3.0.0-alphaone10",
+  "stable_baseline": {
+    "source_commit": "1bfa241813e71aecebf5b7607a23c3c3f486e172",
+    "release_metadata_commit": "0015366ce891041f61c3fada9385b309346f14c9",
+    "workflow_run_id": 34473371221,
+    "workflow_run_number": 124,
+    "workflow_result": "success",
+    "ipa": "zonoe_v3.0.0-alphaone10_TrollStore.ipa",
+    "ipa_sha256": "09a6def300ddc3a9a332df31b41d60b8bb3d206f2522a8b63ee90f421ee7b403",
+    "user_validation": "current app confirmed usable as stable baseline"
+  },
+  "udid": {
+    "fixed_port": 14302,
+    "profile_url": "http://127.0.0.1:14302/profile.mobileconfig",
+    "profile_service_callback": "http://127.0.0.1:14302/udid",
+    "result_endpoint": "http://127.0.0.1:14302/bridge/result/<nonce>",
+    "ack_endpoint": "POST /bridge/ack/<nonce>",
+    "retry_safe_result_store": true,
+    "dynamic_fallback_ports": false
+  },
+  "policy": {
+    "historical_patches_immutable": true,
+    "no_unnecessary_refactor": true,
+    "regression_compare_baseline_first": true,
+    "minimal_risk_changes": true
+  },
+  "next_task": "Wait for a concrete new feature or regression request; do not refactor stable behavior by default."
+}
