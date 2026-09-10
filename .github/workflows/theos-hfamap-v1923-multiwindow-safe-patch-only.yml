@@ -1,0 +1,212 @@
+name: HFAMapUniversal v1.9.23 MultiWindowSafePatchOnly
+
+on:
+  push:
+    branches:
+      - feature/hfamap-v1923-multiwindow-safe-patch-only
+    paths:
+      - 'hfamap/**'
+      - '.github/scripts/hfamap_v189_patch.py'
+      - '.github/scripts/hfamap_v192_patch.py'
+      - '.github/scripts/hfamap_v193_patch.py'
+      - '.github/scripts/hfamap_v194_patch.py'
+      - '.github/scripts/hfamap_v195_patch.py'
+      - '.github/scripts/hfamap_v196_patch.py'
+      - '.github/scripts/hfamap_v197_patch.py'
+      - '.github/scripts/hfamap_v198_patch.py'
+      - '.github/scripts/hfamap_v199_patch.py'
+      - '.github/scripts/hfamap_v1910_patch.py'
+      - '.github/scripts/hfamap_v1911_patch.py'
+      - '.github/scripts/hfamap_v1912_patch.py'
+      - '.github/scripts/hfamap_v1913_patch.py'
+      - '.github/scripts/hfamap_v1914_patch.py'
+      - '.github/scripts/hfamap_v1915_patch.py'
+      - '.github/scripts/hfamap_v1916_redo_patch.py'
+      - '.github/scripts/hfamap_v1918_redo_patch.py'
+      - '.github/scripts/hfamap_v1920_menu_patch.py'
+      - '.github/scripts/hfamap_v1921_patch_only.py'
+      - '.github/scripts/hfamap_v1922_safe_menu_patch_only.py'
+      - '.github/scripts/hfamap_v1923_multiwindow_safe_patch_only.py'
+      - '.github/workflows/theos-hfamap-v1923-multiwindow-safe-patch-only.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Apply v1.9.23 MultiWindowSafePatchOnly
+        run: |
+          python3 .github/scripts/hfamap_v189_patch.py
+          python3 .github/scripts/hfamap_v192_patch.py
+          python3 .github/scripts/hfamap_v193_patch.py
+          python3 .github/scripts/hfamap_v194_patch.py
+          python3 .github/scripts/hfamap_v195_patch.py
+          python3 .github/scripts/hfamap_v196_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          old_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        HFAResolveDynamicRegistrationCandidates(identifier, type);\n        return;\n'''
+          new_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        return;\n'''
+          if s.count(old_feature)!=1: raise SystemExit(f'normalize feature type expected 1, got {s.count(old_feature)}')
+          s=s.replace(old_feature,new_feature,1)
+          old_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.6 CustomSwitchBuiltinDispatchProbe] loaded\\n");\n    HFAInstallDynamicRegistrationHooks();\n}\n'''
+          new_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.6 CustomSwitchBuiltinDispatchProbe] loaded\\n");\n}\n'''
+          if s.count(old_ctor)!=1: raise SystemExit(f'normalize constructor expected 1, got {s.count(old_ctor)}')
+          p.write_text(s.replace(old_ctor,new_ctor,1))
+          PY
+          python3 .github/scripts/hfamap_v197_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          old_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        if (strcmp(type, "customSwitch") == 0)\n            HFAAssociateNativeHookWithCustomSwitch(identifier);\n        return;\n'''
+          new_feature='''        snprintf(definition->type, sizeof(definition->type), "%s", type);\n        HFAResolveDynamicRegistrationCandidates(identifier, type);\n        if (strcmp(type, "customSwitch") == 0)\n            HFAAssociateNativeHookWithCustomSwitch(identifier);\n        return;\n'''
+          if s.count(old_feature)!=1: raise SystemExit(f'restore feature type expected 1, got {s.count(old_feature)}')
+          s=s.replace(old_feature,new_feature,1)
+          old_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.7 CustomSwitchNativeHookProbe] loaded\\n");\n    _dyld_register_func_for_add_image(HFANativeImageAdded);\n}\n'''
+          new_ctor='''__attribute__((constructor)) static void HFAInit(void) {\n    HFALog("[HFALearn v1.9.7 CustomSwitchNativeHookProbe] loaded\\n");\n    _dyld_register_func_for_add_image(HFANativeImageAdded);\n    HFAInstallDynamicRegistrationHooks();\n}\n'''
+          if s.count(old_ctor)!=1: raise SystemExit(f'restore constructor expected 1, got {s.count(old_ctor)}')
+          p.write_text(s.replace(old_ctor,new_ctor,1))
+          PY
+          python3 .github/scripts/hfamap_v198_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          anchor='''static int64_t HFAStaticSignExtend(uint64_t value, unsigned bits) {\n'''
+          prototypes='''static int HFAReadable(uintptr_t address, size_t length);\nstatic uintptr_t HFAStripCodePointer(uintptr_t value);\nstatic uintptr_t HFAResolveTrampoline(uintptr_t original);\n\n'''
+          if s.count(anchor)!=1: raise SystemExit(f'prototype anchor expected 1, got {s.count(anchor)}')
+          p.write_text(s.replace(anchor,prototypes+anchor,1))
+          PY
+          python3 .github/scripts/hfamap_v199_patch.py
+          python3 .github/scripts/hfamap_v1910_patch.py
+          python3 .github/scripts/hfamap_v1911_patch.py
+          python3 .github/scripts/hfamap_v1912_patch.py
+          python3 .github/scripts/hfamap_v1913_patch.py
+          python3 .github/scripts/hfamap_v1914_patch.py
+          python3 .github/scripts/hfamap_v1915_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('hfamap/src/HFAMapPatchExecutionTrace.m')
+          s=p.read_text()
+          old='#import <mach-o/loader.h>\n'
+          new='#import <mach-o/loader.h>\n#import <mach-o/nlist.h>\n'
+          if old not in s: raise SystemExit('mach-o loader include anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+          python3 .github/scripts/hfamap_v1916_redo_patch.py
+          python3 .github/scripts/hfamap_v1918_redo_patch.py
+          python3 .github/scripts/hfamap_v1920_menu_patch.py
+          python3 .github/scripts/hfamap_v1921_patch_only.py
+          python3 .github/scripts/hfamap_v1922_safe_menu_patch_only.py
+          python3 .github/scripts/hfamap_v1923_multiwindow_safe_patch_only.py
+
+          git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+
+          grep -q 'HFALearn v1.9.23 MultiWindowSafePatchOnly' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q 'HFALearn UI v1.9.23 MultiWindowSafePatchOnly' hfamap/src/HFAMapLegacy.m
+          grep -q '\[SAFE-MENU-WINDOWS\]' hfamap/src/HFAMapLegacy.m
+          grep -q 'mode=graph' hfamap/src/HFAMapLegacy.m
+          grep -q 'allValues' hfamap/src/HFAMapLegacy.m
+          grep -q 'hfa_scan_graph' hfamap/src/HFAMapLegacy.m
+          grep -q '\[SAFE-MENU-EXPORT-NOW\]' hfamap/src/HFAMapLegacy.m
+          grep -q 'reason=disabled-no-decrypt' hfamap/src/HFAMapPatchExecutionTrace.m
+
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('hfamap/src/HFAMapLegacy.m').read_text()
+          a=s.index('static void auto_target(id o){')
+          b=s.index('static void auto_view(id v,int depth){', a)
+          target=s[a:b]
+          assert '_ivarDescription' not in target
+          assert '_methodDescription' not in target
+
+          g=s.index('static void hfa_scan_graph(')
+          h=s.index('static int hfa_scan_menu_target(', g)
+          graph=s[g:h]
+          assert 'allValues' in graph
+          assert 'object_getIvar' in graph
+          assert 'depth>5' in graph
+          assert 'gSafeVisited' in s
+
+          r=s.index('static unsigned int run_full_scan(void){')
+          e=s.index('static void hooksend', r)
+          scan=s[r:e]
+          assert 'keyWindow' in scan
+          assert 'windows' in scan
+          assert 'for(u64 i=0;i<n&&!gAutoMenuFound;i++)' in scan
+          assert 'w==gWindow' in scan
+          assert 'SAFE-MENU-EXPORT-NOW' in scan
+
+          tick=s[s.index('static void tick('):s.index('static void tap(', s.index('static void tick('))]
+          assert 'tryhook();' not in tick
+          print('v1.9.23 source safety/behavior checks passed')
+          PY
+
+          if grep -Fq 'HFAProbeKey2Path((uintptr_t)getter);' hfamap/src/HFAMapPatchExecutionTrace.m; then
+            echo 'ERROR: live Key2PathProbe call still present'
+            exit 1
+          fi
+          if grep -Fq '_dyld_register_func_for_add_image(HFANativeImageAdded);' hfamap/src/HFAMapPatchExecutionTrace.m; then
+            echo 'ERROR: native image hook installer still active'
+            exit 1
+          fi
+          if grep -Fq '    HFAInstallDynamicRegistrationHooks();' hfamap/src/HFAMapPatchExecutionTrace.m; then
+            echo 'ERROR: process-wide dynamic registration hook still active'
+            exit 1
+          fi
+          if grep -Fq 'HFAAppendNativeHookPackageFeatures(exportFeatures, exportTargets)' hfamap/src/HFAMapPatchExecutionTrace.m; then
+            echo 'ERROR: native hook package append still active'
+            exit 1
+          fi
+
+      - name: Build and verify HFAMapUniversal v1.9.23
+        run: |
+          cd hfamap
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/HFAMapUniversal_v1.9.23_MultiWindowSafePatchOnly.dylib"
+          cp .theos/obj/HFAMapUniversal.dylib "$out"
+          file "$out"
+          shasum -a 256 "$out" | tee dist/SHA256_v1.9.23.txt
+          strings "$out" | grep -q "HFALearn v1.9.23 MultiWindowSafePatchOnly"
+          strings "$out" | grep -q "HFALearn UI v1.9.23 MultiWindowSafePatchOnly"
+          strings "$out" | grep -q "\[PATCH-ONLY-MODE\]"
+          strings "$out" | grep -q "\[PATCH-ONLY-KEY2-SKIP\]"
+          strings "$out" | grep -q "\[SAFE-MENU-WINDOWS\]"
+          strings "$out" | grep -q "\[SAFE-MENU-CANDIDATE\]"
+          strings "$out" | grep -q "\[SAFE-MENU-FOUND\]"
+          strings "$out" | grep -q "\[SAFE-MENU-EXPORT-NOW\]"
+          strings "$out" | grep -q "\[PATCH-ONLY-EXPORT-BEGIN\]"
+          strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
+
+      - name: Publish raw dylib
+        run: |
+          git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f hfamap/dist/HFAMapUniversal_v1.9.23_MultiWindowSafePatchOnly.dylib hfamap/dist/SHA256_v1.9.23.txt
+          git commit -m "Publish HFAMapUniversal v1.9.23 dylib [skip ci]" || exit 0
+          git push origin HEAD:feature/hfamap-v1923-multiwindow-safe-patch-only
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: HFAMapUniversal-v1.9.23-MultiWindowSafePatchOnly
+          path: |
+            hfamap/dist/HFAMapUniversal_v1.9.23_MultiWindowSafePatchOnly.dylib
+            hfamap/dist/SHA256_v1.9.23.txt
+          if-no-files-found: error
