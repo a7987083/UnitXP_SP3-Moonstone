@@ -95,42 +95,54 @@ jobs:
           python3 .github/scripts/hfamap_v1914_patch.py
           python3 .github/scripts/hfamap_v1924_dual_iosgods_probe.py
           cp hfamap/src/HFAMapPatchExecutionTrace.m /tmp/HFAMapPatchExecutionTrace.before1925.m
+          cp hfamap/src/HFAMapLegacy.m /tmp/HFAMapLegacy.before1925.m
           python3 .github/scripts/hfamap_v1925_dual_json_export.py
           git diff --check -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
 
-      - name: Verify legacy exporter is behavior-identical
+      - name: Verify legacy JSON path remains unchanged
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          def extract_function(text, signature):
+              start=text.index(signature)
+              brace=text.index('{', start)
+              depth=0
+              for i in range(brace, len(text)):
+                  if text[i]=='{': depth+=1
+                  elif text[i]=='}':
+                      depth-=1
+                      if depth==0:
+                          return text[start:i+1]
+              raise RuntimeError(signature)
           before=Path('/tmp/HFAMapPatchExecutionTrace.before1925.m').read_text()
           after=Path('hfamap/src/HFAMapPatchExecutionTrace.m').read_text()
-          after=after.replace('[HFALearn v1.9.25 DualIOSGodsJSONExport] loaded',
-                              '[HFALearn v1.9.24 DualIOSGodsAdapterProbe] loaded')
-          if after != before:
-              raise SystemExit('v1.9.25 changed legacy core beyond version marker')
-          print('legacy core/exporter unchanged except version marker')
+          sig='static void HFAWritePatchPackage(NSArray *features, NSDictionary *targets)'
+          if extract_function(before,sig) != extract_function(after,sig):
+              raise SystemExit('legacy HFAWritePatchPackage changed')
+          print('legacy HFAWritePatchPackage is byte-identical')
           PY
-          grep -q 'com.hfa.patch/v1' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q '@"schema": @"com.hfa.patch/v1"' hfamap/src/HFAMapPatchExecutionTrace.m
           grep -q '\[FULL-MAPPING\]' hfamap/src/HFAMapPatchExecutionTrace.m
           grep -q '\[PACKAGE-EXPORT\]' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q 'HFAWritePatchPackage(exportFeatures, exportTargets);' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q 'if (!validParts && gPendingIGMMFeatures.count)' hfamap/src/HFAMapPatchExecutionTrace.m
           grep -q 'UIBetterScrollView' hfamap/src/HFAMapLegacy.m
           grep -q 'IGSecretInt' hfamap/src/HFAMapLegacy.m
           grep -q 'IGSecretData' hfamap/src/HFAMapLegacy.m
 
-      - name: Verify iGMM 4-item JSON exporter invariants
+      - name: Verify iGMM JSON exporter invariants
         run: |
+          grep -q 'HFALearn v1.9.25 DualIOSGodsJSONExport' hfamap/src/HFAMapPatchExecutionTrace.m
           grep -q 'HFALearn UI v1.9.25 DualIOSGodsJSONExport' hfamap/src/HFAMapLegacy.m
-          grep -q '\[DUAL-IOSGODS-MODE\].*export=dual-json' hfamap/src/HFAMapLegacy.m
-          grep -q '\[IGMM-FEATURE-CAPTURE\]' hfamap/src/HFAMapLegacy.m
-          grep -q '\[IGMM-JSON-FEATURE\]' hfamap/src/HFAMapLegacy.m
-          grep -q '\[IGMM-PACKAGE-EXPORT\]' hfamap/src/HFAMapLegacy.m
-          grep -q '\[DUAL-JSON-RESULT\]' hfamap/src/HFAMapLegacy.m
-          grep -q 'kButtonTapHandler' hfamap/src/HFAMapLegacy.m
-          grep -q 'kTypeButton' hfamap/src/HFAMapLegacy.m
-          grep -q 'customSwitch' hfamap/src/HFAMapLegacy.m
-          grep -q 'modtext' hfamap/src/HFAMapLegacy.m
-          grep -q '"patches"' hfamap/src/HFAMapLegacy.m
-          grep -q 'runtime-config' hfamap/src/HFAMapLegacy.m
+          grep -q '\[DUAL-IOSGODS-MODE\].*export=legacy-v1+igmm-v1' hfamap/src/HFAMapLegacy.m
+          grep -q '\[IGMM-FEATURE-ARRAY\]' hfamap/src/HFAMapLegacy.m
+          grep -q 'HFARegisterIGMMFeatureArray' hfamap/src/HFAMapLegacy.m
+          grep -q '\[IGMM-REGISTER\]' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q '\[IGMM-PACKAGE-FEATURE\]' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q '\[IGMM-PACKAGE-EXPORT\]' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q 'kButtonTapHandler' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q 'runtime-definition' hfamap/src/HFAMapPatchExecutionTrace.m
+          grep -q '@"patches": @\[\]' hfamap/src/HFAMapPatchExecutionTrace.m
           if grep -q 'Damage Multiplier' hfamap/src/HFAMapLegacy.m; then exit 1; fi
           if grep -q 'Defence Multiplier' hfamap/src/HFAMapLegacy.m; then exit 1; fi
           if grep -q 'God Mode' hfamap/src/HFAMapLegacy.m; then exit 1; fi
@@ -149,10 +161,10 @@ jobs:
           strings "$out" | grep -q "HFALearn v1.9.25 DualIOSGodsJSONExport"
           strings "$out" | grep -q "HFALearn UI v1.9.25 DualIOSGodsJSONExport"
           strings "$out" | grep -q "\[DUAL-IOSGODS-MODE\]"
-          strings "$out" | grep -q "\[IGMM-FEATURE-CAPTURE\]"
-          strings "$out" | grep -q "\[IGMM-JSON-FEATURE\]"
+          strings "$out" | grep -q "\[IGMM-FEATURE-ARRAY\]"
+          strings "$out" | grep -q "\[IGMM-REGISTER\]"
+          strings "$out" | grep -q "\[IGMM-PACKAGE-FEATURE\]"
           strings "$out" | grep -q "\[IGMM-PACKAGE-EXPORT\]"
-          strings "$out" | grep -q "\[DUAL-JSON-RESULT\]"
           strings "$out" | grep -q "\[FULL-MAPPING\]"
           strings "$out" | grep -q "\[PACKAGE-EXPORT\]"
           ls -lh "$out"
