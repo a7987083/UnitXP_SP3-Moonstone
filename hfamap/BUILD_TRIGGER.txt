@@ -1,3 +1,4 @@
 Trigger HFAMapUniversal Theos build.
 
 Purpose: start GitHub Actions validation build.
+NVideo VIP Diagnostic v1 trigger: 2026-09-12.
