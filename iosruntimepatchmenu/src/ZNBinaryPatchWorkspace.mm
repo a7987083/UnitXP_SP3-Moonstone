@@ -74,7 +74,7 @@ static BOOL ZNW44RVA(NSString *text,uint64_t *out) {
     if(self.hasAnyApplied){if(error)*error=@"请先恢复当前临时 Patch";return NO;}
     NSArray<NSDictionary *> *items=[ZNPatchJSONImporter importFile:path error:error]; if(!items)return NO;
     NSMutableArray *rows=[NSMutableArray array]; NSMutableDictionary<NSString *,NSMutableArray<ZNBinaryPatchRow *> *> *sites=[NSMutableDictionary dictionary];
-    NSMutableSet *targets=[NSMutableSet set]; NSUInteger low=0;
+    NSMutableSet *targets=[NSMutableSet set]; NSUInteger low=0,shared=0;
     for(NSDictionary *item in items){
         ZNBinaryPatchRow *r=[ZNBinaryPatchRow new]; r.target=item[@"target"]?:@""; r.explicitTarget=r.target.length>0;
         r.offsetText=item[@"offset"]?:@""; r.enabledText=item[@"enabled"]?:@""; r.title=[item[@"title"] length]?item[@"title"]:[NSString stringWithFormat:@"Patch #%lu",(unsigned long)rows.count+1];
@@ -85,22 +85,43 @@ static BOOL ZNW44RVA(NSString *text,uint64_t *out) {
         if(!sites[site])sites[site]=[NSMutableArray array]; [sites[site] addObject:r];
     }
     [sites enumerateKeysAndObjectsUsingBlock:^(NSString *key,NSMutableArray<ZNBinaryPatchRow *> *bucket,BOOL *stop){
-        (void)key;(void)stop; if(bucket.count<=1)return; NSMutableSet *v=[NSMutableSet set]; for(ZNBinaryPatchRow *r in bucket)[v addObject:r.enabledText.uppercaseString?:@""];
-        if(v.count>1)for(ZNBinaryPatchRow *r in bucket){r.conflict=YES;r.statusText=@"⚠ 同一 Offset 存在多个 Enabled";}
+        (void)key;(void)stop; if(bucket.count<=1)return; shared++;
+        NSMutableSet *v=[NSMutableSet set]; for(ZNBinaryPatchRow *r in bucket)[v addObject:r.enabledText.uppercaseString?:@""];
+        NSString *status=v.count>1?@"↔ Shared Site：多个 Variant（生成时合并）":@"↔ Shared Site：重复 Variant（生成时合并）";
+        for(ZNBinaryPatchRow *r in bucket){r.conflict=NO;if(!r.lowConfidence)r.statusText=status;}
     }];
     self.rows=rows; [self ensureDefaultRows]; if(targets.count==1)self.defaultTarget=targets.anyObject; self.showJSONFiles=NO;
     NSString *rel=[path hasPrefix:NSHomeDirectory()]?[path substringFromIndex:NSHomeDirectory().length]:path.lastPathComponent;
-    self.lastStatus=[NSString stringWithFormat:@"已导入 %@ · Patch %lu · 候选 %lu · JSON original 已忽略",rel,(unsigned long)items.count,(unsigned long)low]; return YES;
+    self.lastStatus=[NSString stringWithFormat:@"已导入 %@ · Patch %lu · Shared Site %lu · 候选 %lu · JSON original 已忽略",rel,(unsigned long)items.count,(unsigned long)shared,(unsigned long)low]; return YES;
 }
 - (NSUInteger)filledCount { NSUInteger n=0;for(ZNBinaryPatchRow *r in self.rows)if(r.offsetText.length||r.enabledText.length)n++;return n; }
 - (NSUInteger)validatedCount { NSUInteger n=0;for(ZNBinaryPatchRow *r in self.rows)if(r.validated)n++;return n; }
 - (BOOL)hasAnyApplied { for(ZNBinaryPatchRow *r in self.rows)if(r.validator.isApplied)return YES;return NO; }
 
 - (void)znw44RecheckConflicts {
+    // Same Target + same starting RVA is no longer a conflict. Static Builder
+    // V2 merges those logical rows into one physical site and creates one
+    // variant per unique Enabled byte sequence. Different-start partial overlap
+    // is still rejected later by the Builder after exact byte lengths are known.
     NSMutableDictionary<NSString *,NSMutableArray<ZNBinaryPatchRow *> *> *sites=[NSMutableDictionary dictionary];
     for(ZNBinaryPatchRow *r in self.rows){r.conflict=NO;if(!r.offsetText.length&&!r.enabledText.length)continue;uint64_t v=0;if(!ZNW44RVA(r.offsetText,&v))continue;
         NSString *t=(r.explicitTarget&&r.target.length)?r.target:self.defaultTarget;NSString *key=[NSString stringWithFormat:@"%@|%llx",t.lowercaseString,v];if(!sites[key])sites[key]=[NSMutableArray array];[sites[key] addObject:r];}
-    [sites enumerateKeysAndObjectsUsingBlock:^(NSString *key,NSMutableArray<ZNBinaryPatchRow *> *bucket,BOOL *stop){(void)key;(void)stop;if(bucket.count<=1)return;for(ZNBinaryPatchRow *r in bucket){r.conflict=YES;r.validated=NO;r.statusText=@"❌ 同一 Target + Offset 重复/冲突";}}];
+    [sites enumerateKeysAndObjectsUsingBlock:^(NSString *key,NSMutableArray<ZNBinaryPatchRow *> *bucket,BOOL *stop){(void)key;(void)stop;if(bucket.count<=1)return;
+        NSMutableSet *variants=[NSMutableSet set];for(ZNBinaryPatchRow *r in bucket)[variants addObject:r.enabledText.uppercaseString?:@""];
+        NSString *s=variants.count>1?@"↔ Shared Site：多个 Variant":@"↔ Shared Site：重复 Variant";
+        for(ZNBinaryPatchRow *r in bucket)if(!r.validated)r.statusText=s;
+    }];
+}
+
+- (BOOL)znw44HasSharedSite {
+    NSMutableSet<NSString *> *seen=[NSMutableSet set];
+    for(ZNBinaryPatchRow *r in self.rows){
+        if(!r.offsetText.length&&!r.enabledText.length)continue;uint64_t v=0;if(!ZNW44RVA(r.offsetText,&v))continue;
+        NSString *t=(r.explicitTarget&&r.target.length)?r.target:self.defaultTarget;
+        NSString *key=[NSString stringWithFormat:@"%@|%llx",t.lowercaseString,v];
+        if([seen containsObject:key])return YES;[seen addObject:key];
+    }
+    return NO;
 }
 
 - (BOOL)validateAll:(NSString **)error {
@@ -114,12 +135,13 @@ static BOOL ZNW44RVA(NSString *text,uint64_t *out) {
         if(![v configureTarget:t offsetString:r.offsetText patchHex:r.enabledText error:&e]||![v validate:&e]){r.validated=NO;r.validator=nil;r.originalHex=@"";r.statusText=[NSString stringWithFormat:@"❌ %@",e?:@"验证失败"];fail++;if(!first)first=[NSString stringWithFormat:@"#%lu %@",(unsigned long)i+1,e?:@"验证失败"];continue;}
         r.validator=v;r.validated=YES;r.offsetText=[NSString stringWithFormat:@"0x%llX",v.rva];r.enabledText=ZNW44Hex(v.patchBytes);r.originalHex=ZNW44Hex(v.capturedOriginalBytes);r.statusText=r.lowConfidence?@"✅ 已验证（候选确认）":@"✅ 已验证";ok++;
     }
-    if(!filled){self.lastStatus=@"没有填写 Patch";if(error)*error=self.lastStatus;return NO;} self.lastStatus=[NSString stringWithFormat:@"读取验证：%lu/%lu 成功%@",(unsigned long)ok,(unsigned long)filled,fail?[NSString stringWithFormat:@" · %lu 失败",(unsigned long)fail]:@""];
+    if(!filled){self.lastStatus=@"没有填写 Patch";if(error)*error=self.lastStatus;return NO;} self.lastStatus=[NSString stringWithFormat:@"读取验证：%lu/%lu 成功%@%@",(unsigned long)ok,(unsigned long)filled,fail?[NSString stringWithFormat:@" · %lu 失败",(unsigned long)fail]:@"",[self znw44HasSharedSite]?@" · Shared Site 已识别":@""];
     if(fail){if(error)*error=first?:@"存在验证失败项";return NO;}return YES;
 }
 
 - (BOOL)applyAll:(NSString **)error {
     if(!self.filledCount){if(error)*error=@"没有填写 Patch";return NO;} if(self.hasAnyApplied){if(error)*error=@"当前已有临时 Patch，请先恢复";return NO;}
+    if([self znw44HasSharedSite]){if(error)*error=@"包含 Shared Site：临时 Runtime Patch 不模拟多 Variant，请直接“生成新二进制”后测试";self.lastStatus=@"Shared Site 已验证；请生成二进制测试 Owner Stack";return NO;}
     NSMutableArray<ZNBinaryPatchRow *> *done=[NSMutableArray array];
     for(NSUInteger i=0;i<self.rows.count;i++){
         ZNBinaryPatchRow *r=self.rows[i];if(!r.offsetText.length&&!r.enabledText.length)continue;if(!r.validated||!r.validator){if(error)*error=[NSString stringWithFormat:@"#%lu 尚未通过读取验证",(unsigned long)i+1];return NO;}
