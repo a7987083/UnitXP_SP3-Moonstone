@@ -135,18 +135,40 @@ struct URLSchemeView: View {
 ''')
 
 # 4) Downloads page: put 下载设置 immediately before the existing + action.
+# Locate the toolbar containing the existing plus button instead of depending on
+# whitespace/localization changed by the historical patch stack.
 downloader_path = ROOT / "Ksign/Views/Downloader/DownloaderView.swift"
 downloader = downloader_path.read_text()
-toolbar_anchor = '''            .toolbar {\n                NBToolbarButton(\n'''
-toolbar_replacement = '''            .toolbar {\n                ToolbarItem(placement: .topBarTrailing) {\n                    NavigationLink {\n                        ZonoeDownloadSettingsView()\n                    } label: {\n                        Text("下载设置")\n                    }\n                }\n                NBToolbarButton(\n'''
-if downloader.count(toolbar_anchor) != 1:
-    raise SystemExit(f"alphaone12 downloader toolbar: expected one toolbar anchor, found {downloader.count(toolbar_anchor)}")
-downloader = downloader.replace(toolbar_anchor, toolbar_replacement, 1)
+plus_pos = downloader.find('systemImage: "plus"')
+if plus_pos < 0:
+    raise SystemExit("alphaone12 downloader toolbar: existing plus button not found")
+toolbar_pos = downloader.rfind(".toolbar {", 0, plus_pos)
+if toolbar_pos < 0:
+    raise SystemExit("alphaone12 downloader toolbar: toolbar containing plus button not found")
+line_end = downloader.find("\n", toolbar_pos)
+if line_end < 0:
+    raise SystemExit("alphaone12 downloader toolbar: malformed toolbar line")
+line_start = downloader.rfind("\n", 0, toolbar_pos) + 1
+indent = downloader[line_start:toolbar_pos]
+item_indent = indent + "    "
+body_indent = item_indent + "    "
+insert = (
+    f'{item_indent}ToolbarItem(placement: .topBarTrailing) {{\n'
+    f'{body_indent}NavigationLink {{\n'
+    f'{body_indent}    ZonoeDownloadSettingsView()\n'
+    f'{body_indent}}} label: {{\n'
+    f'{body_indent}    Text("下载设置")\n'
+    f'{body_indent}}}\n'
+    f'{item_indent}}}\n'
+)
+downloader = downloader[:line_end + 1] + insert + downloader[line_end + 1:]
 
-settings_anchor = "\n\n// MARK: - Alert & Sheet Content\n"
-settings_view = r'''
-
-private struct ZonoeDownloadSettingsView: View {
+settings_marker = "// MARK: - Alert & Sheet Content"
+settings_pos = downloader.find(settings_marker)
+if settings_pos < 0:
+    raise SystemExit("alphaone12 downloader settings insertion: marker not found")
+settings_line_start = downloader.rfind("\n", 0, settings_pos) + 1
+settings_view = r'''private struct ZonoeDownloadSettingsView: View {
     @AppStorage("zonoe.downloadAutoImport") private var autoImport = true
     @AppStorage("zonoe.downloadDeleteAfterImport") private var deleteAfterImport = true
     @AppStorage("zonoe.downloadRenameImport") private var renameImport = true
@@ -178,10 +200,9 @@ private struct ZonoeDownloadSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
+
 '''
-if downloader.count(settings_anchor) != 1:
-    raise SystemExit(f"alphaone12 downloader settings insertion: expected one marker, found {downloader.count(settings_anchor)}")
-downloader = downloader.replace(settings_anchor, settings_view + settings_anchor, 1)
+downloader = downloader[:settings_line_start] + settings_view + downloader[settings_line_start:]
 downloader_path.write_text(downloader)
 
 # 5) Make the three download settings functional for the direct IPA downloader.
