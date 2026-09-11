@@ -43,9 +43,13 @@ l = replace_once(
 
 # Legacy scanner calls this only after it has positively identified an array
 # whose every item is a {label, identifier, type} dictionary.
-old_decl = 'extern void HFAPatchTraceBeginEvent(unsigned int); extern void HFAPatchTraceSetFeature(const char*); extern void HFAPatchTraceConsiderString(const char*); extern void HFAPatchTraceSetTarget(const char*); extern void HFAPatchTraceSetIdentifier(const char*); extern void HFAPatchTraceObserveAction(id,SEL); extern void HFAPatchTraceArm(unsigned int); extern void HFAPatchTraceFinalizeEvent(unsigned int); extern unsigned int HFAPatchTraceFinalizeScan(void); extern const char* HFAPatchTraceDetectedTarget(void); extern void HFARegisterPatchObject(id,const char*); extern void HFARegisterPatchSecret(id,id,const char*); extern void HFARegisterPatchString(id,const char*); extern void HFARegisterFeatureDefinition(const char*,const char*); extern void HFARegisterCustomBlock(id,const char*);\n'
-new_decl = old_decl[:-1] + ' extern void HFARegisterIGMMFeatureArray(id,id);\n'
-l = replace_once(l, old_decl, new_decl, 'declare iGMM feature registration')
+macro_anchor = '#define M0(r,o,s) ((r(*)(id,SEL))objc_msgSend)((id)(o),sel_registerName(s))\n'
+l = replace_once(
+    l,
+    macro_anchor,
+    'extern void HFARegisterIGMMFeatureArray(id,id);\n' + macro_anchor,
+    'declare iGMM feature registration',
+)
 
 # Core: pending iGMM manifest + safe runtime metadata exporter. This is kept
 # separate from HFAWritePatchPackage so the proven legacy v1 package writer is
