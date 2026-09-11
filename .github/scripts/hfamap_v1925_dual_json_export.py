@@ -209,10 +209,12 @@ static void HFAWriteIGMMPackage(id menuTarget, NSArray *rawFeatures) {
 ''' + anchor
 s = replace_once(s, anchor, helper, 'insert iGMM package exporter')
 
-# Keep the original legacy package call exactly in place; only append an iGMM
-# fallback when the legacy scan produced zero valid ordinary mappings.
-old_finalize = '''    HFAWritePatchPackage(exportFeatures, exportTargets);\n    return validParts;\n}\n'''
-new_finalize = '''    HFAWritePatchPackage(exportFeatures, exportTargets);\n    if (!validParts && gPendingIGMMFeatures.count) {\n        HFAWriteIGMMPackage(gPendingIGMMMenuTarget, gPendingIGMMFeatures);\n        gPendingIGMMMenuTarget = nil;\n        gPendingIGMMFeatures = nil;\n    }\n    return validParts;\n}\n'''
+# Keep the original legacy package call exactly in place; append the iGMM
+# fallback immediately after that stable call. Later historical patch layers
+# may add native-hook packaging between the call and the return, so do not
+# anchor on the function tail.
+old_finalize = '    HFAWritePatchPackage(exportFeatures, exportTargets);\n'
+new_finalize = old_finalize + '''    if (!validParts && gPendingIGMMFeatures.count) {\n        HFAWriteIGMMPackage(gPendingIGMMMenuTarget, gPendingIGMMFeatures);\n        gPendingIGMMMenuTarget = nil;\n        gPendingIGMMFeatures = nil;\n    }\n'''
 s = replace_once(s, old_finalize, new_finalize, 'append iGMM fallback export')
 
 # Legacy side: locate the feature-definition array generically. Do not depend on
