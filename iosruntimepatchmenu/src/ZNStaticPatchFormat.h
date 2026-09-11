@@ -11,7 +11,10 @@
 #define ZN44_STATIC_MAGIC1 UINT64_C(0x3154495543524944) /* "DIRCUIT1" marker */
 #define ZN44_STATIC_VERSION_V1 1u
 #define ZN44_STATIC_VERSION_V2 2u
-#define ZN44_STATIC_VERSION ZN44_STATIC_VERSION_V2
+// Keep the legacy default on v1. ZNStaticBinaryBuilder.mm still uses this
+// alias for ordinary, non-shared projects. Shared-Site Builder V2 writes
+// ZN44_STATIC_VERSION_V2 explicitly.
+#define ZN44_STATIC_VERSION ZN44_STATIC_VERSION_V1
 #define ZN44_STATIC_MAX_ENTRIES 512u
 
 // V2 keeps the v1 entry ABI/size (128 bytes). The former 12-byte reserved tail
