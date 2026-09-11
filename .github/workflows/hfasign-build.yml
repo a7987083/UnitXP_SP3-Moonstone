@@ -1,5 +1,5 @@
 name: Build HFASign v3 alpha
-# alphaone11 adds repository notices and expanded URL Scheme support on the frozen alphaone10 baseline
+# alphaone12 fixes source announcements, removes bookmarks, adds download settings, and enables Cache Phase 2
 
 on:
   push:
@@ -15,11 +15,13 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
       - name: Prepare pinned Ksign source
         run: |
           set -euxo pipefail
           exec > >(tee HFASign/prepare.log) 2>&1
           bash HFASign/scripts/reconstruct_alphaone10.sh
+
       - name: Compute SwiftPM cache identity
         id: spm-cache-key
         run: |
@@ -30,6 +32,7 @@ jobs:
           echo "xcode=${xcode_identity}" >> "$GITHUB_OUTPUT"
           echo "sdk=${sdk_identity}" >> "$GITHUB_OUTPUT"
           echo "package=${package_hash}" >> "$GITHUB_OUTPUT"
+
       - name: Cache SwiftPM dependency downloads
         uses: actions/cache@v4
         with:
@@ -38,6 +41,7 @@ jobs:
             HFASignBuild/SourcePackages/repositories
             HFASignBuild/SourcePackages/artifacts
           key: spm-${{ runner.os }}-${{ runner.arch }}-ksign-03a3a9c86897d79f9faf8106037b9971841d56a0-${{ steps.spm-cache-key.outputs.xcode }}-${{ steps.spm-cache-key.outputs.sdk }}-${{ steps.spm-cache-key.outputs.package }}
+
       - name: Live source decoder regression
         run: |
           set -euxo pipefail
@@ -51,6 +55,7 @@ jobs:
             if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
           done
           exit 1
+
       - name: Signing clean architecture regression
         run: |
           set -euxo pipefail
@@ -61,6 +66,7 @@ jobs:
             HFASign/scripts/SigningArchitectureRegressionMain.swift \
             -o /tmp/zonoe-signing-architecture-regression
           /tmp/zonoe-signing-architecture-regression
+
       - name: Apply zonoe icon
         run: |
           curl -L --fail --retry 3 -o /tmp/zonoe-icon.png 'https://app.zonoeios.xyz/uploads/20220704/d042be36ab9f4c73f0c721bccc6ba6c9.png'
@@ -69,17 +75,66 @@ jobs:
           cp /tmp/zonoe-1024.png HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-default.png
           cp /tmp/zonoe-1024.png HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-trans.png
           cp /tmp/zonoe-1024.png 'HFASignBuild/Ksign/Resources/Assets.xcassets/AppIcon.appiconset/Ksign-trans 1.png'
+
       - name: Install packaging tools
         run: brew install ldid
+
       - name: Prepare installer assets
         working-directory: HFASignBuild
         run: make deps
+
       - name: Resolve packages
         run: |
           xcodebuild -resolvePackageDependencies -project HFASignBuild/Ksign.xcodeproj -scheme Ksign \
             -clonedSourcePackagesDirPath HFASignBuild/SourcePackages
           git -C HFASignBuild/SourcePackages/checkouts/ZIPFoundation apply \
             ../../../../HFASign/patches/0018-Fix-ZIPFoundation-filename-encoding.patch
+
+      - name: Compute Xcode build cache identity
+        id: xcode-build-cache-key
+        run: |
+          set -euo pipefail
+          source_hash="$(python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+
+          roots = [
+              Path("HFASignBuild/Ksign"),
+              Path("HFASignBuild/AltSourceKit"),
+              Path("HFASignBuild/Zsign"),
+              Path("HFASignBuild/deps"),
+              Path("HFASignBuild/Ksign.xcodeproj/project.pbxproj"),
+              Path("HFASignBuild/Ksign.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"),
+          ]
+          files = []
+          for root in roots:
+              if root.is_file():
+                  files.append(root)
+              elif root.is_dir():
+                  files.extend(path for path in root.rglob("*") if path.is_file() and "/.git/" not in path.as_posix())
+
+          digest = hashlib.sha256()
+          for path in sorted(files, key=lambda item: item.as_posix()):
+              digest.update(path.as_posix().encode("utf-8"))
+              digest.update(b"\0")
+              digest.update(path.read_bytes())
+              digest.update(b"\0")
+          print(digest.hexdigest())
+          PY
+          )"
+          echo "source=${source_hash}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Xcode build intermediates
+        uses: actions/cache@v4
+        with:
+          path: |
+            HFASignBuild/build/Build/Intermediates.noindex
+            HFASignBuild/build/ModuleCache.noindex
+            HFASignBuild/build/SDKStatCaches.noindex
+          key: xcode-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.spm-cache-key.outputs.xcode }}-${{ steps.spm-cache-key.outputs.sdk }}-${{ steps.spm-cache-key.outputs.package }}-${{ steps.xcode-build-cache-key.outputs.source }}
+          restore-keys: |
+            xcode-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.spm-cache-key.outputs.xcode }}-${{ steps.spm-cache-key.outputs.sdk }}-${{ steps.spm-cache-key.outputs.package }}-
+
       - name: Build unsigned app
         run: |
           set -o pipefail
@@ -88,6 +143,7 @@ jobs:
             -derivedDataPath HFASignBuild/build -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath HFASignBuild/SourcePackages \
             SWIFT_VERSION=5 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee HFASign/build.log
+
       - name: Publish build diagnostics
         if: failure()
         run: |
@@ -103,8 +159,9 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alphaone11 build diagnostics [skip ci]" || true
+          git commit -m "Publish zonoe alphaone12 build diagnostics [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
+
       - name: Package TrollStore IPA
         run: |
           app="HFASignBuild/build/Build/Products/Release-iphoneos/Ksign.app"
@@ -117,53 +174,67 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone11_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone12_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alphaone11_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alphaone12_TrollStore.ipa > SHA256SUMS.txt
+
       - name: Verify product metadata and feature regression
         run: |
           plist="HFASign/dist/stage/Payload/HFASign.app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 111
-          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone11
-          strings "$plist" | grep -q alphaone11
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 112
+          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone12
+          strings "$plist" | grep -q alphaone12
           grep -q 'Text("软件源公告")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+          grep -q 'name.contains("公告")' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+          grep -q 'app.versionDescription' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
           grep -q 'action == "addsource"' HFASignBuild/Ksign/FeatherApp.swift
           grep -q 'action == "web"' HFASignBuild/Ksign/FeatherApp.swift
-          grep -q 'action == "bookmark"' HFASignBuild/Ksign/FeatherApp.swift
+          ! grep -q 'action == "bookmark"' HFASignBuild/Ksign/FeatherApp.swift
           grep -q 'zonoe://addsource?url=' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
           grep -q 'zonoe://web?url=' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
-          grep -q 'zonoe://bookmark?url=' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
+          ! grep -q 'zonoe://bookmark?url=' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
+          ! grep -q 'zonoe.webBookmarks' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
+          grep -q 'Text("下载设置")' HFASignBuild/Ksign/Views/Downloader/DownloaderView.swift
+          grep -q 'Toggle("下载完成自动导入"' HFASignBuild/Ksign/Views/Downloader/DownloaderView.swift
+          grep -q 'Toggle("导入后自动删除"' HFASignBuild/Ksign/Views/Downloader/DownloaderView.swift
+          grep -q 'Toggle("改名导入"' HFASignBuild/Ksign/Views/Downloader/DownloaderView.swift
+          grep -q 'zonoe.downloadAutoImport' HFASignBuild/Ksign/Views/Downloader/ViewModels/IPADownloadManager.swift
+          grep -q 'zonoe.downloadDeleteAfterImport' HFASignBuild/Ksign/Views/Downloader/ViewModels/IPADownloadManager.swift
+          grep -q 'zonoe.downloadRenameImport' HFASignBuild/Ksign/Views/Downloader/ViewModels/IPADownloadManager.swift
           grep -q 'Button("复制 UDID")' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
           grep -q '"重新获取"' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
           ! grep -q 'contextMenuConfigurationForRowAt' HFASignBuild/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+
       - name: Publish SHA256 metadata
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           mkdir -p HFASign/dist
-          cp HFASign/dist/SHA256SUMS.txt HFASign/dist/SHA256SUMS-alphaone11.txt
-          git add -f HFASign/dist/SHA256SUMS-alphaone11.txt
-          git commit -m "Publish zonoe alphaone11 SHA256 [skip ci]" || true
+          cp HFASign/dist/SHA256SUMS.txt HFASign/dist/SHA256SUMS-alphaone12.txt
+          git add -f HFASign/dist/SHA256SUMS-alphaone12.txt
+          git commit -m "Publish zonoe alphaone12 SHA256 [skip ci]" || true
           git push origin HEAD:work/hfapatchipa-ksign-v3 || true
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete v3.0.0-alphaone11 --cleanup-tag -y || true
-          gh release create v3.0.0-alphaone11 \
-            HFASign/dist/zonoe_v3.0.0-alphaone11_TrollStore.ipa \
+          gh release delete v3.0.0-alphaone12 --cleanup-tag -y || true
+          gh release create v3.0.0-alphaone12 \
+            HFASign/dist/zonoe_v3.0.0-alphaone12_TrollStore.ipa \
             HFASign/dist/SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
-            --title "zonoe v3.0.0-alphaone11" \
-            --notes "alphaone11: source announcement header plus addsource/web/bookmark URL Scheme support and complete Settings documentation, built on frozen alphaone10 baseline."
+            --title "zonoe v3.0.0-alphaone12" \
+            --notes "alphaone12: show source announcements from explicit notice rows or repository metadata, remove bookmark URL Scheme/UI, add functional download settings, and add Phase 2 Xcode build-intermediate caching. Built on the frozen alphaone10 baseline."
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zonoe-v3.0.0-alphaone11-TrollStore
+          name: zonoe-v3.0.0-alphaone12-TrollStore
           path: |
-            HFASign/dist/zonoe_v3.0.0-alphaone11_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alphaone12_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
