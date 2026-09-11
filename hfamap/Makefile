@@ -5,7 +5,9 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = HFAMapUniversal
 
-HFAMapUniversal_FILES = src/HFAMapLegacy.m src/HFAMapPatchExecutionTrace.m src/HFAMapSecretCallGraphProbe.m src/HFANVideoVIPDiagnostic.m
+# fenpingvip: standalone HFAMapUniversal floating UI + NVideo VIP diagnostic.
+# Do not compile legacy Key Register / Auto Detect scanner UI here.
+HFAMapUniversal_FILES = src/HFAMapEntry.mm
 HFAMapUniversal_CFLAGS = -Oz -fno-stack-protector -fno-builtin -Wno-empty-body -fblocks
 HFAMapUniversal_FRAMEWORKS = UIKit Foundation QuartzCore
 
