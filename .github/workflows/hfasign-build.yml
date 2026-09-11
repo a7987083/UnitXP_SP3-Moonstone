@@ -20,6 +20,24 @@ jobs:
           set -euxo pipefail
           exec > >(tee HFASign/prepare.log) 2>&1
           bash HFASign/scripts/reconstruct_alphaone10.sh
+      - name: Compute SwiftPM cache identity
+        id: spm-cache-key
+        run: |
+          set -euo pipefail
+          xcode_identity="$(xcodebuild -version | shasum -a 256 | awk '{print $1}')"
+          sdk_identity="$(xcrun --sdk iphoneos --show-sdk-build-version | shasum -a 256 | awk '{print $1}')"
+          package_hash="$(shasum -a 256 HFASignBuild/Ksign.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved | awk '{print $1}')"
+          echo "xcode=${xcode_identity}" >> "$GITHUB_OUTPUT"
+          echo "sdk=${sdk_identity}" >> "$GITHUB_OUTPUT"
+          echo "package=${package_hash}" >> "$GITHUB_OUTPUT"
+      - name: Cache SwiftPM dependency downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            HFASignBuild/SourcePackages/repositories
+            HFASignBuild/SourcePackages/artifacts
+          key: spm-${{ runner.os }}-${{ runner.arch }}-ksign-03a3a9c86897d79f9faf8106037b9971841d56a0-${{ steps.spm-cache-key.outputs.xcode }}-${{ steps.spm-cache-key.outputs.sdk }}-${{ steps.spm-cache-key.outputs.package }}
       - name: Live source decoder regression
         run: |
           set -euxo pipefail
