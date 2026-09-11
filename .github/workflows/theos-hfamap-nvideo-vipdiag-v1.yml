@@ -114,13 +114,14 @@ jobs:
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
           shasum -a 256 "$out" | tee dist/SHA256_NVideoVIPDiagnostic_v1.txt
-          strings "$out" | grep -q "HFALearn v1.9.20 MenuSemanticSummary"
-          strings "$out" | grep -q "HFALearn UI v1.9.20 MenuSemanticSummary"
-          strings "$out" | grep -q "NVideo VIP Diagnostic"
-          strings "$out" | grep -q "\[VIP\]\[LOAD\]"
-          strings "$out" | grep -q "judgeOperationValid:completion:"
-          strings "$out" | grep -q "updateStatus:type:"
-          strings "$out" | grep -q "当前等级"
+          strings "$out" > dist/NVideoVIPDiagnostic_v1.strings
+          grep -Fq "HFALearn v1.9.20 MenuSemanticSummary" dist/NVideoVIPDiagnostic_v1.strings
+          grep -Fq "HFALearn UI v1.9.20 MenuSemanticSummary" dist/NVideoVIPDiagnostic_v1.strings
+          grep -Fq "NVideo VIP Diagnostic" dist/NVideoVIPDiagnostic_v1.strings
+          grep -Fq "[VIP][LOAD]" dist/NVideoVIPDiagnostic_v1.strings
+          grep -Fq "judgeOperationValid:completion:" dist/NVideoVIPDiagnostic_v1.strings
+          grep -Fq "updateStatus:type:" dist/NVideoVIPDiagnostic_v1.strings
+          grep -Fq "verifyCurrentStatus" dist/NVideoVIPDiagnostic_v1.strings
       - name: Publish raw dylib
         run: |
           git checkout -- hfamap/src/HFAMapPatchExecutionTrace.m hfamap/src/HFAMapLegacy.m
