@@ -201,7 +201,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
             NSString *target=canonical.validator.target;
             uint64_t rva=canonical.validator.rva;
             for(ZNBinaryPatchRow *r in bucket){
-                if(![r.validator.target caseInsensitiveCompare:target]==NSOrderedSame || r.validator.rva!=rva){
+                if([r.validator.target caseInsensitiveCompare:target]!=NSOrderedSame || r.validator.rva!=rva){
                     failure=@"Shared Site Target/RVA 不一致"; failureRows=bucket; break;
                 }
                 NSData *rowOriginal=r.validator.capturedOriginalBytes;
