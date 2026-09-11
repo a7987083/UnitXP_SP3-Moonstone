@@ -74,7 +74,7 @@ static BOOL ZNW44RVA(NSString *text,uint64_t *out) {
     if(self.hasAnyApplied){if(error)*error=@"请先恢复当前临时 Patch";return NO;}
     NSArray<NSDictionary *> *items=[ZNPatchJSONImporter importFile:path error:error]; if(!items)return NO;
     NSMutableArray *rows=[NSMutableArray array]; NSMutableDictionary<NSString *,NSMutableArray<ZNBinaryPatchRow *> *> *sites=[NSMutableDictionary dictionary];
-    NSMutableSet *targets=[NSMutableSet set]; NSUInteger low=0,shared=0;
+    NSMutableSet *targets=[NSMutableSet set]; NSUInteger low=0; __block NSUInteger shared=0;
     for(NSDictionary *item in items){
         ZNBinaryPatchRow *r=[ZNBinaryPatchRow new]; r.target=item[@"target"]?:@""; r.explicitTarget=r.target.length>0;
         r.offsetText=item[@"offset"]?:@""; r.enabledText=item[@"enabled"]?:@""; r.title=[item[@"title"] length]?item[@"title"]:[NSString stringWithFormat:@"Patch #%lu",(unsigned long)rows.count+1];
