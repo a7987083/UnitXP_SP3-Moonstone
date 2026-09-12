@@ -1,5 +1,5 @@
 // Zonoe Runtime Patch Menu — consolidated current source
-// v0.5.0 source consolidation baseline
+// v0.5.3 current UI bootstrap consolidation
 // Historical V0xx menu sources are retained by Git history only; this file is
 // the sole compiled menu/UI source. ZNDeveloperGate provides permission state
 // only and never owns sidebar/UI definitions.
@@ -21,17 +21,17 @@
 
 static void ZNInstallV040Swizzles(void);
 
-__attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV040(void) {
+static void ZNRuntimeCoreBootstrapV040(void) {
     @autoreleasepool {
         [ZNPatchManager sharedManager];
         [[ZNDeveloperGate sharedGate] refresh];
         [[ZNIL2CPPResolver sharedResolver] refresh];
         ZNInstallV040Swizzles();
-        [[ZNRuntimeLogger sharedLogger] log:@"Runtime Patch Menu 0.5.0 consolidated bootstrap（Stock iOS / No JIT）"];
+        [[ZNRuntimeLogger sharedLogger] log:@"Runtime Patch Menu 0.5.3 consolidated bootstrap（Stock iOS / No JIT）"];
     }
 }
 
-// v0.2.4 visual primitives remain embedded as the immutable visual baseline. v0.5 only layers runtime core,
+// Current visual primitives originate from the stable UI core; v0.5.3 installs the active runtime layers in one explicit order,
 // developer diagnostics and resolver state over it.
 #define ZNRuntimeMenuControllerV024 ZNRuntimeMenuControllerV040
 #define ZonoePatchGetAPIVersion ZonoePatchGetAPIVersionBaselineV024
@@ -49,7 +49,7 @@ __attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV040(void) {
 
 #import "ZNTheme.h"
 
-static NSString * const kZNMenuVersion = @"0.2.4-ui";
+static NSString * const kZNMenuVersion = @"0.5.3-ui-core";
 static NSString * const kZNFloatPositionKey = @"ZonoePatch.FloatCenter";
 static NSString * const kZNPanelPositionKey = @"ZonoePatch.PanelCenter";
 static NSString * const kZNThemeModeKey = @"ZonoePatch.ThemeMode";
@@ -541,14 +541,14 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
 
 @end
 
-extern "C" __attribute__((visibility("default"))) uint32_t ZonoePatchGetAPIVersion(void){return 1;}
-extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void){return "0.2.4-ui";}
-extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] start];});}
-extern "C" __attribute__((visibility("default"))) void ZonoePatchShow(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] show];});}
-extern "C" __attribute__((visibility("default"))) void ZonoePatchHide(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] hide];});}
-extern "C" __attribute__((visibility("default"))) bool ZonoePatchIsVisible(void){__block BOOL v=NO;if(NSThread.isMainThread)return [[ZNRuntimeMenuControllerV024 shared] isVisible];dispatch_sync(dispatch_get_main_queue(),^{v=[[ZNRuntimeMenuControllerV024 shared] isVisible];});return v;}
+static uint32_t ZonoePatchGetAPIVersion(void){return 1;}
+static const char *ZonoePatchGetVersion(void){return "0.5.3-ui-core";}
+static void ZonoePatchStart(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] start];});}
+static void ZonoePatchShow(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] show];});}
+static void ZonoePatchHide(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] hide];});}
+static bool ZonoePatchIsVisible(void){__block BOOL v=NO;if(NSThread.isMainThread)return [[ZNRuntimeMenuControllerV024 shared] isVisible];dispatch_sync(dispatch_get_main_queue(),^{v=[[ZNRuntimeMenuControllerV024 shared] isVisible];});return v;}
 
-__attribute__((constructor)) static void ZNRuntimeMenuBootstrapV024(void){@autoreleasepool{NSLog(@"[ZonoePatch v0.2.4] dylib loaded");ZonoePatchStart();}}
+static void ZNRuntimeMenuBootstrapV024(void){@autoreleasepool{NSLog(@"[ZonoPatch] ui-core loaded");ZonoePatchStart();}}
 // END inlined ZonoeRuntimeMenuV024.mm
 #undef ZNRuntimeMenuControllerV024
 #undef ZonoePatchGetAPIVersion
@@ -676,7 +676,7 @@ __attribute__((constructor)) static void ZNRuntimeMenuBootstrapV024(void){@autor
     [self zn40_makeUI:window];
     [self zn40_refreshDeveloperCategories:YES];
     [self zn40_updateSubtitle];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.4.0    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.3    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn40_tick:(NSTimer *)timer {
@@ -684,7 +684,7 @@ __attribute__((constructor)) static void ZNRuntimeMenuBootstrapV024(void){@autor
     [[ZNDeveloperGate sharedGate] refresh];
     [self zn40_refreshDeveloperCategories:NO];
     [self zn40_updateSubtitle];
-    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.4.0    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.3    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn40_togglePanel:(id)sender {
@@ -923,7 +923,7 @@ static void ZNInstallV040Swizzles(void) {
 }
 
 extern "C" __attribute__((visibility("default"))) uint32_t ZonoePatchGetAPIVersion(void) { return 2; }
-extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void) { return "0.5.0-menu-consolidated"; }
+extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void) { return "0.5.3-ui-consolidated"; }
 extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void) {
     [[ZNDeveloperGate sharedGate] refresh];
     [ZNPatchManager sharedManager];
@@ -1003,7 +1003,7 @@ static void ZNSwapInstanceMethodV0401(Class cls, SEL original, SEL replacement) 
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(102))) static void ZNInstallV0401UIFixes(void) {
+static void ZNInstallV0401UIFixes(void) {
     @autoreleasepool {
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
@@ -1058,7 +1058,7 @@ static void ZNSwapInstanceMethodV0402(Class cls, SEL original, SEL replacement) 
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(103))) static void ZNInstallV0402TouchPolicyFix(void) {
+static void ZNInstallV0402TouchPolicyFix(void) {
     @autoreleasepool {
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
@@ -1137,7 +1137,7 @@ __attribute__((constructor(103))) static void ZNInstallV0402TouchPolicyFix(void)
 
 - (void)zn42_makeUI:(UIWindow *)window {
     [self zn42_makeUI:window];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.4.2    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.3    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -1148,14 +1148,14 @@ static void ZNSwapInstanceMethodV042(Class cls, SEL original, SEL replacement) {
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(105))) static void ZNInstallV042MenuDiagnostics(void) {
+static void ZNInstallV042MenuDiagnostics(void) {
     @autoreleasepool {
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
         ZNSwapInstanceMethodV042(cls, @selector(zn40_addInfoCard:lines:y:width:), @selector(zn42_addInfoCard:lines:y:width:));
         ZNSwapInstanceMethodV042(cls, @selector(zn40_selfTest:), @selector(zn42_selfTest:));
         ZNSwapInstanceMethodV042(cls, @selector(makeUI:), @selector(zn42_makeUI:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.4.2 diagnostics UI installed: wrap=ON executableProbe=ON"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][ui-layer] diagnostics diagnostics UI installed: wrap=ON executableProbe=ON"];
     }
 }
 // END inlined ZonoeRuntimeMenuV042.mm
@@ -1233,12 +1233,12 @@ static NSString *ZN43HexString(NSData *data) {
 
 - (void)zn43_makeUI:(UIWindow *)window {
     [self zn43_makeUI:window];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.4.3    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.3    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn43_tick:(NSTimer *)timer {
     [self zn43_tick:timer];
-    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.4.3    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.3    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn43_showMessage:(NSString *)title body:(NSString *)body {
@@ -1353,14 +1353,14 @@ static void ZNSwapInstanceMethodV043(Class cls, SEL original, SEL replacement) {
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(106))) static void ZNInstallV043RuntimeValidation(void) {
+static void ZNInstallV043RuntimeValidation(void) {
     @autoreleasepool {
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
         ZNSwapInstanceMethodV043(cls, @selector(zn40_renderDebug), @selector(zn43_renderDebug));
         ZNSwapInstanceMethodV043(cls, @selector(makeUI:), @selector(zn43_makeUI:));
         ZNSwapInstanceMethodV043(cls, @selector(tick:), @selector(zn43_tick:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.4.3 runtime validation installed: live-original / temporary-apply / verified-restore"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][ui-layer] runtime validation runtime validation installed: live-original / temporary-apply / verified-restore"];
     }
 }
 // END inlined ZonoeRuntimeMenuV043.mm
@@ -1431,10 +1431,10 @@ __attribute__((constructor(106))) static void ZNInstallV043RuntimeValidation(voi
 
 - (void)zn44_makeUI:(UIWindow *)window {
     [self zn44_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.4    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 - (void)zn44_tick:(NSTimer *)timer {
-    [self zn44_tick:timer]; if(self.uiReady)self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.4    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    [self zn44_tick:timer]; if(self.uiReady)self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn44_renderOther {
@@ -1496,7 +1496,7 @@ __attribute__((constructor(106))) static void ZNInstallV043RuntimeValidation(voi
 @end
 
 static void ZNSwapV044(Class cls,SEL a,SEL b){Method x=class_getInstanceMethod(cls,a),y=class_getInstanceMethod(cls,b);if(x&&y)method_exchangeImplementations(x,y);}
-__attribute__((constructor(110))) static void ZNInstallV044BinaryBuilder(void){@autoreleasepool{Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;ZNSwapV044(cls,@selector(renderFullPage),@selector(zn44_renderFullPage));ZNSwapV044(cls,@selector(fullSizeForWindow:),@selector(zn44_fullSizeForWindow:));ZNSwapV044(cls,@selector(makeUI:),@selector(zn44_makeUI:));ZNSwapV044(cls,@selector(tick:),@selector(zn44_tick:));[[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.4.4 embedded patch editor / universal JSON / static binary builder installed"];}}
+static void ZNInstallV044BinaryBuilder(void){@autoreleasepool{Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;ZNSwapV044(cls,@selector(renderFullPage),@selector(zn44_renderFullPage));ZNSwapV044(cls,@selector(fullSizeForWindow:),@selector(zn44_fullSizeForWindow:));ZNSwapV044(cls,@selector(makeUI:),@selector(zn44_makeUI:));ZNSwapV044(cls,@selector(tick:),@selector(zn44_tick:));[[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][ui-layer] binary builder embedded patch editor / universal JSON / static binary builder installed"];}}
 // END inlined ZonoeRuntimeMenuV044.mm
 #import "ZNDeveloperGate.h"
 #import "ZNStaticDispatchRuntime.h"
@@ -1631,12 +1631,12 @@ __attribute__((constructor(110))) static void ZNInstallV044BinaryBuilder(void){@
 
 - (void)zn45_makeUI:(UIWindow *)window {
     [self zn45_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.6    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn45_tick:(NSTimer *)timer {
     [self zn45_tick:timer];
-    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.6    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Function + Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -1646,7 +1646,7 @@ static void ZNSwapV045(Class cls,SEL a,SEL b){
     if(x&&y) method_exchangeImplementations(x,y);
 }
 
-__attribute__((constructor(111))) static void ZNInstallV045FunctionUI(void){
+static void ZNInstallV045FunctionUI(void){
     @autoreleasepool {
         Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if(!cls) return;
@@ -1849,12 +1849,12 @@ static void ZN48RelabelJSONList(UIView *view) {
 
 - (void)zn48_makeUI:(UIWindow *)window {
     [self zn48_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.8    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn48_tick:(NSTimer *)timer {
     [self zn48_tick:timer];
-    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.4.8    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -1864,7 +1864,7 @@ static void ZNSwapV048(Class cls,SEL a,SEL b){
     if(x&&y) method_exchangeImplementations(x,y);
 }
 
-__attribute__((constructor(113))) static void ZNInstallV048JSONImport(void){
+static void ZNInstallV048JSONImport(void){
     @autoreleasepool {
         Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if(!cls) return;
@@ -1872,7 +1872,7 @@ __attribute__((constructor(113))) static void ZNInstallV048JSONImport(void){
         ZNSwapV048(cls,@selector(zn44_renderOther),@selector(zn48_renderOther));
         ZNSwapV048(cls,@selector(makeUI:),@selector(zn48_makeUI:));
         ZNSwapV048(cls,@selector(tick:),@selector(zn48_tick:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.4.8 marker-sibling auto JSON import + coordinated manual fallback installed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][ui-layer] JSON import marker-sibling auto JSON import + coordinated manual fallback installed"];
     }
 }
 // END inlined ZonoeRuntimeMenuV048.mm
@@ -1963,12 +1963,12 @@ __attribute__((constructor(113))) static void ZNInstallV048JSONImport(void){
 
 - (void)zn49_makeUI:(UIWindow *)window {
     [self zn49_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.0    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn49_tick:(NSTimer *)timer {
     [self zn49_tick:timer];
-    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.0    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.3    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -1978,7 +1978,7 @@ static void ZNSwapV049(Class cls,SEL a,SEL b) {
     if (x&&y) method_exchangeImplementations(x,y);
 }
 
-__attribute__((constructor(114))) static void ZNInstallV049SharedSiteProbeUI(void) {
+static void ZNInstallV049SharedSiteProbeUI(void) {
     @autoreleasepool {
         Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
@@ -1986,5 +1986,25 @@ __attribute__((constructor(114))) static void ZNInstallV049SharedSiteProbeUI(voi
         ZNSwapV049(cls,@selector(makeUI:),@selector(zn49_makeUI:));
         ZNSwapV049(cls,@selector(tick:),@selector(zn49_tick:));
         [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.0 consolidated menu + shared-site probe installed"];
+    }
+}
+
+// v0.5.3: one deterministic menu bootstrap owns the historical layer order.
+// The layer methods are retained for behavior compatibility, but they are no
+// longer independent constructors. This removes constructor-order coupling and
+// ensures the current UI stack is installed exactly once before async startup.
+__attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {
+    @autoreleasepool {
+        ZNRuntimeCoreBootstrapV040();
+        ZNInstallV0401UIFixes();
+        ZNInstallV0402TouchPolicyFix();
+        ZNInstallV042MenuDiagnostics();
+        ZNInstallV043RuntimeValidation();
+        ZNInstallV044BinaryBuilder();
+        ZNInstallV045FunctionUI();
+        ZNInstallV048JSONImport();
+        ZNInstallV049SharedSiteProbeUI();
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.3 current UI bootstrap installed as one ordered chain"];
+        ZonoePatchStart();
     }
 }

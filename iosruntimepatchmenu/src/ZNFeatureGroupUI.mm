@@ -347,6 +347,6 @@ __attribute__((constructor(120))) static void ZNInstallFeatureGroupUI(void) {
         if (!cls) return;
         ZN50SwapInstanceMethod(cls, @selector(renderFullPage), @selector(zn50_renderFullPage));
         ZN50SwapInstanceMethod(cls, @selector(renderCompactPage), @selector(zn50_renderCompactPage));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.2 feature UI installed: ZNF1 feature renderer owns compact mode"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.3 feature UI installed: ZNF1 feature renderer owns compact mode"];
     }
 }
