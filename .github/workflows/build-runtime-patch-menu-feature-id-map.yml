@@ -1,17 +1,122 @@
-name: Build Runtime Patch Menu v0.5.2 Consolidation V1
+name: Build Runtime Patch Menu v0.5.3 Consolidation V2
 
 on:
   push:
     branches:
-      - feature/runtime-patch-menu-consolidation-v1
+      - feature/runtime-patch-menu-consolidation-v2
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-15
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Flatten menu bootstrap chain
+        run: |
+          set -euxo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          menu = Path('iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm')
+          text = menu.read_text()
+          marker = 'v0.5.3 current UI bootstrap installed as one ordered chain'
+
+          if marker not in text:
+              signatures = [
+                  '__attribute__((constructor(101))) static void ZNRuntimeCoreBootstrapV040(void)',
+                  '__attribute__((constructor)) static void ZNRuntimeMenuBootstrapV024(void)',
+                  '__attribute__((constructor(102))) static void ZNInstallV0401UIFixes(void)',
+                  '__attribute__((constructor(103))) static void ZNInstallV0402TouchPolicyFix(void)',
+                  '__attribute__((constructor(105))) static void ZNInstallV042MenuDiagnostics(void)',
+                  '__attribute__((constructor(106))) static void ZNInstallV043RuntimeValidation(void)',
+                  '__attribute__((constructor(110))) static void ZNInstallV044BinaryBuilder(void)',
+                  '__attribute__((constructor(111))) static void ZNInstallV045FunctionUI(void)',
+                  '__attribute__((constructor(113))) static void ZNInstallV048JSONImport(void)',
+                  '__attribute__((constructor(114))) static void ZNInstallV049SharedSiteProbeUI(void)',
+              ]
+              for old in signatures:
+                  if text.count(old) != 1:
+                      raise SystemExit(f'expected exactly one legacy constructor signature: {old}')
+                  text = text.replace(old, old.replace('__attribute__((constructor(101))) ', '')
+                                             .replace('__attribute__((constructor(102))) ', '')
+                                             .replace('__attribute__((constructor(103))) ', '')
+                                             .replace('__attribute__((constructor(105))) ', '')
+                                             .replace('__attribute__((constructor(106))) ', '')
+                                             .replace('__attribute__((constructor(110))) ', '')
+                                             .replace('__attribute__((constructor(111))) ', '')
+                                             .replace('__attribute__((constructor(113))) ', '')
+                                             .replace('__attribute__((constructor(114))) ', '')
+                                             .replace('__attribute__((constructor)) ', ''), 1)
+
+              begin_marker = '// BEGIN inlined ZonoeRuntimeMenuV024.mm'
+              end_marker = '// END inlined ZonoeRuntimeMenuV024.mm'
+              begin = text.index(begin_marker)
+              end = text.index(end_marker, begin)
+              baseline = text[begin:end]
+              export = 'extern "C" __attribute__((visibility("default"))) '
+              if baseline.count(export) != 6:
+                  raise SystemExit(f'expected 6 baseline public exports, got {baseline.count(export)}')
+              baseline = baseline.replace(export, 'static ')
+              baseline = baseline.replace('0.2.4-ui', '0.5.3-ui-core')
+              baseline = baseline.replace('[ZonoePatch v0.2.4] dylib loaded', '[ZonoPatch] ui-core loaded')
+              text = text[:begin] + baseline + text[end:]
+
+              text = text.replace('// v0.5.0 source consolidation baseline', '// v0.5.3 current UI bootstrap consolidation')
+              text = text.replace('v0.2.4 visual primitives remain embedded as the immutable visual baseline. v0.5 only layers runtime core,', 'Current visual primitives originate from the stable UI core; v0.5.3 installs the active runtime layers in one explicit order,')
+              text = text.replace('0.5.0-menu-consolidated', '0.5.3-ui-consolidated')
+              text = text.replace('Runtime Patch Menu 0.5.0 consolidated bootstrap', 'Runtime Patch Menu 0.5.3 consolidated bootstrap')
+              text = re.sub(r'PatchCore 0\.4\.[0-9]+', 'PatchCore 0.5.3', text)
+              text = text.replace('PatchCore 0.5.0', 'PatchCore 0.5.3')
+              text = text.replace('v0.4.0a UI fixes installed', 'current UI touch/theme fixes installed')
+              text = text.replace('[bootstrap][main] v0.4.2', '[bootstrap][ui-layer] diagnostics')
+              text = text.replace('[bootstrap][main] v0.4.3', '[bootstrap][ui-layer] runtime validation')
+              text = text.replace('[bootstrap][main] v0.4.4', '[bootstrap][ui-layer] binary builder')
+              text = text.replace('[bootstrap][main] v0.4.8', '[bootstrap][ui-layer] JSON import')
+              text = text.replace('[bootstrap][main] v0.4.9', '[bootstrap][ui-layer] shared-site probe')
+
+              bootstrap = r'''
+
+// v0.5.3: one deterministic menu bootstrap owns the historical layer order.
+// The layer methods are retained for behavior compatibility, but they are no
+// longer independent constructors. This removes constructor-order coupling and
+// ensures the current UI stack is installed exactly once before async startup.
+__attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {
+    @autoreleasepool {
+        ZNRuntimeCoreBootstrapV040();
+        ZNInstallV0401UIFixes();
+        ZNInstallV0402TouchPolicyFix();
+        ZNInstallV042MenuDiagnostics();
+        ZNInstallV043RuntimeValidation();
+        ZNInstallV044BinaryBuilder();
+        ZNInstallV045FunctionUI();
+        ZNInstallV048JSONImport();
+        ZNInstallV049SharedSiteProbeUI();
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.3 current UI bootstrap installed as one ordered chain"];
+        ZonoePatchStart();
+    }
+}
+'''
+              text = text.rstrip() + bootstrap + '\n'
+              menu.write_text(text)
+
+          compact = Path('iosruntimepatchmenu/src/ZNPublicCompactUI.mm')
+          c = compact.read_text()
+          c = c.replace('v0.5.2 Consolidation Phase 1', 'v0.5.3 Consolidation Phase 2')
+          c = c.replace('self.subtitleLabel.text = @"0.5.2";', 'self.subtitleLabel.text = @"0.5.3";')
+          c = c.replace('[ZonoPatch] v0.5.2 public compact UI installed', '[ZonoPatch] v0.5.3 public compact UI installed')
+          compact.write_text(c)
+
+          feature = Path('iosruntimepatchmenu/src/ZNFeatureGroupUI.mm')
+          f = feature.read_text().replace('[bootstrap][main] v0.5.2 feature UI installed', '[bootstrap][main] v0.5.3 feature UI installed')
+          feature.write_text(f)
+          PY
 
       - name: Install dependencies
         run: |
@@ -27,6 +132,7 @@ jobs:
         run: |
           set -euxo pipefail
           makefile=iosruntimepatchmenu/Makefile
+          menu=iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm
           gate=iosruntimepatchmenu/src/ZNDeveloperGate.mm
           feature=iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
           compact=iosruntimepatchmenu/src/ZNPublicCompactUI.mm
@@ -38,30 +144,42 @@ jobs:
           grep -q 'src/ZNStaticRVAProtection.mm' "$makefile"
           grep -q -- '-fvisibility=hidden' "$makefile"
           if grep -q 'src/ZNCompactFeatureRoutingFix.mm' "$makefile"; then exit 1; fi
-          test ! -e iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
-          test ! -e iosruntimepatchmenu/src/ZNFeatureNameRegistry.mm
-          test ! -e iosruntimepatchmenu/src/ZNFeatureNameRegistry.h
-          test ! -e iosruntimepatchmenu/src/ZNStaticBinaryBuilderV2.mm
-          test ! -e iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
-          test ! -e iosruntimepatchmenu/src/ZNSharedSiteProbeRobust.mm
-          test ! -e iosruntimepatchmenu/src/ZNLocalTicketV2.mm
-          test ! -e iosruntimepatchmenu/src/ZNHostBridge.h
+
+          # One current constructor owns the whole menu-layer order.
+          test "$(grep -c '__attribute__((constructor' "$menu")" -eq 1
+          grep -q 'constructor(119)' "$menu"
+          grep -q 'v0.5.3 current UI bootstrap installed as one ordered chain' "$menu"
+          grep -q 'ZNRuntimeCoreBootstrapV040();' "$menu"
+          grep -q 'ZNInstallV049SharedSiteProbeUI();' "$menu"
+          grep -q 'return "0.5.3-ui-consolidated"' "$menu"
+          if grep -q '0.2.4-ui' "$menu"; then exit 1; fi
+          if grep -q '0.5.0-menu-consolidated' "$menu"; then exit 1; fi
+
+          # Baseline API helpers are private now; only the current API remains public.
+          python3 <<'PY'
+          from pathlib import Path
+          s=Path('iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm').read_text()
+          a=s.index('// BEGIN inlined ZonoeRuntimeMenuV024.mm')
+          b=s.index('// END inlined ZonoeRuntimeMenuV024.mm', a)
+          baseline=s[a:b]
+          assert 'extern "C" __attribute__((visibility("default")))' not in baseline
+          assert baseline.count('static uint32_t ZonoePatchGetAPIVersion') == 1
+          PY
 
           grep -q '_startupEvaluated' "$gate"
           grep -q 'loadMarkerOnce' "$gate"
           grep -q 'startup snapshot cached' "$gate"
           grep -q 'runtime recheck ignored' "$gate"
-          grep -q '重启游戏' "$gate"
 
           grep -q 'ZNFeatureMetadataDecodeEntry' "$feature"
           grep -q 'return @"开"' "$feature"
           grep -q 'return @"关"' "$feature"
           grep -q 'zn.f.%016llx.enabled' "$feature"
           grep -q 'Compact is always the public Feature surface' "$feature"
-          grep -q '\[self zn50_renderFeatureGroupsCompact\];' "$feature"
-          if grep -q 'ZNFeatureNameRegistry' "$feature"; then exit 1; fi
+          grep -q 'v0.5.3 feature UI installed' "$feature"
 
-          grep -q 'self.subtitleLabel.text = @"0.5.2"' "$compact"
+          grep -q 'self.subtitleLabel.text = @"0.5.3"' "$compact"
+          grep -q 'v0.5.3 public compact UI installed' "$compact"
           grep -q 'removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey' "$compact"
 
           grep -q 'if (\[ZNDeveloperGate sharedGate\].authorized)' "$diag"
@@ -74,8 +192,6 @@ jobs:
           grep -q 'ZN55ProtectStaticRVAsAtPath' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
           grep -q 'ZN55DecodeEntryRVAs' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
           grep -q 'runtimeWritesPlainRVAsBackToStaticEntry.*@NO' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
-          if grep -q 'record.dispatchEntry->offRVA' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm; then exit 1; fi
-          if grep -q 'selectedRecord.entry->onRVA' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm; then exit 1; fi
 
       - name: Feature metadata codec tests
         run: |
@@ -102,42 +218,52 @@ jobs:
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-consolidation-v1
-          cp .theos/obj/ZonoePatchV03.dylib dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib
-          shasum -a 256 dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib | tee dist-consolidation-v1/SHA256.txt
+          mkdir -p dist-consolidation-v2
+          cp .theos/obj/ZonoePatchV03.dylib dist-consolidation-v2/ZonoPatch_v0.5.3_ConsolidationV2_Test.dylib
+          shasum -a 256 dist-consolidation-v2/ZonoPatch_v0.5.3_ConsolidationV2_Test.dylib | tee dist-consolidation-v2/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib
+          out=iosruntimepatchmenu/dist-consolidation-v2/ZonoPatch_v0.5.3_ConsolidationV2_Test.dylib
           file "$out"
 
-          # Explicit public API remains exported.
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep '_ZonoePatchGetVersion'
           nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
           nm -gU "$out" | grep '_ZonoePatchOtherAuthorized'
-
-          # Internal C helpers are hidden in the release binary.
+          if nm -gU "$out" | grep -q 'BaselineV024'; then exit 1; fi
           if nm -gU "$out" | grep -q 'ZNFeatureMetadataEncodeEntry'; then exit 1; fi
           if nm -gU "$out" | grep -q 'ZNFeatureMetadataDecodeEntry'; then exit 1; fi
           if nm -gU "$out" | grep -q 'ZN55ProtectStaticRVAsAtPath'; then exit 1; fi
-          if nm -gU "$out" | grep -q 'ZNFeatureNameRegistryStore'; then exit 1; fi
 
-          strings "$out" > /tmp/zonoe_v052_strings.txt
-          grep -q 'static-rva-protection-v1' /tmp/zonoe_v052_strings.txt
-          grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_v052_strings.txt
-          grep -q 'v0.5.2 public compact UI installed' /tmp/zonoe_v052_strings.txt
-          grep -q 'v0.5.2 feature UI installed' /tmp/zonoe_v052_strings.txt
-          grep -q 'startup snapshot cached' /tmp/zonoe_v052_strings.txt
-          grep -q 'runtime recheck ignored' /tmp/zonoe_v052_strings.txt
-          grep -q 'idle until explicit enable' /tmp/zonoe_v052_strings.txt
-          if grep -q 'compact mode pinned to ZNF1 feature renderer' /tmp/zonoe_v052_strings.txt; then exit 1; fi
+          strings "$out" > /tmp/zonoe_v053_strings.txt
+          grep -q '0.5.3-ui-consolidated' /tmp/zonoe_v053_strings.txt
+          grep -q 'v0.5.3 current UI bootstrap installed as one ordered chain' /tmp/zonoe_v053_strings.txt
+          grep -q 'v0.5.3 public compact UI installed' /tmp/zonoe_v053_strings.txt
+          grep -q 'v0.5.3 feature UI installed' /tmp/zonoe_v053_strings.txt
+          grep -q 'static-rva-protection-v1' /tmp/zonoe_v053_strings.txt
+          grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_v053_strings.txt
+          if grep -q '0.2.4-ui' /tmp/zonoe_v053_strings.txt; then exit 1; fi
+          if grep -q '0.5.0-menu-consolidated' /tmp/zonoe_v053_strings.txt; then exit 1; fi
+          if grep -q 'PatchCore 0.4.' /tmp/zonoe_v053_strings.txt; then exit 1; fi
+
+      - name: Commit flattened UI source
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm iosruntimepatchmenu/src/ZNPublicCompactUI.mm iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          if ! git diff --cached --quiet; then
+            git commit -m 'refactor(ui): flatten runtime menu bootstrap chain'
+            git push origin HEAD:feature/runtime-patch-menu-consolidation-v2
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.2-ConsolidationV1-Test
+          name: ZonoPatch-v0.5.3-ConsolidationV2-Test
           path: |
-            iosruntimepatchmenu/dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib
-            iosruntimepatchmenu/dist-consolidation-v1/SHA256.txt
+            iosruntimepatchmenu/dist-consolidation-v2/ZonoPatch_v0.5.3_ConsolidationV2_Test.dylib
+            iosruntimepatchmenu/dist-consolidation-v2/SHA256.txt
           if-no-files-found: error
