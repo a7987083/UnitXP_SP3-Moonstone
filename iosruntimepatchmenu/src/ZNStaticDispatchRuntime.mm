@@ -1,5 +1,6 @@
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
+#import "ZNStaticRVAProtection.h"
 #import "ZNPatchCore.h"
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
@@ -15,6 +16,8 @@
 @property(nonatomic,assign) uintptr_t imageBase;
 @property(nonatomic,assign) ZN44StaticEntry *entry;
 @property(nonatomic,assign) ZN44StaticEntry *dispatchEntry;
+@property(nonatomic,assign) uint64_t offRVA;
+@property(nonatomic,assign) uint64_t onRVA;
 @property(nonatomic,copy) NSString *siteKey;
 @property(nonatomic,assign) uint32_t physicalID;
 @property(nonatomic,assign) uint32_t headerVersion;
@@ -65,14 +68,18 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
                                    uintptr_t imageBase,
                                    uintptr_t current) {
     if (!header || !entries || canonicalIndex >= header->count) return NO;
-    ZN44StaticEntry *canonical = &entries[canonicalIndex];
-    uintptr_t offTarget = imageBase + (uintptr_t)canonical->offRVA;
+
+    ZN55DecodedRVAs canonicalRVAs = {};
+    if (!ZN55DecodeEntryRVAs(header, &entries[canonicalIndex], canonicalIndex, &canonicalRVAs)) return NO;
+    uintptr_t offTarget = imageBase + (uintptr_t)canonicalRVAs.offRVA;
     if (current == offTarget) return YES;
 
     for (uint32_t i = 0; i < header->count; i++) {
         ZN44StaticEntry *candidate = &entries[i];
         if (ZN44CanonicalIndex(header, candidate, i) != canonicalIndex) continue;
-        uintptr_t onTarget = imageBase + (uintptr_t)candidate->onRVA;
+        ZN55DecodedRVAs candidateRVAs = {};
+        if (!ZN55DecodeEntryRVAs(header, candidate, i, &candidateRVAs)) return NO;
+        uintptr_t onTarget = imageBase + (uintptr_t)candidateRVAs.onRVA;
         if (current == onTarget) return YES;
     }
     return NO;
@@ -143,14 +150,25 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
                         if (!ZN44HeaderValid(header, cursor, end)) continue;
 
                         ZN44StaticEntry *entries = (ZN44StaticEntry *)(cursor + sizeof(ZN44StaticHeader));
+                        if (!ZN55ValidateProtectedHeader(header, entries)) {
+                            [[ZNRuntimeLogger sharedLogger] log:@"[static-dispatch] protected RVA integrity check failed; header ignored"];
+                            continue;
+                        }
+
                         for (uint32_t e = 0; e < header->count; e++) {
                             ZN44StaticEntry *entry = &entries[e];
+                            ZN55DecodedRVAs entryRVAs = {};
+                            if (!ZN55DecodeEntryRVAs(header, entry, e, &entryRVAs)) continue;
+
                             uint32_t canonicalIndex = ZN44CanonicalIndex(header, entry, e);
                             ZN44StaticEntry *dispatchEntry = &entries[canonicalIndex];
+                            ZN55DecodedRVAs dispatchRVAs = {};
+                            if (!ZN55DecodeEntryRVAs(header, dispatchEntry, canonicalIndex, &dispatchRVAs)) continue;
+
                             NSString *siteKey = [NSString stringWithFormat:@"%p:%p:%u", (void *)runtimeHeader, (void *)cursor, canonicalIndex];
                             [liveSiteKeys addObject:siteKey];
 
-                            uintptr_t offTarget = runtimeHeader + (uintptr_t)dispatchEntry->offRVA;
+                            uintptr_t offTarget = runtimeHeader + (uintptr_t)dispatchRVAs.offRVA;
                             uintptr_t current = __atomic_load_n((uintptr_t *)&dispatchEntry->selectedTarget, __ATOMIC_ACQUIRE);
                             if (!ZN44CurrentTargetValid(header, entries, canonicalIndex, runtimeHeader, current)) {
                                 __atomic_store_n((uintptr_t *)&dispatchEntry->selectedTarget, offTarget, __ATOMIC_RELEASE);
@@ -168,7 +186,9 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
                                     for (uint32_t j = 0; j < header->count; j++) {
                                         ZN44StaticEntry *candidate = &entries[j];
                                         if (ZN44CanonicalIndex(header, candidate, j) != canonicalIndex) continue;
-                                        if (current == runtimeHeader + (uintptr_t)candidate->onRVA) {
+                                        ZN55DecodedRVAs candidateRVAs = {};
+                                        if (!ZN55DecodeEntryRVAs(header, candidate, j, &candidateRVAs)) continue;
+                                        if (current == runtimeHeader + (uintptr_t)candidateRVAs.onRVA) {
                                             [owners addObject:@(candidate->patchID)];
                                             break;
                                         }
@@ -181,11 +201,13 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
                             record.target = targetName;
                             record.title = ZN44StringFromFixed(entry->title, sizeof(entry->title), [NSString stringWithFormat:@"Patch #%u", entry->patchID]);
                             record.group = ZN44StringFromFixed(entry->group, sizeof(entry->group), @"Imported");
-                            record.siteRVA = entry->siteRVA;
+                            record.siteRVA = entryRVAs.siteRVA;
                             record.patchID = entry->patchID;
                             record.imageBase = runtimeHeader;
                             record.entry = entry;
                             record.dispatchEntry = dispatchEntry;
+                            record.offRVA = dispatchRVAs.offRVA;
+                            record.onRVA = entryRVAs.onRVA;
                             record.siteKey = siteKey;
                             record.physicalID = (header->version >= ZN44_STATIC_VERSION_V2 && entry->physicalID) ? entry->physicalID : (e + 1);
                             record.headerVersion = header->version;
@@ -212,7 +234,7 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
         NSMutableDictionary<NSString *, NSNumber *> *counts = [NSMutableDictionary dictionary];
         for (ZNStaticPatchRecord *r in found) counts[r.siteKey] = @([counts[r.siteKey] unsignedIntegerValue] + 1);
         for (NSNumber *n in counts.allValues) if (n.unsignedIntegerValue > 1) shared++;
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[static-dispatch] detected %lu logical entries · %lu physical sites · %lu shared", (unsigned long)found.count, (unsigned long)counts.count, (unsigned long)shared]];
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[static-dispatch] detected %lu logical entries · %lu physical sites · %lu shared · RVA-protection-aware", (unsigned long)found.count, (unsigned long)counts.count, (unsigned long)shared]];
     }
 }
 
@@ -241,17 +263,17 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     [owners removeObject:ownerID];
     if (enabled) [owners addObject:ownerID];
 
-    uintptr_t target = record.imageBase + (uintptr_t)record.dispatchEntry->offRVA;
+    uintptr_t target = record.imageBase + (uintptr_t)record.offRVA;
     ZNStaticPatchRecord *selectedRecord = nil;
     if (owners.count) {
         uint32_t selectedID = owners.lastObject.unsignedIntValue;
         selectedRecord = [self zn44_recordForPatchID:selectedID siteKey:record.siteKey];
-        if (!selectedRecord || !selectedRecord.entry->onRVA) {
+        if (!selectedRecord || !selectedRecord.onRVA) {
             [owners setArray:previousOwners];
             if (error) *error = @"Shared Site Owner Stack 无法解析当前 Variant";
             return NO;
         }
-        target = record.imageBase + (uintptr_t)selectedRecord.entry->onRVA;
+        target = record.imageBase + (uintptr_t)selectedRecord.onRVA;
     }
 
     __atomic_store_n((uintptr_t *)&record.dispatchEntry->selectedTarget, target, __ATOMIC_RELEASE);
@@ -270,10 +292,9 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     }
 
     NSString *selected = selectedRecord ? (selectedRecord.group.length ? selectedRecord.group : selectedRecord.title) : @"Original";
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[static-dispatch-v2] %@ %@+0x%llX owner=%u owners=%lu selected=%@ physical=%u",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[static-dispatch-v2] %@ %@ owner=%u owners=%lu selected=%@ physical=%u",
                                           enabled ? @"ON" : @"OFF",
                                           record.target,
-                                          record.siteRVA,
                                           record.patchID,
                                           (unsigned long)owners.count,
                                           selected,
@@ -288,7 +309,7 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     [lines addObject:[NSString stringWithFormat:@"Static Dispatch：%lu 逻辑项 / %lu 物理 Site", (unsigned long)self.records.count, (unsigned long)sites.count]];
     for (ZNStaticPatchRecord *r in self.records) {
         NSArray *owners = self.ownerOrderBySite[r.siteKey] ?: @[];
-        [lines addObject:[NSString stringWithFormat:@"%@ · %@+0x%llX · %@ · owners=%lu", r.title, r.target, r.siteRVA, r.enabled ? @"ON" : @"OFF", (unsigned long)owners.count]];
+        [lines addObject:[NSString stringWithFormat:@"%@ · %@ · %@ · owners=%lu", r.title, r.target, r.enabled ? @"ON" : @"OFF", (unsigned long)owners.count]];
         if (lines.count >= 12) break;
     }
     return lines;
