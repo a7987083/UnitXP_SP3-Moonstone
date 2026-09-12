@@ -3,64 +3,53 @@
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.0",
-  "phase": "feature-id-embedded-metadata-test",
-  "phase_status": "ci-and-codec-test-validated",
+  "phase": "feature-id-map-compact-ui",
+  "phase_status": "ci-validated-device-pending",
   "branch": "feature/runtime-patch-menu-feature-id-map",
-  "commit": {
-    "sha": "118a12c1febf3d693e5cb8e18b8e21cf6b008f01",
-    "role": "feature-id-map-ci-baseline",
-    "history_policy": "do-not-rewrite-runtime-baseline"
-  },
-  "runtime_baseline": {
-    "sha": "908e27a36fa55a3e63e1ab55db5968fb5da12fde",
-    "stage": "v0.5.0-privacy-ui-test",
-    "history_policy": "do-not-rewrite"
-  },
-  "previous_stage": {
-    "name": "v0.5.0-consolidated",
-    "sha": "121cc7c098b2d6f122a9c91a411a442edd3eaf68"
+  "runtime_code_head": "a0ea2edb71b6b8b37f57ab98e8dc2233b2eb0ffc",
+  "baseline": {
+    "privacy_ui_baseline": "908e27a36fa55a3e63e1ab55db5968fb5da12fde",
+    "consolidated_baseline": "121cc7c098b2d6f122a9c91a411a442edd3eaf68"
   },
   "build": {
     "system": "Theos",
     "workflow": "Build Runtime Patch Menu FeatureID Map",
     "workflow_file": ".github/workflows/build-runtime-patch-menu-feature-id-map.yml",
-    "run_id": 34705353421,
+    "run_id": 34708549712,
     "result": "success",
     "compiled": true,
-    "source_assertions_verified": true,
-    "codec_unit_tests_verified": true,
-    "ci_static_verified": true,
+    "codec_tests": true,
+    "binary_verified": true,
     "device_verified": false,
-    "real_generated_target_verified": false,
-    "reinstall_name_persistence_verified": false,
     "full_regression_verified": false
   },
   "artifact": {
     "name": "ZonoPatch-v0.5.0-FeatureIDMap-Test",
-    "id": 10301438907,
-    "digest": "sha256:e226fb1e3e3fcaa3aadb224ca518a99159d10df02cfee322aa4b21b04b13b6a5",
-    "expired_at_capture": false
-  },
-  "feature_metadata": {
-    "format": "ZNF1",
-    "storage": "generated-macho-static-entry-title-group-overlay",
-    "entry_abi_bytes": 128,
-    "metadata_overlay_bytes": 72,
-    "display_name_capacity_utf8_bytes": 57,
-    "feature_id_bits": 64,
-    "plaintext_display_name_expected_in_generated_target": false,
-    "registry_role": "legacy-compatibility-fallback",
-    "external_map_required": false,
-    "new_menu_dylib_per_feature_set_required": false
+    "id": 10302263658,
+    "archive_digest": "sha256:19091f04eeb493b94fdedd8ede33e4283d03ea05a7803884b172936ac02054db",
+    "dylib_sha256": "e339f66628f8fcf2b8a524990be5e0aef4bb6726cfff8aa8b05bb4ce35694aeb"
   },
   "runtime": {
-    "device_test": "not-recorded",
-    "generated_binary_feature_metadata_design": "implemented",
-    "generated_binary_adhoc_resign": "implemented",
+    "display_metadata": "ZNF1 embedded FeatureID + encoded display name",
+    "public_menu_default": "compact",
+    "ui_state_labels": {
+      "on": "开",
+      "off": "关",
+      "mixed": "MIXED"
+    },
+    "legacy_feature_name_registry_compiled": false,
+    "legacy_feature_name_registry_written": false,
+    "legacy_feature_name_registry_purged_on_launch": true,
+    "feature_state_preference_format": "zn.f.%016llx.enabled",
+    "feature_state_contains_target_rva_or_display_name": false,
     "final_ipa_resign_required": true
   },
-  "next_phase": "real-generated-binary-and-device-validation",
-  "next_task": "Generate a real .znpatched target with distinct known feature names, verify ZNF1 metadata and absence of plaintext names, then re-sign/reinstall the IPA and confirm names survive without relying on NSUserDefaults. If decoded names are already generic, trace JSON import and Feature Builder title/group provenance.",
-  "state_docs_revision": 2,
-  "captured_at": "2026-09-12"
+  "security": {
+    "plaintext_target_rva_name_registry": "removed",
+    "feature_id_random": false,
+    "static_rva_patch_protection": "not-yet-hardened"
+  },
+  "next_phase": "device-validation-then-offset-patch-protection",
+  "next_task": "Install the CI artifact and verify compact UI, Chinese on/off labels, legacy registry purge, opaque feature-state preferences and cold-start state restoration on device.",
+  "captured_at": "2026-09-13"
 }
