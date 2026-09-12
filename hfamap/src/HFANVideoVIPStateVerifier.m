@@ -6,11 +6,11 @@
 #import <dispatch/dispatch.h>
 
 // fenpingvip v4
-// Real DIYVIP object state-machine verifier.
-// It temporarily writes DIYVIP::_status only inside one synchronous test call,
-// calls the app's real -status and -isVIP, then restores the original raw value
-// before returning. It does not persist membership state, touch receipts, or run
-// business Gate while a synthetic status is active.
+// Authorized state-machine test controller for the real DIYVIP object.
+// The four buttons call the app's own -updateStatus:type: path and DO NOT
+// automatically restore the previous status. This intentionally exercises the
+// real in-process state transition/notification chain without touching receipts,
+// StoreKit transactions, purchase records, or persistent entitlement storage.
 
 static __unsafe_unretained UIView *gVerifierPanel = nil;
 static __unsafe_unretained UILabel *gVerifierResultLabel = nil;
@@ -71,53 +71,39 @@ static void HFASetVerifierResult(NSString *text) {
     if (gVerifierResultLabel) gVerifierResultLabel.text = gLastVerifierResult ?: @"尚未测试";
 }
 
-static void HFARunStatusTest(NSInteger target) {
+static void HFARunStatusSet(NSInteger target) {
     id vip = HFASharedVIP();
     if (!vip) {
         HFASetVerifierResult(@"DIYVIP unavailable");
         return;
     }
 
-    Class cls = [vip class];
-    Ivar ivar = class_getInstanceVariable(cls, "_status");
-    if (!ivar) {
-        HFASetVerifierResult(@"_status ivar not found");
+    SEL updateSel = sel_registerName("updateStatus:type:");
+    if (![vip respondsToSelector:updateSel]) {
+        HFASetVerifierResult(@"updateStatus:type: unavailable");
         return;
     }
 
-    ptrdiff_t offset = ivar_getOffset(ivar);
-    NSInteger *slot = (NSInteger *)((char *)(void *)vip + offset);
-    NSInteger rawBefore = *slot;
-    NSInteger getterBefore = HFAStatus(vip);
-    NSInteger observed = -1;
-    BOOL isVIP = NO;
-    NSInteger restored = -1;
-
-    @try {
-        *slot = target;
-        observed = HFAStatus(vip);
-        isVIP = HFAIsVIP(vip);
-    }
-    @finally {
-        *slot = rawBefore;
-        restored = HFAStatus(vip);
-    }
+    NSInteger before = HFAStatus(vip);
+    BOOL updateResult = ((BOOL(*)(id, SEL, NSInteger, NSInteger))objc_msgSend)(vip, updateSel, target, 0);
+    NSInteger after = HFAStatus(vip);
+    BOOL isVIP = HFAIsVIP(vip);
 
     BOOL expectedVIP = (target == 1 || target == 3);
-    BOOL pass = (observed == target && isVIP == expectedVIP && restored == getterBefore);
+    BOOL pass = (after == target && isVIP == expectedVIP);
 
     NSString *result = [NSString stringWithFormat:
-        @"真实对象测试 %ld → status=%ld / isVIP=%@ / 恢复=%ld  %@",
-        (long)target,
-        (long)observed,
+        @"真实等级切换 %ld → %ld / isVIP=%@ / update=%d  %@",
+        (long)before,
+        (long)after,
         isVIP ? @"YES" : @"NO",
-        (long)restored,
+        updateResult ? 1 : 0,
         pass ? @"PASS" : @"CONFLICT"];
     HFASetVerifierResult(result);
 
-    NSLog(@"[HFAMap][NVideoVIP][STATE_TEST] target=%ld rawBefore=%ld getterBefore=%ld observed=%ld isVIP=%d restored=%ld pass=%d",
-          (long)target, (long)rawBefore, (long)getterBefore, (long)observed,
-          isVIP ? 1 : 0, (long)restored, pass ? 1 : 0);
+    NSLog(@"[HFAMap][NVideoVIP][STATE_SET] before=%ld target=%ld after=%ld isVIP=%d updateReturn=%d pass=%d",
+          (long)before, (long)target, (long)after,
+          isVIP ? 1 : 0, updateResult ? 1 : 0, pass ? 1 : 0);
 }
 
 @interface HFANVideoVIPStateVerifierTarget : NSObject
@@ -138,7 +124,7 @@ static void HFARunStatusTest(NSInteger target) {
 - (void)testTapped:(UIButton *)sender {
     NSInteger target = sender.tag;
     if (target < 0 || target > 3) return;
-    HFARunStatusTest(target);
+    HFARunStatusSet(target);
 }
 
 - (void)timerFired:(NSTimer *)timer {
@@ -162,18 +148,18 @@ static void HFARunStatusTest(NSInteger target) {
     line.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
     [panel addSubview:line];
 
-    UILabel *caption = [[[UILabel alloc] initWithFrame:CGRectMake(14.0, 330.0, 96.0, 18.0)] autorelease];
-    caption.text = @"真实等级验证";
-    caption.font = [UIFont boldSystemFontOfSize:11.0];
+    UILabel *caption = [[[UILabel alloc] initWithFrame:CGRectMake(14.0, 330.0, 138.0, 18.0)] autorelease];
+    caption.text = @"真实等级切换（不自动恢复）";
+    caption.font = [UIFont boldSystemFontOfSize:10.0];
     caption.textColor = [UIColor colorWithWhite:0.92 alpha:1.0];
     [panel addSubview:caption];
 
-    UILabel *result = [[[UILabel alloc] initWithFrame:CGRectMake(110.0, 330.0, w - 124.0, 18.0)] autorelease];
+    UILabel *result = [[[UILabel alloc] initWithFrame:CGRectMake(152.0, 330.0, w - 166.0, 18.0)] autorelease];
     result.text = gLastVerifierResult ?: @"尚未测试";
-    result.font = [UIFont systemFontOfSize:8.5];
+    result.font = [UIFont systemFontOfSize:8.3];
     result.textAlignment = NSTextAlignmentRight;
     result.adjustsFontSizeToFitWidth = YES;
-    result.minimumScaleFactor = 0.65;
+    result.minimumScaleFactor = 0.58;
     result.textColor = [UIColor colorWithRed:0.70 green:0.90 blue:1.0 alpha:1.0];
     [panel addSubview:result];
     gVerifierResultLabel = result;
@@ -197,7 +183,7 @@ static void HFARunStatusTest(NSInteger target) {
         [panel addSubview:button];
     }
 
-    NSLog(@"[HFAMap][NVideoVIP][STATE_VERIFIER_READY] real-object transient 0/1/2/3 verifier installed");
+    NSLog(@"[HFAMap][NVideoVIP][STATE_CONTROLLER_READY] real updateStatus:type: 0/1/2/3 controller installed");
 }
 
 @end
@@ -205,7 +191,7 @@ static void HFARunStatusTest(NSInteger target) {
 __attribute__((constructor))
 static void HFANVideoVIPStateVerifierInit(void) {
     @autoreleasepool {
-        NSLog(@"[HFAMap][NVideoVIP] HFAMapUniversal fenpingvip v4 state verifier loaded");
+        NSLog(@"[HFAMap][NVideoVIP] HFAMapUniversal fenpingvip v4 state controller loaded");
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSTimer scheduledTimerWithTimeInterval:0.10
                                              target:[HFANVideoVIPStateVerifierTarget shared]
