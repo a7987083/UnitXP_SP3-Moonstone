@@ -2,101 +2,136 @@
 
 ## 当前上下文
 
-当前工作线为 ZonoPatch Runtime Patch Menu `v0.5.0 Privacy UI Test`。
+当前工作线为 ZonoPatch Runtime Patch Menu `v0.5.0 FeatureID Embedded Metadata Test`。
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Branch: `feature/runtime-patch-menu-privacy-ui`
-- Runtime code baseline: `908e27a36fa55a3e63e1ab55db5968fb5da12fde`
+- Branch: `feature/runtime-patch-menu-feature-id-map`
+- Privacy UI Runtime baseline: `908e27a36fa55a3e63e1ab55db5968fb5da12fde`
+- FeatureID implementation CI baseline: `118a12c1febf3d693e5cb8e18b8e21cf6b008f01`
 - Previous stable stage: `121cc7c098b2d6f122a9c91a411a442edd3eaf68`
-- Relation: `908e27a...` is 9 commits ahead of `121cc7c...`
-- CI run: `34688640962` / `success`
-- Artifact: `ZonoPatch-v0.5.0-PrivacyUI-Test`
+- CI run: `34705353421` / `success`
+- Artifact: `ZonoPatch-v0.5.0-FeatureIDMap-Test`
 
-`908e27a...` 是当前 Runtime 代码基线。后续只新增 Commit，不 rewrite / amend / force-replace 该历史点。
+不要 rewrite `908e27a...`。FeatureID 修复是独立后继分支。
 
-## 关键实现与调用链
+## 为什么做这次修改
 
-### 1. Generated binary privacy + signing
+首版 Privacy UI 把 generated target Mach-O 的 `title/group` 明文清零，再把真实名称放到 Host-side `NSUserDefaults` Registry。这个设计在生成设备/当前 Container 内可工作，但重新打 IPA、重新安装或 App Container 重建后 Registry 可能不存在，Runtime 只能退化为 `功能 #N` 等 fallback。
 
-`ZNStaticBinarySigningBridge.mm`
+新设计参考成熟菜单“磁盘不放普通明文、运行时恢复 label”的思路，但考虑 ZonoPatch 的功能名是运行时导入/编辑后才确定，不能预编译进固定菜单 dylib。因此选择把 FeatureID + 编码后的显示名写进每个 generated target Static Entry 自身。
 
-调用逻辑：
+## 当前关键实现
 
-`ZNStaticBinaryBuilder buildWorkspace` -> delayed class-method swizzle wrapper -> 原 V3 builder -> 收集 workspace 中 title/group -> 遍历 `.znpatched` 输出 -> `ZNScrubStaticDisplayMetadataAtPath` -> `ZNAdhocResignMachOAtPath` -> 全部成功后写入 `ZNFeatureNameRegistry` -> 更新 `build_report.json`。
+### 1. ZNF1 metadata codec
 
-关键约束：
+文件：`iosruntimepatchmenu/src/ZNFeatureMetadataCodec.h/.mm`
 
-- Bridge 在 `+load` 中延迟一个 main-queue turn 安装 swizzle，目的是包住 V3 最终 builder implementation。
-- Registry 只有在所有 generated binary 完成 scrub + signature verification 后才提交。
-- Generated binary 自身 ad-hoc 重签不等于最终 IPA 签名；替换回 IPA 后仍要求正常整包重签。
+复用 `ZN44StaticEntry` 中原来的 72 字节：
 
-### 2. Static metadata scrub
+`title[48] + group[24]`
 
-`ZNStaticMetadataPrivacy.mm`
+布局：
 
-- 当前仅接受 `MH_MAGIC_64` thin 64-bit Mach-O。
-- 遍历 Load Commands，定位 `LC_SEGMENT_64` / `__ZNDATA`。
-- 8-byte 对齐扫描 `ZN44StaticHeader`。
-- 接受 Static Format V1/V2，校验 `entrySize/count/range`。
-- 对每个 `ZN44StaticEntry` 执行 `memset(title, 0)` 与 `memset(group, 0)`。
-- `msync(MS_SYNC)` 后返回 scrubbed entry count。
+- byte 0: `0`，legacy title sentinel。
+- byte 1..2: marker `A5 5A`。
+- byte 3: codec version `1`。
+- byte 4: flags；bit0 表示 explicit Feature group。
+- byte 5..12: little-endian 64-bit FeatureID。
+- byte 13: UTF-8 display-name byte length。
+- byte 14..47: encoded payload 前 34 字节。
+- byte 48: `0`，legacy group sentinel。
+- byte 49..71: encoded payload 后 23 字节。
 
-### 3. Feature name registry
+最大 display-name payload：57 UTF-8 bytes。
 
-`ZNFeatureNameRegistry.mm`
+编码不是密码学加密；目标是消除普通 `strings` 可见的功能名明文，同时让名称跟 generated Mach-O 生命周期绑定。
 
-- 存储后端：`NSUserDefaults`。
-- Defaults key: `zonoe.feature-name-registry.v1`。
-- Entry key: normalized target + siteRVA + patchID。
-- Value: `title/group`。
-- Signing bridge 同时存 logical target 和 runtime basename alias，降低 dyld image name 差异导致的 lookup miss。
+### 2. FeatureID 规则
+
+Explicit Feature group：
+
+- identity 基于标准化后的 Feature/group 名称。
+- 不纳入 target / RVA / patchID。
+- 目的：Patch 重排、RVA 不同、跨 target 时仍能聚合成同一 Feature。
+
+Legacy/no-group Patch：
+
+- identity 纳入 target + siteRVA + patchID + 标准化 label。
+- 目的：避免两个偶然同名 legacy Patch 被错误合并。
+
+当前 hash 为稳定 64-bit deterministic hash；不是安全标识或权限边界。
+
+### 3. Generated binary post-process
+
+调用链：
+
+`ZNStaticBinaryBuilder V3` -> 生成普通 Static Entry -> `ZNStaticBinarySigningBridge` -> `ZNScrubStaticDisplayMetadataAtPath` -> ZNF1 encode -> `ZNAdhocResignMachOAtPath` -> signature verification -> build report。
+
+`ZNScrubStaticDisplayMetadataAtPath` 名称为了兼容调用链没有改，但行为已经从“全部置零”升级为“移除明文并转换成 ZNF1”。
+
+Header 会设置：
+
+`ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1`
+
+Static Entry 仍为 128 bytes；Shared Site tail 不变。
 
 ### 4. Public Feature UI
 
-`ZNFeatureGroupUI.mm`
+`ZNFeatureGroupUI.mm` 显示名优先级：
 
-显示名解析：
+1. `ZNFeatureMetadataDecodeEntry(record.entry)` — 新产物 authoritative path。
+2. `ZNFeatureNameRegistryLookup(...)` — 首版 Privacy output compatibility。
+3. legacy `record.title/group`。
+4. `功能 #N` fallback。
 
-`ZN50DisplayMetadata` -> `ZNFeatureNameRegistryLookup` -> 若无 Registry 数据则 fallback 到 record.title/group -> 最终 fallback `功能 #<patchID>` / `Imported`。
+如果有 FeatureID，UI 直接按 `id:%016llx` 聚合，不再依赖 target + patchID 猜 Feature 身份。
 
-Feature grouping：
+### 5. NSUserDefaults Registry 当前角色
 
-- 非 `Imported` group：按 lowercase group 合并。
-- 无明确 group 的 legacy entry：按 target + patchID 独立显示。
+`ZNFeatureNameRegistry` 暂时保留，但只作为旧产物兼容缓存。新 ZNF1 generated binary 即使 Registry 因重装消失，也应该能从自身 metadata 恢复功能名。
 
-Toggle：
+## CI 与验证证据
 
-- 全开：ON。
-- 部分开：MIXED。
-- 全关：OFF。
-- OFF/MIXED 点击目标为 ON；ON 点击目标为 OFF。
-- 任一 Patch 切换失败时，对本次已修改记录逆序 rollback。
+Workflow: `.github/workflows/build-runtime-patch-menu-feature-id-map.yml`
 
-## CI 当前实际验证内容
+Run `34705353421`: SUCCESS。
 
-Workflow: `.github/workflows/build-runtime-patch-menu-privacy-ui.yml`
+验证内容：
 
-- macOS 15 runner。
-- 安装 `ldid` 与 Theos。
-- grep 源码断言，确认 Privacy UI / Registry / Metadata Privacy 已接入。
-- `make clean && make FINALPACKAGE=1`。
-- 输出 `ZonoPatch_v0.5.0_PrivacyUI_Test.dylib` 与 `SHA256.txt`。
-- `file`、`nm -gU` 和 `strings` 做静态检查。
-- 上传 GitHub Artifact。
+- Source assertions。
+- 独立 macOS Foundation codec unit test。
+- 同 Feature 多 Patch/跨 target FeatureID 稳定性。
+- legacy/no-group 不误合并。
+- English + Chinese UTF-8 encode/decode round-trip。
+- raw 72-byte metadata 不包含测试名称明文。
+- Theos arm64 build。
+- `nm` 确认 Encode/Decode symbols。
+- Artifact upload。
 
-注意：上述 CI 不能替代真实 generated target Mach-O 检查，也不能替代实机 Runtime / 最终 IPA 回归。
+Artifact id: `10301438907`
+
+Artifact digest: `sha256:e226fb1e3e3fcaa3aadb224ca518a99159d10df02cfee322aa4b21b04b13b6a5`
+
+注意：这仍然不是实机 generated-target 证明。
 
 ## 风险与接手注意事项
 
-- 不要把“CI success”写成“实机验证通过”。当前没有已记录的实机验证证据。
-- 不要直接复用旧 Offset / RVA；目标二进制版本变化时必须重新定位。
-- `ZNScrubStaticDisplayMetadataAtPath` 当前明确只支持 thin 64-bit Mach-O。
-- 修改 signing/privacy 链路前先保持处理顺序：builder -> scrub -> re-sign -> verify -> registry commit。
-- 不要在失败路径提前写 Registry；否则会制造 stale display metadata。
-- Swizzle 安装依赖 V3 builder 的加载顺序假设，后续若重构 builder 必须重新验证 active IMP。
-- Public Feature UI 的简化不代表技术字段被删除；诊断/Debug 能力应保持与用户页解耦。
-- 最终交付产物替换回 IPA 后仍需整包正常重签。
+- 如果编码前 `row.group` / `entry.group` 本身就已经全部是“功能”，ZNF1 会忠实保存这个错误输入；不能靠 decoder 恢复不存在的信息。
+- 因此用户当前问题需要下一步用真实生成输出区分：是旧 Registry 丢失，还是 JSON Import / Feature Builder 上游已经把名称归一成“功能”。
+- 最大 display name 为 57 UTF-8 bytes，超出会截断到合法 UTF-8 前缀。
+- Codec 是 obfuscation，不应描述成加密或安全存储。
+- Metadata post-process 目前只支持 thin 64-bit Mach-O。
+- Builder swizzle 仍依赖加载顺序假设。
+- Generated binary ad-hoc resign 不等于最终 IPA resign。
+- 不要把 CI success 写成 device verified。
 
 ## 下一步接手
 
-以 `908e27a...` 为基线进入 Production Hardening。先验证真实 `.znpatched` 输出：Mach-O Header/Load Commands、`__ZNDATA`、Static Entry、明文 title/group、CodeDirectory、签名前后 page hashes；然后做实机 Registry/UI/toggle/rollback 验证。验证完成后再增加 Production/Release workflow。
+用该分支 dylib 在目标 App 中导入一组明确功能名，生成真实 `.znpatched` + `build_report.json`。保留生成前输入名称，然后：
+
+1. 检查 `__ZNDATA` header flag 和 ZNF1 entry。
+2. 对 generated target 做 `strings`，确认输入功能名不以普通 UTF-8 明文出现。
+3. 解码 entry，确认名称与编码前输入一致。
+4. 替换回 IPA并最终整包重签。
+5. 卸载/重新安装，确认菜单仍显示原始名称。
+6. 若解码出来就已经是“功能”，回查 `ZNPatchJSONImporter` / `ZNFeatureBuilderUI` 的 title/group provenance。

@@ -2,19 +2,19 @@
 
 只记录未关闭问题、验证缺口和风险；已完成修改放在 `CHANGELOG_DEV.md`。
 
-## KI-001 — 缺少已记录的实机 Runtime 回归
+## KI-001 — 缺少已记录的实机 Runtime / reinstall 回归
 
 Severity: `HIGH`
 
 Status: `OPEN`
 
-现状：GitHub Actions 已编译并完成静态检查，但当前仓库证据中没有 `v0.5.0 Privacy UI Test` 的实机加载、菜单交互、Patch enable/disable、rollback 和最终 IPA 回归记录。
+现状：FeatureID 分支已通过编译、静态检查和独立 codec unit test，但还没有真实目标 App 中生成 `.znpatched`、最终 IPA 重签、卸载/重装后的名称恢复与 Patch 行为记录。
 
-风险：CI success 不能证明 dyld/runtime、权限、签名、目标 image 解析和真实 Patch 行为正确。
+风险：CI success 不能证明 dyld/runtime、真实 generated target、最终签名或 App Container 重建后的行为。
 
-下一步：在目标设备/目标 App 版本上记录完整运行日志、实际开关行为、失败回滚及崩溃/异常结果。
+下一步：按 `ROADMAP.md` Phase D 完成真实设备端生成与 reinstall 回归。
 
-## KI-002 — Metadata scrub 仅支持 thin 64-bit Mach-O
+## KI-002 — Metadata post-process 仅支持 thin 64-bit Mach-O
 
 Severity: `MEDIUM`
 
@@ -24,21 +24,19 @@ Status: `OPEN / KNOWN LIMITATION`
 
 现状：入口要求 `MH_MAGIC_64`，不支持 FAT/universal 或其他 Mach-O magic。
 
-风险：若 builder 后续输出格式变化，隐私后处理会直接失败。
+下一步：Production 阶段确认所有目标输出格式；若需要 FAT，按 slice 分别处理，不能直接复用当前 offsets。
 
-下一步：Production 阶段确认所有目标输出格式；如果需要 FAT 支持，按 slice 解析并分别 scrub，不能简单复用当前 file offsets。
-
-## KI-003 — 当前 Privacy CI 没有验证真实 title/group 明文已从 generated target Mach-O 消失
+## KI-003 — 尚未对真实 generated target 验证 ZNF1 与明文消失
 
 Severity: `HIGH`
 
-Status: `OPEN`
+Status: `OPEN / TEST GAP`
 
-现状：CI 会 grep 源码、构建 ZonoPatch dylib，并检查 `targetMachODisplayNames` / `titleGroupFieldsZeroed` 等 report marker string；但这不等价于对实际生成的 `.znpatched` 目标二进制做前后字符串和 `__ZNDATA` entry 检查。
+现状：`feature_metadata_codec_test.mm` 已对 synthetic `ZN44StaticEntry` 验证 English/Chinese round-trip、FeatureID 稳定性、legacy 不误合并以及 raw 72-byte metadata 不含测试功能名明文；但 CI 还没有真实可执行 target fixture 走完整 Builder V3 -> ZNF1 -> resign 流程。
 
-风险：实现回归时，CI 可能仍为绿色，但 generated target Mach-O 仍残留 display metadata。
+风险：单元测试无法覆盖真实 `__ZNDATA` 扫描、Header flag、Builder entry 顺序、CodeDirectory 后处理和目标 Mach-O 字符串残留。
 
-下一步：在 Production CI 增加真实 builder fixture，解析输出 Mach-O，验证 Static Entry `title/group` 全零，同时验证 entry size/count/patch data 未被破坏。
+下一步：对真实 `.znpatched` 做结构解析、`strings`、ZNF1 decode、签名和重装检查；之后再考虑把真实 fixture 固化进 CI。
 
 ## KI-004 — Builder swizzle 存在加载顺序假设
 
@@ -48,25 +46,25 @@ Status: `OPEN / RISK`
 
 位置：`iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm`
 
-现状：Bridge 在 `+load` 中 `dispatch_async` 到 main queue，依赖 V3 builder swizzle 已经安装完成，然后再交换最终 class method implementation。
+现状：Bridge 在 `+load` 中延迟一个 main-queue turn，依赖 V3 builder swizzle 已完成，再包住最终 implementation。
 
 风险：未来修改初始化顺序、线程模型或 builder category 后，wrapper 可能包错 IMP。
 
-下一步：Production 阶段记录 swizzle 前后 IMP/selector，添加一次构建路径断言，确认 wrapper 实际调用 V3 builder。
+下一步：Production Hardening 增加 active IMP / selector 断言或改成更显式的 builder pipeline。
 
-## KI-005 — Feature Name Registry 缺少显式生命周期/清理策略
+## KI-005 — Legacy Feature Name Registry 仍有 stale entry 风险
 
 Severity: `LOW`
 
-Status: `OPEN / RISK / NOT REPRODUCED`
+Status: `OPEN / COMPATIBILITY ONLY`
 
 位置：`iosruntimepatchmenu/src/ZNFeatureNameRegistry.mm`
 
-现状：Registry 存储在 `NSUserDefaults`，key 为 normalized target + siteRVA + patchID。当前没有显式版本迁移、过期清理或 workspace/build identity。
+现状：Registry 仍保存在 `NSUserDefaults`，key 为 normalized target + siteRVA + patchID。新 ZNF1 output 不再依赖它；它只为首版 Privacy output 提供 fallback。
 
-风险：目标版本变化但 key 偶然复用时，理论上可能显示旧名称。当前未复现。
+风险：旧 output 或 ZNF1 decode 失败时，理论上仍可能命中 stale registry entry。
 
-下一步：实机覆盖多版本/重复生成场景；如确认存在 stale entry，再增加 build identity 或受控清理机制，避免先行过度设计。
+下一步：实机验证新 output 始终优先 embedded metadata；Production 可增加 build/version namespace 或迁移策略。
 
 ## KI-006 — Generated binary ad-hoc 重签不是最终 IPA 签名
 
@@ -74,8 +72,30 @@ Severity: `MEDIUM`
 
 Status: `OPEN / RELEASE REQUIREMENT`
 
-现状：Generated binary 后处理会重建并校验 CodeDirectory，但源码明确要求替换回 IPA 后继续执行正常整包重签。
-
-风险：遗漏最终 resign 会导致安装/加载失败，与 Runtime Patch 逻辑本身无关。
+现状：Generated binary 后处理会重建并校验 CodeDirectory，但替换回 IPA 后仍必须正常整包重签。
 
 下一步：Production/Release workflow 必须把“替换 generated binary -> 最终 IPA resign -> install/launch validation”作为独立 gate。
+
+## KI-007 — ZNF1 display name 最大 57 UTF-8 bytes
+
+Severity: `LOW`
+
+Status: `OPEN / KNOWN LIMITATION`
+
+现状：为了不改变 128-byte Static Entry ABI，ZNF1 使用原 `title[48] + group[24]` 72-byte 区域；扣除 marker/FeatureID/length/sentinel 后最多保存 57 UTF-8 bytes。超长名称会截断到合法 UTF-8 前缀。
+
+风险：非常长的功能名称在 Public UI 中会被截短。
+
+下一步：实机确认实际名称长度分布；如确有需求，再设计 versioned side table，而不是扩大现有 Entry 破坏 ABI。
+
+## KI-008 — 上游名称如果已经变成“功能”，ZNF1 无法恢复原名
+
+Severity: `HIGH`
+
+Status: `OPEN / ROOT-CAUSE CHECK REQUIRED`
+
+现状：ZNF1 解决的是“名称跟随 generated binary 持久化”和“明文隐藏”。它会忠实编码 Builder 给出的 display name。如果 `ZNPatchJSONImporter` / `ZNFeatureBuilderUI` 在编码前已经把多个 Feature 的 `row.title` / `row.group` 统一成 `功能`，最终 Runtime 仍会正确解出错误的 `功能`。
+
+相关风险点：当前 JSON Importer 会把 `title/name/label/featuretitle` 视为 title 并沿父节点递归继承；Feature Builder 对 `Imported` row 可能将 title 提升为 group。因此 generic container name 有可能污染 Feature identity。
+
+下一步：用用户真实输入生成一次 output，同时记录编码前每个 row 的 target/RVA/title/group。若 ZNF1 decode 与编码前输入一致但输入已全部为“功能”，根因转到 JSON importer / Feature Builder provenance，需单独修复，不应在 Runtime decoder 中硬猜名称。

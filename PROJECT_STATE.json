@@ -1,48 +1,66 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.0",
-  "phase": "privacy-ui-test",
-  "phase_status": "ci-validated",
-  "branch": "feature/runtime-patch-menu-privacy-ui",
+  "phase": "feature-id-embedded-metadata-test",
+  "phase_status": "ci-and-codec-test-validated",
+  "branch": "feature/runtime-patch-menu-feature-id-map",
   "commit": {
+    "sha": "118a12c1febf3d693e5cb8e18b8e21cf6b008f01",
+    "role": "feature-id-map-ci-baseline",
+    "history_policy": "do-not-rewrite-runtime-baseline"
+  },
+  "runtime_baseline": {
     "sha": "908e27a36fa55a3e63e1ab55db5968fb5da12fde",
-    "role": "runtime-code-baseline",
+    "stage": "v0.5.0-privacy-ui-test",
     "history_policy": "do-not-rewrite"
   },
-  "baseline": {
-    "previous_stage": "v0.5.0-consolidated",
-    "previous_stage_sha": "121cc7c098b2d6f122a9c91a411a442edd3eaf68",
-    "relation": "ahead",
-    "commits_ahead": 9,
-    "commits_behind": 0
+  "previous_stage": {
+    "name": "v0.5.0-consolidated",
+    "sha": "121cc7c098b2d6f122a9c91a411a442edd3eaf68"
   },
   "build": {
     "system": "Theos",
-    "workflow": "Build Runtime Patch Menu Privacy UI",
-    "workflow_file": ".github/workflows/build-runtime-patch-menu-privacy-ui.yml",
-    "run_id": 34688640962,
+    "workflow": "Build Runtime Patch Menu FeatureID Map",
+    "workflow_file": ".github/workflows/build-runtime-patch-menu-feature-id-map.yml",
+    "run_id": 34705353421,
     "result": "success",
     "compiled": true,
+    "source_assertions_verified": true,
+    "codec_unit_tests_verified": true,
     "ci_static_verified": true,
     "device_verified": false,
+    "real_generated_target_verified": false,
+    "reinstall_name_persistence_verified": false,
     "full_regression_verified": false
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.0-PrivacyUI-Test",
-    "id": 10296920465,
-    "digest": "sha256:14093c8c04a6027fca1c2d92465f7c1874a9e7d705cd902a9691ec3cf4523b63",
+    "name": "ZonoPatch-v0.5.0-FeatureIDMap-Test",
+    "id": 10301438907,
+    "digest": "sha256:e226fb1e3e3fcaa3aadb224ca518a99159d10df02cfee322aa4b21b04b13b6a5",
     "expired_at_capture": false
+  },
+  "feature_metadata": {
+    "format": "ZNF1",
+    "storage": "generated-macho-static-entry-title-group-overlay",
+    "entry_abi_bytes": 128,
+    "metadata_overlay_bytes": 72,
+    "display_name_capacity_utf8_bytes": 57,
+    "feature_id_bits": 64,
+    "plaintext_display_name_expected_in_generated_target": false,
+    "registry_role": "legacy-compatibility-fallback",
+    "external_map_required": false,
+    "new_menu_dylib_per_feature_set_required": false
   },
   "runtime": {
     "device_test": "not-recorded",
-    "generated_binary_privacy_design": "implemented",
+    "generated_binary_feature_metadata_design": "implemented",
     "generated_binary_adhoc_resign": "implemented",
     "final_ipa_resign_required": true
   },
-  "next_phase": "production-hardening",
-  "next_task": "Validate a real generated .znpatched Mach-O before/after metadata scrub and signing, then perform on-device Registry/UI/toggle/rollback verification before adding Production/Release CI.",
-  "state_docs_revision": 1,
+  "next_phase": "real-generated-binary-and-device-validation",
+  "next_task": "Generate a real .znpatched target with distinct known feature names, verify ZNF1 metadata and absence of plaintext names, then re-sign/reinstall the IPA and confirm names survive without relying on NSUserDefaults. If decoded names are already generic, trace JSON import and Feature Builder title/group provenance.",
+  "state_docs_revision": 2,
   "captured_at": "2026-09-12"
 }

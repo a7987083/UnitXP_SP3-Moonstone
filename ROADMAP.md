@@ -4,14 +4,15 @@
 
 - Project: ZonoPatch Runtime Patch Menu
 - Version: `0.5.0`
-- Stage: `Privacy UI Test`
-- Branch: `feature/runtime-patch-menu-privacy-ui`
+- Stage: `FeatureID Embedded Metadata Test`
+- Branch: `feature/runtime-patch-menu-feature-id-map`
 - Runtime code baseline: `908e27a36fa55a3e63e1ab55db5968fb5da12fde`
+- FeatureID implementation CI baseline: `118a12c1febf3d693e5cb8e18b8e21cf6b008f01`
 - Previous stage baseline: `121cc7c098b2d6f122a9c91a411a442edd3eaf68`
-- CI: GitHub Actions run `34688640962` — `success`
-- Artifact: `ZonoPatch-v0.5.0-PrivacyUI-Test`
+- CI: GitHub Actions run `34705353421` — `success`
+- Artifact: `ZonoPatch-v0.5.0-FeatureIDMap-Test`
 
-当前分支相对 `121cc7c...` 前进 9 个 Commit。`908e27a...` 作为当前 Runtime 代码基线保留，不改写历史。
+历史 `908e27a...` 继续保留为 v0.5.0 Privacy UI Runtime 基线，不 rewrite。FeatureID 修复在独立后继分支开发和验证。
 
 ## 阶段目标与状态
 
@@ -19,59 +20,74 @@
 
 Status: `COMPLETED / CI VALIDATED`
 
-目标：
-
-- Consolidate Runtime Patch Menu v0.5.0。
-- 完成 generated Mach-O builder / signing 路径。
-- 重建并校验 generated binary CodeDirectory。
-- 保持现有 Static Dispatch ABI。
-
-已知稳定点：`121cc7c098b2d6f122a9c91a411a442edd3eaf68`。
+已完成 generated Mach-O builder、Static Dispatch、generated binary signing / CodeDirectory rebuild 等基础链路。稳定点：`121cc7c098b2d6f122a9c91a411a442edd3eaf68`。
 
 ### Phase B — v0.5.0 Privacy UI Test
 
-Status: `CURRENT / CI VALIDATED`
+Status: `COMPLETED AS BASELINE / DESIGN ISSUE FOUND`
 
-范围：
+已完成公共“功能”页收敛、title/group 明文清理和 Host-side Registry 方案。后续发现真实功能名称以 `NSUserDefaults` Registry 为主要来源时，重新安装/更换 App Container 后存在名称丢失并退化到泛化名称的设计缺口。
 
-- 公共“功能”页仅展示功能名和开关，不显示 Target/RVA/Original/Enabled/Shared Site/Owner/Variant 等技术字段。
-- 功能显示名优先从 Host-side `ZNFeatureNameRegistry` 解析。
-- Generated target Mach-O 的 `__ZNDATA` Static Dispatch entries 中 `title/group` 清零。
-- 清理后重建 ad-hoc CodeDirectory，并记录 machine-readable build report。
-- Feature group 开关保持事务式失败回滚。
+### Phase C — Embedded FeatureID Metadata
+
+Status: `CURRENT / CI + CODEC TEST VALIDATED`
+
+目标：
+
+- 不增加外部 FeatureMap 文件。
+- 不要求针对每套功能重新编译 ZonoPatch dylib。
+- Generated target Mach-O 内不保存普通 UTF-8 功能名明文。
+- 每个 Static Entry 保存稳定 `FeatureID` + ZNF1 编码显示名。
+- Runtime 直接从 generated Mach-O 解码名称；重新签名/重新安装后不依赖旧 App Container。
+- `NSUserDefaults` Registry 降级为旧版兼容 fallback，不再是新产物的唯一真实名称来源。
+- 保持 `ZN44StaticEntry` 128-byte ABI、Shared Site tail 和 Runtime Patch 执行路径不变。
+
+当前实现：
+
+- 新增 `ZNFeatureMetadataCodec.h/.mm`。
+- 复用 `title[48] + group[24]` 共 72 字节作为 ZNF1 opaque metadata，不扩大 Static Entry。
+- `title[0]` / `group[0]` 保持为 0，使旧 Runtime 不会把编码字节当 C-string 显示。
+- Explicit Feature group 使用标准化功能名生成稳定 64-bit FeatureID；同名 Feature 跨 Patch/跨 target 保持同一 ID。
+- Legacy/no-group Patch 将 target + RVA + patchID 纳入 ID，避免偶然同名导致错误合并。
+- Public Feature UI 优先解码 embedded ZNF1，并按 FeatureID 聚合；旧 Registry 和 legacy entry 仅作 fallback。
+- Metadata 后处理在 ad-hoc resign 前完成编码，然后重新校验签名。
 
 当前验证：
 
-- 源码断言：已在 CI 执行。
-- Theos 编译：已通过。
-- dylib 静态符号/字符串检查：已通过。
-- GitHub Artifact：已生成。
-- 实机加载 / Runtime 行为 / 完整 IPA 回归：尚无已记录验证结果。
+- Source assertions: PASS。
+- ZNF1 codec unit tests: PASS。
+- 单测覆盖：round-trip、同 Feature 多 Patch ID 一致、legacy Patch 不误合并、中文 UTF-8、raw 72-byte metadata 不包含测试功能名明文。
+- Theos arm64 dylib build: PASS。
+- dylib symbol/string verification: PASS。
+- GitHub Actions run `34705353421`: SUCCESS。
+- 真实 generated `.znpatched` 目标二进制：尚未完成设备侧验证。
+- 重新打 IPA / 重签 / 重装后的菜单名称：尚未完成设备侧验证。
 
-### Phase C — Production Hardening
+### Phase D — Real Generated Binary + Device Validation
 
 Status: `NEXT`
 
 目标：
 
-- 以 `908e27a...` 为只读代码基线继续，不修改历史 Commit。
-- 对实际 generated `.znpatched` Mach-O 做生成前/后静态对比，确认 `title/group` 明文真实清除且 ABI 未变化。
-- 实机验证 Feature Registry 命中、旧二进制 fallback、ON/OFF/MIXED、失败回滚。
-- 验证 scrub -> ad-hoc resign -> 替换回 IPA -> 最终整包重签的完整链路。
-- 固化 Production CI，避免只检查 marker string 而未检查真实隐私结果。
-- 补充失败样本、日志和回归证据。
+- 使用真实功能名生成一份 `.znpatched`。
+- 解析 `__ZNDATA`，确认 header flag 与每个 entry 的 ZNF1 marker / FeatureID 正确。
+- 对 generated target 执行 `strings` / raw byte 检查，确认真实功能名不以普通明文存在。
+- 替换回 IPA、最终整包重签、重新安装。
+- 验证菜单显示原始功能名，而非 `功能` / `功能 #N`。
+- 验证同一 Feature 多 Patch 聚合、ON/OFF/MIXED、Shared Site、rollback。
+- 如果 ZNF1 解码出的名字本身就是泛化“功能”，继续向上追踪 JSON Import / Feature Builder 的 name/group provenance，而不是修改解码 fallback 猜名字。
 
-### Phase D — Production / Release
+### Phase E — Production Hardening / Release
 
 Status: `PLANNED`
 
 进入条件：
 
-- Phase C 所有阻塞项关闭。
-- CI + 实机 + 最终 IPA 重签链路均通过。
-- Release artifact 可重复生成并具备 hash / build provenance。
+- Phase D 真实生成与实机重装验证通过。
 - `KNOWN_ISSUES.md` 无 High severity 未关闭项。
+- Production CI 有真实 builder fixture 或等价 generated Mach-O 校验。
+- Release artifact / hash / provenance 可重复。
 
 ## Next Task
 
-从 `908e27a36fa55a3e63e1ab55db5968fb5da12fde` 建立 Production Hardening 后继阶段；第一项任务是对真实 generated `.znpatched` Mach-O 做 `__ZNDATA`、Static Entry、CodeDirectory 和明文字符串的前后对比，并完成一次实机 Runtime 验证。未完成这些验证前，不把当前状态标记为 Production。
+在目标 App 上用当前 FeatureID 分支生成一份包含多个明确不同功能名（至少一个中文、一个英文、一个多 Patch Feature）的 `.znpatched`，保留 `build_report.json`；随后检查 ZNF1 metadata、明文字符串、最终 IPA 重装后的菜单名称。若仍全部显示“功能”，优先检查导入/编辑阶段的 `row.title` / `row.group` 是否在编码前已经被污染为同一值。
