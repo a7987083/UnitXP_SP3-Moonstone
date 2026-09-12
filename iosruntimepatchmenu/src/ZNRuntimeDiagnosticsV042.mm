@@ -1,5 +1,6 @@
 #import "ZNPatchCore.h"
 #import "ZNExecutablePageProbe.h"
+#import "ZNDeveloperGate.h"
 #import <objc/runtime.h>
 #import <atomic>
 
@@ -45,29 +46,23 @@ static void ZN42RecordRefresh(NSString *source, uint64_t generation, NSUInteger 
     gZN42RequestedGeneration.store(generation);
     gZN42DyldBurstCount.fetch_add(1);
 
-    // Coalesce the dyld startup burst. Only the final generation performs a resolver pass.
+    // Keep the useful resolver debounce for every build. Only the expensive
+    // main-thread watchdog is developer-gated below.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(400 * NSEC_PER_MSEC)), gZN42ResolverQueue, ^{
         if (gZN42RequestedGeneration.load() != generation) return;
         uint64_t burst = gZN42DyldBurstCount.exchange(0);
         ZNModuleManager *mm = [ZNModuleManager sharedManager];
         NSDictionary *unity = mm.unityFramework;
         NSUInteger images = mm.loadedImages.count;
-        if (!unity) {
-            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[resolver][dyld-debounce][bg] skipped generation=%llu events=%llu images=%lu reason=UnityFramework-not-loaded",
-                                                 generation, burst, (unsigned long)images]];
-            return;
-        }
+        if (!unity) return;
 
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[resolver][dyld-debounce][bg] begin generation=%llu events=%llu images=%lu unityBase=0x%llx",
-                                             generation, burst, (unsigned long)images,
-                                             [unity[@"base"] unsignedLongLongValue]]];
         CFAbsoluteTime begin = CFAbsoluteTimeGetCurrent();
         @synchronized (self) {
-            // After swizzling, zn42_refreshResolution points to the previous/original implementation.
             [self zn42_refreshResolution];
         }
         double ms = (CFAbsoluteTimeGetCurrent() - begin) * 1000.0;
         ZN42RecordRefresh(@"dyld-debounce", generation, images, ms);
+        (void)burst;
     });
 }
 
@@ -75,9 +70,6 @@ static void ZN42RecordRefresh(NSString *source, uint64_t generation, NSUInteger 
     ZNModuleManager *mm = [ZNModuleManager sharedManager];
     uint64_t generation = mm.moduleGeneration;
     NSUInteger images = mm.loadedImages.count;
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[resolver][manual][%@] begin generation=%llu images=%lu actions=%lu",
-                                         ZN42ThreadName(), generation, (unsigned long)images,
-                                         (unsigned long)self.actionCount]];
     CFAbsoluteTime begin = CFAbsoluteTimeGetCurrent();
     @synchronized (self) {
         [self zn42_refreshResolution];
@@ -88,8 +80,9 @@ static void ZN42RecordRefresh(NSString *source, uint64_t generation, NSUInteger 
 
 - (NSString *)zn42_diagnosticReport {
     NSString *base = [self zn42_diagnosticReport];
-    NSString *perf = [NSString stringWithFormat:@"Runtime Diagnostics 0.4.2\nrefreshCount=%llu maxRefresh=%.2fms\nmainStallCount=%llu maxMainDelay=%.2fms\n",
-                      gZN42RefreshCount.load(), gZN42MaxRefreshMs.load(),
+    NSString *watchdog = [ZNDeveloperGate sharedGate].authorized ? @"developer-only/on" : @"public/off";
+    NSString *perf = [NSString stringWithFormat:@"Runtime Diagnostics 0.5.2\nrefreshCount=%llu maxRefresh=%.2fms\nmainWatchdog=%@ mainStallCount=%llu maxMainDelay=%.2fms\n",
+                      gZN42RefreshCount.load(), gZN42MaxRefreshMs.load(), watchdog,
                       gZN42StallCount.load(), gZN42MaxMainDelayMs.load()];
     return [NSString stringWithFormat:@"%@\n%@\n%@", base ?: @"", perf, [[ZNExecutablePageProbe sharedProbe] diagnosticReport]];
 }
@@ -130,11 +123,16 @@ static void ZNSwapPatchManagerV042(SEL original, SEL replacement) {
 
 __attribute__((constructor(106))) static void ZNInstallRuntimeDiagnosticsV042(void) {
     @autoreleasepool {
-        gZN42ResolverQueue = dispatch_queue_create("com.zonoe.patch.resolver.v042", DISPATCH_QUEUE_SERIAL);
+        gZN42ResolverQueue = dispatch_queue_create("com.zonoe.patch.resolver.v052", DISPATCH_QUEUE_SERIAL);
         ZNSwapPatchManagerV042(@selector(moduleAdded:), @selector(zn42_moduleAdded:));
         ZNSwapPatchManagerV042(@selector(refreshResolution), @selector(zn42_refreshResolution));
         ZNSwapPatchManagerV042(@selector(diagnosticReport), @selector(zn42_diagnosticReport));
-        ZN42StartMainThreadWatchdog();
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.4.2 runtime diagnostics installed: dyldDebounce=400ms watchdog=250ms timing=ON"];
+
+        // File 1 is evaluated once by ZNDeveloperGate. The watchdog is never
+        // created in public mode and cannot be enabled later without restart.
+        if ([ZNDeveloperGate sharedGate].authorized) {
+            ZN42StartMainThreadWatchdog();
+            [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][dev] runtime watchdog enabled from startup g permission"];
+        }
     }
 }
