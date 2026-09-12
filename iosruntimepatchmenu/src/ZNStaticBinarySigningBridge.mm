@@ -43,10 +43,9 @@
         return NO;
     }
 
-    // Capture UI display names before the generated target Mach-O is scrubbed.
-    // Patch IDs are assigned per target in the same row order as Builder V3.
-    // Store both the logical module name and its runtime basename so aliases
-    // such as "main" still resolve after dyld reports the actual image name.
+    // Keep a compatibility copy in the host registry for old generated outputs.
+    // New ZNF1 outputs do not depend on this registry: their FeatureID + encoded
+    // display name travels inside the generated Mach-O itself.
     NSMutableArray<NSDictionary *> *nameEntries = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSNumber *> *nextPatchIDByTarget = [NSMutableDictionary dictionary];
     for (ZNBinaryPatchRow *row in workspace.rows) {
@@ -75,20 +74,20 @@
     NSMutableArray<NSDictionary *> *signing = [NSMutableArray array];
     NSString *failure = nil;
     NSString *folder = nil;
-    NSUInteger totalScrubbed = 0;
+    NSUInteger totalEncoded = 0;
 
     for (NSString *path in innerOutputs) {
         if (![path.pathExtension.lowercaseString isEqualToString:@"znpatched"]) continue;
         if (!folder.length) folder = path.stringByDeletingLastPathComponent;
 
-        NSUInteger scrubbed = 0;
+        NSUInteger encoded = 0;
         NSString *privacyError = nil;
-        if (!ZNScrubStaticDisplayMetadataAtPath(path, &scrubbed, &privacyError)) {
+        if (!ZNScrubStaticDisplayMetadataAtPath(path, &encoded, &privacyError)) {
             failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent,
-                       privacyError ?: @"显示 metadata 清理失败"];
+                       privacyError ?: @"显示 metadata 编码失败"];
             break;
         }
-        totalScrubbed += scrubbed;
+        totalEncoded += encoded;
 
         NSDictionary *signMetadata = nil;
         NSString *signError = nil;
@@ -99,7 +98,7 @@
         }
         NSMutableDictionary *item = [signMetadata mutableCopy] ?: [NSMutableDictionary dictionary];
         item[@"output"] = path;
-        item[@"scrubbedDisplayMetadataEntries"] = @(scrubbed);
+        item[@"encodedFeatureMetadataEntries"] = @(encoded);
         [signing addObject:item];
     }
 
@@ -109,8 +108,8 @@
         return NO;
     }
 
-    // Commit names only after every generated binary passed scrub + signature
-    // verification, avoiding stale registry entries from a failed build.
+    // Legacy cache only. A reinstall may erase it without losing Feature names,
+    // because new outputs resolve from the embedded ZNF1 representation first.
     for (NSDictionary *entry in nameEntries) {
         uint64_t siteRVA = [entry[@"siteRVA"] unsignedLongLongValue];
         uint32_t patchID = [entry[@"patchID"] unsignedIntValue];
@@ -142,9 +141,13 @@
         };
         object[@"generatedBinaryPrivacy"] = @{
             @"targetMachODisplayNames": @NO,
-            @"titleGroupFieldsZeroed": @YES,
-            @"scrubbedEntries": @(totalScrubbed),
-            @"displayNameStorage": @"host-app-feature-name-registry",
+            @"plainDisplayNamesPresent": @NO,
+            @"embeddedFeatureID": @YES,
+            @"displayMetadataCodec": @"ZNF1",
+            @"encodedEntries": @(totalEncoded),
+            @"displayNameStorage": @"generated-macho-static-entry-encoded",
+            @"legacyRegistryFallbackWritten": @YES,
+            @"titleGroupFieldsZeroed": @NO,
             @"staticEntryABIPreserved": @YES,
         };
         NSData *updated = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingPrettyPrinted error:nil];
@@ -154,7 +157,7 @@
 
     if (outputs) *outputs = innerOutputs;
     if (report) {
-        *report = [NSString stringWithFormat:@"%@\n已清除生成 Mach-O 中的 title/group 明文，并重建 SHA-1/SHA-256 CodeDirectory 后逐页校验；功能名称保存在 ZonoPatch 本地 Registry。替换回 IPA 后仍需正常整包重签。",
+        *report = [NSString stringWithFormat:@"%@\n已将生成 Mach-O 的功能名转换为稳定 FeatureID + ZNF1 编码 metadata，并重建 SHA-1/SHA-256 CodeDirectory 后逐页校验；NSUserDefaults 仅保留旧版兼容缓存。替换回 IPA 后仍需正常整包重签。",
                    innerReport ?: @"Static Binary Builder 生成成功"];
     }
     return YES;
