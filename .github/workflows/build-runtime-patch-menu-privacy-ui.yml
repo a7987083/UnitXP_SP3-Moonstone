@@ -1,0 +1,62 @@
+name: Build Runtime Patch Menu Privacy UI
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-privacy-ui
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Source assertions
+        run: |
+          set -euxo pipefail
+          grep -q 'Public Feature UI intentionally contains display name + switch only' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          grep -q 'ZNScrubStaticDisplayMetadataAtPath' iosruntimepatchmenu/src/ZNStaticMetadataPrivacy.mm
+          grep -q 'ZNFeatureNameRegistryStore' iosruntimepatchmenu/src/ZNFeatureNameRegistry.mm
+          grep -q 'src/ZNFeatureNameRegistry.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNStaticMetadataPrivacy.mm' iosruntimepatchmenu/Makefile
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-privacy-ui
+          cp .theos/obj/ZonoePatchV03.dylib dist-privacy-ui/ZonoPatch_v0.5.0_PrivacyUI_Test.dylib
+          shasum -a 256 dist-privacy-ui/ZonoPatch_v0.5.0_PrivacyUI_Test.dylib | tee dist-privacy-ui/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-privacy-ui/ZonoPatch_v0.5.0_PrivacyUI_Test.dylib
+          file "$out"
+          nm -gU "$out" | grep 'ZNStaticBinaryBuilder'
+          strings "$out" > /tmp/zonoe_privacy_strings.txt
+          grep -q 'targetMachODisplayNames' /tmp/zonoe_privacy_strings.txt
+          grep -q 'titleGroupFieldsZeroed' /tmp/zonoe_privacy_strings.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.0-PrivacyUI-Test
+          path: |
+            iosruntimepatchmenu/dist-privacy-ui/ZonoPatch_v0.5.0_PrivacyUI_Test.dylib
+            iosruntimepatchmenu/dist-privacy-ui/SHA256.txt
+          if-no-files-found: error
