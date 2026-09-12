@@ -220,7 +220,7 @@ static void HFAVerifyHook(id self, SEL _cmd) {
 static BOOL HFAHook(Class cls, const char *name, IMP replacement, IMP *original) {
     Method method = class_getInstanceMethod(cls, sel_registerName(name));
     if (!method) {
-        HFALog(@"[VIP][HOOK_MISSING] %s", name]);
+        HFALog(@"[VIP][HOOK_MISSING] %s", name);
         return NO;
     }
     IMP old = method_getImplementation(method);
