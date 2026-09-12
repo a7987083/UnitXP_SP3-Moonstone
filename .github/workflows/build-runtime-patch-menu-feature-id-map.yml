@@ -44,16 +44,8 @@ jobs:
               for old in signatures:
                   if text.count(old) != 1:
                       raise SystemExit(f'expected exactly one legacy constructor signature: {old}')
-                  text = text.replace(old, old.replace('__attribute__((constructor(101))) ', '')
-                                             .replace('__attribute__((constructor(102))) ', '')
-                                             .replace('__attribute__((constructor(103))) ', '')
-                                             .replace('__attribute__((constructor(105))) ', '')
-                                             .replace('__attribute__((constructor(106))) ', '')
-                                             .replace('__attribute__((constructor(110))) ', '')
-                                             .replace('__attribute__((constructor(111))) ', '')
-                                             .replace('__attribute__((constructor(113))) ', '')
-                                             .replace('__attribute__((constructor(114))) ', '')
-                                             .replace('__attribute__((constructor)) ', ''), 1)
+                  new = re.sub(r'__attribute__\(\(constructor(?:\(\d+\))?\)\)\s+', '', old)
+                  text = text.replace(old, new, 1)
 
               begin_marker = '// BEGIN inlined ZonoeRuntimeMenuV024.mm'
               end_marker = '// END inlined ZonoeRuntimeMenuV024.mm'
@@ -81,29 +73,30 @@ jobs:
               text = text.replace('[bootstrap][main] v0.4.8', '[bootstrap][ui-layer] JSON import')
               text = text.replace('[bootstrap][main] v0.4.9', '[bootstrap][ui-layer] shared-site probe')
 
-              bootstrap = r'''
-
-// v0.5.3: one deterministic menu bootstrap owns the historical layer order.
-// The layer methods are retained for behavior compatibility, but they are no
-// longer independent constructors. This removes constructor-order coupling and
-// ensures the current UI stack is installed exactly once before async startup.
-__attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {
-    @autoreleasepool {
-        ZNRuntimeCoreBootstrapV040();
-        ZNInstallV0401UIFixes();
-        ZNInstallV0402TouchPolicyFix();
-        ZNInstallV042MenuDiagnostics();
-        ZNInstallV043RuntimeValidation();
-        ZNInstallV044BinaryBuilder();
-        ZNInstallV045FunctionUI();
-        ZNInstallV048JSONImport();
-        ZNInstallV049SharedSiteProbeUI();
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.3 current UI bootstrap installed as one ordered chain"];
-        ZonoePatchStart();
-    }
-}
-'''
-              text = text.rstrip() + bootstrap + '\n'
+              bootstrap_lines = [
+                  '',
+                  '',
+                  '// v0.5.3: one deterministic menu bootstrap owns the historical layer order.',
+                  '// The layer methods are retained for behavior compatibility, but they are no',
+                  '// longer independent constructors. This removes constructor-order coupling and',
+                  '// ensures the current UI stack is installed exactly once before async startup.',
+                  '__attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {',
+                  '    @autoreleasepool {',
+                  '        ZNRuntimeCoreBootstrapV040();',
+                  '        ZNInstallV0401UIFixes();',
+                  '        ZNInstallV0402TouchPolicyFix();',
+                  '        ZNInstallV042MenuDiagnostics();',
+                  '        ZNInstallV043RuntimeValidation();',
+                  '        ZNInstallV044BinaryBuilder();',
+                  '        ZNInstallV045FunctionUI();',
+                  '        ZNInstallV048JSONImport();',
+                  '        ZNInstallV049SharedSiteProbeUI();',
+                  '        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.3 current UI bootstrap installed as one ordered chain"];',
+                  '        ZonoePatchStart();',
+                  '    }',
+                  '}',
+              ]
+              text = text.rstrip() + '\n'.join(bootstrap_lines) + '\n'
               menu.write_text(text)
 
           compact = Path('iosruntimepatchmenu/src/ZNPublicCompactUI.mm')
@@ -145,7 +138,6 @@ __attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {
           grep -q -- '-fvisibility=hidden' "$makefile"
           if grep -q 'src/ZNCompactFeatureRoutingFix.mm' "$makefile"; then exit 1; fi
 
-          # One current constructor owns the whole menu-layer order.
           test "$(grep -c '__attribute__((constructor' "$menu")" -eq 1
           grep -q 'constructor(119)' "$menu"
           grep -q 'v0.5.3 current UI bootstrap installed as one ordered chain' "$menu"
@@ -155,7 +147,6 @@ __attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {
           if grep -q '0.2.4-ui' "$menu"; then exit 1; fi
           if grep -q '0.5.0-menu-consolidated' "$menu"; then exit 1; fi
 
-          # Baseline API helpers are private now; only the current API remains public.
           python3 <<'PY'
           from pathlib import Path
           s=Path('iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm').read_text()
@@ -227,7 +218,6 @@ __attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {
           set -euxo pipefail
           out=iosruntimepatchmenu/dist-consolidation-v2/ZonoPatch_v0.5.3_ConsolidationV2_Test.dylib
           file "$out"
-
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
           nm -gU "$out" | grep '_ZonoePatchGetVersion'
           nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
