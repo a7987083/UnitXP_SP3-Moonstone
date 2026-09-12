@@ -5,6 +5,7 @@
 
 static IMP gZNSSP3FeatureChainIMP = NULL;
 static BOOL gZNSSP3Attached = NO;
+static BOOL gZNSSP3AttachPolling = NO;
 
 static IMP ZNSSP3AnchorIMPForClass(Class cls) {
     if (!cls) return NULL;
@@ -57,13 +58,18 @@ static BOOL ZNSSP3AttachIfReady(void) {
         method_setImplementation(direct,(IMP)ZNSSP3FeatureSetActive);
     }
     gZNSSP3Attached=YES;
+    gZNSSP3AttachPolling=NO;
     return YES;
 }
 
-static void ZNSSP3PollAttach(void) {
+static void ZNSSP3PollAttachAfterExplicitEnable(NSUInteger remaining) {
     if (ZNSSP3AttachIfReady()) return;
+    if (!remaining) {
+        gZNSSP3AttachPolling=NO;
+        return;
+    }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
-        ZNSSP3PollAttach();
+        ZNSSP3PollAttachAfterExplicitEnable(remaining-1);
     });
 }
 
@@ -72,17 +78,36 @@ static void ZNSSP3PollAttach(void) {
 + (void)load {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken,^{
-        Method original=class_getInstanceMethod(self,@selector(diagnosticLines));
-        Method replacement=class_getInstanceMethod(self,@selector(znssp3_diagnosticLines));
-        if (original&&replacement) method_exchangeImplementations(original,replacement);
-        dispatch_async(dispatch_get_main_queue(),^{ ZNSSP3PollAttach(); });
+        Method diagnostic=class_getInstanceMethod(self,@selector(diagnosticLines));
+        Method diagnosticReplacement=class_getInstanceMethod(self,@selector(znssp3_diagnosticLines));
+        if (diagnostic&&diagnosticReplacement) method_exchangeImplementations(diagnostic,diagnosticReplacement);
+
+        Method install=class_getInstanceMethod(self,@selector(installAndEnable:));
+        Method installReplacement=class_getInstanceMethod(self,@selector(znssp3_installAndEnable:));
+        if (install&&installReplacement) method_exchangeImplementations(install,installReplacement);
     });
+}
+
+- (BOOL)znssp3_installAndEnable:(NSString **)error {
+    // After swizzling, this selector calls the V2 explicit-enable implementation.
+    BOOL ok=[self znssp3_installAndEnable:error];
+    if (!ok) return NO;
+
+    // v0.5.2 consolidation: V3 instrumentation is lazy. There is no startup
+    // polling. A bounded attach retry starts only after the developer explicitly
+    // presses "启用 Probe".
+    if (!ZNSSP3AttachIfReady() && !gZNSSP3AttachPolling) {
+        gZNSSP3AttachPolling=YES;
+        dispatch_async(dispatch_get_main_queue(),^{ ZNSSP3PollAttachAfterExplicitEnable(20); });
+    }
+    return YES;
 }
 
 - (NSArray<NSString *> *)znssp3_diagnosticLines {
     NSArray<NSString *> *base=[self znssp3_diagnosticLines]?:@[];
     NSMutableArray<NSString *> *lines=[base mutableCopy];
     [lines addObjectsFromArray:ZNSSPV3DiagnosticLines()];
+    [lines addObject:gZNSSP3Attached?@"Execution Probe V3: attached":@"Execution Probe V3: idle until explicit enable"];
     return lines;
 }
 
