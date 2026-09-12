@@ -1,9 +1,9 @@
-name: Build Runtime Patch Menu FeatureID Map
+name: Build Runtime Patch Menu Protection V1
 
 on:
   push:
     branches:
-      - feature/runtime-patch-menu-feature-id-map
+      - feature/runtime-patch-menu-protection-v1
   workflow_dispatch:
 
 jobs:
@@ -28,6 +28,7 @@ jobs:
           set -euxo pipefail
           grep -q 'src/ZNFeatureMetadataCodec.mm' iosruntimepatchmenu/Makefile
           grep -q 'src/ZNPublicCompactUI.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNStaticRVAProtection.mm' iosruntimepatchmenu/Makefile
           if grep -q 'src/ZNFeatureNameRegistry.mm' iosruntimepatchmenu/Makefile; then exit 1; fi
           grep -q 'ZNFeatureMetadataEncodeEntry' iosruntimepatchmenu/src/ZNStaticMetadataPrivacy.mm
           grep -q 'ZNFeatureMetadataDecodeEntry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
@@ -35,11 +36,13 @@ jobs:
           grep -q 'return @"关"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
           grep -q 'zn.f.%016llx.enabled' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
           if grep -q 'ZNFeatureNameRegistry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm; then exit 1; fi
-          if grep -q 'ZNFeatureNameRegistryStore' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm; then exit 1; fi
-          grep -q 'legacyRegistryFallbackWritten.*@NO' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
           grep -q 'removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey' iosruntimepatchmenu/src/ZNPublicCompactUI.mm
-          grep -q 'ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
-          grep -q 'displayMetadataCodec' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
+          grep -q 'ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'ZN55ProtectStaticRVAsAtPath' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
+          grep -q 'ZN55DecodeEntryRVAs' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
+          grep -q 'runtimeWritesPlainRVAsBackToStaticEntry.*@NO' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
+          if grep -q 'record.dispatchEntry->offRVA' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm; then exit 1; fi
+          if grep -q 'selectedRecord.entry->onRVA' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm; then exit 1; fi
 
       - name: Feature metadata codec tests
         run: |
@@ -51,35 +54,45 @@ jobs:
             -o /tmp/zn_feature_metadata_codec_test
           /tmp/zn_feature_metadata_codec_test
 
+      - name: Static RVA protection tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/static_rva_protection_test.mm \
+            -o /tmp/zn_static_rva_protection_test
+          /tmp/zn_static_rva_protection_test
+
       - name: Build
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-feature-id-map
-          cp .theos/obj/ZonoePatchV03.dylib dist-feature-id-map/ZonoPatch_v0.5.0_FeatureIDMap_Test.dylib
-          shasum -a 256 dist-feature-id-map/ZonoPatch_v0.5.0_FeatureIDMap_Test.dylib | tee dist-feature-id-map/SHA256.txt
+          mkdir -p dist-protection-v1
+          cp .theos/obj/ZonoePatchV03.dylib dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib
+          shasum -a 256 dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib | tee dist-protection-v1/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-feature-id-map/ZonoPatch_v0.5.0_FeatureIDMap_Test.dylib
+          out=iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib
           file "$out"
           nm -gU "$out" | grep 'ZNFeatureMetadataEncodeEntry'
           nm -gU "$out" | grep 'ZNFeatureMetadataDecodeEntry'
           if nm -gU "$out" | grep -q 'ZNFeatureNameRegistryStore'; then exit 1; fi
-          strings "$out" > /tmp/zonoe_feature_id_map_strings.txt
-          grep -q 'embedded FeatureID + display name' /tmp/zonoe_feature_id_map_strings.txt
-          grep -q 'displayMetadataCodec' /tmp/zonoe_feature_id_map_strings.txt
-          grep -q 'public compact UI installed' /tmp/zonoe_feature_id_map_strings.txt
-          grep -q 'preferences contain opaque state only' /tmp/zonoe_feature_id_map_strings.txt
+          if nm -gU "$out" | grep -q 'ZN55ProtectStaticRVAsAtPath'; then exit 1; fi
+          strings "$out" > /tmp/zonoe_protection_v1_strings.txt
+          grep -q 'Static RVA Protection V1' /tmp/zonoe_protection_v1_strings.txt
+          grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_protection_v1_strings.txt
+          grep -q 'public compact UI installed' /tmp/zonoe_protection_v1_strings.txt
+          grep -q 'preferences contain opaque state only' /tmp/zonoe_protection_v1_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.0-FeatureIDMap-Test
+          name: ZonoPatch-v0.5.1-ProtectionV1-Test
           path: |
-            iosruntimepatchmenu/dist-feature-id-map/ZonoPatch_v0.5.0_FeatureIDMap_Test.dylib
-            iosruntimepatchmenu/dist-feature-id-map/SHA256.txt
+            iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib
+            iosruntimepatchmenu/dist-protection-v1/SHA256.txt
           if-no-files-found: error
