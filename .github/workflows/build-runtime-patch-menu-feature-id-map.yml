@@ -83,7 +83,7 @@ jobs:
           if nm -gU "$out" | grep -q 'ZNFeatureNameRegistryStore'; then exit 1; fi
           if nm -gU "$out" | grep -q 'ZN55ProtectStaticRVAsAtPath'; then exit 1; fi
           strings "$out" > /tmp/zonoe_protection_v1_strings.txt
-          grep -q 'Static RVA Protection V1' /tmp/zonoe_protection_v1_strings.txt
+          grep -q 'static-rva-protection-v1' /tmp/zonoe_protection_v1_strings.txt
           grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_protection_v1_strings.txt
           grep -q 'public compact UI installed' /tmp/zonoe_protection_v1_strings.txt
           grep -q 'preferences contain opaque state only' /tmp/zonoe_protection_v1_strings.txt
