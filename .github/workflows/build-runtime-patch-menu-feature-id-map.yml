@@ -27,8 +27,17 @@ jobs:
         run: |
           set -euxo pipefail
           grep -q 'src/ZNFeatureMetadataCodec.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNPublicCompactUI.mm' iosruntimepatchmenu/Makefile
+          if grep -q 'src/ZNFeatureNameRegistry.mm' iosruntimepatchmenu/Makefile; then exit 1; fi
           grep -q 'ZNFeatureMetadataEncodeEntry' iosruntimepatchmenu/src/ZNStaticMetadataPrivacy.mm
           grep -q 'ZNFeatureMetadataDecodeEntry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          grep -q 'return @"开"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          grep -q 'return @"关"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          grep -q 'zn.f.%016llx.enabled' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          if grep -q 'ZNFeatureNameRegistry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm; then exit 1; fi
+          if grep -q 'ZNFeatureNameRegistryStore' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm; then exit 1; fi
+          grep -q 'legacyRegistryFallbackWritten.*@NO' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
+          grep -q 'removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey' iosruntimepatchmenu/src/ZNPublicCompactUI.mm
           grep -q 'ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
           grep -q 'displayMetadataCodec' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
 
@@ -59,9 +68,12 @@ jobs:
           file "$out"
           nm -gU "$out" | grep 'ZNFeatureMetadataEncodeEntry'
           nm -gU "$out" | grep 'ZNFeatureMetadataDecodeEntry'
+          if nm -gU "$out" | grep -q 'ZNFeatureNameRegistryStore'; then exit 1; fi
           strings "$out" > /tmp/zonoe_feature_id_map_strings.txt
           grep -q 'embedded FeatureID + display name' /tmp/zonoe_feature_id_map_strings.txt
           grep -q 'displayMetadataCodec' /tmp/zonoe_feature_id_map_strings.txt
+          grep -q 'public compact UI installed' /tmp/zonoe_feature_id_map_strings.txt
+          grep -q 'preferences contain opaque state only' /tmp/zonoe_feature_id_map_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
