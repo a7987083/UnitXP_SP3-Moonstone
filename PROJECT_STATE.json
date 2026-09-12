@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "project": "ZonoPatch Runtime Patch Menu",
+  "repository": "a7987083/UnitXP_SP3-Moonstone",
+  "version": "0.5.0",
+  "phase": "privacy-ui-test",
+  "phase_status": "ci-validated",
+  "branch": "feature/runtime-patch-menu-privacy-ui",
+  "commit": {
+    "sha": "908e27a36fa55a3e63e1ab55db5968fb5da12fde",
+    "role": "runtime-code-baseline",
+    "history_policy": "do-not-rewrite"
+  },
+  "baseline": {
+    "previous_stage": "v0.5.0-consolidated",
+    "previous_stage_sha": "121cc7c098b2d6f122a9c91a411a442edd3eaf68",
+    "relation": "ahead",
+    "commits_ahead": 9,
+    "commits_behind": 0
+  },
+  "build": {
+    "system": "Theos",
+    "workflow": "Build Runtime Patch Menu Privacy UI",
+    "workflow_file": ".github/workflows/build-runtime-patch-menu-privacy-ui.yml",
+    "run_id": 34688640962,
+    "result": "success",
+    "compiled": true,
+    "ci_static_verified": true,
+    "device_verified": false,
+    "full_regression_verified": false
+  },
+  "artifact": {
+    "name": "ZonoPatch-v0.5.0-PrivacyUI-Test",
+    "id": 10296920465,
+    "digest": "sha256:14093c8c04a6027fca1c2d92465f7c1874a9e7d705cd902a9691ec3cf4523b63",
+    "expired_at_capture": false
+  },
+  "runtime": {
+    "device_test": "not-recorded",
+    "generated_binary_privacy_design": "implemented",
+    "generated_binary_adhoc_resign": "implemented",
+    "final_ipa_resign_required": true
+  },
+  "next_phase": "production-hardening",
+  "next_task": "Validate a real generated .znpatched Mach-O before/after metadata scrub and signing, then perform on-device Registry/UI/toggle/rollback verification before adding Production/Release CI.",
+  "state_docs_revision": 1,
+  "captured_at": "2026-09-12"
+}
