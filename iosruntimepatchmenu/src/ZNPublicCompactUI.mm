@@ -2,7 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-// Public menu presentation policy for v0.5.1 Protection V1.
+// Public menu presentation policy for v0.5.2 Consolidation Phase 1.
 // Keep the existing compact layout implementation and make it the default
 // presentation after this migration. Users can still expand through the
 // existing mode button; this only changes the post-upgrade default.
@@ -25,7 +25,7 @@ static NSString * const kZNLegacyFeatureNameRegistryDefaultsKey = @"zonoe.featur
 - (void)znpublic_layoutPanel {
     [self znpublic_layoutPanel];
     if (self.compactMode) {
-        self.subtitleLabel.text = @"0.5.1";
+        self.subtitleLabel.text = @"0.5.2";
         self.subtitleLabel.alpha = 0.72;
     }
 }
@@ -53,9 +53,6 @@ __attribute__((constructor(121))) static void ZNInstallPublicCompactDefaults(voi
             [defaults setInteger:0 forKey:kZNSelectedCategoryDefaultsKey];
             [defaults setBool:YES forKey:kZNPublicCompactMigrationKey];
 
-            // If the controller was instantiated by an earlier constructor,
-            // update the in-memory state too. Otherwise these defaults are read
-            // normally when the singleton is first created.
             Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
             if (cls && [cls respondsToSelector:@selector(shared)]) {
                 ZNRuntimeMenuControllerV040 *controller = [cls shared];
@@ -65,6 +62,6 @@ __attribute__((constructor(121))) static void ZNInstallPublicCompactDefaults(voi
         }
 
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey];
-        NSLog(@"[ZonoPatch] public compact UI installed; legacy feature-name registry purged");
+        NSLog(@"[ZonoPatch] v0.5.2 public compact UI installed; legacy feature-name registry purged");
     }
 }
