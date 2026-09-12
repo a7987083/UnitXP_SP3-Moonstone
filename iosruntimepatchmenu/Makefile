@@ -5,7 +5,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = ZonoePatchV03
 
-ZonoePatchV03_FILES = src/ZonoeRuntimeMenu.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNPatchCoreV041.mm src/ZNRuntimePatchExecutor.mm src/ZNExecutablePageProbe.mm src/ZNRuntimeDiagnosticsV042.mm src/ZNPatchRuntimeValidator.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm src/ZNPatchJSONImporter.mm src/ZNBinaryPatchWorkspace.mm src/ZNStaticBinaryBuilder.mm src/ZNStaticBinaryBuilderV3.mm src/ZNAdhocMachOSigner.mm src/ZNStaticBinarySigningBridge.mm src/ZNStaticDispatchRuntime.mm src/ZNSharedSiteProbeV2.mm src/ZNSharedSiteExecutionProbeV3.mm src/ZNSharedSiteExecutionProbeV3Bootstrap.mm src/ZNFeatureGroupUI.mm src/ZNFeatureBuilderUI.mm
+ZonoePatchV03_FILES = src/ZonoeRuntimeMenu.mm src/ZNTheme.mm src/ZNPatchCore.mm src/ZNPatchCoreV041.mm src/ZNRuntimePatchExecutor.mm src/ZNExecutablePageProbe.mm src/ZNRuntimeDiagnosticsV042.mm src/ZNPatchRuntimeValidator.mm src/ZNDeveloperGate.mm src/ZNIL2CPPResolver.mm src/ZNPatchJSONImporter.mm src/ZNBinaryPatchWorkspace.mm src/ZNStaticBinaryBuilder.mm src/ZNStaticBinaryBuilderV3.mm src/ZNFeatureNameRegistry.mm src/ZNStaticMetadataPrivacy.mm src/ZNAdhocMachOSigner.mm src/ZNStaticBinarySigningBridge.mm src/ZNStaticDispatchRuntime.mm src/ZNSharedSiteProbeV2.mm src/ZNSharedSiteExecutionProbeV3.mm src/ZNSharedSiteExecutionProbeV3Bootstrap.mm src/ZNFeatureGroupUI.mm src/ZNFeatureBuilderUI.mm
 ZonoePatchV03_CFLAGS = -Oz -fobjc-arc -fblocks -include src/ZNVMRegionCompat.h -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-objc-method-access -Wno-unused-const-variable
 ZonoePatchV03_FRAMEWORKS = UIKit Foundation QuartzCore
 
