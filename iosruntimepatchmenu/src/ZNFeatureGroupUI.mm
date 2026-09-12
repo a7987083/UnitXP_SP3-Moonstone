@@ -5,13 +5,21 @@
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 #import "ZNStaticDispatchRuntime.h"
+#import "ZNStaticPatchFormat.h"
+#import "ZNFeatureMetadataCodec.h"
 #import "ZNFeatureNameRegistry.h"
 
 // Public Feature UI intentionally contains display name + switch only.
 // Technical fields (Target/RVA/Original/Enabled/Shared Site/Owner/Variant) stay
 // out of this page and remain available through diagnostics/debug facilities.
-// Display names are resolved from ZonoPatch's host-side registry first; the
-// generated target Mach-O does not need to contain human-readable names.
+//
+// New privacy builds resolve names from ZNF1 metadata embedded in each generated
+// Static Dispatch entry. NSUserDefaults registry remains only as a compatibility
+// fallback for older v0.5 privacy outputs.
+
+@interface ZNStaticPatchRecord (ZNFeatureMetadataAccess)
+@property(nonatomic,assign) ZN44StaticEntry *entry;
+@end
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -34,15 +42,21 @@ static NSString *ZN50Trim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
 
-static NSDictionary<NSString *, NSString *> *ZN50DisplayMetadata(ZNStaticPatchRecord *record) {
+static NSDictionary<NSString *, id> *ZN50DisplayMetadata(ZNStaticPatchRecord *record) {
+    // Authoritative path for new builds: the name travels with the generated
+    // Mach-O as FeatureID + encoded UTF-8 bytes, so reinstalling the IPA does
+    // not depend on the previous app container or NSUserDefaults.
+    NSDictionary<NSString *, id> *embedded = ZNFeatureMetadataDecodeEntry(record.entry);
+    if (embedded) return embedded;
+
+    // Compatibility path for the first v0.5 Privacy UI implementation.
     NSDictionary<NSString *, NSString *> *stored = ZNFeatureNameRegistryLookup(record.target,
                                                                                 record.siteRVA,
                                                                                 record.patchID);
     NSString *title = ZN50Trim(stored[@"title"]);
     NSString *group = ZN50Trim(stored[@"group"]);
 
-    // Backward compatibility for previously generated binaries that still
-    // contain title/group. New privacy builds normally use the registry path.
+    // Legacy generated binaries may still contain plaintext title/group.
     if (!title.length) title = ZN50Trim(record.title);
     if (!group.length) group = ZN50Trim(record.group);
 
@@ -50,7 +64,13 @@ static NSDictionary<NSString *, NSString *> *ZN50DisplayMetadata(ZNStaticPatchRe
         title = [NSString stringWithFormat:@"功能 #%u", record.patchID];
     }
     if (!group.length) group = @"Imported";
-    return @{ @"title": title, @"group": group };
+    return @{
+        @"featureID": @0,
+        @"title": title,
+        @"group": group,
+        @"explicitGroup": @([group caseInsensitiveCompare:@"Imported"] != NSOrderedSame),
+        @"source": stored.count ? @"legacy-registry" : @"legacy-entry"
+    };
 }
 
 static NSArray<NSDictionary *> *ZN50FeatureGroups(NSArray<ZNStaticPatchRecord *> *records) {
@@ -59,13 +79,19 @@ static NSArray<NSDictionary *> *ZN50FeatureGroups(NSArray<ZNStaticPatchRecord *>
     NSMutableDictionary<NSString *, NSString *> *titles = [NSMutableDictionary dictionary];
 
     for (ZNStaticPatchRecord *record in records) {
-        NSDictionary<NSString *, NSString *> *display = ZN50DisplayMetadata(record);
-        NSString *group = display[@"group"];
-        NSString *title = display[@"title"];
-        BOOL explicitFeature = group.length && [group caseInsensitiveCompare:@"Imported"] != NSOrderedSame;
+        NSDictionary<NSString *, id> *display = ZN50DisplayMetadata(record);
+        NSString *group = ZN50Trim(display[@"group"]);
+        NSString *title = ZN50Trim(display[@"title"]);
+        uint64_t featureID = [display[@"featureID"] unsignedLongLongValue];
+        BOOL explicitFeature = [display[@"explicitGroup"] boolValue] ||
+                               (group.length && [group caseInsensitiveCompare:@"Imported"] != NSOrderedSame);
         NSString *key = nil;
 
-        if (explicitFeature) {
+        if (featureID) {
+            // Stable ID is the primary identity. This keeps one Feature switch
+            // intact even if Patch ordering changes or the Feature spans targets.
+            key = [NSString stringWithFormat:@"id:%016llx", featureID];
+        } else if (explicitFeature) {
             key = [@"group:" stringByAppendingString:group.lowercaseString];
             title = group;
         } else {
@@ -309,6 +335,6 @@ __attribute__((constructor(120))) static void ZNInstallFeatureGroupUI(void) {
         if (!cls) return;
         ZN50SwapInstanceMethod(cls, @selector(renderFullPage), @selector(zn50_renderFullPage));
         ZN50SwapInstanceMethod(cls, @selector(renderCompactPage), @selector(zn50_renderCompactPage));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] feature UI installed: display name + switch only"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] feature UI installed: embedded FeatureID + display name"];
     }
 }
