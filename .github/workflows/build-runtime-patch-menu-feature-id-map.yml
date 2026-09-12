@@ -32,6 +32,16 @@ jobs:
           grep -q 'ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
           grep -q 'displayMetadataCodec' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
 
+      - name: Feature metadata codec tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/feature_metadata_codec_test.mm \
+            iosruntimepatchmenu/src/ZNFeatureMetadataCodec.mm \
+            -o /tmp/zn_feature_metadata_codec_test
+          /tmp/zn_feature_metadata_codec_test
+
       - name: Build
         run: |
           set -euxo pipefail
