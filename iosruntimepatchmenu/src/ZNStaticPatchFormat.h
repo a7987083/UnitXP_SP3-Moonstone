@@ -20,6 +20,12 @@
 #define ZN44_STATIC_VERSION ZN44_STATIC_VERSION_V1
 #define ZN44_STATIC_MAX_ENTRIES 512u
 
+// Header flags are backward-compatible because older runtimes ignore them.
+// When FEATURE_METADATA_V1 is set, title/group plaintext has been replaced by
+// the ZNF1 opaque FeatureID + encoded display-name representation. The 128-byte
+// entry ABI is unchanged.
+#define ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1 UINT32_C(0x00000001)
+
 // V2/V3 keep the v1 entry ABI/size (128 bytes). The former 12-byte reserved
 // tail is shared-site metadata so old generated binaries remain readable.
 #define ZN44_STATIC_ENTRY_FLAG_CANONICAL UINT32_C(0x00000001)
@@ -61,4 +67,5 @@ static_assert(sizeof(ZN44StaticHeader) == 64, "ZN44StaticHeader ABI");
 static_assert(sizeof(ZN44StaticEntry) == 128, "ZN44StaticEntry ABI");
 static_assert(offsetof(ZN44StaticEntry, selectedTarget) == 0, "selectedTarget must stay first");
 static_assert(offsetof(ZN44StaticEntry, physicalID) == 116, "v2/v3 tail must preserve v1 ABI");
+static_assert(offsetof(ZN44StaticEntry, group) == offsetof(ZN44StaticEntry, title) + 48, "title/group must remain contiguous for ZNF1 metadata");
 #endif
