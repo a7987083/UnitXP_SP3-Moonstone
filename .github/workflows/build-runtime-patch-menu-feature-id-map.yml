@@ -36,7 +36,7 @@ jobs:
           grep -q 'return @"开"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
           grep -q 'return @"关"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
           grep -q 'zn.f.%016llx.enabled' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
-          grep -q 'zn51_renderFeatureGroupsCompact' iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
+          grep -q 'zn51_renderCompactPage' iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
           grep -q 'zn50_renderFeatureGroupsCompact' iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
           if grep -q 'ZNFeatureNameRegistry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm; then exit 1; fi
           grep -q 'removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey' iosruntimepatchmenu/src/ZNPublicCompactUI.mm
