@@ -15,6 +15,10 @@
 // New privacy builds resolve names from ZNF1 metadata embedded in each generated
 // Static Dispatch entry. The old NSUserDefaults feature-name registry is no
 // longer read or written because it exposed target/RVA -> display-name mapping.
+//
+// v0.5.2 consolidation: compact mode is always the Feature surface. It no longer
+// depends on the expanded menu's selected category, so Theme/Settings -> compact
+// cannot fall back to the historical per-Patch renderer.
 
 @interface ZNStaticPatchRecord (ZNFeatureMetadataAccess)
 @property(nonatomic,assign) ZN44StaticEntry *entry;
@@ -47,22 +51,12 @@ static NSString *ZN50FeaturePreferenceKey(uint64_t featureID) {
 }
 
 static NSDictionary<NSString *, id> *ZN50DisplayMetadata(ZNStaticPatchRecord *record) {
-    // Authoritative path for new builds: the name travels with the generated
-    // Mach-O as FeatureID + encoded UTF-8 bytes, so reinstalling the IPA does
-    // not depend on the previous app container or NSUserDefaults.
     NSDictionary<NSString *, id> *embedded = ZNFeatureMetadataDecodeEntry(record.entry);
     if (embedded) return embedded;
 
-    // Legacy generated binaries that still contain plaintext title/group remain
-    // readable. The first Privacy-UI-only output (zeroed names + registry only)
-    // intentionally falls back to a generic label instead of reintroducing the
-    // leaking registry.
     NSString *title = ZN50Trim(record.title);
     NSString *group = ZN50Trim(record.group);
-
-    if (!title.length || [title hasPrefix:@"Patch #"]) {
-        title = [NSString stringWithFormat:@"功能 #%u", record.patchID];
-    }
+    if (!title.length || [title hasPrefix:@"Patch #"]) title = [NSString stringWithFormat:@"功能 #%u", record.patchID];
     if (!group.length) group = @"Imported";
     return @{
         @"featureID": @0,
@@ -89,17 +83,12 @@ static NSArray<NSDictionary *> *ZN50FeatureGroups(NSArray<ZNStaticPatchRecord *>
         NSString *key = nil;
 
         if (featureID) {
-            // Stable ID is the primary identity. This keeps one Feature switch
-            // intact even if Patch ordering changes or the Feature spans targets.
             key = [NSString stringWithFormat:@"id:%016llx", featureID];
         } else if (explicitFeature) {
             key = [@"group:" stringByAppendingString:group.lowercaseString];
             title = group;
         } else {
-            // Legacy/no-group entries remain one switch per logical Patch.
-            key = [NSString stringWithFormat:@"patch:%@:%u",
-                   record.target.lowercaseString ?: @"",
-                   record.patchID];
+            key = [NSString stringWithFormat:@"patch:%@:%u", record.target.lowercaseString ?: @"", record.patchID];
         }
 
         if (!members[key]) {
@@ -142,9 +131,7 @@ static NSString *ZN50FeatureStateText(NSArray<ZNStaticPatchRecord *> *records) {
     return @"关";
 }
 
-static BOOL ZN50SetFeatureEnabled(NSArray<ZNStaticPatchRecord *> *records,
-                                  BOOL enabled,
-                                  NSString **error) {
+static BOOL ZN50SetFeatureEnabled(NSArray<ZNStaticPatchRecord *> *records, BOOL enabled, NSString **error) {
     if (!records.count) {
         if (error) *error = @"Feature 没有 Patch";
         return NO;
@@ -166,10 +153,7 @@ static BOOL ZN50SetFeatureEnabled(NSArray<ZNStaticPatchRecord *> *records,
                 [runtime setEnabled:rollbackState forRecord:rollbackRecord error:&ignored];
             }
             if (error) {
-                *error = [NSString stringWithFormat:@"%@+0x%llX：%@",
-                          record.target ?: @"target",
-                          record.siteRVA,
-                          localError ?: @"切换失败"];
+                *error = [NSString stringWithFormat:@"%@+0x%llX：%@", record.target ?: @"target", record.siteRVA, localError ?: @"切换失败"];
             }
             return NO;
         }
@@ -207,9 +191,7 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
 
         NSString *restoreError = nil;
         if (!ZN50SetFeatureEnabled(records, desired, &restoreError)) {
-            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature-pref] restore failed id=%016llx: %@",
-                                                  featureID,
-                                                  restoreError ?: @"unknown"]];
+            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature-pref] restore failed id=%016llx: %@", featureID, restoreError ?: @"unknown"]];
         }
     }
 }
@@ -236,14 +218,9 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
 }
 
 - (void)zn50_renderCompactPage {
-    NSString *category = (self.selectedCategory >= 0 && self.selectedCategory < (NSInteger)self.categories.count)
-        ? self.categories[(NSUInteger)self.selectedCategory]
-        : @"";
-    if ([category isEqualToString:@"功能"]) {
-        [self zn50_renderFeatureGroupsCompact];
-        return;
-    }
-    [self zn50_renderCompactPage];
+    // Compact is always the public Feature surface. Keep selectedCategory intact
+    // so expanding returns to the page the user had open before collapsing.
+    [self zn50_renderFeatureGroupsCompact];
 }
 
 - (void)zn50_renderFeatureGroupsFull {
@@ -279,12 +256,9 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
         name.lineBreakMode = NSLineBreakByTruncatingTail;
         [card addSubview:name];
 
-        UIButton *toggle = [self zn40_button:state
-                                    selector:@selector(zn50_toggleFeature:)
-                                       frame:CGRectMake(card.bounds.size.width - 70, 8, 58, 30)];
+        UIButton *toggle = [self zn40_button:state selector:@selector(zn50_toggleFeature:) frame:CGRectMake(card.bounds.size.width - 70, 8, 58, 30)];
         toggle.tag = kZN50FeatureToggleTagBase + (NSInteger)featureIndex;
         [card addSubview:toggle];
-
         [self.contentView addSubview:card];
         y += 52;
     }
@@ -325,12 +299,9 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
         name.lineBreakMode = NSLineBreakByTruncatingTail;
         [card addSubview:name];
 
-        UIButton *toggle = [self zn40_button:state
-                                    selector:@selector(zn50_toggleFeature:)
-                                       frame:CGRectMake(card.bounds.size.width - 65, 6, 56, 28)];
+        UIButton *toggle = [self zn40_button:state selector:@selector(zn50_toggleFeature:) frame:CGRectMake(card.bounds.size.width - 65, 6, 56, 28)];
         toggle.tag = kZN50FeatureToggleTagBase + (NSInteger)featureIndex;
         [card addSubview:toggle];
-
         [self.contentView addSubview:card];
         y += 46;
     }
@@ -349,20 +320,15 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
 
     NSDictionary *feature = features[(NSUInteger)index];
     NSArray<ZNStaticPatchRecord *> *records = feature[@"records"];
-    BOOL desired = !ZN50AllEnabled(records); // 关/MIXED -> 开, 开 -> 关.
+    BOOL desired = !ZN50AllEnabled(records);
     NSString *localError = nil;
     if (!ZN50SetFeatureEnabled(records, desired, &localError)) {
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature] toggle rollback: %@", localError ?: @"unknown"]];
     } else {
         uint64_t featureID = [feature[@"featureID"] unsignedLongLongValue];
         NSString *preferenceKey = ZN50FeaturePreferenceKey(featureID);
-        if (preferenceKey.length) {
-            [NSUserDefaults.standardUserDefaults setBool:desired forKey:preferenceKey];
-        }
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature] %@ %@ (%lu patches)",
-                                              desired ? @"ON" : @"OFF",
-                                              feature[@"title"] ?: @"功能",
-                                              (unsigned long)records.count]];
+        if (preferenceKey.length) [NSUserDefaults.standardUserDefaults setBool:desired forKey:preferenceKey];
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature] %@ %@ (%lu patches)", desired ? @"ON" : @"OFF", feature[@"title"] ?: @"功能", (unsigned long)records.count]];
     }
     [self renderPage];
 }
@@ -381,6 +347,6 @@ __attribute__((constructor(120))) static void ZNInstallFeatureGroupUI(void) {
         if (!cls) return;
         ZN50SwapInstanceMethod(cls, @selector(renderFullPage), @selector(zn50_renderFullPage));
         ZN50SwapInstanceMethod(cls, @selector(renderCompactPage), @selector(zn50_renderCompactPage));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] feature UI installed: embedded FeatureID + display name; preferences contain opaque state only"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.2 feature UI installed: ZNF1 feature renderer owns compact mode"];
     }
 }
