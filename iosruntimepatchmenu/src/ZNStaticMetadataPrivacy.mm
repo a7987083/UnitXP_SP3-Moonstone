@@ -1,5 +1,6 @@
 #import "ZNStaticMetadataPrivacy.h"
 #import "ZNStaticPatchFormat.h"
+#import "ZNFeatureMetadataCodec.h"
 #import <mach-o/loader.h>
 #import <sys/mman.h>
 #import <sys/stat.h>
@@ -7,6 +8,14 @@
 #import <unistd.h>
 #import <errno.h>
 #import <string.h>
+
+static NSString *ZNPrivacyStringFromFixed(const char *bytes, size_t capacity) {
+    if (!bytes || !capacity) return @"";
+    size_t length = strnlen(bytes, capacity);
+    if (!length) return @"";
+    NSString *value = [[NSString alloc] initWithBytes:bytes length:length encoding:NSUTF8StringEncoding];
+    return value ?: @"";
+}
 
 BOOL ZNScrubStaticDisplayMetadataAtPath(NSString *path,
                                         NSUInteger *scrubbedEntries,
@@ -41,11 +50,12 @@ BOOL ZNScrubStaticDisplayMetadataAtPath(NSString *path,
     BOOL ok = NO;
     NSString *localError = nil;
     NSUInteger total = 0;
+    NSString *targetName = path.lastPathComponent.stringByDeletingPathExtension ?: @"";
 
     do {
         struct mach_header_64 *mh = (struct mach_header_64 *)base;
         if (mh->magic != MH_MAGIC_64) {
-            localError = @"隐私清理仅支持 thin 64-bit Mach-O";
+            localError = @"隐私 metadata 编码仅支持 thin 64-bit Mach-O";
             break;
         }
 
@@ -95,11 +105,25 @@ BOOL ZNScrubStaticDisplayMetadataAtPath(NSString *path,
                         }
 
                         ZN44StaticEntry *entries = (ZN44StaticEntry *)(header + 1);
+                        BOOL alreadyEncoded = (header->flags & ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1) != 0;
                         for (uint32_t e = 0; e < header->count; e++) {
-                            memset(entries[e].title, 0, sizeof(entries[e].title));
-                            memset(entries[e].group, 0, sizeof(entries[e].group));
+                            if (alreadyEncoded) {
+                                if (!ZNFeatureMetadataDecodeEntry(&entries[e])) {
+                                    localError = [NSString stringWithFormat:@"ZNF1 metadata 损坏：Patch #%u", entries[e].patchID];
+                                    break;
+                                }
+                            } else {
+                                NSString *title = ZNPrivacyStringFromFixed(entries[e].title, sizeof(entries[e].title));
+                                NSString *group = ZNPrivacyStringFromFixed(entries[e].group, sizeof(entries[e].group));
+                                if (!ZNFeatureMetadataEncodeEntry(&entries[e], targetName, title, group)) {
+                                    localError = [NSString stringWithFormat:@"ZNF1 metadata 编码失败：Patch #%u", entries[e].patchID];
+                                    break;
+                                }
+                            }
                             total++;
                         }
+                        if (localError) break;
+                        header->flags |= ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1;
                         scan += bytes - 8u;
                     }
                     if (localError) break;
@@ -113,7 +137,7 @@ BOOL ZNScrubStaticDisplayMetadataAtPath(NSString *path,
             break;
         }
         if (msync(base, size, MS_SYNC) != 0) {
-            localError = [NSString stringWithFormat:@"隐私清理 msync 失败：errno=%d", errno];
+            localError = [NSString stringWithFormat:@"隐私 metadata msync 失败：errno=%d", errno];
             break;
         }
         ok = YES;
@@ -123,6 +147,6 @@ BOOL ZNScrubStaticDisplayMetadataAtPath(NSString *path,
     close(fd);
 
     if (scrubbedEntries) *scrubbedEntries = total;
-    if (!ok && error) *error = localError ?: @"生成二进制显示 metadata 清理失败";
+    if (!ok && error) *error = localError ?: @"生成二进制显示 metadata 编码失败";
     return ok;
 }
