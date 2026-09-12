@@ -3,22 +3,25 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Static Dispatch on-disk format. Generated thunks/variants live in an
-// executable file-backed gap while metadata lives in a writable file-backed
-// gap. Runtime only switches selectedTarget in RW memory; it never writes the
-// executable page on stock iOS.
+// Static Dispatch on-disk format. Runtime only switches selectedTarget in RW
+// memory; it never writes executable pages after launch.
+//
+// Builder V3 changes allocation, not the entry ABI: generated executable code
+// lives in an owned __ZNTEXT segment and metadata/selectedTarget live in an
+// owned __ZNDATA segment. Therefore V3 intentionally reuses the V2 on-disk ABI.
 #define ZN44_STATIC_MAGIC0 UINT64_C(0x3148435441504E5A) /* "ZNPATCH1" */
 #define ZN44_STATIC_MAGIC1 UINT64_C(0x3154495543524944) /* "DIRCUIT1" marker */
 #define ZN44_STATIC_VERSION_V1 1u
 #define ZN44_STATIC_VERSION_V2 2u
+#define ZN44_STATIC_VERSION_V3 ZN44_STATIC_VERSION_V2
 // Keep the legacy default on v1. ZNStaticBinaryBuilder.mm still uses this
-// alias for ordinary, non-shared projects. Shared-Site Builder V2 writes
-// ZN44_STATIC_VERSION_V2 explicitly.
+// alias. Owned-Segment Builder V3 writes ZN44_STATIC_VERSION_V3 explicitly,
+// which is ABI-compatible with V2.
 #define ZN44_STATIC_VERSION ZN44_STATIC_VERSION_V1
 #define ZN44_STATIC_MAX_ENTRIES 512u
 
-// V2 keeps the v1 entry ABI/size (128 bytes). The former 12-byte reserved tail
-// is now shared-site metadata so old generated binaries remain readable.
+// V2/V3 keep the v1 entry ABI/size (128 bytes). The former 12-byte reserved
+// tail is shared-site metadata so old generated binaries remain readable.
 #define ZN44_STATIC_ENTRY_FLAG_CANONICAL UINT32_C(0x00000001)
 #define ZN44_STATIC_ENTRY_FLAG_SHARED    UINT32_C(0x00000002)
 
@@ -33,9 +36,9 @@ typedef struct {
 } ZN44StaticHeader;
 
 typedef struct {
-    // Runtime absolute pointer. File value is zero. In v2 only the canonical
-    // entry for one physical site owns this pointer; all logical variants route
-    // through that canonical selectedTarget.
+    // Runtime absolute pointer. File value is zero. In v2/v3 only the
+    // canonical entry for one physical site owns this pointer; all logical
+    // variants route through that canonical selectedTarget.
     uint64_t selectedTarget;
     uint64_t offRVA;
     uint64_t onRVA;
@@ -46,7 +49,7 @@ typedef struct {
     char group[24];
     uint32_t enabledLength;
 
-    // v2 metadata. v1 binaries contain zeros here and are treated as one
+    // v2/v3 metadata. v1 binaries contain zeros here and are treated as one
     // physical site per entry.
     uint32_t physicalID;      // 1-based physical-site id inside this header
     uint32_t canonicalIndex;  // 0-based entry index that owns selectedTarget
@@ -57,5 +60,5 @@ typedef struct {
 static_assert(sizeof(ZN44StaticHeader) == 64, "ZN44StaticHeader ABI");
 static_assert(sizeof(ZN44StaticEntry) == 128, "ZN44StaticEntry ABI");
 static_assert(offsetof(ZN44StaticEntry, selectedTarget) == 0, "selectedTarget must stay first");
-static_assert(offsetof(ZN44StaticEntry, physicalID) == 116, "v2 tail must preserve v1 ABI");
+static_assert(offsetof(ZN44StaticEntry, physicalID) == 116, "v2/v3 tail must preserve v1 ABI");
 #endif
