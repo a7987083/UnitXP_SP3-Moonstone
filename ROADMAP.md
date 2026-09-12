@@ -3,35 +3,36 @@
 ## 当前阶段
 
 - Project: ZonoPatch Runtime Patch Menu
-- Version: `0.5.0`
-- Branch: `feature/runtime-patch-menu-feature-id-map`
-- Stage: `FeatureID Map + Compact Public UI`
-- Runtime code head: `a0ea2edb71b6b8b37f57ab98e8dc2233b2eb0ffc`
-- CI: GitHub Actions run `34708549712` — `success`
-- Artifact: `ZonoPatch-v0.5.0-FeatureIDMap-Test`
+- Version: `0.5.1`
+- Branch: `feature/runtime-patch-menu-protection-v1`
+- Stage: `Static RVA Protection V1`
+- Runtime code head: `7360f72c8e27b6e3da5c70f6394f2fac17cd6ba5`
+- CI: GitHub Actions run `34711600783` — `success`
+- Artifact: `ZonoPatch-v0.5.1-ProtectionV1-Test`
 
 ## 已完成
 
-- ZNF1：generated Mach-O 内保存 FeatureID + 编码显示名，不再依赖 App Container 才能恢复名称。
-- Public UI 默认迁移为 Compact 布局：`ZN` 顶栏、隐藏侧栏/底栏、直接展示功能列表；原扩展按钮仍可进入完整界面。
-- 功能按钮显示文案：`ON -> 开`，`OFF -> 关`；`MIXED` 保持原语义。
-- 删除 Runtime 构建中的 `ZNFeatureNameRegistry`，Signing Bridge 不再写 `Target/RVA/patchID -> title/group` 到 NSUserDefaults。
-- 每次启动主动清除历史 `zonoe.feature-name-registry.v1`。
-- 新功能状态偏好仅使用 `zn.f.<opaque-feature-id>.enabled`，不含 Target、RVA、Patch bytes 或显示名称。
-- CI 增加 Registry 禁用、Compact UI、中文状态文案、opaque preference 和 ZNF1 编解码验证。
+- 保留 v0.5.0 的 ZNF1、Compact Public UI、`开/关` 文案和 plist 隐私清理。
+- 新增 `Static RVA Protection V1`，对 generated Mach-O 的 `siteRVA / offRVA / onRVA` 做每输出 nonce 的可逆编码。
+- Runtime 按需解码，不把明文 RVA 写回 `ZN44StaticEntry`。
+- 保持 `ZN44StaticEntry` 128-byte ABI 不变；旧无 Protection flag 的 `.znpatched` 仍兼容读取。
+- Protected header 增加完整性 tag / marker / seal，篡改编码字段会导致 Runtime 拒绝该 header。
+- 普通 runtime 日志/diagnostic 不再直接输出 siteRVA。
+- Signing Bridge 顺序为：ZNF1 -> RVA Protection V1 -> ad-hoc CodeDirectory rebuild/verify。
+- CI 增加 RVA round-trip、legacy passthrough、shared-site 和 tamper-detection 单元测试。
 
-## 下一阶段 — Protection / Device Validation
+## 下一阶段 — Device Validation + Patch Payload Protection V2
 
 Status: `NEXT`
 
 目标：
 
-- 实机确认升级后默认进入紧凑菜单，功能列表、滚动、展开/关闭行为正常。
-- 实机确认 plist 中旧 `zonoe.feature-name-registry.v1` 被删除，不再出现 RVA -> 名称映射。
-- 验证 `zn.f.<feature-id>.enabled` 的开关状态恢复行为。
-- 对真实 `.znpatched` 检查 ZNF1、CodeDirectory、明文功能名以及 Static Dispatch 数据完整性。
-- 继续评估并提高 `siteRVA / onRVA / Patch Variant` 的静态提取成本。
+- 用 v0.5.1 实机生成新的 `.znpatched`，确认原始 `siteRVA/offRVA/onRVA` 不再能直接从 Static Entry 读取。
+- 验证菜单功能、Shared Site、冷启动状态恢复和最终 IPA 重签不回归。
+- 检查 `build_report.json` 的 `generatedBinaryProtection` 证据。
+- 继续处理 `__ZNTEXT` 中 Patch Variant 的静态恢复成本；V1 尚未保护 Patch payload 本体。
+- 评估把名称派生的 FeatureID 升级为随机稳定 authoring identity。
 
 ## Next Task
 
-安装本次 CI Artifact 到目标 IPA，做一次冷启动和重新安装测试；截图/导出 plist，并验证菜单默认 Compact、`开/关` 文案、旧 Registry 清理和功能状态恢复。完成后再进入 Offset/Patch Protection Phase。
+安装 `ZonoPatch_v0.5.1_ProtectionV1_Test.dylib`，重新生成目标 `.znpatched`。把 `.znpatched` 与 `build_report.json` 发回检查 Static Entry 编码、Shared Site、CodeDirectory 和运行时切换；通过后进入 Patch Payload Protection V2。

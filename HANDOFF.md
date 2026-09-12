@@ -2,60 +2,62 @@
 
 ## 当前上下文
 
-当前工作线：ZonoPatch Runtime Patch Menu `v0.5.0 FeatureID Map + Compact Public UI`。
+当前工作线：ZonoPatch Runtime Patch Menu `v0.5.1 Static RVA Protection V1`。
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Branch: `feature/runtime-patch-menu-feature-id-map`
-- Runtime code head: `a0ea2edb71b6b8b37f57ab98e8dc2233b2eb0ffc`
-- CI run: `34708549712` / `success`
-- Artifact id: `10302263658`
+- Branch: `feature/runtime-patch-menu-protection-v1`
+- Runtime code head: `7360f72c8e27b6e3da5c70f6394f2fac17cd6ba5`
+- CI run: `34711600783` / `success`
+- Artifact id: `10303452675`
+- Artifact digest: `sha256:93ddde469ef412ace612b73899b4a7f3f6b35a3383c3648a202b964bd55c4d36`
+- Dylib SHA256: `ccc458c3697bddb2e66831a0e92dcc5e8dd10a2e1ded1fe5697e06807732764d`
 
 ## 关键实现
 
 ### ZNF1 display metadata
 
-`ZNFeatureMetadataCodec.mm` 将功能显示名转换为 FeatureID + encoded UTF-8 payload，存入 `ZN44StaticEntry` 原有 title/group 72-byte 区域，不扩大 128-byte ABI。Runtime UI 用 `ZNFeatureMetadataDecodeEntry()` 恢复显示名。
+功能名继续由 `ZNFeatureMetadataCodec` 以 FeatureID + encoded UTF-8 payload 存进原有 title/group 区域；Runtime 恢复显示名。旧 `zonoe.feature-name-registry.v1` 不再读写，并在启动时清理。
 
-### plist / NSUserDefaults
+### Static RVA Protection V1
 
-旧方案 `zonoe.feature-name-registry.v1` 已废弃，因为 key 直接包含 normalized Target + siteRVA + patchID，value 又保存 title/group，构成明显信息泄露。
+`ZNStaticRVAProtection.h/.mm` 对 generated target Mach-O 的 `siteRVA / offRVA / onRVA` 做原地可逆编码：
 
-当前行为：
+- 每个生成输出使用随机 nonce。
+- key 派生同时绑定 entry index、patchID、physicalID、canonicalIndex、flags、window/enabled length。
+- header reserved 区保存 nonce / plaintext-derived integrity tag / marker / seal。
+- `ZN44StaticEntry` 保持 128 bytes，旧格式无 Protection flag 时仍按原值读取。
+- Runtime 用 `ZN55DecodeEntryRVAs()` 按需解码，并将 transient 值放进 Runtime record；不会把明文 RVA 写回 Static Entry。
+- protected header 完整性验证失败时 Runtime 忽略该 header。
 
-- `ZNStaticBinarySigningBridge.mm` 不再写 Feature Name Registry。
-- `ZNFeatureGroupUI.mm` 不再读取 Feature Name Registry。
-- `ZNFeatureNameRegistry.mm` 不再参与 Makefile 编译。
-- `ZNPublicCompactUI.mm` 每次启动删除旧 `zonoe.feature-name-registry.v1`。
-- 新功能开关偏好 key：`zn.f.%016llx.enabled`，只关联 opaque FeatureID 与 BOOL。
-- 没有 FeatureID 的 legacy records 不写该偏好。
+### Signing / generation 顺序
 
-### Compact Public UI
+当前后处理：
 
-`ZNPublicCompactUI.mm` 复用既有 Compact 布局：隐藏 sidebar/footer，顶部保留 `ZN`、扩展按钮、关闭按钮。升级后第一次运行会将 `ZonoePatch.CompactMode` 设为 YES，并选择分类 0（功能）；用户仍可通过现有 mode button 展开完整菜单。
+`Builder V3 -> ZNF1 -> Static RVA Protection V1 -> ad-hoc CodeDirectory rebuild/verify -> final IPA resign required`
 
-### 开关显示
+### Public UI / plist
 
-`ZNFeatureGroupUI.mm`：
-
-- 全开 -> `开`
-- 全关 -> `关`
-- Shared/多 Patch 部分开启 -> `MIXED`（按要求未改变）
-
-内部日志仍可使用 ON/OFF，不影响 UI。
+- Compact Public UI 默认开启，subtitle `0.5.1`。
+- UI 状态：全开=`开`、全关=`关`、部分开启=`MIXED`。
+- Feature 状态 key：`zn.f.%016llx.enabled`，value 为 BOOL。
+- 不在 Preferences 中保存 Target/RVA/Patch bytes/显示名称映射。
 
 ## CI 已验证
 
-Run `34708549712`：source assertions、ZNF1 codec tests、Theos build、binary verify、artifact upload 均成功。构建产物不再导出 `ZNFeatureNameRegistryStore/Lookup`。
+Run `34711600783`：source assertions、ZNF1 codec tests、Static RVA Protection tests、Theos build、binary verify、artifact upload 全部成功。
+
+Protection 单测覆盖：shared site、编码字段不等于明文、精确 round-trip、legacy passthrough 和 tamper detection。
 
 ## 接手注意事项
 
-- 不要恢复 Target/RVA/title/group 的 NSUserDefaults Registry。
-- ZNF1 当前 FeatureID 对明确 Feature group 仍由 normalized display name 推导；它不是密码学随机 ID，存在字典猜测风险。
-- Static Dispatch 的 `siteRVA/onRVA/offRVA` 仍属于后续 Protection Phase 范围，本次未改变。
-- 开关状态恢复在 Feature 页首次渲染时执行；若 stored BOOL=YES，会调用现有事务式 Feature toggle 路径。
-- generated binary 仍需 ad-hoc CodeDirectory rebuild；替换回 IPA 后仍需最终整包重签。
-- 当前只有 CI 证据，没有本次 Compact/plist migration 的实机证据。
+- Protection V1 不是密码学秘密方案；它的目标是破坏“直接按 Static Entry 结构批量读 RVA”的低成本路径。
+- 仓库当前是公开的，因此确定性分析者可以研究编码逻辑；不要声称 RVAs 绝对不可恢复。
+- `__ZNTEXT` 中的 relocated Original/ON Variant 仍是下一阶段 Patch Payload Protection 范围。
+- 动态调试仍可能看到 Runtime 已解码地址；客户端侧无法保证绝对不可观察。
+- ZNF1 FeatureID 当前仍可由名称推导，不是随机稳定 128-bit authoring ID。
+- Generated binary 仍需最终 IPA 整包重签。
+- 目前 Protection V1 只有 CI/单元测试证据，还没有真实目标 `.znpatched` 与实机证据。
 
 ## Next Task
 
-安装 Artifact，验证：默认 Compact UI、`开/关` 文案、plist 旧 Registry 被清除、opaque FeatureID 状态 key、状态恢复，以及完整 IPA 重签/冷启动。之后进入 Offset/Patch Protection。
+用 v0.5.1 dylib 重新生成真实目标 `.znpatched`，同时取得 `build_report.json`。检查 Static Entry 的三个 RVA 字段确实不再等于真实地址，并做 Shared Site、开关、冷启动与最终 IPA 重签验证。通过后进入 Patch Payload Protection V2。

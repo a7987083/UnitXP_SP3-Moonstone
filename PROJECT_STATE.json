@@ -2,36 +2,38 @@
   "schema_version": 2,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
-  "version": "0.5.0",
-  "phase": "feature-id-map-compact-ui",
+  "version": "0.5.1",
+  "phase": "static-rva-protection-v1",
   "phase_status": "ci-validated-device-pending",
-  "branch": "feature/runtime-patch-menu-feature-id-map",
-  "runtime_code_head": "a0ea2edb71b6b8b37f57ab98e8dc2233b2eb0ffc",
+  "branch": "feature/runtime-patch-menu-protection-v1",
+  "runtime_code_head": "7360f72c8e27b6e3da5c70f6394f2fac17cd6ba5",
   "baseline": {
     "privacy_ui_baseline": "908e27a36fa55a3e63e1ab55db5968fb5da12fde",
-    "consolidated_baseline": "121cc7c098b2d6f122a9c91a411a442edd3eaf68"
+    "feature_id_compact_baseline": "e4a0a88ceff231753b63cc0101534a4253abc75e"
   },
   "build": {
     "system": "Theos",
-    "workflow": "Build Runtime Patch Menu FeatureID Map",
+    "workflow": "Build Runtime Patch Menu Protection V1",
     "workflow_file": ".github/workflows/build-runtime-patch-menu-feature-id-map.yml",
-    "run_id": 34708549712,
+    "run_id": 34711600783,
     "result": "success",
     "compiled": true,
-    "codec_tests": true,
+    "feature_metadata_codec_tests": true,
+    "static_rva_protection_tests": true,
     "binary_verified": true,
     "device_verified": false,
     "full_regression_verified": false
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.0-FeatureIDMap-Test",
-    "id": 10302263658,
-    "archive_digest": "sha256:19091f04eeb493b94fdedd8ede33e4283d03ea05a7803884b172936ac02054db",
-    "dylib_sha256": "e339f66628f8fcf2b8a524990be5e0aef4bb6726cfff8aa8b05bb4ce35694aeb"
+    "name": "ZonoPatch-v0.5.1-ProtectionV1-Test",
+    "id": 10303452675,
+    "archive_digest": "sha256:93ddde469ef412ace612b73899b4a7f3f6b35a3383c3648a202b964bd55c4d36",
+    "dylib_sha256": "ccc458c3697bddb2e66831a0e92dcc5e8dd10a2e1ded1fe5697e06807732764d"
   },
   "runtime": {
     "display_metadata": "ZNF1 embedded FeatureID + encoded display name",
     "public_menu_default": "compact",
+    "compact_subtitle": "0.5.1",
     "ui_state_labels": {
       "on": "开",
       "off": "关",
@@ -42,14 +44,21 @@
     "legacy_feature_name_registry_purged_on_launch": true,
     "feature_state_preference_format": "zn.f.%016llx.enabled",
     "feature_state_contains_target_rva_or_display_name": false,
+    "protected_static_rva_fields": ["siteRVA", "offRVA", "onRVA"],
+    "runtime_decodes_rva_on_demand": true,
+    "runtime_writes_plain_rva_back_to_static_entry": false,
+    "legacy_unprotected_static_entries_supported": true,
     "final_ipa_resign_required": true
   },
   "security": {
     "plaintext_target_rva_name_registry": "removed",
     "feature_id_random": false,
-    "static_rva_patch_protection": "not-yet-hardened"
+    "static_rva_patch_protection": "rva-v1-encoded; patch-payload-not-yet-protected",
+    "rva_protection_per_output_nonce": true,
+    "rva_protection_integrity_check": true,
+    "threat_model": "static-analysis-cost-layer-not-client-side-secrecy"
   },
-  "next_phase": "device-validation-then-offset-patch-protection",
-  "next_task": "Install the CI artifact and verify compact UI, Chinese on/off labels, legacy registry purge, opaque feature-state preferences and cold-start state restoration on device.",
+  "next_phase": "device-validation-and-patch-payload-protection-v2",
+  "next_task": "Generate a real .znpatched with v0.5.1, inspect encoded Static Entry RVAs and build_report.json, then validate Shared Site, toggles, cold launch and final IPA resign on device.",
   "captured_at": "2026-09-13"
 }
