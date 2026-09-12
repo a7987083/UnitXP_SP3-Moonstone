@@ -1,6 +1,7 @@
 #import "ZNStaticBinaryBuilder.h"
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNPatchRuntimeValidator.h"
+#import "ZNPatchCore.h"
 #import "ZNFeatureNameRegistry.h"
 #import "ZNStaticMetadataPrivacy.h"
 #import "ZNAdhocMachOSigner.h"
@@ -44,6 +45,8 @@
 
     // Capture UI display names before the generated target Mach-O is scrubbed.
     // Patch IDs are assigned per target in the same row order as Builder V3.
+    // Store both the logical module name and its runtime basename so aliases
+    // such as "main" still resolve after dyld reports the actual image name.
     NSMutableArray<NSDictionary *> *nameEntries = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSNumber *> *nextPatchIDByTarget = [NSMutableDictionary dictionary];
     for (ZNBinaryPatchRow *row in workspace.rows) {
@@ -55,8 +58,13 @@
         uint32_t patchID = nextPatchIDByTarget[target].unsignedIntValue + 1u;
         nextPatchIDByTarget[target] = @(patchID);
 
+        NSDictionary *module = [[ZNModuleManager sharedManager] moduleNamed:target];
+        NSString *runtimeTarget = [module[@"path"] lastPathComponent];
+        if (!runtimeTarget.length) runtimeTarget = target;
+
         [nameEntries addObject:@{
             @"target": target,
+            @"runtimeTarget": runtimeTarget,
             @"siteRVA": @(row.validator.rva),
             @"patchID": @(patchID),
             @"title": row.title ?: @"",
@@ -104,11 +112,17 @@
     // Commit names only after every generated binary passed scrub + signature
     // verification, avoiding stale registry entries from a failed build.
     for (NSDictionary *entry in nameEntries) {
-        ZNFeatureNameRegistryStore(entry[@"target"],
-                                   [entry[@"siteRVA"] unsignedLongLongValue],
-                                   [entry[@"patchID"] unsignedIntValue],
-                                   entry[@"title"],
-                                   entry[@"group"]);
+        uint64_t siteRVA = [entry[@"siteRVA"] unsignedLongLongValue];
+        uint32_t patchID = [entry[@"patchID"] unsignedIntValue];
+        NSString *title = entry[@"title"];
+        NSString *group = entry[@"group"];
+        NSString *target = entry[@"target"];
+        NSString *runtimeTarget = entry[@"runtimeTarget"];
+
+        ZNFeatureNameRegistryStore(target, siteRVA, patchID, title, group);
+        if (runtimeTarget.length && [runtimeTarget caseInsensitiveCompare:target] != NSOrderedSame) {
+            ZNFeatureNameRegistryStore(runtimeTarget, siteRVA, patchID, title, group);
+        }
     }
 
     // Add machine-readable post-process evidence without changing V3's core
