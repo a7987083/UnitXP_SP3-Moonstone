@@ -8,10 +8,12 @@
 
 typedef void (^HFAVIPGateCompletion)(BOOL allowed);
 
-// fenpingvip v3
+// fenpingvip v5
 // IMPORTANT: this module does NOT create the floating button/window/panel shell.
 // HFAMapLegacy.m owns the original HFAMapUniversal floating UI completely.
 // This module only replaces the INSIDE of the original panel with NVideo VIP diagnostics.
+// v5 fixes the old first-label/app.windows-only lookup by recursively validating
+// the exact legacy panel across keyWindow, UIApplication.windows and UIWindowScene.windows.
 
 static IMP gOrigIsVIP = NULL;
 static IMP gOrigUpdateStatus = NULL;
@@ -43,6 +45,7 @@ static __unsafe_unretained UIView *gHostPanel = nil;
 static __unsafe_unretained UILabel *gProbeLabel = nil;
 static __unsafe_unretained UILabel *gValueLabel = nil;
 static NSString *gLogPath = nil;
+static NSUInteger gPanelSearchAttempts = 0;
 
 static void HFALog(NSString *format, ...) {
     if (!format) return;
@@ -217,7 +220,7 @@ static void HFAVerifyHook(id self, SEL _cmd) {
 static BOOL HFAHook(Class cls, const char *name, IMP replacement, IMP *original) {
     Method method = class_getInstanceMethod(cls, sel_registerName(name));
     if (!method) {
-        HFALog(@"[VIP][HOOK_MISSING] %s", name);
+        HFALog(@"[VIP][HOOK_MISSING] %s", name]);
         return NO;
     }
     IMP old = method_getImplementation(method);
@@ -245,28 +248,80 @@ static void HFAInstallHooksIfPossible(void) {
                : @"[VIP][HOOK_PARTIAL] one or more selectors missing");
 }
 
-static UILabel *HFAFindTitleLabel(UIView *view) {
-    if (!view) return nil;
-    if ([view isKindOfClass:[UILabel class]]) {
-        UILabel *label = (UILabel *)view;
-        NSString *text = label.text;
-        if ([text rangeOfString:@"HFAMap" options:NSCaseInsensitiveSearch].location != NSNotFound) return label;
+static BOOL HFAViewHasLegacyTitle(UIView *view) {
+    if (!view) return NO;
+    for (UIView *child in view.subviews) {
+        if (![child isKindOfClass:[UILabel class]]) continue;
+        NSString *text = ((UILabel *)child).text;
+        if ([text rangeOfString:@"HFAMap v1.8.7 Key Register" options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
     }
-    for (UIView *sub in view.subviews) {
-        UILabel *found = HFAFindTitleLabel(sub);
+    return NO;
+}
+
+static BOOL HFAViewHasLegacyScanButton(UIView *view) {
+    if (!view) return NO;
+    for (UIView *child in view.subviews) {
+        if (![child isKindOfClass:[UIButton class]]) continue;
+        NSString *title = [(UIButton *)child titleForState:UIControlStateNormal];
+        if ([title rangeOfString:@"Auto Detect / Full Scan" options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+    }
+    return NO;
+}
+
+static UIView *HFAFindLegacyPanelInView(UIView *view) {
+    if (!view) return nil;
+    CGFloat width = view.bounds.size.width;
+    if (width >= 250.0 && width <= 450.0 && HFAViewHasLegacyTitle(view) && HFAViewHasLegacyScanButton(view)) {
+        return view;
+    }
+    for (UIView *child in view.subviews) {
+        UIView *found = HFAFindLegacyPanelInView(child);
         if (found) return found;
     }
     return nil;
 }
 
+static UIView *HFAFindLegacyPanelInWindow(UIWindow *window) {
+    if (!window || window.hidden || window.alpha <= 0.0) return nil;
+    return HFAFindLegacyPanelInView(window);
+}
+
 static UIView *HFAFindOriginalPanel(void) {
     UIApplication *app = [UIApplication sharedApplication];
+    gPanelSearchAttempts++;
+
+    UIWindow *key = app.keyWindow;
+    UIView *found = HFAFindLegacyPanelInWindow(key);
+    if (found) {
+        HFALog(@"[VIP][UI_BIND_DIRECT] source=keyWindow attempt=%lu panel=%p", (unsigned long)gPanelSearchAttempts, found);
+        return found;
+    }
+
     for (UIWindow *window in app.windows) {
-        if (window.hidden || window.alpha <= 0.0) continue;
-        UILabel *title = HFAFindTitleLabel(window);
-        if (!title) continue;
-        UIView *panel = title.superview;
-        if (panel && panel.bounds.size.width >= 300.0 && panel.bounds.size.width <= 360.0) return panel;
+        found = HFAFindLegacyPanelInWindow(window);
+        if (found) {
+            HFALog(@"[VIP][UI_BIND_DIRECT] source=application.windows attempt=%lu panel=%p", (unsigned long)gPanelSearchAttempts, found);
+            return found;
+        }
+    }
+
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in app.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            for (UIWindow *window in windowScene.windows) {
+                found = HFAFindLegacyPanelInWindow(window);
+                if (found) {
+                    HFALog(@"[VIP][UI_BIND_DIRECT] source=windowScene.windows attempt=%lu panel=%p", (unsigned long)gPanelSearchAttempts, found);
+                    return found;
+                }
+            }
+        }
+    }
+
+    if (gPanelSearchAttempts <= 20 || (gPanelSearchAttempts % 100) == 0) {
+        HFALog(@"[VIP][UI_BIND_WAIT] attempt=%lu key=%p appWindows=%lu",
+               (unsigned long)gPanelSearchAttempts, key, (unsigned long)app.windows.count);
     }
     return nil;
 }
@@ -373,8 +428,6 @@ static void HFARefreshPanel(void) {
         if (panel) {
             gHostPanel = panel;
 
-            // Keep HFAMapUniversal's original panel object, gestures, toggle and floating button.
-            // Replace ONLY its child controls/content.
             NSArray *children = [[panel subviews] copy];
             for (UIView *child in children) [child removeFromSuperview];
             [children release];
@@ -436,7 +489,7 @@ static void HFARefreshPanel(void) {
             [gate addTarget:[HFANVideoVIPPanelTarget shared] action:@selector(gateTapped:) forControlEvents:UIControlEventTouchUpInside];
             [panel addSubview:gate];
 
-            HFALog(@"[VIP][UI_REPLACED] original HFAMap panel=%p size=%.0fx%.0f", panel, w, panel.bounds.size.height);
+            HFALog(@"[VIP][UI_REPLACED] v5 original HFAMap panel=%p size=%.0fx%.0f", panel, w, panel.bounds.size.height);
         }
     }
 
@@ -447,7 +500,7 @@ static void HFARefreshPanel(void) {
 __attribute__((constructor))
 static void HFANVideoVIPShellAdapterInit(void) {
     @autoreleasepool {
-        HFALog(@"[VIP][LOAD] HFAMapUniversal fenpingvip v3 original-shell adapter");
+        HFALog(@"[VIP][LOAD] HFAMapUniversal fenpingvip v5 scene-safe shell adapter");
         HFAInstallHooksIfPossible();
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSTimer scheduledTimerWithTimeInterval:0.05
