@@ -5,10 +5,11 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = HFAMapUniversal
 
-# fenpingvip v3:
+# fenpingvip v4:
 # Keep the original HFAMapUniversal shell from HFAMapLegacy.m unchanged.
-# Only replace the original panel contents with the NVideo VIP diagnostic UI.
-HFAMapUniversal_FILES = src/HFAMapLegacy.m src/HFAMapPatchExecutionTrace.m src/HFAMapSecretCallGraphProbe.m src/HFANVideoVIPShellAdapter.m
+# Replace only the panel contents with NVideo VIP diagnostics and add a
+# transient real-object _status 0/1/2/3 verifier that restores immediately.
+HFAMapUniversal_FILES = src/HFAMapLegacy.m src/HFAMapPatchExecutionTrace.m src/HFAMapSecretCallGraphProbe.m src/HFANVideoVIPShellAdapter.m src/HFANVideoVIPStateVerifier.m
 HFAMapUniversal_CFLAGS = -Oz -fno-stack-protector -fno-builtin -Wno-empty-body -Wno-unguarded-availability-new -fblocks
 HFAMapUniversal_FRAMEWORKS = UIKit Foundation QuartzCore
 
