@@ -28,6 +28,7 @@ jobs:
           set -euxo pipefail
           grep -q 'src/ZNFeatureMetadataCodec.mm' iosruntimepatchmenu/Makefile
           grep -q 'src/ZNPublicCompactUI.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNCompactFeatureRoutingFix.mm' iosruntimepatchmenu/Makefile
           grep -q 'src/ZNStaticRVAProtection.mm' iosruntimepatchmenu/Makefile
           if grep -q 'src/ZNFeatureNameRegistry.mm' iosruntimepatchmenu/Makefile; then exit 1; fi
           grep -q 'ZNFeatureMetadataEncodeEntry' iosruntimepatchmenu/src/ZNStaticMetadataPrivacy.mm
@@ -35,6 +36,8 @@ jobs:
           grep -q 'return @"开"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
           grep -q 'return @"关"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
           grep -q 'zn.f.%016llx.enabled' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          grep -q 'zn51_renderFeatureGroupsCompact' iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
+          grep -q 'zn50_renderFeatureGroupsCompact' iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
           if grep -q 'ZNFeatureNameRegistry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm; then exit 1; fi
           grep -q 'removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey' iosruntimepatchmenu/src/ZNPublicCompactUI.mm
           grep -q 'ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
@@ -70,13 +73,13 @@ jobs:
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-protection-v1
-          cp .theos/obj/ZonoePatchV03.dylib dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib
-          shasum -a 256 dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib | tee dist-protection-v1/SHA256.txt
+          cp .theos/obj/ZonoePatchV03.dylib dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib
+          shasum -a 256 dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib | tee dist-protection-v1/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib
+          out=iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib
           file "$out"
           nm -gU "$out" | grep 'ZNFeatureMetadataEncodeEntry'
           nm -gU "$out" | grep 'ZNFeatureMetadataDecodeEntry'
@@ -86,13 +89,14 @@ jobs:
           grep -q 'static-rva-protection-v1' /tmp/zonoe_protection_v1_strings.txt
           grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_protection_v1_strings.txt
           grep -q 'public compact UI installed' /tmp/zonoe_protection_v1_strings.txt
+          grep -q 'compact mode pinned to ZNF1 feature renderer' /tmp/zonoe_protection_v1_strings.txt
           grep -q 'preferences contain opaque state only' /tmp/zonoe_protection_v1_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.1-ProtectionV1-Test
+          name: ZonoPatch-v0.5.1-ProtectionV1-CompactFix-Test
           path: |
-            iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_Test.dylib
+            iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib
             iosruntimepatchmenu/dist-protection-v1/SHA256.txt
           if-no-files-found: error
