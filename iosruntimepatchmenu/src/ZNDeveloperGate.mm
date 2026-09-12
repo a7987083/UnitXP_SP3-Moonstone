@@ -1,7 +1,6 @@
 #import "ZNDeveloperGate.h"
 #import "ZNPatchCore.h"
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
 
 @implementation ZNDeveloperGate {
     BOOL _markerPresent;
@@ -16,6 +15,7 @@
     BOOL _awaitingZonoe;
     BOOL _markerHasG;
     BOOL _markerHasQ;
+    BOOL _startupEvaluated;
 }
 
 + (instancetype)sharedGate {
@@ -38,6 +38,7 @@
     _otherAuthorized = NO;
     _markerHasG = NO;
     _markerHasQ = NO;
+    _startupEvaluated = NO;
     [self refresh];
     return self;
 }
@@ -57,7 +58,7 @@
     return [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
-- (BOOL)loadMarker {
+- (BOOL)loadMarkerOnce {
     NSString *documents = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/1"];
     NSString *root = [NSHomeDirectory() stringByAppendingPathComponent:@"1"];
     NSFileManager *fm = NSFileManager.defaultManager;
@@ -70,14 +71,14 @@
     _markerHasQ = NO;
 
     if (!path) {
-        _lastError = @"未找到开发者标记文件 1";
+        _lastError = @"启动时未找到开发者标记文件 1";
         return NO;
     }
 
     NSError *error = nil;
     NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];
     if (!text) {
-        _lastError = [NSString stringWithFormat:@"读取标记文件失败：%@", error.localizedDescription ?: @"未知错误"];
+        _lastError = [NSString stringWithFormat:@"启动时读取标记文件失败：%@", error.localizedDescription ?: @"未知错误"];
         return NO;
     }
 
@@ -97,12 +98,10 @@
             _markerHasQ = YES;
             continue;
         }
-        // First non-token line is optional display-only metadata (normally UDID).
+        // First non-token line remains optional display-only metadata.
         if (!_authorizedUDID.length) _authorizedUDID = line;
     }
 
-    // Historical CI marker retained from the previous format: line 2 is optional.
-    // v0.4.4 no longer assigns permission by line number: q and g are independent tokens.
     if (!_markerHasG && !_markerHasQ) {
         _lastError = @"标记文件存在，但未找到 q/g 权限标记";
     } else {
@@ -112,53 +111,55 @@
 }
 
 - (void)refresh {
-    BOOL wasAuthorized = _authorized;
-    BOOL wasOtherAuthorized = _otherAuthorized;
+    // v0.5.2 policy: developer permission is a process-start snapshot.
+    // Legacy callers may still invoke refresh from menu/timer paths, but those
+    // calls must never touch the filesystem after the first evaluation.
+    @synchronized (self) {
+        if (_startupEvaluated) return;
+        _startupEvaluated = YES;
 
-    _authorized = NO;
-    _otherAuthorized = NO;
-    _observedUDID = @"";
-    _identitySource = ZNIdentitySourceNone;
-    _hostBridgeAvailable = NO;
-    _awaitingZonoe = NO;
+        _authorized = NO;
+        _otherAuthorized = NO;
+        _observedUDID = @"";
+        _identitySource = ZNIdentitySourceNone;
+        _hostBridgeAvailable = NO;
+        _awaitingZonoe = NO;
 
-    if (![self loadMarker]) {
-        if (wasAuthorized || wasOtherAuthorized) {
-            [[ZNRuntimeLogger sharedLogger] log:@"开发者权限已关闭：标记文件无效或已移除"];
+        if (![self loadMarkerOnce]) {
+            [[ZNRuntimeLogger sharedLogger] log:@"[dev-gate] startup snapshot: public mode"];
+            return;
         }
-        return;
-    }
 
-    _authorized = _markerHasG;
-    _otherAuthorized = _markerHasQ;
-    BOOL anyAuthorized = (_authorized || _otherAuthorized);
-    if (anyAuthorized) {
-        _observedUDID = _authorizedUDID ?: @"";
-        _identitySource = ZNIdentitySourceMarkerFile;
-    }
+        _authorized = _markerHasG;
+        _otherAuthorized = _markerHasQ;
+        if (_authorized || _otherAuthorized) {
+            _observedUDID = _authorizedUDID ?: @"";
+            _identitySource = ZNIdentitySourceMarkerFile;
+        }
 
-    if (wasAuthorized != _authorized) {
-        [[ZNRuntimeLogger sharedLogger] log:_authorized ? @"g 权限已启用：显示诊断 / Debug" : @"g 权限已关闭：隐藏诊断 / Debug"];
-    }
-    if (wasOtherAuthorized != _otherAuthorized) {
-        [[ZNRuntimeLogger sharedLogger] log:_otherAuthorized ? @"q 权限已启用：显示其他" : @"q 权限已关闭：隐藏其他"];
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
+            @"[dev-gate] startup snapshot cached: g=%@ q=%@ marker=%@",
+            _authorized ? @"ON" : @"OFF",
+            _otherAuthorized ? @"ON" : @"OFF",
+            _markerPath.length ? _markerPath : @"none"]];
     }
 }
 
 - (void)requestZonoeValidation {
-    [self refresh];
-    [[ZNRuntimeLogger sharedLogger] log:@"已重新检测标记文件 1"];
+    // Compatibility entry point only. Runtime re-check is deliberately disabled;
+    // changing file 1 takes effect on the next game process launch.
+    [[ZNRuntimeLogger sharedLogger] log:@"[dev-gate] runtime recheck ignored; restart game to re-evaluate file 1"];
 }
 
 - (void)submitHostUDID:(NSString *)udid authorized:(BOOL)authorized {
     (void)udid;
     (void)authorized;
-    [self refresh];
+    [[ZNRuntimeLogger sharedLogger] log:@"[dev-gate] host identity submission ignored; startup file-1 snapshot is authoritative"];
 }
 
 - (NSString *)sourceDescription {
     switch (_identitySource) {
-        case ZNIdentitySourceMarkerFile: return @"标记文件";
+        case ZNIdentitySourceMarkerFile: return @"启动标记文件";
         case ZNIdentitySourceHostDylib: return @"Host Dylib（已禁用）";
         case ZNIdentitySourceZonoeLocalTicket: return @"Local Ticket（已禁用）";
         case ZNIdentitySourceSubmittedHost: return @"Host Submitted（已禁用）";
@@ -173,7 +174,7 @@
 }
 
 - (NSString *)diagnosticReport {
-    return [NSString stringWithFormat:@"开发者标记: %@\n诊断/Debug(g): %@\n其他(q): %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n外部 UDID 获取: 已禁用\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
+    return [NSString stringWithFormat:@"开发者标记: %@\n启动检查: 已缓存，本进程不重新读取\n诊断/Debug(g): %@\n其他(q): %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n运行时重检: 已禁用（重启游戏生效）\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
             self.markerPresent ? @"已找到" : @"未找到",
             self.authorized ? @"显示" : @"隐藏",
             self.otherAuthorized ? @"显示" : @"隐藏",
@@ -202,9 +203,6 @@ extern "C" __attribute__((visibility("default"))) void ZonoePatchSubmitHostIdent
     (void)udid;
     (void)authorized;
     dispatch_async(dispatch_get_main_queue(), ^{
-        [[ZNDeveloperGate sharedGate] refresh];
+        [[ZNDeveloperGate sharedGate] submitHostUDID:nil authorized:NO];
     });
 }
-
-// Sidebar/UI ownership intentionally lives only in ZonoeRuntimeMenu.mm.
-// ZNDeveloperGate exposes q/g permission state and marker metadata only.
