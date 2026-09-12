@@ -1,8 +1,5 @@
 #import "ZNStaticBinaryBuilder.h"
 #import "ZNBinaryPatchWorkspace.h"
-#import "ZNPatchRuntimeValidator.h"
-#import "ZNPatchCore.h"
-#import "ZNFeatureNameRegistry.h"
 #import "ZNStaticMetadataPrivacy.h"
 #import "ZNAdhocMachOSigner.h"
 #import <objc/runtime.h>
@@ -43,34 +40,6 @@
         return NO;
     }
 
-    // Keep a compatibility copy in the host registry for old generated outputs.
-    // New ZNF1 outputs do not depend on this registry: their FeatureID + encoded
-    // display name travels inside the generated Mach-O itself.
-    NSMutableArray<NSDictionary *> *nameEntries = [NSMutableArray array];
-    NSMutableDictionary<NSString *, NSNumber *> *nextPatchIDByTarget = [NSMutableDictionary dictionary];
-    for (ZNBinaryPatchRow *row in workspace.rows) {
-        if (!row.offsetText.length && !row.enabledText.length) continue;
-        if (!row.validated || !row.validator) continue;
-
-        NSString *target = (row.explicitTarget && row.target.length) ? row.target : workspace.defaultTarget;
-        if (!target.length) continue;
-        uint32_t patchID = nextPatchIDByTarget[target].unsignedIntValue + 1u;
-        nextPatchIDByTarget[target] = @(patchID);
-
-        NSDictionary *module = [[ZNModuleManager sharedManager] moduleNamed:target];
-        NSString *runtimeTarget = [module[@"path"] lastPathComponent];
-        if (!runtimeTarget.length) runtimeTarget = target;
-
-        [nameEntries addObject:@{
-            @"target": target,
-            @"runtimeTarget": runtimeTarget,
-            @"siteRVA": @(row.validator.rva),
-            @"patchID": @(patchID),
-            @"title": row.title ?: @"",
-            @"group": row.group ?: @"",
-        }];
-    }
-
     NSMutableArray<NSDictionary *> *signing = [NSMutableArray array];
     NSString *failure = nil;
     NSString *folder = nil;
@@ -108,22 +77,6 @@
         return NO;
     }
 
-    // Legacy cache only. A reinstall may erase it without losing Feature names,
-    // because new outputs resolve from the embedded ZNF1 representation first.
-    for (NSDictionary *entry in nameEntries) {
-        uint64_t siteRVA = [entry[@"siteRVA"] unsignedLongLongValue];
-        uint32_t patchID = [entry[@"patchID"] unsignedIntValue];
-        NSString *title = entry[@"title"];
-        NSString *group = entry[@"group"];
-        NSString *target = entry[@"target"];
-        NSString *runtimeTarget = entry[@"runtimeTarget"];
-
-        ZNFeatureNameRegistryStore(target, siteRVA, patchID, title, group);
-        if (runtimeTarget.length && [runtimeTarget caseInsensitiveCompare:target] != NSOrderedSame) {
-            ZNFeatureNameRegistryStore(runtimeTarget, siteRVA, patchID, title, group);
-        }
-    }
-
     // Add machine-readable post-process evidence without changing V3's core
     // report schema. The package still needs its normal final IPA re-sign.
     for (NSString *path in innerOutputs) {
@@ -146,7 +99,8 @@
             @"displayMetadataCodec": @"ZNF1",
             @"encodedEntries": @(totalEncoded),
             @"displayNameStorage": @"generated-macho-static-entry-encoded",
-            @"legacyRegistryFallbackWritten": @YES,
+            @"legacyRegistryFallbackWritten": @NO,
+            @"hostPreferencesContainTargetRVANameMap": @NO,
             @"titleGroupFieldsZeroed": @NO,
             @"staticEntryABIPreserved": @YES,
         };
@@ -157,7 +111,7 @@
 
     if (outputs) *outputs = innerOutputs;
     if (report) {
-        *report = [NSString stringWithFormat:@"%@\n已将生成 Mach-O 的功能名转换为稳定 FeatureID + ZNF1 编码 metadata，并重建 SHA-1/SHA-256 CodeDirectory 后逐页校验；NSUserDefaults 仅保留旧版兼容缓存。替换回 IPA 后仍需正常整包重签。",
+        *report = [NSString stringWithFormat:@"%@\n已将生成 Mach-O 的功能名转换为稳定 FeatureID + ZNF1 编码 metadata，并重建 SHA-1/SHA-256 CodeDirectory 后逐页校验；不再向 NSUserDefaults 写入 Target/RVA/名称映射。替换回 IPA 后仍需正常整包重签。",
                    innerReport ?: @"Static Binary Builder 生成成功"];
     }
     return YES;
