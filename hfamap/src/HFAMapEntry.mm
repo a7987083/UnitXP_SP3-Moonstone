@@ -5,9 +5,12 @@
 #import <objc/message.h>
 #import <dispatch/dispatch.h>
 
-// fenpingvip v2
-// HFAMapUniversal floating shell + NVideo VIP read-only diagnostic.
-// All hooks are pass-through: no membership result/status is modified.
+// fenpingvip v6
+// Final composition for the authorized runtime test build:
+//   - Floating entry/lifecycle: v1 HF shell behavior.
+//   - Clicked panel/content: v2 NVideo VIP Diagnostic UI.
+//   - Level 0/1/2/3: real buttons calling DIYVIP's own updateStatus:type: path.
+// No legacy Key Register / Auto Detect / Full Scan UI is created by this file.
 
 typedef void (^HFAVIPGateCompletion)(BOOL allowed);
 
@@ -19,10 +22,12 @@ static UIView *gPanel = nil;
 static UIButton *gFloatingButton = nil;
 static UILabel *gValueLabel = nil;
 static UILabel *gHookLabel = nil;
+static __unsafe_unretained UIWindow *gWindow = nil;
 static NSString *gLogPath = nil;
 
 static __unsafe_unretained id gVIP = nil;
 static BOOL gHooksReady = NO;
+static BOOL gHooksAttempted = NO;
 static IMP gOrigIsVIP = NULL;
 static IMP gOrigUpdateStatus = NULL;
 static IMP gOrigJudge = NULL;
@@ -41,6 +46,7 @@ static NSInteger gTransitionOld = -1;
 static NSInteger gTransitionRequested = -1;
 static NSInteger gTransitionNew = -1;
 static NSInteger gTransitionType = -1;
+static BOOL gTransitionReturn = NO;
 
 static void HFALog(NSString *line) {
     if (!line.length) return;
@@ -50,9 +56,11 @@ static void HFALog(NSString *line) {
     }
     NSLog(@"[HFAMap][NVideoVIP] %@", line);
     if (!gLogPath) return;
+
     NSString *out = [line hasSuffix:@"\n"] ? line : [line stringByAppendingString:@"\n"];
     NSData *data = [out dataUsingEncoding:NSUTF8StringEncoding];
     if (!data) return;
+
     @synchronized([NSUserDefaults class]) {
         if (![[NSFileManager defaultManager] fileExistsAtPath:gLogPath]) {
             [data writeToFile:gLogPath atomically:YES];
@@ -151,11 +159,14 @@ static BOOL HFAUpdateStatusHook(id self, SEL _cmd, NSInteger requested, NSIntege
     NSInteger before = HFAStatus(self);
     BOOL result = ((BOOL(*)(id, SEL, NSInteger, NSInteger))gOrigUpdateStatus)(self, _cmd, requested, type);
     NSInteger after = HFAStatus(self);
+
     gTransitionSeen = YES;
     gTransitionOld = before;
     gTransitionRequested = requested;
     gTransitionNew = after;
     gTransitionType = type;
+    gTransitionReturn = result;
+
     HFALog([NSString stringWithFormat:@"[VIP][TRANSITION] before=%ld requested=%ld after=%ld type=%ld return=%d",
             (long)before, (long)requested, (long)after, (long)type, result ? 1 : 0]);
     dispatch_async(dispatch_get_main_queue(), ^{ HFARefreshPanel(); });
@@ -169,8 +180,10 @@ static void HFARecordGate(id self, NSInteger operation, BOOL allowed, NSString *
     gGateOperation = operation;
     gGateStatus = HFAStatus(self);
     gGateVIP = HFAOriginalIsVIP(self);
+
     HFALog([NSString stringWithFormat:@"[VIP][GATE] source=%@ op=%ld status=%ld isVIP=%d allowed=%d",
-            source, (long)operation, (long)gGateStatus, gGateVIP ? 1 : 0, allowed ? 1 : 0]);
+            source ?: @"unknown", (long)operation, (long)gGateStatus,
+            gGateVIP ? 1 : 0, allowed ? 1 : 0]);
     dispatch_async(dispatch_get_main_queue(), ^{ HFARefreshPanel(); });
 }
 
@@ -214,34 +227,36 @@ static BOOL HFAHook(Class cls, const char *name, IMP replacement, IMP *original)
     if (!old) return NO;
     if (original) *original = old;
     method_setImplementation(m, replacement);
-    HFALog([NSString stringWithFormat:@"[VIP][HOOK_OK] %s types=%s", name, method_getTypeEncoding(m) ?: "?"]);
+    HFALog([NSString stringWithFormat:@"[VIP][HOOK_OK] %s types=%s",
+            name, method_getTypeEncoding(m) ?: "?"]);
     return YES;
 }
 
 static void HFAInstallHooksIfPossible(void) {
-    if (gHooksReady) return;
+    if (gHooksAttempted) return;
     Class cls = objc_getClass("DIYVIP");
     if (!cls) return;
 
+    gHooksAttempted = YES;
     BOOL ok = YES;
     ok &= HFAHook(cls, "isVIP", (IMP)HFAIsVIPHook, &gOrigIsVIP);
     ok &= HFAHook(cls, "updateStatus:type:", (IMP)HFAUpdateStatusHook, &gOrigUpdateStatus);
     ok &= HFAHook(cls, "judgeOperationValid:completion:", (IMP)HFAJudgeHook, &gOrigJudge);
     ok &= HFAHook(cls, "judgeOperationValid:reportParameters:completion:", (IMP)HFAJudgeReportHook, &gOrigJudgeReport);
     ok &= HFAHook(cls, "verifyCurrentStatus", (IMP)HFAVerifyHook, &gOrigVerify);
-    gHooksReady = YES;
-    HFALog(ok ? @"[VIP][HOOK_READY] all pass-through hooks installed" : @"[VIP][HOOK_PARTIAL] one or more selectors missing");
+    gHooksReady = ok;
+
+    HFALog(ok ? @"[VIP][HOOK_READY] all pass-through hooks installed"
+               : @"[VIP][HOOK_PARTIAL] one or more selectors missing");
 }
 
+// v1 shell semantics: prefer keyWindow, otherwise use the last app window.
 static UIWindow *HFAWindow(void) {
-    UIApplication *app = UIApplication.sharedApplication;
-    for (UIWindow *window in app.windows) {
-        if (window.isKeyWindow && !window.hidden && window.alpha > 0.0) return window;
-    }
-    for (UIWindow *window in [app.windows reverseObjectEnumerator]) {
-        if (!window.hidden && window.alpha > 0.0 && window.windowLevel == UIWindowLevelNormal) return window;
-    }
-    return app.keyWindow;
+    UIApplication *app = [UIApplication sharedApplication];
+    UIWindow *window = app.keyWindow;
+    if (window) return window;
+    NSArray *windows = app.windows;
+    return windows.count ? [windows lastObject] : nil;
 }
 
 static NSString *HFAExpiryText(void) {
@@ -252,6 +267,7 @@ static NSString *HFAExpiryText(void) {
 static void HFARefreshPanel(void) {
     if (!gValueLabel) return;
     HFAInstallHooksIfPossible();
+
     id vip = HFASharedVIP();
     NSInteger status = HFAStatus(vip);
     BOOL isVIP = HFAOriginalIsVIP(vip);
@@ -265,8 +281,10 @@ static void HFARefreshPanel(void) {
         ? [NSString stringWithFormat:@"%@  op=%ld", gGateAllowed ? @"ALLOW" : @"DENY", (long)gGateOperation]
         : @"WAIT（实际操作后更新）";
     NSString *transition = gTransitionSeen
-        ? [NSString stringWithFormat:@"%ld → %ld (req=%ld,type=%ld)",
-           (long)gTransitionOld, (long)gTransitionNew, (long)gTransitionRequested, (long)gTransitionType]
+        ? [NSString stringWithFormat:@"%ld → %ld (req=%ld,type=%ld,r=%d)",
+           (long)gTransitionOld, (long)gTransitionNew,
+           (long)gTransitionRequested, (long)gTransitionType,
+           gTransitionReturn ? 1 : 0]
         : @"-";
 
     gValueLabel.text = [NSString stringWithFormat:
@@ -288,55 +306,172 @@ static void HFARefreshPanel(void) {
          transition, (unsigned long)gVerifyCalls, (unsigned long)gIsVIPCalls,
          HFAExpiryText()];
 
-    gHookLabel.text = gHooksReady ? @"● Probe Ready · 只读/透传" : @"○ Waiting for DIYVIP";
+    if (!objc_getClass("DIYVIP")) {
+        gHookLabel.text = @"○ Waiting for DIYVIP";
+        gHookLabel.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    } else if (gHooksReady) {
+        gHookLabel.text = @"● Probe Ready · 只读/透传";
+        gHookLabel.textColor = [UIColor colorWithRed:0.45 green:0.95 blue:0.58 alpha:1.0];
+    } else {
+        gHookLabel.text = @"● Probe Partial · 查看日志";
+        gHookLabel.textColor = [UIColor colorWithRed:1.0 green:0.72 blue:0.32 alpha:1.0];
+    }
+}
+
+static void HFASetRealLevel(NSInteger target) {
+    id vip = HFASharedVIP();
+    if (!vip) {
+        HFALog(@"[VIP][STATE_SET] unavailable: DIYVIP missing");
+        return;
+    }
+
+    SEL updateSel = sel_registerName("updateStatus:type:");
+    if (![vip respondsToSelector:updateSel]) {
+        HFALog(@"[VIP][STATE_SET] unavailable: updateStatus:type: missing");
+        return;
+    }
+
+    NSInteger before = HFAStatus(vip);
+    BOOL result = ((BOOL(*)(id, SEL, NSInteger, NSInteger))objc_msgSend)(vip, updateSel, target, 0);
+    NSInteger after = HFAStatus(vip);
+    BOOL isVIP = HFAOriginalIsVIP(vip);
+    BOOL expectedVIP = (target == 1 || target == 3);
+    BOOL pass = (after == target && isVIP == expectedVIP);
+
+    HFALog([NSString stringWithFormat:
+        @"[VIP][STATE_SET] before=%ld target=%ld after=%ld isVIP=%d updateReturn=%d pass=%d noAutoRestore=1",
+        (long)before, (long)target, (long)after,
+        isVIP ? 1 : 0, result ? 1 : 0, pass ? 1 : 0]);
+
+    HFARefreshPanel();
 }
 
 @interface HFAVIPFloatingTarget : NSObject
 + (instancetype)shared;
 - (void)toggle;
 - (void)refresh;
+- (void)pan:(UIPanGestureRecognizer *)gesture;
+- (void)panelPan:(UIPanGestureRecognizer *)gesture;
+- (void)setLevel:(UIButton *)sender;
+- (void)tick:(NSTimer *)timer;
 @end
 
 @implementation HFAVIPFloatingTarget
+
 + (instancetype)shared {
-    static HFAVIPFloatingTarget *obj;
+    static HFAVIPFloatingTarget *obj = nil;
     static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ obj = [HFAVIPFloatingTarget new]; });
+    dispatch_once(&onceToken, ^{ obj = [[HFAVIPFloatingTarget alloc] init]; });
     return obj;
 }
+
 - (void)toggle {
     if (!gPanel) return;
     gPanel.hidden = !gPanel.hidden;
     if (!gPanel.hidden) HFARefreshPanel();
 }
-- (void)refresh { HFARefreshPanel(); }
+
+- (void)refresh {
+    HFARefreshPanel();
+}
+
+- (void)setLevel:(UIButton *)sender {
+    NSInteger target = sender.tag;
+    if (target < 0 || target > 3) return;
+    HFASetRealLevel(target);
+}
+
+// Exact v1-style floating-button dragging + edge clamp.
+- (void)pan:(UIPanGestureRecognizer *)gesture {
+    if (!gFloatingButton || !gWindow) return;
+    UIGestureRecognizerState state = gesture.state;
+    if (state != UIGestureRecognizerStateBegan && state != UIGestureRecognizerStateChanged) return;
+
+    CGPoint translation = [gesture translationInView:gWindow];
+    CGPoint center = gFloatingButton.center;
+    center.x += translation.x;
+    center.y += translation.y;
+
+    CGRect bounds = gWindow.bounds;
+    CGFloat half = 26.0;
+    if (center.x < half) center.x = half;
+    if (center.x > bounds.size.width - half) center.x = bounds.size.width - half;
+    if (center.y < half) center.y = half;
+    if (center.y > bounds.size.height - half) center.y = bounds.size.height - half;
+
+    gFloatingButton.center = center;
+    [gesture setTranslation:CGPointZero inView:gWindow];
+}
+
+// Keep v1 shell interaction: the opened panel can also be dragged.
+- (void)panelPan:(UIPanGestureRecognizer *)gesture {
+    if (!gPanel || !gWindow) return;
+    UIGestureRecognizerState state = gesture.state;
+    if (state != UIGestureRecognizerStateBegan && state != UIGestureRecognizerStateChanged) return;
+
+    CGPoint translation = [gesture translationInView:gWindow];
+    CGPoint center = gPanel.center;
+    center.x += translation.x;
+    center.y += translation.y;
+    gPanel.center = center;
+    [gesture setTranslation:CGPointZero inView:gWindow];
+}
+
+- (void)tick:(NSTimer *)timer {
+    (void)timer;
+    HFAInstallHooksIfPossible();
+
+    UIWindow *window = HFAWindow();
+    if (!window) return;
+
+    if (!gFloatingButton || !gPanel) {
+        extern BOOL HFAInstallUIOnWindow(UIWindow *window);
+        HFAInstallUIOnWindow(window);
+    }
+
+    if (gFloatingButton && gPanel && (gWindow != window || !gFloatingButton.superview || !gPanel.superview)) {
+        [window addSubview:gPanel];
+        [window addSubview:gFloatingButton];
+        gWindow = window;
+        HFALog(@"[VIP][FLOATING_V1_REATTACH] window changed/recovered");
+    }
+
+    if (gPanel && gFloatingButton) {
+        [window bringSubviewToFront:gPanel];
+        [window bringSubviewToFront:gFloatingButton];
+    }
+}
+
 @end
 
-static BOOL HFAInstallUI(void) {
-    if (gFloatingButton.superview) return YES;
-    UIWindow *window = HFAWindow();
+BOOL HFAInstallUIOnWindow(UIWindow *window) {
     if (!window) return NO;
+    if (gFloatingButton && gPanel) return YES;
 
     CGRect bounds = window.bounds;
     CGFloat safeTop = window.safeAreaInsets.top;
-    CGFloat buttonSize = 52.0;
-    CGFloat bx = MAX(12.0, bounds.size.width - buttonSize - 14.0);
-    CGFloat by = MAX(86.0, safeTop + 48.0);
 
+    // v1 floating shell: 52x52, left side, title "HF", pan-enabled.
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.frame = CGRectMake(bx, by, buttonSize, buttonSize);
-    button.layer.cornerRadius = buttonSize / 2.0;
+    button.frame = CGRectMake(18.0, 165.0, 52.0, 52.0);
+    button.layer.cornerRadius = 26.0;
     button.layer.masksToBounds = YES;
-    button.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.92];
-    button.layer.borderWidth = 1.0;
-    button.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.28].CGColor;
-    [button setTitle:@"HFA" forState:UIControlStateNormal];
-    [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    button.titleLabel.font = [UIFont boldSystemFontOfSize:13.0];
-    [button addTarget:[HFAVIPFloatingTarget shared] action:@selector(toggle) forControlEvents:UIControlEventTouchUpInside];
+    button.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:0.94];
+    [button setTitle:@"HF" forState:UIControlStateNormal];
+    [button setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    button.titleLabel.font = [UIFont boldSystemFontOfSize:15.0];
+    [button addTarget:[HFAVIPFloatingTarget shared]
+               action:@selector(toggle)
+     forControlEvents:UIControlEventTouchUpInside];
 
+    UIPanGestureRecognizer *buttonPan = [[[UIPanGestureRecognizer alloc]
+        initWithTarget:[HFAVIPFloatingTarget shared]
+                action:@selector(pan:)] autorelease];
+    [button addGestureRecognizer:buttonPan];
+
+    // v2 clicked page/content, preserved as the project panel.
     CGFloat panelW = MIN(336.0, MAX(280.0, bounds.size.width - 24.0));
-    CGFloat panelH = 360.0;
+    CGFloat panelH = 420.0;
     CGFloat panelX = (bounds.size.width - panelW) / 2.0;
     CGFloat panelY = MAX(safeTop + 20.0, (bounds.size.height - panelH) / 2.0);
 
@@ -347,9 +482,15 @@ static BOOL HFAInstallUI(void) {
     panel.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.18].CGColor;
     panel.hidden = YES;
 
+    UIPanGestureRecognizer *panelPan = [[[UIPanGestureRecognizer alloc]
+        initWithTarget:[HFAVIPFloatingTarget shared]
+                action:@selector(panelPan:)] autorelease];
+    panelPan.cancelsTouchesInView = NO;
+    [panel addGestureRecognizer:panelPan];
+
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16.0, 14.0, panelW - 32.0, 24.0)];
     title.text = @"HFAMapUniversal";
-    title.textColor = UIColor.whiteColor;
+    title.textColor = [UIColor whiteColor];
     title.font = [UIFont boldSystemFontOfSize:17.0];
     [panel addSubview:title];
 
@@ -377,14 +518,41 @@ static BOOL HFAInstallUI(void) {
     values.minimumScaleFactor = 0.82;
     [panel addSubview:values];
 
+    UILabel *levelTitle = [[UILabel alloc] initWithFrame:CGRectMake(16.0, 316.0, panelW - 32.0, 18.0)];
+    levelTitle.text = @"真实等级按钮 · 调用 updateStatus:type: · 不自动恢复";
+    levelTitle.textColor = [UIColor colorWithWhite:0.76 alpha:1.0];
+    levelTitle.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightMedium];
+    [panel addSubview:levelTitle];
+
+    CGFloat gap = 6.0;
+    CGFloat levelW = (panelW - 32.0 - gap * 3.0) / 4.0;
+    for (NSInteger i = 0; i < 4; i++) {
+        UIButton *level = [UIButton buttonWithType:UIButtonTypeSystem];
+        level.tag = i;
+        level.frame = CGRectMake(16.0 + (levelW + gap) * i, 337.0, levelW, 32.0);
+        [level setTitle:[NSString stringWithFormat:@"等级 %ld", (long)i] forState:UIControlStateNormal];
+        [level setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        level.titleLabel.font = [UIFont boldSystemFontOfSize:11.0];
+        level.backgroundColor = [UIColor colorWithWhite:0.15 alpha:0.96];
+        level.layer.cornerRadius = 7.0;
+        level.layer.borderWidth = 0.5;
+        level.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.20].CGColor;
+        [level addTarget:[HFAVIPFloatingTarget shared]
+                  action:@selector(setLevel:)
+        forControlEvents:UIControlEventTouchUpInside];
+        [panel addSubview:level];
+    }
+
     UIButton *refresh = [UIButton buttonWithType:UIButtonTypeSystem];
-    refresh.frame = CGRectMake(16.0, panelH - 41.0, panelW - 32.0, 29.0);
+    refresh.frame = CGRectMake(16.0, 379.0, panelW - 32.0, 29.0);
     refresh.layer.cornerRadius = 8.0;
     refresh.backgroundColor = [UIColor colorWithRed:0.23 green:0.36 blue:0.92 alpha:1.0];
     [refresh setTitle:@"刷新真实状态" forState:UIControlStateNormal];
-    [refresh setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [refresh setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     refresh.titleLabel.font = [UIFont boldSystemFontOfSize:13.0];
-    [refresh addTarget:[HFAVIPFloatingTarget shared] action:@selector(refresh) forControlEvents:UIControlEventTouchUpInside];
+    [refresh addTarget:[HFAVIPFloatingTarget shared]
+                action:@selector(refresh)
+      forControlEvents:UIControlEventTouchUpInside];
     [panel addSubview:refresh];
 
     [window addSubview:panel];
@@ -396,38 +564,32 @@ static BOOL HFAInstallUI(void) {
     gFloatingButton = button;
     gValueLabel = values;
     gHookLabel = hook;
+    gWindow = window;
 
     [title release];
     [subtitle release];
     [hook release];
     [line release];
     [values release];
+    [levelTitle release];
     [panel release];
 
     HFARefreshPanel();
-    HFALog(@"[VIP][UI_READY] HFAMapUniversal NVideo VIP Diagnostic");
+    HFALog(@"[VIP][FLOATING_V1_READY] HF 52x52 draggable shell installed");
+    HFALog(@"[VIP][UI_READY] v2 NVideo VIP Diagnostic panel + real 0/1/2/3 controls");
     return YES;
-}
-
-static void HFASchedule(NSUInteger attempt) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        HFAInstallHooksIfPossible();
-        BOOL ui = HFAInstallUI();
-        if (ui && gHooksReady) return;
-        if (attempt >= 40) {
-            HFALog(@"[VIP][INIT_TIMEOUT] UI or DIYVIP not ready after retries");
-            return;
-        }
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            HFASchedule(attempt + 1);
-        });
-    });
 }
 
 __attribute__((constructor))
 static void HFANVideoVIPConstructor(void) {
     @autoreleasepool {
-        HFALog(@"[VIP][LOAD] HFAMapUniversal fenpingvip v2");
-        HFASchedule(0);
+        HFALog(@"[VIP][LOAD] HFAMapUniversal fenpingvip v6 v1-shell + v2-panel + real-level-buttons");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSTimer scheduledTimerWithTimeInterval:0.5
+                                             target:[HFAVIPFloatingTarget shared]
+                                           selector:@selector(tick:)
+                                           userInfo:nil
+                                            repeats:YES];
+        });
     }
 }
