@@ -21,10 +21,12 @@
 #define ZN44_STATIC_MAX_ENTRIES 512u
 
 // Header flags are backward-compatible because older runtimes ignore them.
-// When FEATURE_METADATA_V1 is set, title/group plaintext has been replaced by
-// the ZNF1 opaque FeatureID + encoded display-name representation. The 128-byte
-// entry ABI is unchanged.
+// FEATURE_METADATA_V1 replaces title/group plaintext with ZNF1 metadata.
+// RVA_PROTECTION_V1 stores siteRVA/offRVA/onRVA in a reversible encoded form;
+// runtime decodes on demand and never writes plaintext values back to the
+// Static Entry. The 128-byte entry ABI remains unchanged.
 #define ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1 UINT32_C(0x00000001)
+#define ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1   UINT32_C(0x00000002)
 
 // V2/V3 keep the v1 entry ABI/size (128 bytes). The former 12-byte reserved
 // tail is shared-site metadata so old generated binaries remain readable.
@@ -38,6 +40,8 @@ typedef struct {
     uint32_t count;
     uint32_t entrySize;
     uint32_t flags;
+    // Protection V1 uses reserved[0..3] as nonce/tag/marker/seal only when the
+    // RVA protection flag is set. Legacy outputs leave them zero.
     uint64_t reserved[4];
 } ZN44StaticHeader;
 
