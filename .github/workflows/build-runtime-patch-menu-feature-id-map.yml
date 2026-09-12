@@ -1,9 +1,9 @@
-name: Build Runtime Patch Menu Protection V1
+name: Build Runtime Patch Menu v0.5.2 Consolidation V1
 
 on:
   push:
     branches:
-      - feature/runtime-patch-menu-protection-v1
+      - feature/runtime-patch-menu-consolidation-v1
   workflow_dispatch:
 
 jobs:
@@ -26,20 +26,50 @@ jobs:
       - name: Source assertions
         run: |
           set -euxo pipefail
-          grep -q 'src/ZNFeatureMetadataCodec.mm' iosruntimepatchmenu/Makefile
-          grep -q 'src/ZNPublicCompactUI.mm' iosruntimepatchmenu/Makefile
-          grep -q 'src/ZNCompactFeatureRoutingFix.mm' iosruntimepatchmenu/Makefile
-          grep -q 'src/ZNStaticRVAProtection.mm' iosruntimepatchmenu/Makefile
-          if grep -q 'src/ZNFeatureNameRegistry.mm' iosruntimepatchmenu/Makefile; then exit 1; fi
+          makefile=iosruntimepatchmenu/Makefile
+          gate=iosruntimepatchmenu/src/ZNDeveloperGate.mm
+          feature=iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          compact=iosruntimepatchmenu/src/ZNPublicCompactUI.mm
+          diag=iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm
+          probe=iosruntimepatchmenu/src/ZNSharedSiteExecutionProbeV3Bootstrap.mm
+
+          grep -q 'src/ZNFeatureMetadataCodec.mm' "$makefile"
+          grep -q 'src/ZNPublicCompactUI.mm' "$makefile"
+          grep -q 'src/ZNStaticRVAProtection.mm' "$makefile"
+          grep -q -- '-fvisibility=hidden' "$makefile"
+          if grep -q 'src/ZNCompactFeatureRoutingFix.mm' "$makefile"; then exit 1; fi
+          test ! -e iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
+          test ! -e iosruntimepatchmenu/src/ZNFeatureNameRegistry.mm
+          test ! -e iosruntimepatchmenu/src/ZNFeatureNameRegistry.h
+          test ! -e iosruntimepatchmenu/src/ZNStaticBinaryBuilderV2.mm
+          test ! -e iosruntimepatchmenu/src/ZNSharedSiteProbe.mm
+          test ! -e iosruntimepatchmenu/src/ZNSharedSiteProbeRobust.mm
+          test ! -e iosruntimepatchmenu/src/ZNLocalTicketV2.mm
+          test ! -e iosruntimepatchmenu/src/ZNHostBridge.h
+
+          grep -q '_startupEvaluated' "$gate"
+          grep -q 'loadMarkerOnce' "$gate"
+          grep -q 'startup snapshot cached' "$gate"
+          grep -q 'runtime recheck ignored' "$gate"
+          grep -q '重启游戏' "$gate"
+
+          grep -q 'ZNFeatureMetadataDecodeEntry' "$feature"
+          grep -q 'return @"开"' "$feature"
+          grep -q 'return @"关"' "$feature"
+          grep -q 'zn.f.%016llx.enabled' "$feature"
+          grep -q 'Compact is always the public Feature surface' "$feature"
+          grep -q '\[self zn50_renderFeatureGroupsCompact\];' "$feature"
+          if grep -q 'ZNFeatureNameRegistry' "$feature"; then exit 1; fi
+
+          grep -q 'self.subtitleLabel.text = @"0.5.2"' "$compact"
+          grep -q 'removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey' "$compact"
+
+          grep -q 'if (\[ZNDeveloperGate sharedGate\].authorized)' "$diag"
+          grep -q 'public/off' "$diag"
+          grep -q 'idle until explicit enable' "$probe"
+          grep -q 'after the developer explicitly' "$probe"
+
           grep -q 'ZNFeatureMetadataEncodeEntry' iosruntimepatchmenu/src/ZNStaticMetadataPrivacy.mm
-          grep -q 'ZNFeatureMetadataDecodeEntry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
-          grep -q 'return @"开"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
-          grep -q 'return @"关"' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
-          grep -q 'zn.f.%016llx.enabled' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
-          grep -q 'zn51_renderCompactPage' iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
-          grep -q 'zn50_renderFeatureGroupsCompact' iosruntimepatchmenu/src/ZNCompactFeatureRoutingFix.mm
-          if grep -q 'ZNFeatureNameRegistry' iosruntimepatchmenu/src/ZNFeatureGroupUI.mm; then exit 1; fi
-          grep -q 'removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey' iosruntimepatchmenu/src/ZNPublicCompactUI.mm
           grep -q 'ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
           grep -q 'ZN55ProtectStaticRVAsAtPath' iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm
           grep -q 'ZN55DecodeEntryRVAs' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
@@ -72,31 +102,42 @@ jobs:
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-protection-v1
-          cp .theos/obj/ZonoePatchV03.dylib dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib
-          shasum -a 256 dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib | tee dist-protection-v1/SHA256.txt
+          mkdir -p dist-consolidation-v1
+          cp .theos/obj/ZonoePatchV03.dylib dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib
+          shasum -a 256 dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib | tee dist-consolidation-v1/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib
+          out=iosruntimepatchmenu/dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib
           file "$out"
-          nm -gU "$out" | grep 'ZNFeatureMetadataEncodeEntry'
-          nm -gU "$out" | grep 'ZNFeatureMetadataDecodeEntry'
-          if nm -gU "$out" | grep -q 'ZNFeatureNameRegistryStore'; then exit 1; fi
+
+          # Explicit public API remains exported.
+          nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
+          nm -gU "$out" | grep '_ZonoePatchOtherAuthorized'
+
+          # Internal C helpers are hidden in the release binary.
+          if nm -gU "$out" | grep -q 'ZNFeatureMetadataEncodeEntry'; then exit 1; fi
+          if nm -gU "$out" | grep -q 'ZNFeatureMetadataDecodeEntry'; then exit 1; fi
           if nm -gU "$out" | grep -q 'ZN55ProtectStaticRVAsAtPath'; then exit 1; fi
-          strings "$out" > /tmp/zonoe_protection_v1_strings.txt
-          grep -q 'static-rva-protection-v1' /tmp/zonoe_protection_v1_strings.txt
-          grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_protection_v1_strings.txt
-          grep -q 'public compact UI installed' /tmp/zonoe_protection_v1_strings.txt
-          grep -q 'compact mode pinned to ZNF1 feature renderer' /tmp/zonoe_protection_v1_strings.txt
-          grep -q 'preferences contain opaque state only' /tmp/zonoe_protection_v1_strings.txt
+          if nm -gU "$out" | grep -q 'ZNFeatureNameRegistryStore'; then exit 1; fi
+
+          strings "$out" > /tmp/zonoe_v052_strings.txt
+          grep -q 'static-rva-protection-v1' /tmp/zonoe_v052_strings.txt
+          grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_v052_strings.txt
+          grep -q 'v0.5.2 public compact UI installed' /tmp/zonoe_v052_strings.txt
+          grep -q 'v0.5.2 feature UI installed' /tmp/zonoe_v052_strings.txt
+          grep -q 'startup snapshot cached' /tmp/zonoe_v052_strings.txt
+          grep -q 'runtime recheck ignored' /tmp/zonoe_v052_strings.txt
+          grep -q 'idle until explicit enable' /tmp/zonoe_v052_strings.txt
+          if grep -q 'compact mode pinned to ZNF1 feature renderer' /tmp/zonoe_v052_strings.txt; then exit 1; fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.1-ProtectionV1-CompactFix-Test
+          name: ZonoPatch-v0.5.2-ConsolidationV1-Test
           path: |
-            iosruntimepatchmenu/dist-protection-v1/ZonoPatch_v0.5.1_ProtectionV1_CompactFix_Test.dylib
-            iosruntimepatchmenu/dist-protection-v1/SHA256.txt
+            iosruntimepatchmenu/dist-consolidation-v1/ZonoPatch_v0.5.2_ConsolidationV1_Test.dylib
+            iosruntimepatchmenu/dist-consolidation-v1/SHA256.txt
           if-no-files-found: error
