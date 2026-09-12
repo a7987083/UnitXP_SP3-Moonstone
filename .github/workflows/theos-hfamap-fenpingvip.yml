@@ -1,4 +1,4 @@
-name: HFAMapUniversal fenpingvip v4
+name: HFAMapUniversal fenpingvip v5
 
 on:
   push:
@@ -24,42 +24,43 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build fenpingvip v4
+      - name: Build fenpingvip v5
         run: |
           cd hfamap
           make clean
           make FINALPACKAGE=1
           mkdir -p dist
-          out="dist/HFAMapUniversal_fenpingvip_v4.dylib"
+          out="dist/HFAMapUniversal_fenpingvip_v5.dylib"
           cp .theos/obj/HFAMapUniversal.dylib "$out"
           file "$out"
-          shasum -a 256 "$out" | tee dist/SHA256_fenpingvip_v4.txt
-          strings "$out" > dist/fenpingvip_v4.strings
-          grep -Fq "HFAMap v1.8.7 Key Register" dist/fenpingvip_v4.strings
-          grep -Fq "HFAMapUniversal fenpingvip v3 original-shell adapter" dist/fenpingvip_v4.strings
-          grep -Fq "HFAMapUniversal fenpingvip v4 state controller loaded" dist/fenpingvip_v4.strings
-          grep -Fq "NVideo VIP Diagnostic" dist/fenpingvip_v4.strings
-          grep -Fq "[VIP][HOOK_READY]" dist/fenpingvip_v4.strings
-          grep -Fq "[VIP][UI_REPLACED]" dist/fenpingvip_v4.strings
-          grep -Fq "[STATE_SET]" dist/fenpingvip_v4.strings
-          grep -Fq "[STATE_CONTROLLER_READY]" dist/fenpingvip_v4.strings
-          grep -Fq "judgeOperationValid:completion:" dist/fenpingvip_v4.strings
-          grep -Fq "updateStatus:type:" dist/fenpingvip_v4.strings
-          ! grep -Fq "temporarily writes DIYVIP::_status" dist/fenpingvip_v4.strings
+          shasum -a 256 "$out" | tee dist/SHA256_fenpingvip_v5.txt
+          strings "$out" > dist/fenpingvip_v5.strings
+          grep -Fq "HFAMap v1.8.7 Key Register" dist/fenpingvip_v5.strings
+          grep -Fq "HFAMapUniversal fenpingvip v5 scene-safe shell adapter" dist/fenpingvip_v5.strings
+          grep -Fq "HFAMapUniversal fenpingvip v4 state controller loaded" dist/fenpingvip_v5.strings
+          grep -Fq "NVideo VIP Diagnostic" dist/fenpingvip_v5.strings
+          grep -Fq "[VIP][HOOK_READY]" dist/fenpingvip_v5.strings
+          grep -Fq "[VIP][UI_REPLACED]" dist/fenpingvip_v5.strings
+          grep -Fq "[VIP][UI_BIND_DIRECT]" dist/fenpingvip_v5.strings
+          grep -Fq "[STATE_SET]" dist/fenpingvip_v5.strings
+          grep -Fq "[STATE_CONTROLLER_READY]" dist/fenpingvip_v5.strings
+          grep -Fq "judgeOperationValid:completion:" dist/fenpingvip_v5.strings
+          grep -Fq "updateStatus:type:" dist/fenpingvip_v5.strings
+          ! grep -Fq "temporarily writes DIYVIP::_status" dist/fenpingvip_v5.strings
 
       - name: Publish raw dylib
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f hfamap/dist/HFAMapUniversal_fenpingvip_v4.dylib hfamap/dist/SHA256_fenpingvip_v4.txt
-          git commit -m "Publish fenpingvip v4 dylib [skip ci]" || exit 0
+          git add -f hfamap/dist/HFAMapUniversal_fenpingvip_v5.dylib hfamap/dist/SHA256_fenpingvip_v5.txt
+          git commit -m "Publish fenpingvip v5 dylib [skip ci]" || exit 0
           git push origin HEAD:fenpingvip
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: HFAMapUniversal-fenpingvip-v4
+          name: HFAMapUniversal-fenpingvip-v5
           path: |
-            hfamap/dist/HFAMapUniversal_fenpingvip_v4.dylib
-            hfamap/dist/SHA256_fenpingvip_v4.txt
+            hfamap/dist/HFAMapUniversal_fenpingvip_v5.dylib
+            hfamap/dist/SHA256_fenpingvip_v5.txt
           if-no-files-found: error
