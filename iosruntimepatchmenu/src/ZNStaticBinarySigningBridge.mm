@@ -1,6 +1,7 @@
 #import "ZNStaticBinaryBuilder.h"
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNStaticMetadataPrivacy.h"
+#import "ZNStaticRVAProtection.h"
 #import "ZNAdhocMachOSigner.h"
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
@@ -43,20 +44,33 @@
     NSMutableArray<NSDictionary *> *signing = [NSMutableArray array];
     NSString *failure = nil;
     NSString *folder = nil;
-    NSUInteger totalEncoded = 0;
+    NSUInteger totalEncodedNames = 0;
+    NSUInteger totalProtectedRVAs = 0;
 
     for (NSString *path in innerOutputs) {
         if (![path.pathExtension.lowercaseString isEqualToString:@"znpatched"]) continue;
         if (!folder.length) folder = path.stringByDeletingLastPathComponent;
 
-        NSUInteger encoded = 0;
+        NSUInteger encodedNames = 0;
         NSString *privacyError = nil;
-        if (!ZNScrubStaticDisplayMetadataAtPath(path, &encoded, &privacyError)) {
+        if (!ZNScrubStaticDisplayMetadataAtPath(path, &encodedNames, &privacyError)) {
             failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent,
                        privacyError ?: @"显示 metadata 编码失败"];
             break;
         }
-        totalEncoded += encoded;
+        totalEncodedNames += encodedNames;
+
+        // Protection V1 runs after ZNF1 so the display-name codec still sees the
+        // builder's ordinary Static Entry, and before signing so CodeDirectory
+        // hashes cover the final encoded RVA representation.
+        NSUInteger protectedRVAs = 0;
+        NSString *rvaError = nil;
+        if (!ZN55ProtectStaticRVAsAtPath(path, &protectedRVAs, &rvaError)) {
+            failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent,
+                       rvaError ?: @"Static RVA Protection V1 失败"];
+            break;
+        }
+        totalProtectedRVAs += protectedRVAs;
 
         NSDictionary *signMetadata = nil;
         NSString *signError = nil;
@@ -67,7 +81,8 @@
         }
         NSMutableDictionary *item = [signMetadata mutableCopy] ?: [NSMutableDictionary dictionary];
         item[@"output"] = path;
-        item[@"encodedFeatureMetadataEntries"] = @(encoded);
+        item[@"encodedFeatureMetadataEntries"] = @(encodedNames);
+        item[@"protectedStaticRVAEntries"] = @(protectedRVAs);
         [signing addObject:item];
     }
 
@@ -97,12 +112,23 @@
             @"plainDisplayNamesPresent": @NO,
             @"embeddedFeatureID": @YES,
             @"displayMetadataCodec": @"ZNF1",
-            @"encodedEntries": @(totalEncoded),
+            @"encodedEntries": @(totalEncodedNames),
             @"displayNameStorage": @"generated-macho-static-entry-encoded",
             @"legacyRegistryFallbackWritten": @NO,
             @"hostPreferencesContainTargetRVANameMap": @NO,
             @"titleGroupFieldsZeroed": @NO,
             @"staticEntryABIPreserved": @YES,
+        };
+        object[@"generatedBinaryProtection"] = @{
+            @"mode": @"static-rva-protection-v1",
+            @"plainStaticRVAFieldsPresent": @NO,
+            @"protectedFields": @[@"siteRVA", @"offRVA", @"onRVA"],
+            @"protectedEntries": @(totalProtectedRVAs),
+            @"perOutputNonce": @YES,
+            @"integrityCheck": @YES,
+            @"runtimeDecodesOnDemand": @YES,
+            @"runtimeWritesPlainRVAsBackToStaticEntry": @NO,
+            @"scope": @"static-analysis-cost-layer",
         };
         NSData *updated = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingPrettyPrinted error:nil];
         if (updated) [updated writeToFile:path atomically:YES];
@@ -111,7 +137,7 @@
 
     if (outputs) *outputs = innerOutputs;
     if (report) {
-        *report = [NSString stringWithFormat:@"%@\n已将生成 Mach-O 的功能名转换为稳定 FeatureID + ZNF1 编码 metadata，并重建 SHA-1/SHA-256 CodeDirectory 后逐页校验；不再向 NSUserDefaults 写入 Target/RVA/名称映射。替换回 IPA 后仍需正常整包重签。",
+        *report = [NSString stringWithFormat:@"%@\n已应用 ZNF1 + Static RVA Protection V1：功能名不写入 NSUserDefaults；siteRVA/offRVA/onRVA 在生成 Mach-O 中以每输出 nonce 编码，并在最终状态重建 SHA-1/SHA-256 CodeDirectory。替换回 IPA 后仍需正常整包重签。",
                    innerReport ?: @"Static Binary Builder 生成成功"];
     }
     return YES;
