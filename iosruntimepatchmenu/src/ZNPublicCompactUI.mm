@@ -2,7 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-// Public menu presentation policy for v0.5.3 Consolidation Phase 2.
+// Public menu presentation policy for v0.5.4 Consolidation Phase 2.
 // Keep the existing compact layout implementation and make it the default
 // presentation after this migration. Users can still expand through the
 // existing mode button; this only changes the post-upgrade default.
@@ -25,7 +25,7 @@ static NSString * const kZNLegacyFeatureNameRegistryDefaultsKey = @"zonoe.featur
 - (void)znpublic_layoutPanel {
     [self znpublic_layoutPanel];
     if (self.compactMode) {
-        self.subtitleLabel.text = @"0.5.3";
+        self.subtitleLabel.text = @"0.5.4";
         self.subtitleLabel.alpha = 0.72;
     }
 }
@@ -62,6 +62,6 @@ __attribute__((constructor(121))) static void ZNInstallPublicCompactDefaults(voi
         }
 
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey];
-        NSLog(@"[ZonoPatch] v0.5.3 public compact UI installed; legacy feature-name registry purged");
+        NSLog(@"[ZonoPatch] v0.5.4 public compact UI installed; legacy feature-name registry purged");
     }
 }

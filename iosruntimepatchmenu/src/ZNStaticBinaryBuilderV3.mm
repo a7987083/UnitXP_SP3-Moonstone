@@ -1,4 +1,5 @@
 #import "ZNStaticBinaryBuilder.h"
+#import "ZNStaticBinaryBuilderV3Internal.h"
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNPatchRuntimeValidator.h"
 #import "ZNPatchCore.h"
@@ -967,7 +968,7 @@ static BOOL ZNV3BuildTarget(NSString *target,
     return success;
 }
 
-static BOOL ZNV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
+BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
                                NSArray<NSString *> **outputs,
                                NSString **report,
                                NSString **error) {
@@ -1032,26 +1033,5 @@ static BOOL ZNV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
     return YES;
 }
 
-@implementation ZNStaticBinaryBuilder (ZNOwnedSegmentsV3)
-
-+ (void)load {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken,^{
-        Class meta=object_getClass((id)self);
-        Method original=class_getClassMethod(self,@selector(buildWorkspace:outputs:report:error:));
-        Method replacement=class_getClassMethod(self,@selector(znv3_buildWorkspace:outputs:report:error:));
-        if(meta&&original&&replacement)method_exchangeImplementations(original,replacement);
-    });
-}
-
-+ (BOOL)znv3_buildWorkspace:(ZNBinaryPatchWorkspace *)workspace
-                    outputs:(NSArray<NSString *> **)outputs
-                     report:(NSString **)report
-                      error:(NSString **)error {
-    // V3 is the sole current static-binary path for both ordinary and shared
-    // sites. The old V1/V2 builders remain source history only and are not
-    // compiled alongside this category, avoiding nested swizzles.
-    return ZNV3BuildWorkspace(workspace,outputs,report,error);
-}
-
-@end
+// v0.5.4: V3 is invoked explicitly by ZNStaticBinaryPipeline.mm.
+// No Objective-C +load or method_exchange is used for builder selection.
