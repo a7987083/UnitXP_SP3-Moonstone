@@ -21,6 +21,7 @@ jobs:
         run: |
           set -euxo pipefail
           python3 iosruntimepatchmenu/tools/apply_v0561_first_activation_fix.py
+          python3 iosruntimepatchmenu/tools/apply_v0561_owned_section_preflight.py
 
       - name: Source assertions
         run: |
@@ -34,6 +35,8 @@ jobs:
           grep -q 'src/ZNActivationTrace.mm' "$makefile"
           grep -q 'direct __ZNDATA fast path' "$runtime"
           grep -q 'direct-owned-section-v1' "$runtime"
+          grep -q 'owned-section-preflight-v1' "$runtime"
+          grep -q 'compatibility scan skipped' "$runtime"
           grep -q '__ZNDATA' "$runtime"
           grep -q '__zndata' "$runtime"
           grep -q 'fallback-compat-scan' "$runtime"
@@ -72,8 +75,7 @@ jobs:
       - name: Protection V2 layout tests
         run: |
           set -euxo pipefail
-          clang++ -std=c++17 \
-            -Iiosruntimepatchmenu/src \
+          clang++ -std=c++17 -Iiosruntimepatchmenu/src \
             iosruntimepatchmenu/tests/static_payload_protection_v2_test.mm \
             -o /tmp/zn_static_payload_protection_v2_test
           /tmp/zn_static_payload_protection_v2_test
@@ -130,6 +132,7 @@ jobs:
           strings "$out" > /tmp/zonoe_v0561_strings.txt
           grep -q 'ZonoPatch-v0.5.6.1.log' /tmp/zonoe_v0561_strings.txt
           grep -q 'direct-owned-section-v1' /tmp/zonoe_v0561_strings.txt
+          grep -q 'owned-section-preflight-v1' /tmp/zonoe_v0561_strings.txt
           grep -q 'fallback-compat-scan' /tmp/zonoe_v0561_strings.txt
           grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v0561_strings.txt
 
@@ -165,7 +168,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(runtime): use direct owned-section dispatch discovery'
+            git commit -m 'fix(runtime): skip legacy scans when owned section is present'
             git push origin HEAD:hotfix/runtime-patch-menu-v0.5.6.1-first-activation
           fi
 
