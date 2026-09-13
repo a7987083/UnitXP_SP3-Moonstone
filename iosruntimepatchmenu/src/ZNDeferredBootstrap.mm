@@ -10,6 +10,7 @@ extern "C" void ZNPrepareStaticDispatchRuntimeDeferred(void);
 extern "C" void ZNInstallRuntimeMenuV055Deferred(void);
 extern "C" void ZNInstallFeatureGroupUIDeferred(void);
 extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
+extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
 extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
 
 extern "C" void ZonoePatchStart(void);
@@ -166,7 +167,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     self.button.enabled = NO;
     self.button.alpha = 1.0;
     [self.button setTitle:@"!" forState:UIControlStateNormal];
-    NSLog(@"[ZonoPatch] v0.5.6.2 deferred activation failed: %@", exception.reason ?: @"unknown exception");
+    NSLog(@"[ZonoPatch] v0.5.7 deferred activation failed: %@", exception.reason ?: @"unknown exception");
 }
 
 - (void)zn_finishActivation {
@@ -174,6 +175,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"RuntimeMenu", ^{ ZNInstallRuntimeMenuV055Deferred(); });
         ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
+        ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
         ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
@@ -234,7 +236,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 @end
 
-// The only v0.5.6.2 load-time constructor. It owns the cold launcher only and
+// The only v0.5.7 load-time constructor. It owns the cold launcher only and
 // intentionally does not touch DeveloperGate, PatchManager, Resolver, Static
 // Dispatch, Builder, Diagnostics, Probe, Feature UI, or the menu controller.
 __attribute__((constructor(200))) static void ZNDeferredColdLauncherBootstrap(void) {
