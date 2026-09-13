@@ -36,17 +36,6 @@ static BOOL ZN57ParseNumericRVA(NSString *text, uint64_t *outValue) {
     return YES;
 }
 
-static NSString *ZN57EffectiveTarget(ZNBinaryPatchWorkspace *workspace, ZNBinaryPatchRow *row) {
-    NSString *target = (row.explicitTarget && row.target.length) ? row.target : workspace.defaultTarget;
-    target = ZN57Trim(target);
-    return target.length ? target : @"main";
-}
-
-static BOOL ZN57IsUnityFrameworkTarget(NSString *target) {
-    NSString *leaf = ZN57Trim(target).lastPathComponent;
-    return [leaf caseInsensitiveCompare:@"UnityFramework"] == NSOrderedSame;
-}
-
 static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
     NSString *className = resolution[@"class"] ?: @"";
     NSString *namespaceName = resolution[@"namespace"] ?: @"";
@@ -80,20 +69,6 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
 
         uint64_t numeric = 0;
         if (ZN57ParseNumericRVA(offset, &numeric)) continue;
-
-        NSString *target = ZN57EffectiveTarget(self, row);
-        if (!ZN57IsUnityFrameworkTarget(target)) {
-            NSString *message = [NSString stringWithFormat:@"#%lu IL2CPP Named Offset 仅支持 UnityFramework；当前 Target=%@",
-                                 (unsigned long)index + 1,
-                                 target];
-            row.validated = NO;
-            row.validator = nil;
-            row.originalHex = @"";
-            row.statusText = [NSString stringWithFormat:@"❌ %@", message];
-            self.lastStatus = message;
-            if (error) *error = message;
-            return NO;
-        }
 
         NSString *resolveError = nil;
         NSDictionary *resolution = [resolver resolveNamedOffsetExpression:offset error:&resolveError];
@@ -130,12 +105,18 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
         }];
     }
 
-    // The original validator pipeline already performs ARM64 alignment,
+    // A symbolic IL2CPP method intrinsically belongs to UnityFramework. Route
+    // that row explicitly so the user can type only `GetMoney` + patch bytes;
+    // the top-level Binary field does not need to be changed manually.
+    //
+    // The original validator pipeline still performs ARM64 alignment,
     // executable-segment checks, live Original capture, Shared Site grouping,
-    // and Builder preconditions. Feed it temporary numeric RVAs so none of
+    // and Builder preconditions. We feed it temporary numeric RVAs so none of
     // those safety checks are bypassed.
     for (NSDictionary *item in symbolic) {
         ZNBinaryPatchRow *row = item[@"row"];
+        row.target = @"UnityFramework";
+        row.explicitTarget = YES;
         row.offsetText = item[@"rvaText"];
     }
 
@@ -160,7 +141,7 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
     }
 
     if (ok && symbolic.count) {
-        self.lastStatus = [NSString stringWithFormat:@"读取验证通过：%lu 个 IL2CPP Named Offset 已解析；生成阶段使用已验证 RVA",
+        self.lastStatus = [NSString stringWithFormat:@"读取验证通过：%lu 个 IL2CPP Named Offset 已解析并固定到 UnityFramework；生成阶段使用已验证 RVA",
                            (unsigned long)symbolic.count];
     }
     return ok;
@@ -169,11 +150,12 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
 @end
 
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void) {
-    @autoreleasepool {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         Class cls = ZNBinaryPatchWorkspace.class;
         Method original = class_getInstanceMethod(cls, @selector(validateAll:));
         Method replacement = class_getInstanceMethod(cls, @selector(zn57_validateAll:));
-        if (!original || !replacement || method_getImplementation(original) == method_getImplementation(replacement)) return;
+        if (!original || !replacement) return;
         method_exchangeImplementations(original, replacement);
-    }
+    });
 }
