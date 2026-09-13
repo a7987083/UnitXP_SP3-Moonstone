@@ -38,7 +38,8 @@ jobs:
           grep -q 'il2cpp_class_get_methods' "$src/ZNIL2CPPResolver.mm"
           grep -q 'isExecutableUnityAddress' "$src/ZNIL2CPPResolver.mm"
           grep -q 'ZNInstallIL2CPPNamedOffsetWorkspaceDeferred' "$src/ZNDeferredBootstrap.mm"
-          grep -q 'IL2CPP Named Offset 仅支持 UnityFramework' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
+          grep -q 'row.target = @"UnityFramework"' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
+          grep -q 'static dispatch_once_t onceToken' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
 
           # Preserve sealed Static Builder/Protection invariants.
           grep -q 'ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2' "$src/ZNStaticPatchFormat.h"
@@ -119,7 +120,8 @@ jobs:
 
           strings "$out" > /tmp/zonoe_v057_named_strings.txt
           ! grep -q 'ZonoPatch-v0.5.6.2.log' /tmp/zonoe_v057_named_strings.txt
-          grep -q 'Named Offset' /tmp/zonoe_v057_named_strings.txt
+          grep -q 'il2cpp_image_get_class_count' /tmp/zonoe_v057_named_strings.txt
+          grep -q 'il2cpp_class_get_methods' /tmp/zonoe_v057_named_strings.txt
           grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v057_named_strings.txt
 
           python3 <<'PY'
