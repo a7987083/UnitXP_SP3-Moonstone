@@ -1,0 +1,204 @@
+name: Build Runtime Patch Menu v0.5.6 Protection V2
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-protection-v2
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply Protection V2
+        run: |
+          set -euxo pipefail
+          python3 iosruntimepatchmenu/tools/apply_v056_protection_v2.py
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Source assertions
+        run: |
+          set -euxo pipefail
+          src=iosruntimepatchmenu/src
+          makefile=iosruntimepatchmenu/Makefile
+          builder=$src/ZNStaticBinaryBuilderV3.mm
+          fmt=$src/ZNStaticPatchFormat.h
+          runtime=$src/ZNStaticDispatchRuntime.mm
+          post=$src/ZNGeneratedBinaryPostprocess.mm
+
+          grep -q 'ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2' "$fmt"
+          grep -q 'ZNStaticPayloadProtectionV2.h' "$builder"
+          grep -q 'ZNV3WriteVariantV2' "$builder"
+          grep -q 'ZNV3WriteThunkV2' "$builder"
+          grep -q 'ZN60VariantReservedBytes' "$builder"
+          grep -q 'fragmented-16-byte-slot-chain-v1' "$builder"
+          grep -q 'maxContiguousSourceInstructions' "$builder"
+          grep -q 'protection_v2_validation.json' "$builder"
+          grep -q 'direct ARM64 B' "$builder"
+          if grep -q 'static BOOL ZNV3WriteVariant(' "$builder"; then exit 1; fi
+
+          grep -q 'payloadProtectionV2' "$runtime"
+          grep -q 'Payload V2' "$runtime"
+          grep -q 'explicit-v0.5.6' "$post"
+          grep -q 'Payload Layout V2 (Builder)' "$post"
+          grep -q 'payload-v2+static-rva-protection-v1' "$post"
+          grep -q 'directSiteBranchStillArchitectural' "$post"
+
+          grep -q 'return "0.5.6-ui-consolidated"' "$src/ZonoeRuntimeMenu.mm"
+          grep -q 'self.subtitleLabel.text = @"0.5.6"' "$src/ZNPublicCompactUI.mm"
+          grep -q 'v0.5.6 feature UI installed after first activation' "$src/ZNFeatureGroupUI.mm"
+          grep -q 'v0.5.6 deferred activation failed' "$src/ZNDeferredBootstrap.mm"
+
+          # Full Deferred Bootstrap must remain intact: exactly one constructor
+          # among compiled sources, and it must still be the cold launcher.
+          compiled="$(sed -n 's/^ZonoePatchV03_FILES = //p' "$makefile")"
+          ctor_hits=""
+          load_hits=""
+          for f in $compiled; do
+            if grep -n '__attribute__((constructor' "iosruntimepatchmenu/$f" >/tmp/zn_ctor_hits 2>/dev/null; then
+              ctor_hits="$ctor_hits\niosruntimepatchmenu/$f:$(cat /tmp/zn_ctor_hits)"
+            fi
+            if grep -nE '^[[:space:]]*\+[[:space:]]*\(void\)load[[:space:]]*\{' "iosruntimepatchmenu/$f" >/tmp/zn_load_hits 2>/dev/null; then
+              load_hits="$load_hits\niosruntimepatchmenu/$f:$(cat /tmp/zn_load_hits)"
+            fi
+          done
+          printf '%b\n' "$ctor_hits"
+          test "$(printf '%b\n' "$ctor_hits" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
+          printf '%b\n' "$ctor_hits" | grep 'ZNDeferredBootstrap.mm'
+          printf '%b\n' "$ctor_hits" | grep 'ZNDeferredColdLauncherBootstrap'
+          test -z "$(printf '%b' "$load_hits")"
+
+          # Existing privacy/RVA/Builder consolidation invariants remain.
+          grep -q 'src/ZNStaticBinaryPipeline.mm' "$makefile"
+          grep -q 'src/ZNStaticBinaryBuilderV3.mm' "$makefile"
+          if grep -q 'src/ZNStaticBinaryBuilder.mm' "$makefile"; then exit 1; fi
+          if grep -q 'src/ZNStaticBinarySigningBridge.mm' "$makefile"; then exit 1; fi
+          grep -q 'ZNFeatureMetadataEncodeEntry' "$src/ZNStaticMetadataPrivacy.mm"
+          grep -q 'ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1' "$fmt"
+          grep -q 'ZN55DecodeEntryRVAs' "$runtime"
+          grep -q 'zn.f.%016llx.enabled' "$src/ZNFeatureGroupUI.mm"
+
+      - name: Protection V2 layout tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/static_payload_protection_v2_test.mm \
+            -o /tmp/zn_static_payload_protection_v2_test
+          /tmp/zn_static_payload_protection_v2_test
+
+      - name: Feature metadata codec tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/feature_metadata_codec_test.mm \
+            iosruntimepatchmenu/src/ZNFeatureMetadataCodec.mm \
+            -o /tmp/zn_feature_metadata_codec_test
+          /tmp/zn_feature_metadata_codec_test
+
+      - name: Static RVA protection tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/static_rva_protection_test.mm \
+            -o /tmp/zn_static_rva_protection_test
+          /tmp/zn_static_rva_protection_test
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-protection-v2
+          cp .theos/obj/ZonoePatchV03.dylib dist-protection-v2/ZonoPatch_v0.5.6_ProtectionV2_Test.dylib
+          shasum -a 256 dist-protection-v2/ZonoPatch_v0.5.6_ProtectionV2_Test.dylib | tee dist-protection-v2/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-protection-v2/ZonoPatch_v0.5.6_ProtectionV2_Test.dylib
+          file "$out"
+          nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep '_ZonoePatchGetVersion'
+          nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
+          nm -gU "$out" | grep '_ZonoePatchOtherAuthorized'
+          if nm -gU "$out" | grep -q 'ZN60'; then exit 1; fi
+          if nm -gU "$out" | grep -q 'ZNV3WriteVariantV2'; then exit 1; fi
+
+          strings "$out" > /tmp/zonoe_v056_strings.txt
+          grep -q '0.5.6-ui-consolidated' /tmp/zonoe_v056_strings.txt
+          grep -q 'fragmented-16-byte-slot-chain-v1' /tmp/zonoe_v056_strings.txt
+          grep -q 'explicit-v0.5.6' /tmp/zonoe_v056_strings.txt
+          grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v056_strings.txt
+          grep -q 'v0.5.6 deferred activation failed' /tmp/zonoe_v056_strings.txt
+
+          python3 <<'PY'
+          import struct
+          p='iosruntimepatchmenu/dist-protection-v2/ZonoPatch_v0.5.6_ProtectionV2_Test.dylib'
+          data=open(p,'rb').read()
+          if struct.unpack_from('<I',data,0)[0] != 0xfeedfacf:
+              raise SystemExit('not thin arm64 Mach-O')
+          ncmds=struct.unpack_from('<I',data,16)[0]
+          off=32
+          init_size=None
+          for _ in range(ncmds):
+              cmd,cmdsize=struct.unpack_from('<II',data,off)
+              if cmd==0x19:
+                  nsects=struct.unpack_from('<I',data,off+64)[0]
+                  so=off+72
+                  for __ in range(nsects):
+                      sectname=data[so:so+16].split(b'\0',1)[0]
+                      if sectname==b'__init_offsets':
+                          init_size=struct.unpack_from('<Q',data,so+40)[0]
+                      so+=80
+              off+=cmdsize
+          print('init_offsets_size=',init_size)
+          if init_size != 4:
+              raise SystemExit(f'expected exactly one cold-launch constructor, got {init_size}')
+          PY
+
+      - name: Commit Protection V2 source
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add iosruntimepatchmenu/src/ZNStaticPatchFormat.h \
+                  iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm \
+                  iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm \
+                  iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm \
+                  iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm \
+                  iosruntimepatchmenu/src/ZNPublicCompactUI.mm \
+                  iosruntimepatchmenu/src/ZNFeatureGroupUI.mm \
+                  iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(protection-v2): fragment and randomize static payload layout'
+            git push origin HEAD:feature/runtime-patch-menu-protection-v2
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.6-ProtectionV2-Test
+          path: |
+            iosruntimepatchmenu/dist-protection-v2/ZonoPatch_v0.5.6_ProtectionV2_Test.dylib
+            iosruntimepatchmenu/dist-protection-v2/SHA256.txt
+          if-no-files-found: error
