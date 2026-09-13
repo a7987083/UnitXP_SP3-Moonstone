@@ -347,6 +347,6 @@ extern "C" void ZNInstallFeatureGroupUIDeferred(void) {
         if (!cls) return;
         ZN50SwapInstanceMethod(cls, @selector(renderFullPage), @selector(zn50_renderFullPage));
         ZN50SwapInstanceMethod(cls, @selector(renderCompactPage), @selector(zn50_renderCompactPage));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.5 feature UI installed after first activation: ZNF1 feature renderer owns compact mode"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.6 feature UI installed after first activation: ZNF1 feature renderer owns compact mode"];
     }
 }

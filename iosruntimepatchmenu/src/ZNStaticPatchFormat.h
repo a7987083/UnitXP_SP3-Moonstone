@@ -27,6 +27,7 @@
 // Static Entry. The 128-byte entry ABI remains unchanged.
 #define ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1 UINT32_C(0x00000001)
 #define ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1   UINT32_C(0x00000002)
+#define ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2 UINT32_C(0x00000004)
 
 // V2/V3 keep the v1 entry ABI/size (128 bytes). The former 12-byte reserved
 // tail is shared-site metadata so old generated binaries remain readable.

@@ -4,6 +4,7 @@
 #import "ZNPatchRuntimeValidator.h"
 #import "ZNPatchCore.h"
 #import "ZNStaticPatchFormat.h"
+#import "ZNStaticPayloadProtectionV2.h"
 #import <mach-o/loader.h>
 #import <mach/machine.h>
 #import <mach/vm_prot.h>
@@ -14,6 +15,7 @@
 #import <unistd.h>
 #import <errno.h>
 #import <string.h>
+#import <stdlib.h>
 #import <vector>
 #import <algorithm>
 
@@ -389,42 +391,142 @@ static BOOL ZNV3InboundInterior(const uint8_t *base,
     return NO;
 }
 
-static BOOL ZNV3WriteVariant(uint8_t *base,
-                             uint64_t fileOffset,
-                             uint64_t variantRVA,
-                             uint64_t reserved,
-                             NSData *source,
-                             uint64_t sourceRVA,
-                             uint64_t windowStart,
-                             uint64_t windowEnd,
-                             uint64_t resumeRVA,
-                             NSString **error) {
+static BOOL ZNV3WriteVariantV2(uint8_t *base,
+                               uint64_t fileOffset,
+                               uint64_t variantRVA,
+                               uint64_t reserved,
+                               NSData *source,
+                               uint64_t sourceRVA,
+                               uint64_t windowStart,
+                               uint64_t windowEnd,
+                               uint64_t resumeRVA,
+                               uint64_t layoutState,
+                               uint64_t *entryRVAOut,
+                               uint32_t *fragmentCountOut,
+                               NSString **error) {
     const uint32_t NOP = 0xD503201Fu;
     const uint32_t LDP_X16_X17_POST = 0xA8C147F0u;
+    if (!source.length || (source.length & 3u)) {
+        if (error) *error = @"Protection V2 Variant 长度必须为 4-byte 倍数";
+        return NO;
+    }
+
+    uint64_t slotCount64 = source.length / 4u;
+    uint64_t required = ZN60VariantReservedBytes((uint64_t)source.length);
+    if (!required || reserved < required || slotCount64 > UINT32_MAX) {
+        if (error) *error = @"Protection V2 Variant slot 预算无效";
+        return NO;
+    }
     for (uint64_t p = 0; p < reserved; p += 4) ZNV3Write32(base + fileOffset + p, NOP);
-    ZNV3Write32(base + fileOffset, LDP_X16_X17_POST);
+
+    std::vector<uint32_t> slots((size_t)slotCount64);
+    for (uint32_t i = 0; i < (uint32_t)slotCount64; ++i) slots[i] = i;
+    ZN60ShuffleU32(slots.data(), slots.size(), layoutState);
+    if (!ZN60IsPermutationU32(slots.data(), slots.size())) {
+        if (error) *error = @"Protection V2 slot permutation 损坏";
+        return NO;
+    }
+
     const uint8_t *sourceBytes = (const uint8_t *)source.bytes;
     BOOL terminalSeen = NO;
-    NSUInteger emittedLength = 0;
-    for (NSUInteger i = 0; i < source.length; i += 4) {
+    uint32_t emitted = 0;
+    if (entryRVAOut) *entryRVAOut = variantRVA + (uint64_t)slots[0] * ZN60_PAYLOAD_SLOT_SIZE;
+
+    for (uint32_t logicalIndex = 0; logicalIndex < (uint32_t)slotCount64; ++logicalIndex) {
         if (terminalSeen) break;
+        uint64_t slotOffset = (uint64_t)slots[logicalIndex] * ZN60_PAYLOAD_SLOT_SIZE;
+        uint64_t instructionFileOffset = fileOffset + slotOffset;
+        uint64_t instructionRVA = variantRVA + slotOffset;
+
+        // Only the entry fragment restores registers saved by the dispatch thunk.
+        if (logicalIndex == 0) {
+            ZNV3Write32(base + instructionFileOffset, LDP_X16_X17_POST);
+            instructionFileOffset += 4;
+            instructionRVA += 4;
+        }
+
         uint32_t relocated = 0;
         BOOL terminal = NO;
-        if (!ZNV3Relocate(ZNV3Read32(sourceBytes + i), sourceRVA + i, variantRVA + 4 + i,
-                          windowStart, windowEnd, &relocated, &terminal, error)) return NO;
-        ZNV3Write32(base + fileOffset + 4 + i, relocated);
-        emittedLength = i + 4;
-        if (terminal) terminalSeen = YES;
-    }
-    if (!terminalSeen) {
-        uint32_t resumeBranch = 0;
-        uint64_t branchRVA = variantRVA + 4 + emittedLength;
-        if (!ZNV3EncodeB(branchRVA, resumeRVA, NO, &resumeBranch)) {
-            if (error) *error = @"Variant 返回原代码超出 ±128MB";
+        uint64_t originalInstructionRVA = sourceRVA + (uint64_t)logicalIndex * 4u;
+        if (!ZNV3Relocate(ZNV3Read32(sourceBytes + (size_t)logicalIndex * 4u),
+                          originalInstructionRVA,
+                          instructionRVA,
+                          windowStart,
+                          windowEnd,
+                          &relocated,
+                          &terminal,
+                          error)) return NO;
+        ZNV3Write32(base + instructionFileOffset, relocated);
+        emitted++;
+
+        if (terminal) {
+            terminalSeen = YES;
+            continue;
+        }
+
+        uint64_t branchInstructionRVA = instructionRVA + 4u;
+        uint64_t nextRVA = resumeRVA;
+        if (logicalIndex + 1u < (uint32_t)slotCount64) {
+            nextRVA = variantRVA + (uint64_t)slots[logicalIndex + 1u] * ZN60_PAYLOAD_SLOT_SIZE;
+        }
+        uint32_t nextBranch = 0;
+        if (!ZNV3EncodeB(branchInstructionRVA, nextRVA, NO, &nextBranch)) {
+            if (error) *error = @"Protection V2 fragment 链超出 ARM64 B ±128MB";
             return NO;
         }
-        ZNV3Write32(base + fileOffset + 4 + emittedLength, resumeBranch);
+        ZNV3Write32(base + instructionFileOffset + 4u, nextBranch);
     }
+
+    if (fragmentCountOut) *fragmentCountOut = emitted;
+    return YES;
+}
+
+static BOOL ZNV3WriteThunkV2(uint8_t *base,
+                             uint64_t fileOffset,
+                             uint64_t thunkRVA,
+                             uint64_t reserved,
+                             uint64_t selectedTargetEntryRVA,
+                             uint64_t offRVA,
+                             uint64_t layoutState,
+                             NSString **error) {
+    const uint32_t STP_X16_X17_PRE = 0xA9BF47F0u;
+    const uint32_t BR_X17 = 0xD61F0220u;
+    const uint32_t NOP = 0xD503201Fu;
+    if (reserved < 32u) {
+        if (error) *error = @"Protection V2 thunk 预算不足";
+        return NO;
+    }
+    for (uint64_t p = 0; p < reserved; p += 4) ZNV3Write32(base + fileOffset + p, NOP);
+
+    uint32_t nopCount = (uint32_t)(ZN60NextLayoutWord(&layoutState) % 3u);
+    uint64_t offBranchRVA = thunkRVA + 16u + (uint64_t)nopCount * 4u;
+    uint64_t selectedBranchRVA = offBranchRVA + 4u;
+    uint64_t cbnzRVA = thunkRVA + 12u;
+    int64_t cbnzDelta = (int64_t)selectedBranchRVA - (int64_t)cbnzRVA;
+    if ((cbnzDelta & 3) || cbnzDelta <= 0 || cbnzDelta >= (1LL << 20)) {
+        if (error) *error = @"Protection V2 thunk CBNZ 布局无效";
+        return NO;
+    }
+    uint32_t cbnz = 0xB5000011u | (((uint32_t)(cbnzDelta >> 2) & 0x7FFFFu) << 5);
+
+    uint32_t adrp = 0;
+    uint32_t offBranch = 0;
+    if (!ZNV3EncodeADRPX17(thunkRVA + 4u, selectedTargetEntryRVA, &adrp)) {
+        if (error) *error = @"Protection V2 thunk → selectedTarget ADRP 超出 ±4GB";
+        return NO;
+    }
+    if (!ZNV3EncodeB(offBranchRVA, offRVA, NO, &offBranch)) {
+        if (error) *error = @"Protection V2 thunk OFF fallback 超出 ARM64 B ±128MB";
+        return NO;
+    }
+
+    ZNV3Write32(base + fileOffset + 0u, STP_X16_X17_PRE);
+    ZNV3Write32(base + fileOffset + 4u, adrp);
+    ZNV3Write32(base + fileOffset + 8u, ZNV3LdrX17FromX17(selectedTargetEntryRVA));
+    ZNV3Write32(base + fileOffset + 12u, cbnz);
+    for (uint32_t i = 0; i < nopCount; ++i) ZNV3Write32(base + fileOffset + 16u + (uint64_t)i * 4u, NOP);
+    ZNV3Write32(base + fileOffset + 16u + (uint64_t)nopCount * 4u, offBranch);
+    ZNV3Write32(base + fileOffset + 20u + (uint64_t)nopCount * 4u, BR_X17);
     return YES;
 }
 
@@ -718,6 +820,12 @@ static BOOL ZNV3BuildTarget(NSString *target,
     uint64_t dataNeeded = 0;
     uint64_t codeSegmentSize = 0;
     uint64_t dataSegmentSize = 0;
+    uint64_t protectionV2Nonce = 0;
+    arc4random_buf(&protectionV2Nonce, sizeof(protectionV2Nonce));
+    if (!protectionV2Nonce) protectionV2Nonce = ZN60Mix64((uint64_t)oldFileSize ^ (uint64_t)rows.count ^ UINT64_C(0x605056325A4E));
+    uint64_t protectionV2LayoutTag = ZN60Mix64(protectionV2Nonce ^ UINT64_C(0x76302E352E365A4E));
+    uint64_t protectionV2Fragments = 0;
+    uint64_t protectionV2Variants = 0;
 
     do {
         if (!ZNV3Parse(oldBase,(size_t)oldFileSize,segments,layout,&localError)) break;
@@ -794,9 +902,10 @@ static BOOL ZNV3BuildTarget(NSString *target,
         }
         if(localError)break;
 
-        const uint64_t thunkSize=24;
+        const uint64_t thunkStride=ZN60_PAYLOAD_THUNK_STRIDE;
         for(const ZNV3Physical &physical:physicals){
-            uint64_t variantSize=ZNV3Align(4+physical.window+4,16);
+            uint64_t variantStride=ZN60VariantStrideBytes(physical.window);
+            if(!variantStride){localError=@"Protection V2 Variant stride 计算失败";break;}
             NSMutableArray<NSData *> *unique=[NSMutableArray array];
             for(size_t logicalIndex:physical.members){
                 NSData *source=ZNV3ComposedVariant(physical,logicals[logicalIndex]);
@@ -805,10 +914,10 @@ static BOOL ZNV3BuildTarget(NSString *target,
                 if(!exists)[unique addObject:source];
             }
             if(localError)break;
-            codeNeeded=ZNV3Align(codeNeeded,16)+thunkSize+variantSize*(1+unique.count);
+            codeNeeded=ZNV3Align(codeNeeded,16)+thunkStride+variantStride*(1+unique.count);
         }
         if(localError)break;
-        codeNeeded+=32;
+        codeNeeded+=64;
         dataNeeded=ZNV3Align(sizeof(ZN44StaticHeader)+logicals.size()*sizeof(ZN44StaticEntry),8);
         codeSegmentSize=ZNV3Align(codeNeeded,kZNV3Page);
         dataSegmentSize=ZNV3Align(dataNeeded,kZNV3Page);
@@ -851,31 +960,42 @@ static BOOL ZNV3BuildTarget(NSString *target,
                     header->version=ZN44_STATIC_VERSION_V3;
                     header->count=(uint32_t)logicals.size();
                     header->entrySize=sizeof(ZN44StaticEntry);
+                    header->flags |= ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2;
                     ZN44StaticEntry *entries=(ZN44StaticEntry *)(header+1);
                     std::vector<uint64_t> onRVAs(logicals.size(),0);
 
-                    const uint32_t STP_X16_X17_PRE=0xA9BF47F0u;
-                    const uint32_t CBNZ_X17_PLUS_8=0xB5000051u;
-                    const uint32_t BR_X17=0xD61F0220u;
                     const uint32_t NOP=0xD503201Fu;
-                    const uint64_t thunkSize=24;
+                    const uint64_t thunkStride=ZN60_PAYLOAD_THUNK_STRIDE;
                     uint64_t codeCursor=codeFileOffset;
 
                     for(size_t p=0;p<physicals.size();p++){
                         ZNV3Physical &physical=physicals[p];
-                        codeCursor=ZNV3Align(codeCursor,16);
-                        uint64_t thunkFileOffset=codeCursor;
+                        uint64_t thunkState=ZN60DeriveLayoutState(protectionV2Nonce,physical.rva,0x80000000u|(uint32_t)p);
+                        uint64_t thunkBase=ZNV3Align(codeCursor,16);
+                        uint64_t thunkPad=(ZN60NextLayoutWord(&thunkState)&1u)?16u:0u;
+                        uint64_t thunkFileOffset=thunkBase+thunkPad;
                         uint64_t thunkRVA=codeRVA+(thunkFileOffset-codeFileOffset);
-                        codeCursor+=thunkSize;
-                        uint64_t variantSize=ZNV3Align(4+physical.window+4,16);
-                        uint64_t offFileOffset=ZNV3Align(codeCursor,16);
-                        uint64_t offRVA=codeRVA+(offFileOffset-codeFileOffset);
-                        codeCursor=offFileOffset+variantSize;
+                        codeCursor=thunkBase+thunkStride;
+
+                        uint64_t variantReserved=ZN60VariantReservedBytes(physical.window);
+                        uint64_t variantStride=ZN60VariantStrideBytes(physical.window);
+                        if(!variantReserved||!variantStride){localError=@"Protection V2 Variant region 计算失败";break;}
+
+                        uint64_t offState=ZN60DeriveLayoutState(protectionV2Nonce,physical.rva,0u);
+                        uint64_t offRegionBase=ZNV3Align(codeCursor,16);
+                        uint64_t offPad=(ZN60NextLayoutWord(&offState)%5u)*16u;
+                        uint64_t offFileOffset=offRegionBase+offPad;
+                        uint64_t offRegionRVA=codeRVA+(offFileOffset-codeFileOffset);
+                        codeCursor=offRegionBase+variantStride;
+                        uint64_t offRVA=0;
+                        uint32_t offFragments=0;
+                        if(!ZNV3WriteVariantV2(base,offFileOffset,offRegionRVA,variantReserved,physical.original,physical.rva,
+                                               physical.rva,physical.rva+physical.window,physical.rva+physical.window,
+                                               offState,&offRVA,&offFragments,&localError))break;
+                        protectionV2Variants++;
+                        protectionV2Fragments+=offFragments;
                         physical.thunkRVA=thunkRVA;
                         physical.offRVA=offRVA;
-
-                        if(!ZNV3WriteVariant(base,offFileOffset,offRVA,variantSize,physical.original,physical.rva,
-                                             physical.rva,physical.rva+physical.window,physical.rva+physical.window,&localError))break;
 
                         NSMutableArray<NSData *> *writtenSources=[NSMutableArray array];
                         NSMutableArray<NSNumber *> *writtenRVAs=[NSMutableArray array];
@@ -884,35 +1004,37 @@ static BOOL ZNV3BuildTarget(NSString *target,
                             NSUInteger found=NSNotFound;
                             for(NSUInteger j=0;j<writtenSources.count;j++)if([writtenSources[j] isEqualToData:source]){found=j;break;}
                             if(found!=NSNotFound){onRVAs[logicalIndex]=writtenRVAs[found].unsignedLongLongValue;continue;}
-                            uint64_t onFileOffset=ZNV3Align(codeCursor,16);
-                            uint64_t onRVA=codeRVA+(onFileOffset-codeFileOffset);
-                            codeCursor=onFileOffset+variantSize;
-                            if(!ZNV3WriteVariant(base,onFileOffset,onRVA,variantSize,source,physical.rva,
-                                                 physical.rva,physical.rva+physical.window,physical.rva+physical.window,&localError))break;
-                            [writtenSources addObject:source]; [writtenRVAs addObject:@(onRVA)]; onRVAs[logicalIndex]=onRVA;
+
+                            uint32_t variantOrdinal=(uint32_t)writtenSources.count+1u;
+                            uint64_t onState=ZN60DeriveLayoutState(protectionV2Nonce,physical.rva,variantOrdinal);
+                            uint64_t onRegionBase=ZNV3Align(codeCursor,16);
+                            uint64_t onPad=(ZN60NextLayoutWord(&onState)%5u)*16u;
+                            uint64_t onFileOffset=onRegionBase+onPad;
+                            uint64_t onRegionRVA=codeRVA+(onFileOffset-codeFileOffset);
+                            codeCursor=onRegionBase+variantStride;
+                            uint64_t onEntryRVA=0;
+                            uint32_t onFragments=0;
+                            if(!ZNV3WriteVariantV2(base,onFileOffset,onRegionRVA,variantReserved,source,physical.rva,
+                                                   physical.rva,physical.rva+physical.window,physical.rva+physical.window,
+                                                   onState,&onEntryRVA,&onFragments,&localError))break;
+                            protectionV2Variants++;
+                            protectionV2Fragments+=onFragments;
+                            [writtenSources addObject:source]; [writtenRVAs addObject:@(onEntryRVA)]; onRVAs[logicalIndex]=onEntryRVA;
                         }
                         if(localError)break;
 
                         size_t canonicalLogical=physical.members.front();
                         uint64_t entryRVA=dataRVA+sizeof(ZN44StaticHeader)+canonicalLogical*sizeof(ZN44StaticEntry);
                         if(entryRVA&7u){localError=@"V3 canonical selectedTarget 未 8-byte 对齐";break;}
-                        uint32_t adrp=0,offBranch=0;
-                        if(!ZNV3EncodeADRPX17(thunkRVA+4,entryRVA,&adrp)){localError=@"Thunk → __ZNDATA selectedTarget ADRP 超出 ±4GB";break;}
-                        if(!ZNV3EncodeB(thunkRVA+16,offRVA,NO,&offBranch)){localError=@"Thunk boot-safe OFF fallback 超出 ±128MB";break;}
-                        ZNV3Write32(base+thunkFileOffset+0,STP_X16_X17_PRE);
-                        ZNV3Write32(base+thunkFileOffset+4,adrp);
-                        ZNV3Write32(base+thunkFileOffset+8,ZNV3LdrX17FromX17(entryRVA));
-                        ZNV3Write32(base+thunkFileOffset+12,CBNZ_X17_PLUS_8);
-                        ZNV3Write32(base+thunkFileOffset+16,offBranch);
-                        ZNV3Write32(base+thunkFileOffset+20,BR_X17);
+                        if(!ZNV3WriteThunkV2(base,thunkFileOffset,thunkRVA,32u,entryRVA,offRVA,thunkState,&localError))break;
 
                         uint32_t siteBranch=0;
-                        if(!ZNV3EncodeB(physical.rva,thunkRVA,NO,&siteBranch)){localError=@"Site → __ZNTEXT thunk 超出 ±128MB";break;}
+                        if(!ZNV3EncodeB(physical.rva,thunkRVA,NO,&siteBranch)){localError=@"Site → Protection V2 thunk 超出 ±128MB";break;}
                         ZNV3Write32(base+physical.fileoff,siteBranch);
                         for(uint64_t q=4;q<physical.window;q+=4)ZNV3Write32(base+physical.fileoff+q,NOP);
                     }
                     if(localError)break;
-                    if(codeCursor-codeFileOffset>codeNeeded){localError=@"V3 __ZNTEXT 预算计算错误";break;}
+                    if(codeCursor-codeFileOffset>codeNeeded){localError=@"Protection V2 __ZNTEXT 预算计算错误";break;}
 
                     for(size_t i=0;i<logicals.size();i++){
                         ZNV3Logical &logical=logicals[i];
@@ -954,6 +1076,15 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         @"linkeditShift":[NSString stringWithFormat:@"0x%llX",insertedBytes],
                         @"ownerPolicy":@"last-enabled-active-owner-wins",
                         @"bootSafeOffFallback":@YES,
+                        @"payloadProtectionV2":@YES,
+                        @"payloadLayout":@"fragmented-16-byte-slot-chain-v1",
+                        @"maxContiguousSourceInstructions":@1,
+                        @"variantEntryPermutation":@YES,
+                        @"thunkTemplateDiversification":@YES,
+                        @"runtimeExecutableWrites":@NO,
+                        @"payloadVariantCount":@(protectionV2Variants),
+                        @"payloadFragmentCount":@(protectionV2Fragments),
+                        @"layoutTag":[NSString stringWithFormat:@"%016llX",protectionV2LayoutTag],
                         @"needsResign":@YES
                     };
                     if(outPath)*outPath=outputPath;
@@ -1005,12 +1136,14 @@ BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
     if(failure){[NSFileManager.defaultManager removeItemAtPath:folder error:nil];if(error)*error=failure;return NO;}
 
     NSDictionary *reportObject=@{
-        @"format":@"com.zonoe.static-dispatch/v3-owned-segments",
+        @"format":@"com.zonoe.static-dispatch/v3-owned-segments-protection-v2",
         @"generatedAt":[[NSDate date] description],
         @"targets":metadata,
         @"notes":@[
             @"Target Mach-O original storage is never used as persistent ZonoPatch storage",
             @"Dispatch code and all variants live in the newly owned __ZNTEXT/__zncode segment",
+            @"Protection V2 stores each relocated source instruction in an independently shuffled 16-byte fragment slot",
+            @"Protection V2 varies thunk live length and entry placement per generated output; it is a static-analysis cost layer, not cryptographic secrecy",
             @"Static Dispatch metadata and selectedTarget live in the newly owned __ZNDATA/__zndata segment",
             @"No executable/data gap fallback is allowed",
             @"Same Target + same starting RVA is one physical site",
@@ -1020,6 +1153,7 @@ BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
             @"No active owner selects relocated Original",
             @"Different-start overlapping windows remain a hard conflict",
             @"Runtime changes RW selectedTarget only; executable pages are not modified after launch",
+            @"Original patch sites remain one direct ARM64 B where the validated overwrite window is one instruction; V2 does not claim to hide this architectural requirement",
             @"Phase 1 requires enough load-command header slack and direct B reachability",
             @"Output Mach-O must be re-signed before installation"
         ]
@@ -1027,6 +1161,27 @@ BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
     NSData *json=[NSJSONSerialization dataWithJSONObject:reportObject options:NSJSONWritingPrettyPrinted error:nil];
     NSString *reportPath=[folder stringByAppendingPathComponent:@"build_report.json"];
     [json writeToFile:reportPath atomically:YES];[paths addObject:reportPath];
+    NSDictionary *protectionV2Validation=@{
+        @"format":@"com.zonoe.protection-v2-validation/v1",
+        @"version":@"0.5.6",
+        @"payloadLayout":@"fragmented-16-byte-slot-chain-v1",
+        @"headerFlag":[NSString stringWithFormat:@"0x%08X",ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2],
+        @"maxContiguousSourceInstructions":@1,
+        @"runtimeExecutableWrites":@NO,
+        @"targets":metadata,
+        @"deviceChecks":@[
+            @"Cold launch without tapping ZN: no Patch Runtime or saved feature restoration",
+            @"First tap completes deferred bootstrap before menu appears",
+            @"OFF path matches original behavior",
+            @"ON path matches enabled behavior",
+            @"Shared-site owner fallback remains correct",
+            @"Kill/relaunch stays OFF until first ZN tap, then restores saved state",
+            @"Generated Mach-O installs and launches after normal package re-sign"
+        ]
+    };
+    NSData *validationJSON=[NSJSONSerialization dataWithJSONObject:protectionV2Validation options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *validationPath=[folder stringByAppendingPathComponent:@"protection_v2_validation.json"];
+    if(validationJSON){[validationJSON writeToFile:validationPath atomically:YES];[paths addObject:validationPath];}
     if(outputs)*outputs=paths;
     if(report)*report=[NSString stringWithFormat:@"Static Binary Builder V3 生成成功：%lu 个目标 · %lu 个逻辑 Patch\n输出：%@\n已新增 __ZNTEXT + __ZNDATA；不再使用目标 Mach-O 的 code/data gap；必须重新签名后安装",
                         (unsigned long)groups.count,(unsigned long)workspace.filledCount,folder];

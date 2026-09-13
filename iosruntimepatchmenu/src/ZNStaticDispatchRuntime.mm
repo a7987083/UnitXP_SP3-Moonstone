@@ -21,6 +21,7 @@
 @property(nonatomic,copy) NSString *siteKey;
 @property(nonatomic,assign) uint32_t physicalID;
 @property(nonatomic,assign) uint32_t headerVersion;
+@property(nonatomic,assign) BOOL payloadProtectionV2;
 @end
 @implementation ZNStaticPatchRecord
 @end
@@ -211,6 +212,7 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
                             record.siteKey = siteKey;
                             record.physicalID = (header->version >= ZN44_STATIC_VERSION_V2 && entry->physicalID) ? entry->physicalID : (e + 1);
                             record.headerVersion = header->version;
+                            record.payloadProtectionV2 = (header->flags & ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2) != 0;
                             record.enabled = [owners containsObject:@(entry->patchID)];
                             [found addObject:record];
                         }
@@ -234,7 +236,8 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
         NSMutableDictionary<NSString *, NSNumber *> *counts = [NSMutableDictionary dictionary];
         for (ZNStaticPatchRecord *r in found) counts[r.siteKey] = @([counts[r.siteKey] unsignedIntegerValue] + 1);
         for (NSNumber *n in counts.allValues) if (n.unsignedIntegerValue > 1) shared++;
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[static-dispatch] detected %lu logical entries · %lu physical sites · %lu shared · RVA-protection-aware", (unsigned long)found.count, (unsigned long)counts.count, (unsigned long)shared]];
+        NSUInteger payloadV2 = 0; for (ZNStaticPatchRecord *r in found) if (r.payloadProtectionV2) payloadV2++;
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[static-dispatch] detected %lu logical entries · %lu physical sites · %lu shared · payload-v2=%lu/%lu · RVA-protection-aware", (unsigned long)found.count, (unsigned long)counts.count, (unsigned long)shared, (unsigned long)payloadV2, (unsigned long)found.count]];
     }
 }
 
@@ -306,7 +309,8 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
     NSMutableSet<NSString *> *sites = [NSMutableSet set];
     for (ZNStaticPatchRecord *r in self.records) if (r.siteKey.length) [sites addObject:r.siteKey];
-    [lines addObject:[NSString stringWithFormat:@"Static Dispatch：%lu 逻辑项 / %lu 物理 Site", (unsigned long)self.records.count, (unsigned long)sites.count]];
+    NSUInteger payloadV2 = 0; for (ZNStaticPatchRecord *r in self.records) if (r.payloadProtectionV2) payloadV2++;
+    [lines addObject:[NSString stringWithFormat:@"Static Dispatch：%lu 逻辑项 / %lu 物理 Site · Payload V2 %lu/%lu", (unsigned long)self.records.count, (unsigned long)sites.count, (unsigned long)payloadV2, (unsigned long)self.records.count]];
     for (ZNStaticPatchRecord *r in self.records) {
         NSArray *owners = self.ownerOrderBySite[r.siteKey] ?: @[];
         [lines addObject:[NSString stringWithFormat:@"%@ · %@ · %@ · owners=%lu", r.title, r.target, r.enabled ? @"ON" : @"OFF", (unsigned long)owners.count]];

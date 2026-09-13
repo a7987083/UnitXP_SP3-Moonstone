@@ -86,9 +86,9 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         if (![object isKindOfClass:NSMutableDictionary.class]) continue;
 
         object[@"generatedBinaryPipeline"] = @{
-            @"mode": @"explicit-v0.5.4",
+            @"mode": @"explicit-v0.5.6",
             @"builder": @"Static Binary Builder V3",
-            @"postprocessOrder": @[@"ZNF1", @"Static RVA Protection V1", @"Adhoc CodeDirectory"],
+            @"postprocessOrder": @[@"Payload Layout V2 (Builder)", @"ZNF1", @"Static RVA Protection V1", @"Adhoc CodeDirectory"],
             @"runtimeBuilderSwizzle": @NO,
             @"asyncLoadOrderDependency": @NO,
             @"legacyV1Compiled": @NO,
@@ -114,7 +114,7 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             @"staticEntryABIPreserved": @YES,
         };
         object[@"generatedBinaryProtection"] = @{
-            @"mode": @"static-rva-protection-v1",
+            @"mode": @"payload-v2+static-rva-protection-v1",
             @"plainStaticRVAFieldsPresent": @NO,
             @"protectedFields": @[@"siteRVA", @"offRVA", @"onRVA"],
             @"protectedEntries": @(totalProtectedRVAs),
@@ -123,6 +123,11 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             @"runtimeDecodesOnDemand": @YES,
             @"runtimeWritesPlainRVAsBackToStaticEntry": @NO,
             @"scope": @"static-analysis-cost-layer",
+            @"payloadProtectionV2": @YES,
+            @"payloadLayout": @"fragmented-16-byte-slot-chain-v1",
+            @"maxContiguousSourceInstructions": @1,
+            @"runtimeExecutableWrites": @NO,
+            @"directSiteBranchStillArchitectural": @YES,
         };
 
         NSData *updated = [NSJSONSerialization dataWithJSONObject:object
@@ -134,7 +139,7 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
 
     if (outputs) *outputs = innerOutputs;
     if (report) {
-        *report = [NSString stringWithFormat:@"%@\nv0.5.4 使用显式构建流水线：V3 → ZNF1 → Static RVA Protection V1 → ad-hoc CodeDirectory。已移除 Builder +load/swizzle 与异步 SigningBridge 顺序依赖；替换回 IPA 后仍需正常整包重签。",
+        *report = [NSString stringWithFormat:@"%@\nv0.5.6 使用显式保护流水线：V3 Payload V2 → ZNF1 → Static RVA Protection V1 → ad-hoc CodeDirectory。已移除 Builder +load/swizzle 与异步 SigningBridge 顺序依赖；替换回 IPA 后仍需正常整包重签。",
                    innerReport ?: @"Static Binary Builder V3 生成成功"];
     }
     return YES;

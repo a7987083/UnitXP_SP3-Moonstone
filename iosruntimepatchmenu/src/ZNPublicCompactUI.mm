@@ -2,7 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-// Public menu presentation policy for v0.5.5 Full Deferred Bootstrap.
+// Public menu presentation policy for v0.5.6 Full Deferred Bootstrap.
 // Keep the existing compact layout implementation and make it the default
 // presentation after this migration. Users can still expand through the
 // existing mode button; this only changes the post-upgrade default.
@@ -25,7 +25,7 @@ static NSString * const kZNLegacyFeatureNameRegistryDefaultsKey = @"zonoe.featur
 - (void)znpublic_layoutPanel {
     [self znpublic_layoutPanel];
     if (self.compactMode) {
-        self.subtitleLabel.text = @"0.5.5";
+        self.subtitleLabel.text = @"0.5.6";
         self.subtitleLabel.alpha = 0.72;
     }
 }
@@ -67,6 +67,6 @@ extern "C" void ZNInstallPublicCompactDefaultsDeferred(void) {
         }
 
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:kZNLegacyFeatureNameRegistryDefaultsKey];
-        NSLog(@"[ZonoPatch] v0.5.5 public compact UI installed after first activation; legacy feature-name registry purged");
+        NSLog(@"[ZonoPatch] v0.5.6 public compact UI installed after first activation; legacy feature-name registry purged");
     }
 }
