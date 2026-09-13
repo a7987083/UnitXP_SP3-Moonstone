@@ -48,13 +48,35 @@ jobs:
           grep -q 'ZonoePatchStart' "$src/ZNDeferredBootstrap.mm"
           grep -q 'ZonoePatchShow' "$src/ZNDeferredBootstrap.mm"
 
-          load_hits="$(grep -R -nE '^[[:space:]]*\+[[:space:]]*\(void\)load[[:space:]]*\{' "$src" --include='*.mm' || true)"
-          if [ -n "$load_hits" ]; then echo "$load_hits"; exit 1; fi
-          ctor_hits="$(grep -R -n '__attribute__((constructor' "$src" --include='*.mm' || true)"
-          echo "$ctor_hits"
-          test "$(printf '%s\n' "$ctor_hits" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
-          echo "$ctor_hits" | grep 'ZNDeferredBootstrap.mm'
-          echo "$ctor_hits" | grep 'ZNDeferredColdLauncherBootstrap'
+          # Check only translation units actually compiled by this target. Retired
+          # source files remain in Git history/tree but cannot affect startup.
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          makefile = Path('iosruntimepatchmenu/Makefile').read_text()
+          line = next((line for line in makefile.splitlines() if line.startswith('ZonoePatchV03_FILES = ')), None)
+          if not line:
+              raise SystemExit('compiled source list missing')
+          rels = line.split('=', 1)[1].split()
+          loads = []
+          ctors = []
+          for rel in rels:
+              path = Path('iosruntimepatchmenu') / rel
+              text = path.read_text()
+              for no, source_line in enumerate(text.splitlines(), 1):
+                  if re.match(r'\s*\+\s*\(void\)load\s*\{', source_line):
+                      loads.append((str(path), no, source_line.strip()))
+                  if '__attribute__((constructor' in source_line:
+                      ctors.append((str(path), no, source_line.strip()))
+          print('compiled +load hooks:', loads)
+          print('compiled constructors:', ctors)
+          if loads:
+              raise SystemExit('compiled +load hook remains before first tap')
+          if len(ctors) != 1:
+              raise SystemExit(f'expected one compiled constructor, got {len(ctors)}')
+          if not ctors[0][0].endswith('ZNDeferredBootstrap.mm') or 'ZNDeferredColdLauncherBootstrap' not in ctors[0][2]:
+              raise SystemExit(f'unexpected constructor: {ctors[0]}')
+          PY
 
           grep -q 'extern "C" void ZNInstallRuntimeExecutorV041Deferred' "$src/ZNPatchCoreV041.mm"
           grep -q 'extern "C" void ZNInstallRuntimeDiagnosticsV042Deferred' "$src/ZNRuntimeDiagnosticsV042.mm"
