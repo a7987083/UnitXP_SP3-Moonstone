@@ -1,3 +1,4 @@
+# v0.5.4 final validation: committed builder source must build idempotently.
 name: Build Runtime Patch Menu v0.5.4 Builder Consolidation
 
 on:
