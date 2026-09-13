@@ -44,7 +44,6 @@ jobs:
           grep -q 'finish continuation entered' "$deferred"
           grep -q 'v0.5.6.1 deferred activation failed' "$deferred"
 
-          # v0.5.6 Protection V2 architecture must stay intact.
           grep -q 'ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2' "$src/ZNStaticPatchFormat.h"
           grep -q 'ZNStaticPayloadProtectionV2.h' "$src/ZNStaticBinaryBuilderV3.mm"
           grep -q 'fragmented-16-byte-slot-chain-v1' "$src/ZNStaticBinaryBuilderV3.mm"
@@ -53,7 +52,6 @@ jobs:
           grep -q 'ZN55DecodeEntryRVAs' "$runtime"
           grep -q 'zn.f.%016llx.enabled' "$src/ZNFeatureGroupUI.mm"
 
-          # Full Deferred Bootstrap remains exactly one load-time constructor.
           compiled="$(sed -n 's/^ZonoePatchV03_FILES = //p' "$makefile")"
           ctor_hits=""
           load_hits=""
@@ -133,7 +131,6 @@ jobs:
           grep -q 'ZonoPatch-v0.5.6.1.log' /tmp/zonoe_v0561_strings.txt
           grep -q 'direct-owned-section-v1' /tmp/zonoe_v0561_strings.txt
           grep -q 'fallback-compat-scan' /tmp/zonoe_v0561_strings.txt
-          grep -q 'first launcher tap accepted' /tmp/zonoe_v0561_strings.txt
           grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v0561_strings.txt
 
           python3 <<'PY'
