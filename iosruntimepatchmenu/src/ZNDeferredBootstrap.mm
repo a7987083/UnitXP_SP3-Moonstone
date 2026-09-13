@@ -1,4 +1,5 @@
 #import "ZNDeferredBootstrap.h"
+#import "ZNActivationTrace.h"
 #import <UIKit/UIKit.h>
 #import <atomic>
 
@@ -26,6 +27,22 @@ static std::atomic<int> gZNDeferredState{ZNDeferredStateCold};
 static NSString * const kZNDeferredFloatPositionKey = @"ZonoePatch.FloatCenter";
 static const CGFloat kZNDeferredFloatSize = 52.0;
 static const CGFloat kZNDeferredMargin = 10.0;
+static double gZNActivationStart = 0.0;
+
+static double ZNActivationElapsedMS(void) {
+    if (gZNActivationStart <= 0.0) return 0.0;
+    return (ZNActivationTraceNow() - gZNActivationStart) * 1000.0;
+}
+
+static void ZNRunActivationStage(NSString *name, void (^block)(void)) {
+    double start = ZNActivationTraceNow();
+    ZNActivationTraceLog([NSString stringWithFormat:@"[activation] stage begin: %@ · total=%.1fms", name, ZNActivationElapsedMS()]);
+    block();
+    ZNActivationTraceLog([NSString stringWithFormat:@"[activation] stage end: %@ · stage=%.1fms · total=%.1fms",
+                          name,
+                          (ZNActivationTraceNow() - start) * 1000.0,
+                          ZNActivationElapsedMS()]);
+}
 
 extern "C" BOOL ZNDeferredBootstrapIsActivated(void) {
     int state = gZNDeferredState.load(std::memory_order_acquire);
@@ -161,19 +178,26 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     self.button.enabled = NO;
     self.button.alpha = 1.0;
     [self.button setTitle:@"!" forState:UIControlStateNormal];
-    NSLog(@"[ZonoPatch] v0.5.6 deferred activation failed: %@", exception.reason ?: @"unknown exception");
+    ZNActivationTraceLog([NSString stringWithFormat:@"[activation] FAILED after %.1fms: %@",
+                          ZNActivationElapsedMS(),
+                          exception.reason ?: @"unknown exception"]);
+    NSLog(@"[ZonoPatch] v0.5.6.1 deferred activation failed: %@", exception.reason ?: @"unknown exception");
 }
 
 - (void)zn_finishActivation {
     @try {
-        ZNInstallRuntimeMenuV055Deferred();
-        ZNInstallFeatureGroupUIDeferred();
-        ZNInstallPublicCompactDefaultsDeferred();
-        ZNInstallFeatureBuilderUIDeferred();
+        ZNActivationTraceLog([NSString stringWithFormat:@"[activation] finish continuation entered · total=%.1fms", ZNActivationElapsedMS()]);
+        ZNRunActivationStage(@"RuntimeMenu", ^{ ZNInstallRuntimeMenuV055Deferred(); });
+        ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
+        ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
+        ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
-        ZonoePatchStart();
-        ZonoePatchShow();
+        ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
+        ZNRunActivationStage(@"ZonoePatchShow", ^{ ZonoePatchShow(); });
+        ZNActivationTraceLog([NSString stringWithFormat:@"[activation] READY · total=%.1fms · log=%@",
+                              ZNActivationElapsedMS(),
+                              ZNActivationTraceLogPath()]);
 
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.button removeFromSuperview];
@@ -187,12 +211,15 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 - (void)zn_beginActivation {
     @try {
+        ZNActivationTraceLog([NSString stringWithFormat:@"[activation] deferred chain begin · total=%.1fms", ZNActivationElapsedMS()]);
+
         // Old +load-era wrappers, then former constructor priorities 104/106/109.
-        ZNInstallSharedSiteExecutionProbeV3Deferred();
-        ZNInstallPublicCompactLayoutDeferred();
-        ZNInstallRuntimeExecutorV041Deferred();
-        ZNInstallRuntimeDiagnosticsV042Deferred();
-        ZNPrepareStaticDispatchRuntimeDeferred();
+        ZNRunActivationStage(@"SharedSiteExecutionProbeV3", ^{ ZNInstallSharedSiteExecutionProbeV3Deferred(); });
+        ZNRunActivationStage(@"PublicCompactLayout", ^{ ZNInstallPublicCompactLayoutDeferred(); });
+        ZNRunActivationStage(@"RuntimeExecutorV041", ^{ ZNInstallRuntimeExecutorV041Deferred(); });
+        ZNRunActivationStage(@"RuntimeDiagnosticsV042", ^{ ZNInstallRuntimeDiagnosticsV042Deferred(); });
+        ZNRunActivationStage(@"StaticDispatchPrepare", ^{ ZNPrepareStaticDispatchRuntimeDeferred(); });
+        ZNActivationTraceLog(@"[activation] Static Dispatch refresh scheduled for +350ms; finish continuation scheduled for +450ms on main queue");
 
         // Static Dispatch historically waits 350 ms before refresh. Keep that
         // exact stage behavior. This continuation is queued later on the same
@@ -215,6 +242,10 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         return;
     }
 
+    gZNActivationStart = ZNActivationTraceNow();
+    ZNActivationTraceLog([NSString stringWithFormat:@"[activation] first launcher tap accepted · Cold->Loading · log=%@",
+                          ZNActivationTraceLogPath()]);
+
     self.button.enabled = NO;
     self.button.alpha = 0.78;
     [self.button setTitle:@"…" forState:UIControlStateNormal];
@@ -223,13 +254,14 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     // chain begins. The menu appears only after all deferred stages complete.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
+        ZNActivationTraceLog([NSString stringWithFormat:@"[activation] 120ms UI beat completed · total=%.1fms", ZNActivationElapsedMS()]);
         [self zn_beginActivation];
     });
 }
 
 @end
 
-// The only v0.5.6 load-time constructor. It owns the cold launcher only and
+// The only v0.5.6.1 load-time constructor. It owns the cold launcher only and
 // intentionally does not touch DeveloperGate, PatchManager, Resolver, Static
 // Dispatch, Builder, Diagnostics, Probe, Feature UI, or the menu controller.
 __attribute__((constructor(200))) static void ZNDeferredColdLauncherBootstrap(void) {
