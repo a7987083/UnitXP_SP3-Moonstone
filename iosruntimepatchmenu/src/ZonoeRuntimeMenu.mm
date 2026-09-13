@@ -1,5 +1,5 @@
 // Zonoe Runtime Patch Menu — consolidated current source
-// v0.5.4 current UI bootstrap consolidation
+// v0.5.5 full deferred bootstrap
 // Historical V0xx menu sources are retained by Git history only; this file is
 // the sole compiled menu/UI source. ZNDeveloperGate provides permission state
 // only and never owns sidebar/UI definitions.
@@ -18,6 +18,7 @@
 #import "ZNPatchCore.h"
 #import "ZNDeveloperGate.h"
 #import "ZNIL2CPPResolver.h"
+#import "ZNDeferredBootstrap.h"
 
 static void ZNInstallV040Swizzles(void);
 
@@ -27,7 +28,7 @@ static void ZNRuntimeCoreBootstrapV040(void) {
         [[ZNDeveloperGate sharedGate] refresh];
         [[ZNIL2CPPResolver sharedResolver] refresh];
         ZNInstallV040Swizzles();
-        [[ZNRuntimeLogger sharedLogger] log:@"Runtime Patch Menu 0.5.4 consolidated bootstrap（Stock iOS / No JIT）"];
+        [[ZNRuntimeLogger sharedLogger] log:@"Runtime Patch Menu 0.5.5 deferred bootstrap（Stock iOS / No JIT）"];
     }
 }
 
@@ -49,7 +50,7 @@ static void ZNRuntimeCoreBootstrapV040(void) {
 
 #import "ZNTheme.h"
 
-static NSString * const kZNMenuVersion = @"0.5.4-ui-core";
+static NSString * const kZNMenuVersion = @"0.5.5-ui-core";
 static NSString * const kZNFloatPositionKey = @"ZonoePatch.FloatCenter";
 static NSString * const kZNPanelPositionKey = @"ZonoePatch.PanelCenter";
 static NSString * const kZNThemeModeKey = @"ZonoePatch.ThemeMode";
@@ -542,7 +543,7 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
 @end
 
 static uint32_t ZonoePatchGetAPIVersion(void){return 1;}
-static const char *ZonoePatchGetVersion(void){return "0.5.4-ui-core";}
+static const char *ZonoePatchGetVersion(void){return "0.5.5-ui-core";}
 static void ZonoePatchStart(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] start];});}
 static void ZonoePatchShow(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] show];});}
 static void ZonoePatchHide(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNRuntimeMenuControllerV024 shared] hide];});}
@@ -676,7 +677,7 @@ static void ZNRuntimeMenuBootstrapV024(void){@autoreleasepool{NSLog(@"[ZonoPatch
     [self zn40_makeUI:window];
     [self zn40_refreshDeveloperCategories:YES];
     [self zn40_updateSubtitle];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.4    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.5    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn40_tick:(NSTimer *)timer {
@@ -684,7 +685,7 @@ static void ZNRuntimeMenuBootstrapV024(void){@autoreleasepool{NSLog(@"[ZonoPatch
     [[ZNDeveloperGate sharedGate] refresh];
     [self zn40_refreshDeveloperCategories:NO];
     [self zn40_updateSubtitle];
-    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.4    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.5    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn40_togglePanel:(id)sender {
@@ -923,16 +924,25 @@ static void ZNInstallV040Swizzles(void) {
 }
 
 extern "C" __attribute__((visibility("default"))) uint32_t ZonoePatchGetAPIVersion(void) { return 2; }
-extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void) { return "0.5.4-ui-consolidated"; }
+extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void) { return "0.5.5-ui-consolidated"; }
 extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void) {
+    if (!ZNDeferredBootstrapIsActivated()) return;
     [[ZNDeveloperGate sharedGate] refresh];
     [ZNPatchManager sharedManager];
     [[ZNIL2CPPResolver sharedResolver] refresh];
     ZonoePatchStartBaselineV024();
 }
-extern "C" __attribute__((visibility("default"))) void ZonoePatchShow(void) { ZonoePatchShowBaselineV024(); }
-extern "C" __attribute__((visibility("default"))) void ZonoePatchHide(void) { ZonoePatchHideBaselineV024(); }
-extern "C" __attribute__((visibility("default"))) bool ZonoePatchIsVisible(void) { return ZonoePatchIsVisibleBaselineV024(); }
+extern "C" __attribute__((visibility("default"))) void ZonoePatchShow(void) {
+    if (!ZNDeferredBootstrapIsActivated()) return;
+    ZonoePatchShowBaselineV024();
+}
+extern "C" __attribute__((visibility("default"))) void ZonoePatchHide(void) {
+    if (!ZNDeferredBootstrapIsActivated()) return;
+    ZonoePatchHideBaselineV024();
+}
+extern "C" __attribute__((visibility("default"))) bool ZonoePatchIsVisible(void) {
+    return ZNDeferredBootstrapIsActivated() && ZonoePatchIsVisibleBaselineV024();
+}
 // END inlined ZonoeRuntimeMenuV040.mm
 
 // v0.4.0a UI hotfix layer.
@@ -1137,7 +1147,7 @@ static void ZNInstallV0402TouchPolicyFix(void) {
 
 - (void)zn42_makeUI:(UIWindow *)window {
     [self zn42_makeUI:window];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.4    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.5    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -1233,12 +1243,12 @@ static NSString *ZN43HexString(NSData *data) {
 
 - (void)zn43_makeUI:(UIWindow *)window {
     [self zn43_makeUI:window];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.4    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.5    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn43_tick:(NSTimer *)timer {
     [self zn43_tick:timer];
-    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.4    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.5    Runtime Validation    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn43_showMessage:(NSString *)title body:(NSString *)body {
@@ -1431,10 +1441,10 @@ static void ZNInstallV043RuntimeValidation(void) {
 
 - (void)zn44_makeUI:(UIWindow *)window {
     [self zn44_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.4    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.5    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 - (void)zn44_tick:(NSTimer *)timer {
-    [self zn44_tick:timer]; if(self.uiReady)self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.4    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
+    [self zn44_tick:timer]; if(self.uiReady)self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.5    Binary Builder    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn44_renderOther {
@@ -1691,12 +1701,12 @@ static void ZN48RelabelJSONList(UIView *view) {
 
 - (void)zn48_makeUI:(UIWindow *)window {
     [self zn48_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.4    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.5    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn48_tick:(NSTimer *)timer {
     [self zn48_tick:timer];
-    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.4    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.5    Marker-Sibling Auto JSON + Manual Fallback    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -1805,12 +1815,12 @@ static void ZNInstallV048JSONImport(void){
 
 - (void)zn49_makeUI:(UIWindow *)window {
     [self zn49_makeUI:window];
-    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.4    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.5    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn49_tick:(NSTimer *)timer {
     [self zn49_tick:timer];
-    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.4    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text=[NSString stringWithFormat:@"PatchCore 0.5.5    Consolidated Menu + Shared-Site Probe    iOS %@",UIDevice.currentDevice.systemVersion];
 }
 
 @end
@@ -1831,7 +1841,7 @@ static void ZNInstallV049SharedSiteProbeUI(void) {
     }
 }
 
-// v0.5.4 current UI layer. One swizzle set owns active menu behavior instead of
+// v0.5.5 current UI layer. One swizzle set owns active menu behavior instead of
 // chaining V040/V0401/V0402/V042/V043/V044/V045/V048/V049 wrappers.
 @interface ZNRuntimeMenuControllerV040 (V053Current)
 - (instancetype)zn53_init;
@@ -1872,7 +1882,7 @@ static void ZNInstallV049SharedSiteProbeUI(void) {
     [self zn40_refreshDeveloperCategories:YES];
     [self zn40_updateSubtitle];
     [self zn53_applyTouchPolicy];
-    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.4    Current UI    iOS %@", UIDevice.currentDevice.systemVersion];
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.5    Current UI    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn53_tick:(NSTimer *)timer {
@@ -1880,7 +1890,7 @@ static void ZNInstallV049SharedSiteProbeUI(void) {
     // Developer authorization is a process-start snapshot in v0.5.2+; no
     // marker re-read or category mutation occurs on the periodic UI tick.
     [self zn40_updateSubtitle];
-    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.4    Current UI    iOS %@", UIDevice.currentDevice.systemVersion];
+    if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.5    Current UI    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn53_togglePanel:(id)sender {
@@ -2043,13 +2053,12 @@ static void ZNInstallV053CurrentUI(void) {
     ZNSwapV053(cls,@selector(zn44_importJSON:),@selector(zn48_importJSON:));
 }
 
-__attribute__((constructor(119))) static void ZNRuntimeMenuBootstrapV053(void) {
+extern "C" void ZNInstallRuntimeMenuV055Deferred(void) {
     @autoreleasepool {
         [ZNPatchManager sharedManager];
         [[ZNDeveloperGate sharedGate] refresh];
         [[ZNIL2CPPResolver sharedResolver] refresh];
         ZNInstallV053CurrentUI();
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.4 current UI bootstrap active"];
-        ZonoePatchStart();
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][deferred] v0.5.5 current UI installed after first launcher tap"];
     }
 }

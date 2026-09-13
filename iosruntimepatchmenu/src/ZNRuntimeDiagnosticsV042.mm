@@ -121,18 +121,18 @@ static void ZNSwapPatchManagerV042(SEL original, SEL replacement) {
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(106))) static void ZNInstallRuntimeDiagnosticsV042(void) {
+extern "C" void ZNInstallRuntimeDiagnosticsV042Deferred(void) {
     @autoreleasepool {
         gZN42ResolverQueue = dispatch_queue_create("com.zonoe.patch.resolver.v052", DISPATCH_QUEUE_SERIAL);
         ZNSwapPatchManagerV042(@selector(moduleAdded:), @selector(zn42_moduleAdded:));
         ZNSwapPatchManagerV042(@selector(refreshResolution), @selector(zn42_refreshResolution));
         ZNSwapPatchManagerV042(@selector(diagnosticReport), @selector(zn42_diagnosticReport));
 
-        // File 1 is evaluated once by ZNDeveloperGate. The watchdog is never
+        // File 1 is evaluated once when deferred activation first reaches ZNDeveloperGate. The watchdog is never
         // created in public mode and cannot be enabled later without restart.
         if ([ZNDeveloperGate sharedGate].authorized) {
             ZN42StartMainThreadWatchdog();
-            [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][dev] runtime watchdog enabled from startup g permission"];
+            [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][dev] runtime watchdog enabled from first-activation g permission"];
         }
     }
 }

@@ -341,12 +341,12 @@ static void ZN50SwapInstanceMethod(Class cls, SEL original, SEL replacement) {
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(120))) static void ZNInstallFeatureGroupUI(void) {
+extern "C" void ZNInstallFeatureGroupUIDeferred(void) {
     @autoreleasepool {
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
         ZN50SwapInstanceMethod(cls, @selector(renderFullPage), @selector(zn50_renderFullPage));
         ZN50SwapInstanceMethod(cls, @selector(renderCompactPage), @selector(zn50_renderCompactPage));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.4 feature UI installed: ZNF1 feature renderer owns compact mode"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.5 feature UI installed after first activation: ZNF1 feature renderer owns compact mode"];
     }
 }

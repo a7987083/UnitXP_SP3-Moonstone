@@ -75,7 +75,7 @@ static void ZNSSP3PollAttachAfterExplicitEnable(NSUInteger remaining) {
 
 @implementation ZNSharedSiteProbe (ZNExecutionProbeV3Diagnostics)
 
-+ (void)load {
++ (void)znssp3_installDeferredBootstrap {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken,^{
         Method diagnostic=class_getInstanceMethod(self,@selector(diagnosticLines));
@@ -112,3 +112,7 @@ static void ZNSSP3PollAttachAfterExplicitEnable(NSUInteger remaining) {
 }
 
 @end
+
+extern "C" void ZNInstallSharedSiteExecutionProbeV3Deferred(void) {
+    [ZNSharedSiteProbe znssp3_installDeferredBootstrap];
+}

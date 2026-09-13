@@ -1,5 +1,6 @@
 #import "ZNDeveloperGate.h"
 #import "ZNPatchCore.h"
+#import "ZNDeferredBootstrap.h"
 #import <UIKit/UIKit.h>
 
 @implementation ZNDeveloperGate {
@@ -15,7 +16,7 @@
     BOOL _awaitingZonoe;
     BOOL _markerHasG;
     BOOL _markerHasQ;
-    BOOL _startupEvaluated;
+    BOOL _activationEvaluated;
 }
 
 + (instancetype)sharedGate {
@@ -38,7 +39,7 @@
     _otherAuthorized = NO;
     _markerHasG = NO;
     _markerHasQ = NO;
-    _startupEvaluated = NO;
+    _activationEvaluated = NO;
     [self refresh];
     return self;
 }
@@ -71,14 +72,14 @@
     _markerHasQ = NO;
 
     if (!path) {
-        _lastError = @"启动时未找到开发者标记文件 1";
+        _lastError = @"首次点击激活时未找到开发者标记文件 1";
         return NO;
     }
 
     NSError *error = nil;
     NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];
     if (!text) {
-        _lastError = [NSString stringWithFormat:@"启动时读取标记文件失败：%@", error.localizedDescription ?: @"未知错误"];
+        _lastError = [NSString stringWithFormat:@"首次点击激活时读取标记文件失败：%@", error.localizedDescription ?: @"未知错误"];
         return NO;
     }
 
@@ -111,12 +112,12 @@
 }
 
 - (void)refresh {
-    // v0.5.2 policy: developer permission is a process-start snapshot.
+    // v0.5.5 policy: developer permission is a first-menu-activation snapshot.
     // Legacy callers may still invoke refresh from menu/timer paths, but those
     // calls must never touch the filesystem after the first evaluation.
     @synchronized (self) {
-        if (_startupEvaluated) return;
-        _startupEvaluated = YES;
+        if (_activationEvaluated) return;
+        _activationEvaluated = YES;
 
         _authorized = NO;
         _otherAuthorized = NO;
@@ -126,7 +127,7 @@
         _awaitingZonoe = NO;
 
         if (![self loadMarkerOnce]) {
-            [[ZNRuntimeLogger sharedLogger] log:@"[dev-gate] startup snapshot: public mode"];
+            [[ZNRuntimeLogger sharedLogger] log:@"[dev-gate] first-activation snapshot: public mode"];
             return;
         }
 
@@ -138,7 +139,7 @@
         }
 
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
-            @"[dev-gate] startup snapshot cached: g=%@ q=%@ marker=%@",
+            @"[dev-gate] first-activation snapshot cached: g=%@ q=%@ marker=%@",
             _authorized ? @"ON" : @"OFF",
             _otherAuthorized ? @"ON" : @"OFF",
             _markerPath.length ? _markerPath : @"none"]];
@@ -159,7 +160,7 @@
 
 - (NSString *)sourceDescription {
     switch (_identitySource) {
-        case ZNIdentitySourceMarkerFile: return @"启动标记文件";
+        case ZNIdentitySourceMarkerFile: return @"首次点击标记文件";
         case ZNIdentitySourceHostDylib: return @"Host Dylib（已禁用）";
         case ZNIdentitySourceZonoeLocalTicket: return @"Local Ticket（已禁用）";
         case ZNIdentitySourceSubmittedHost: return @"Host Submitted（已禁用）";
@@ -174,7 +175,7 @@
 }
 
 - (NSString *)diagnosticReport {
-    return [NSString stringWithFormat:@"开发者标记: %@\n启动检查: 已缓存，本进程不重新读取\n诊断/Debug(g): %@\n其他(q): %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n运行时重检: 已禁用（重启游戏生效）\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
+    return [NSString stringWithFormat:@"开发者标记: %@\n首次点击检查: 已缓存，本进程不重新读取\n诊断/Debug(g): %@\n其他(q): %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n运行时重检: 已禁用（重启游戏生效）\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
             self.markerPresent ? @"已找到" : @"未找到",
             self.authorized ? @"显示" : @"隐藏",
             self.otherAuthorized ? @"显示" : @"隐藏",
@@ -186,20 +187,24 @@
 @end
 
 extern "C" __attribute__((visibility("default"))) bool ZonoePatchDeveloperAuthorized(void) {
+    if (!ZNDeferredBootstrapIsActivated()) return false;
     return [ZNDeveloperGate sharedGate].authorized;
 }
 
 extern "C" __attribute__((visibility("default"))) bool ZonoePatchOtherAuthorized(void) {
+    if (!ZNDeferredBootstrapIsActivated()) return false;
     return [ZNDeveloperGate sharedGate].otherAuthorized;
 }
 
 extern "C" __attribute__((visibility("default"))) void ZonoePatchRequestUDIDValidation(void) {
+    if (!ZNDeferredBootstrapIsActivated()) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         [[ZNDeveloperGate sharedGate] requestZonoeValidation];
     });
 }
 
 extern "C" __attribute__((visibility("default"))) void ZonoePatchSubmitHostIdentity(const char *udid, bool authorized) {
+    if (!ZNDeferredBootstrapIsActivated()) return;
     (void)udid;
     (void)authorized;
     dispatch_async(dispatch_get_main_queue(), ^{

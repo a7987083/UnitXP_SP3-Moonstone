@@ -68,7 +68,7 @@ static void ZNSwapPatchManagerV041(SEL original, SEL replacement) {
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(104))) static void ZNInstallRuntimeExecutorV041(void) {
+extern "C" void ZNInstallRuntimeExecutorV041Deferred(void) {
     @autoreleasepool {
         ZNSwapPatchManagerV041(@selector(setFeature:enabled:), @selector(zn41_setFeature:enabled:));
         ZNSwapPatchManagerV041(@selector(runSelfTest), @selector(zn41_runSelfTest));

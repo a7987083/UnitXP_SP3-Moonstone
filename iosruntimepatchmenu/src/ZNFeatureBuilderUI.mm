@@ -506,7 +506,7 @@ static void ZN50BSwapInstanceMethod(Class cls, SEL original, SEL replacement) {
     if (a && b) method_exchangeImplementations(a, b);
 }
 
-__attribute__((constructor(121))) static void ZNInstallFeatureBuilderUI(void) {
+extern "C" void ZNInstallFeatureBuilderUIDeferred(void) {
     @autoreleasepool {
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
