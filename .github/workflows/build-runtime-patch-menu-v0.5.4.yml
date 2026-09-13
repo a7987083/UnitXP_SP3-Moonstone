@@ -47,7 +47,8 @@ jobs:
               '0.5.3-ui-core': '0.5.4-ui-core',
               '0.5.3-ui-consolidated': '0.5.4-ui-consolidated',
               'PatchCore 0.5.3': 'PatchCore 0.5.4',
-              'v0.5.3 current UI bootstrap installed as one ordered chain': 'v0.5.4 current UI bootstrap active',
+              '// v0.5.3 current UI layer.': '// v0.5.4 current UI layer.',
+              'v0.5.3 direct current UI layer installed': 'v0.5.4 current UI bootstrap active',
           }
           for a, b in replacements.items():
               m = m.replace(a, b)
