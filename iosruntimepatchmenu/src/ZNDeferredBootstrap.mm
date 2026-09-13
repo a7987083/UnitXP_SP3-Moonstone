@@ -181,7 +181,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     ZNActivationTraceLog([NSString stringWithFormat:@"[activation] FAILED after %.1fms: %@",
                           ZNActivationElapsedMS(),
                           exception.reason ?: @"unknown exception"]);
-    NSLog(@"[ZonoPatch] v0.5.6.1 deferred activation failed: %@", exception.reason ?: @"unknown exception");
+    NSLog(@"[ZonoPatch] v0.5.6.2 deferred activation failed: %@", exception.reason ?: @"unknown exception");
 }
 
 - (void)zn_finishActivation {
@@ -261,7 +261,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 @end
 
-// The only v0.5.6.1 load-time constructor. It owns the cold launcher only and
+// The only v0.5.6.2 load-time constructor. It owns the cold launcher only and
 // intentionally does not touch DeveloperGate, PatchManager, Resolver, Static
 // Dispatch, Builder, Diagnostics, Probe, Feature UI, or the menu controller.
 __attribute__((constructor(200))) static void ZNDeferredColdLauncherBootstrap(void) {

@@ -1,6 +1,8 @@
 #import "ZNPatchCore.h"
 #import "ZNIL2CPPResolver.h"
+#import "ZNActivationTrace.h"
 #import <mach-o/dyld.h>
+#include <atomic>
 
 static NSString *ZNEnabledKey(NSString *featureID) {
     return [NSString stringWithFormat:@"ZonoePatch.Feature.%@.Enabled", featureID];
@@ -123,24 +125,64 @@ NSString *ZNStringForControlType(ZNFeatureControlType type) {
 }
 @end
 
-static __unsafe_unretained id gZNModuleManager = nil;
+// v0.5.6.2 dyld replay suppression + image-burst coalescing.
+// _dyld_register_func_for_add_image synchronously replays already-loaded images
+// when the callback is registered. Those images are not new work and must not
+// fan out into hundreds of main-queue refreshes on first menu activation.
+@interface ZNModuleManager ()
+@property(nonatomic,assign,readwrite) uint64_t moduleGeneration;
+@property(nonatomic,assign) NSUInteger pendingImageCount;
+@property(nonatomic,assign) BOOL imageNotificationScheduled;
+@property(nonatomic,assign) NSUInteger replaySuppressedCount;
+@property(nonatomic,assign) NSUInteger deliveredImageNotificationCount;
+@end
+
+static __unsafe_unretained ZNModuleManager *gZNModuleManager = nil;
+static std::atomic<bool> gZNModuleRegistrationReplay{false};
+
 static void ZNModuleAdded(const struct mach_header *mh, intptr_t slide) {
     (void)mh;
     (void)slide;
-    id manager = gZNModuleManager;
+    ZNModuleManager *manager = gZNModuleManager;
     if (!manager) return;
-    @synchronized (manager) {
-        uint64_t gen = [[manager valueForKey:@"moduleGeneration"] unsignedLongLongValue];
-        [manager setValue:@(gen + 1) forKey:@"moduleGeneration"];
+
+    if (gZNModuleRegistrationReplay.load(std::memory_order_acquire)) {
+        @synchronized (manager) {
+            manager.replaySuppressedCount += 1;
+        }
+        return;
     }
+
+    __block BOOL shouldSchedule = NO;
+    @synchronized (manager) {
+        manager.moduleGeneration += 1;
+        manager.pendingImageCount += 1;
+        if (!manager.imageNotificationScheduled) {
+            manager.imageNotificationScheduled = YES;
+            shouldSchedule = YES;
+        }
+    }
+    if (!shouldSchedule) return;
+
     dispatch_async(dispatch_get_main_queue(), ^{
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"ZNModuleManagerImageAdded" object:manager];
+        NSUInteger burst = 0;
+        NSUInteger delivered = 0;
+        @synchronized (manager) {
+            burst = manager.pendingImageCount;
+            manager.pendingImageCount = 0;
+            manager.imageNotificationScheduled = NO;
+            manager.deliveredImageNotificationCount += 1;
+            delivered = manager.deliveredImageNotificationCount;
+        }
+
+        ZNActivationTraceLog([NSString stringWithFormat:@"[module-manager] image burst coalesced=%lu · notification=%lu",
+                              (unsigned long)burst,
+                              (unsigned long)delivered]);
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ZNModuleManagerImageAdded"
+                                                            object:manager
+                                                          userInfo:@{@"burstCount": @(burst)}];
     });
 }
-
-@interface ZNModuleManager ()
-@property(nonatomic,assign,readwrite) uint64_t moduleGeneration;
-@end
 
 @implementation ZNModuleManager
 + (instancetype)sharedManager {
@@ -153,8 +195,20 @@ static void ZNModuleAdded(const struct mach_header *mh, intptr_t slide) {
     self = [super init];
     if (!self) return nil;
     _moduleGeneration = 1;
+    _pendingImageCount = 0;
+    _imageNotificationScheduled = NO;
+    _replaySuppressedCount = 0;
+    _deliveredImageNotificationCount = 0;
     gZNModuleManager = self;
+
+    uint32_t imagesBeforeRegistration = _dyld_image_count();
+    gZNModuleRegistrationReplay.store(true, std::memory_order_release);
     _dyld_register_func_for_add_image(ZNModuleAdded);
+    gZNModuleRegistrationReplay.store(false, std::memory_order_release);
+
+    ZNActivationTraceLog([NSString stringWithFormat:@"[module-manager] dyld callback registered · existing=%u · replay suppressed=%lu",
+                          imagesBeforeRegistration,
+                          (unsigned long)_replaySuppressedCount]);
     return self;
 }
 - (NSArray<NSDictionary<NSString *,id> *> *)loadedImages {
@@ -213,6 +267,8 @@ static void ZNModuleAdded(const struct mach_header *mh, intptr_t slide) {
     if (unity) [s appendFormat:@"UnityFramework: 已加载 base=0x%llx slide=0x%llx\n", [unity[@"base"] unsignedLongLongValue], [unity[@"slide"] unsignedLongLongValue]];
     else [s appendString:@"UnityFramework: 未加载\n"];
     [s appendFormat:@"模块代数: %llu\n", self.moduleGeneration];
+    [s appendFormat:@"dyld replay suppressed: %lu\n", (unsigned long)self.replaySuppressedCount];
+    [s appendFormat:@"image notifications delivered: %lu\n", (unsigned long)self.deliveredImageNotificationCount];
     return s;
 }
 @end

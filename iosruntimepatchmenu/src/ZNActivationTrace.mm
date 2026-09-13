@@ -9,12 +9,12 @@ static void ZNActivationTraceEnsureReady(void) {
     dispatch_once(&gZNActivationTraceOnce, ^{
         gZNActivationTraceLock = [NSObject new];
         NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
-        gZNActivationTracePath = [documents stringByAppendingPathComponent:@"ZonoPatch-v0.5.6.1.log"];
+        gZNActivationTracePath = [documents stringByAppendingPathComponent:@"ZonoPatch-v0.5.6.2.log"];
 
         NSDateFormatter *fmt = [NSDateFormatter new];
         fmt.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS";
         NSString *header = [NSString stringWithFormat:
-                            @"[%@] ZonoPatch v0.5.6.1 activation trace start · pid=%d\n",
+                            @"[%@] ZonoPatch v0.5.6.2 activation trace start · pid=%d\n",
                             [fmt stringFromDate:[NSDate date]],
                             NSProcessInfo.processInfo.processIdentifier];
         NSData *data = [header dataUsingEncoding:NSUTF8StringEncoding];

@@ -35,6 +35,10 @@
 @property(nonatomic,strong) NSMutableDictionary<NSString *, NSMutableArray<NSNumber *> *> *ownerOrderBySite;
 @property(nonatomic,assign) double lastRefreshMilliseconds;
 @property(nonatomic,copy) NSString *lastDiscoverySummary;
+@property(nonatomic,assign) BOOL refreshScheduled;
+@property(nonatomic,assign) NSUInteger refreshRequestCount;
+@property(nonatomic,assign) NSUInteger refreshExecutionCount;
+@property(nonatomic,assign) NSUInteger refreshCoalescedCount;
 @end
 
 static NSString *ZN44StringFromFixed(const char *bytes, size_t cap, NSString *fallback) {
@@ -103,9 +107,52 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     return s;
 }
 
+// v0.5.6.2 refresh-request coalescer: one burst of image additions must
+// produce at most one Static Dispatch refresh. The first activation refresh and
+// image-added refreshes share the same gate, so dyld bursts cannot build a long
+// main-queue backlog.
+- (void)zn44_scheduleRefreshAfter:(NSTimeInterval)delay reason:(NSString *)reason {
+    void (^scheduleBlock)(void) = ^{
+        self.refreshRequestCount += 1;
+        if (self.refreshScheduled) {
+            self.refreshCoalescedCount += 1;
+            if (self.refreshCoalescedCount <= 3 || (self.refreshCoalescedCount % 100) == 0) {
+                ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] refresh request coalesced · reason=%@ · requests=%lu executions=%lu coalesced=%lu",
+                                      reason ?: @"unknown",
+                                      (unsigned long)self.refreshRequestCount,
+                                      (unsigned long)self.refreshExecutionCount,
+                                      (unsigned long)self.refreshCoalescedCount]);
+            }
+            return;
+        }
+
+        self.refreshScheduled = YES;
+        NSUInteger requestID = self.refreshRequestCount;
+        ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] refresh scheduled · request=%lu · reason=%@ · delay=%.0fms",
+                              (unsigned long)requestID,
+                              reason ?: @"unknown",
+                              delay * 1000.0]);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(MAX(0.0, delay) * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            self.refreshScheduled = NO;
+            self.refreshExecutionCount += 1;
+            ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] refresh execution=%lu · request=%lu · reason=%@",
+                                  (unsigned long)self.refreshExecutionCount,
+                                  (unsigned long)requestID,
+                                  reason ?: @"unknown"]);
+            [self refresh];
+        });
+    };
+
+    if (NSThread.isMainThread) scheduleBlock();
+    else dispatch_async(dispatch_get_main_queue(), scheduleBlock);
+}
+
 - (void)zn44_imageAdded:(NSNotification *)note {
-    (void)note;
-    dispatch_async(dispatch_get_main_queue(), ^{ [self refresh]; });
+    NSUInteger burst = [note.userInfo[@"burstCount"] unsignedIntegerValue];
+    ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] image notification received · burst=%lu",
+                          (unsigned long)MAX((NSUInteger)1, burst)]);
+    [self zn44_scheduleRefreshAfter:0.20 reason:@"image-added-burst"];
 }
 
 // v0.5.6.1 direct __ZNDATA fast path: current Builder V3 owns exactly one
@@ -365,12 +412,25 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     for (ZNStaticPatchRecord *r in found) if (r.payloadProtectionV2) payloadV2++;
 
     self.lastRefreshMilliseconds = (ZNActivationTraceNow() - refreshStart) * 1000.0;
-    self.lastDiscoverySummary = [NSString stringWithFormat:@"direct=%lu fallback=%lu probes=%llu",
+    NSString *mode = found.count ? @"generated-static" : @"original-binary/no-static-metadata";
+    self.lastDiscoverySummary = [NSString stringWithFormat:@"mode=%@ direct=%lu fallback=%lu probes=%llu requests=%lu executions=%lu coalesced=%lu",
+                                 mode,
                                  (unsigned long)directImages,
                                  (unsigned long)fallbackImages,
-                                 fallbackProbes];
+                                 fallbackProbes,
+                                 (unsigned long)self.refreshRequestCount,
+                                 (unsigned long)self.refreshExecutionCount,
+                                 (unsigned long)self.refreshCoalescedCount];
 
-    ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] refresh end · %.1fms · bundleImages=%lu direct=%lu fallback=%lu fallbackBytes=%llu probes=%llu · logical=%lu physical=%lu shared=%lu payload-v2=%lu/%lu",
+    if (found.count == 0) {
+        ZNActivationTraceLog(@"[static-dispatch] original-binary mode · no generated Static metadata found");
+    } else {
+        ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] generated-static mode · logical=%lu physical=%lu",
+                              (unsigned long)found.count,
+                              (unsigned long)counts.count]);
+    }
+
+    ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] refresh end · %.1fms · bundleImages=%lu direct=%lu fallback=%lu fallbackBytes=%llu probes=%llu · logical=%lu physical=%lu shared=%lu payload-v2=%lu/%lu · requests=%lu executions=%lu coalesced=%lu",
                           self.lastRefreshMilliseconds,
                           (unsigned long)bundleImages,
                           (unsigned long)directImages,
@@ -381,7 +441,10 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
                           (unsigned long)counts.count,
                           (unsigned long)shared,
                           (unsigned long)payloadV2,
-                          (unsigned long)found.count]);
+                          (unsigned long)found.count,
+                          (unsigned long)self.refreshRequestCount,
+                          (unsigned long)self.refreshExecutionCount,
+                          (unsigned long)self.refreshCoalescedCount]);
 }
 
 - (ZNStaticPatchRecord *)zn44_recordForPatchID:(uint32_t)patchID siteKey:(NSString *)siteKey {
@@ -468,10 +531,7 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
 extern "C" void ZNPrepareStaticDispatchRuntimeDeferred(void) {
     @autoreleasepool {
         ZNStaticDispatchRuntime *runtime = [ZNStaticDispatchRuntime sharedRuntime];
-        ZNActivationTraceLog(@"[static-dispatch] prepare complete; refresh timer armed +350ms");
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            ZNActivationTraceLog(@"[static-dispatch] refresh timer fired");
-            [runtime refresh];
-        });
+        ZNActivationTraceLog(@"[static-dispatch] prepare complete; initial refresh requested +350ms");
+        [runtime zn44_scheduleRefreshAfter:0.35 reason:@"first-activation"];
     }
 }

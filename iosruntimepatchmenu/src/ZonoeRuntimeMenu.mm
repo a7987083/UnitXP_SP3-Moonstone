@@ -50,7 +50,7 @@ static void ZNRuntimeCoreBootstrapV040(void) {
 
 #import "ZNTheme.h"
 
-static NSString * const kZNMenuVersion = @"0.5.6-ui-core";
+static NSString * const kZNMenuVersion = @"0.5.6.2-ui-core";
 static NSString * const kZNFloatPositionKey = @"ZonoePatch.FloatCenter";
 static NSString * const kZNPanelPositionKey = @"ZonoePatch.PanelCenter";
 static NSString * const kZNThemeModeKey = @"ZonoePatch.ThemeMode";
