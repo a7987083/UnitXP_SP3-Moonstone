@@ -1,0 +1,202 @@
+name: Build Runtime Patch Menu v0.5.4 Builder Consolidation
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-builder-consolidation
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Consolidate builder pipeline
+        run: |
+          set -euxo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          v3 = Path('iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm')
+          s = v3.read_text()
+          if '#import "ZNStaticBinaryBuilderV3Internal.h"' not in s:
+              s = s.replace('#import "ZNStaticBinaryBuilder.h"\n', '#import "ZNStaticBinaryBuilder.h"\n#import "ZNStaticBinaryBuilderV3Internal.h"\n', 1)
+          if 'BOOL ZNStaticBinaryBuilderV3BuildWorkspace(' not in s:
+              old = 'static BOOL ZNV3BuildWorkspace('
+              if s.count(old) != 1:
+                  raise SystemExit(f'expected one V3 workspace core, got {s.count(old)}')
+              s = s.replace(old, 'BOOL ZNStaticBinaryBuilderV3BuildWorkspace(', 1)
+          marker = '@implementation ZNStaticBinaryBuilder (ZNOwnedSegmentsV3)'
+          if marker in s:
+              start = s.index(marker)
+              end = s.index('@end', start) + len('@end')
+              s = s[:start].rstrip() + '\n\n// v0.5.4: V3 is invoked explicitly by ZNStaticBinaryPipeline.mm.\n// No Objective-C +load or method_exchange is used for builder selection.\n' + s[end:].lstrip()
+          v3.write_text(s)
+
+          menu = Path('iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm')
+          m = menu.read_text()
+          replacements = {
+              'v0.5.3 current UI bootstrap consolidation': 'v0.5.4 current UI bootstrap consolidation',
+              'Runtime Patch Menu 0.5.3 consolidated bootstrap': 'Runtime Patch Menu 0.5.4 consolidated bootstrap',
+              '0.5.3-ui-core': '0.5.4-ui-core',
+              '0.5.3-ui-consolidated': '0.5.4-ui-consolidated',
+              'PatchCore 0.5.3': 'PatchCore 0.5.4',
+              'v0.5.3 current UI bootstrap installed as one ordered chain': 'v0.5.4 current UI bootstrap active',
+          }
+          for a, b in replacements.items():
+              m = m.replace(a, b)
+          menu.write_text(m)
+
+          compact = Path('iosruntimepatchmenu/src/ZNPublicCompactUI.mm')
+          c = compact.read_text().replace('0.5.3', '0.5.4')
+          compact.write_text(c)
+
+          feature = Path('iosruntimepatchmenu/src/ZNFeatureGroupUI.mm')
+          f = feature.read_text().replace('[bootstrap][main] v0.5.3 feature UI installed', '[bootstrap][main] v0.5.4 feature UI installed')
+          feature.write_text(f)
+          PY
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Source assertions
+        run: |
+          set -euxo pipefail
+          makefile=iosruntimepatchmenu/Makefile
+          v3=iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
+          pipeline=iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          post=iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
+          menu=iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm
+          compact=iosruntimepatchmenu/src/ZNPublicCompactUI.mm
+          feature=iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+
+          grep -q 'src/ZNStaticBinaryPipeline.mm' "$makefile"
+          grep -q 'src/ZNStaticBinaryBuilderV3.mm' "$makefile"
+          grep -q 'src/ZNGeneratedBinaryPostprocess.mm' "$makefile"
+          grep -q 'src/ZNStaticRVAProtection.mm' "$makefile"
+          grep -q 'src/ZNFeatureMetadataCodec.mm' "$makefile"
+          grep -q -- '-fvisibility=hidden' "$makefile"
+          if grep -q 'src/ZNStaticBinaryBuilder.mm' "$makefile"; then exit 1; fi
+          if grep -q 'src/ZNStaticBinarySigningBridge.mm' "$makefile"; then exit 1; fi
+
+          grep -q 'BOOL ZNStaticBinaryBuilderV3BuildWorkspace' "$v3"
+          grep -q 'V3 is invoked explicitly by ZNStaticBinaryPipeline.mm' "$v3"
+          if grep -q 'ZNOwnedSegmentsV3' "$v3"; then exit 1; fi
+          if grep -q '+ (void)load' "$v3"; then exit 1; fi
+          if grep -q 'method_exchangeImplementations' "$v3"; then exit 1; fi
+
+          grep -q '@implementation ZNStaticBinaryBuilder' "$pipeline"
+          grep -q 'ZNStaticBinaryBuilderV3BuildWorkspace' "$pipeline"
+          grep -q 'ZNPostProcessGeneratedBinaryOutputs' "$pipeline"
+          if grep -q 'method_exchangeImplementations' "$pipeline"; then exit 1; fi
+          if grep -q '+ (void)load' "$pipeline"; then exit 1; fi
+
+          grep -q 'ZNScrubStaticDisplayMetadataAtPath' "$post"
+          grep -q 'ZN55ProtectStaticRVAsAtPath' "$post"
+          grep -q 'ZNAdhocResignMachOAtPath' "$post"
+          grep -q 'explicit-v0.5.4' "$post"
+          grep -q 'runtimeBuilderSwizzle.*@NO' "$post"
+          grep -q 'asyncLoadOrderDependency.*@NO' "$post"
+          if grep -q '+ (void)load' "$post"; then exit 1; fi
+          if grep -q 'dispatch_async' "$post"; then exit 1; fi
+
+          grep -q 'ZNFeatureMetadataEncodeEntry' iosruntimepatchmenu/src/ZNStaticMetadataPrivacy.mm
+          grep -q 'ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'ZN55DecodeEntryRVAs' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
+
+          grep -q 'return "0.5.4-ui-consolidated"' "$menu"
+          grep -q 'v0.5.4 current UI bootstrap active' "$menu"
+          grep -q 'self.subtitleLabel.text = @"0.5.4"' "$compact"
+          grep -q 'v0.5.4 feature UI installed' "$feature"
+          grep -q 'return @"开"' "$feature"
+          grep -q 'return @"关"' "$feature"
+          grep -q 'zn.f.%016llx.enabled' "$feature"
+
+      - name: Feature metadata codec tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/feature_metadata_codec_test.mm \
+            iosruntimepatchmenu/src/ZNFeatureMetadataCodec.mm \
+            -o /tmp/zn_feature_metadata_codec_test
+          /tmp/zn_feature_metadata_codec_test
+
+      - name: Static RVA protection tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/static_rva_protection_test.mm \
+            -o /tmp/zn_static_rva_protection_test
+          /tmp/zn_static_rva_protection_test
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-builder-consolidation
+          cp .theos/obj/ZonoePatchV03.dylib dist-builder-consolidation/ZonoPatch_v0.5.4_BuilderConsolidation_Test.dylib
+          shasum -a 256 dist-builder-consolidation/ZonoPatch_v0.5.4_BuilderConsolidation_Test.dylib | tee dist-builder-consolidation/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-builder-consolidation/ZonoPatch_v0.5.4_BuilderConsolidation_Test.dylib
+          file "$out"
+          nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep '_ZonoePatchGetVersion'
+          nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
+          nm -gU "$out" | grep '_ZonoePatchOtherAuthorized'
+          if nm -gU "$out" | grep -q 'ZNStaticBinaryBuilderV3BuildWorkspace'; then exit 1; fi
+          if nm -gU "$out" | grep -q 'ZNPostProcessGeneratedBinaryOutputs'; then exit 1; fi
+          if nm -gU "$out" | grep -q 'ZNFeatureMetadataEncodeEntry'; then exit 1; fi
+          if nm -gU "$out" | grep -q 'ZN55ProtectStaticRVAsAtPath'; then exit 1; fi
+
+          strings "$out" > /tmp/zonoe_v054_strings.txt
+          grep -q '0.5.4-ui-consolidated' /tmp/zonoe_v054_strings.txt
+          grep -q 'explicit-v0.5.4' /tmp/zonoe_v054_strings.txt
+          grep -q 'v0.5.4 使用显式构建流水线' /tmp/zonoe_v054_strings.txt
+          grep -q 'static-rva-protection-v1' /tmp/zonoe_v054_strings.txt
+          grep -q 'runtimeDecodesOnDemand' /tmp/zonoe_v054_strings.txt
+          if grep -q 'ZNOwnedSegmentsV3' /tmp/zonoe_v054_strings.txt; then exit 1; fi
+          if grep -q 'ZNGeneratedBinarySigningBridge' /tmp/zonoe_v054_strings.txt; then exit 1; fi
+          if grep -q 'Binary Builder V1 deliberately' /tmp/zonoe_v054_strings.txt; then exit 1; fi
+
+      - name: Commit consolidated builder source
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm \
+                  iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm \
+                  iosruntimepatchmenu/src/ZNPublicCompactUI.mm \
+                  iosruntimepatchmenu/src/ZNFeatureGroupUI.mm
+          if ! git diff --cached --quiet; then
+            git commit -m 'refactor(builder): remove load-order builder swizzles'
+            git push origin HEAD:feature/runtime-patch-menu-builder-consolidation
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.4-BuilderConsolidation-Test
+          path: |
+            iosruntimepatchmenu/dist-builder-consolidation/ZonoPatch_v0.5.4_BuilderConsolidation_Test.dylib
+            iosruntimepatchmenu/dist-builder-consolidation/SHA256.txt
+          if-no-files-found: error
