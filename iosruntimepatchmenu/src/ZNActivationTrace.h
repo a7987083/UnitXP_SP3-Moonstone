@@ -2,8 +2,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-FOUNDATION_EXPORT void ZNActivationTraceLog(NSString *message);
-FOUNDATION_EXPORT NSString *ZNActivationTraceLogPath(void);
-FOUNDATION_EXPORT double ZNActivationTraceNow(void);
+// v0.5.6.2 sealed build: activation tracing is compiled out.
+// Keep the timing helper because Static Dispatch diagnostics use it, but make
+// all trace/log calls and log-path references disappear at preprocessing time.
+#define ZNActivationTraceLog(...) do { } while (0)
+#define ZNActivationTraceLogPath() @""
+
+static inline double ZNActivationTraceNow(void) {
+    return CFAbsoluteTimeGetCurrent();
+}
 
 NS_ASSUME_NONNULL_END
