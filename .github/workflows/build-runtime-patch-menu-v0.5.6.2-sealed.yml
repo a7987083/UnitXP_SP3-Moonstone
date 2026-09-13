@@ -1,0 +1,142 @@
+name: Build Runtime Patch Menu v0.5.6.2 Sealed
+
+on:
+  push:
+    branches:
+      - release/runtime-patch-menu-v0.5.6.2-sealed
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sealed source assertions
+        run: |
+          set -euxo pipefail
+          src=iosruntimepatchmenu/src
+          makefile=iosruntimepatchmenu/Makefile
+
+          grep -q '#define ZNActivationTraceLog(...) do { } while (0)' "$src/ZNActivationTrace.h"
+          grep -q '#define ZNActivationTraceLogPath() @""' "$src/ZNActivationTrace.h"
+          test ! -e "$src/ZNActivationTrace.mm"
+          ! grep -q 'src/ZNActivationTrace.mm' "$makefile"
+          ! grep -R -q 'ZonoPatch-v0.5.6.2.log' "$src"
+          ! grep -R -q 'NSFileHandle.*activation' "$src" || false
+
+          grep -q 'gZNModuleRegistrationReplay' "$src/ZNPatchCore.mm"
+          grep -q 'imageNotificationScheduled' "$src/ZNPatchCore.mm"
+          grep -q 'zn44_scheduleRefreshAfter' "$src/ZNStaticDispatchRuntime.mm"
+          grep -q 'ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2' "$src/ZNStaticPatchFormat.h"
+          grep -q 'ZNStaticPayloadProtectionV2.h' "$src/ZNStaticBinaryBuilderV3.mm"
+          grep -q 'payload-v2+static-rva-protection-v1' "$src/ZNGeneratedBinaryPostprocess.mm"
+          grep -q 'zn.f.%016llx.enabled' "$src/ZNFeatureGroupUI.mm"
+
+          compiled="$(sed -n 's/^ZonoePatchV03_FILES = //p' "$makefile")"
+          ctor_hits=""
+          load_hits=""
+          for f in $compiled; do
+            if grep -n '__attribute__((constructor' "iosruntimepatchmenu/$f" >/tmp/zn_ctor_hits 2>/dev/null; then
+              ctor_hits="$ctor_hits\niosruntimepatchmenu/$f:$(cat /tmp/zn_ctor_hits)"
+            fi
+            if grep -nE '^[[:space:]]*\+[[:space:]]*\(void\)load[[:space:]]*\{' "iosruntimepatchmenu/$f" >/tmp/zn_load_hits 2>/dev/null; then
+              load_hits="$load_hits\niosruntimepatchmenu/$f:$(cat /tmp/zn_load_hits)"
+            fi
+          done
+          test "$(printf '%b\n' "$ctor_hits" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
+          printf '%b\n' "$ctor_hits" | grep 'ZNDeferredBootstrap.mm'
+          printf '%b\n' "$ctor_hits" | grep 'ZNDeferredColdLauncherBootstrap'
+          test -z "$(printf '%b' "$load_hits")"
+
+      - name: Protection V2 layout tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -Iiosruntimepatchmenu/src iosruntimepatchmenu/tests/static_payload_protection_v2_test.mm -o /tmp/zn_static_payload_protection_v2_test
+          /tmp/zn_static_payload_protection_v2_test
+
+      - name: Feature metadata codec tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src iosruntimepatchmenu/tests/feature_metadata_codec_test.mm iosruntimepatchmenu/src/ZNFeatureMetadataCodec.mm -o /tmp/zn_feature_metadata_codec_test
+          /tmp/zn_feature_metadata_codec_test
+
+      - name: Static RVA protection tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src iosruntimepatchmenu/tests/static_rva_protection_test.mm -o /tmp/zn_static_rva_protection_test
+          /tmp/zn_static_rva_protection_test
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v0562-sealed
+          cp .theos/obj/ZonoePatchV03.dylib dist-v0562-sealed/ZonoPatch_v0.5.6.2_Sealed.dylib
+          shasum -a 256 dist-v0562-sealed/ZonoPatch_v0.5.6.2_Sealed.dylib | tee dist-v0562-sealed/SHA256.txt
+
+      - name: Verify sealed binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-v0562-sealed/ZonoPatch_v0.5.6.2_Sealed.dylib
+          file "$out"
+          nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep '_ZonoePatchGetVersion'
+          nm -gU "$out" | grep '_ZonoePatchDeveloperAuthorized'
+          nm -gU "$out" | grep '_ZonoePatchOtherAuthorized'
+
+          strings "$out" > /tmp/zonoe_v0562_sealed_strings.txt
+          ! grep -q 'ZonoPatch-v0.5.6.2.log' /tmp/zonoe_v0562_sealed_strings.txt
+          ! grep -q 'activation trace start' /tmp/zonoe_v0562_sealed_strings.txt
+          grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v0562_sealed_strings.txt
+
+          python3 <<'PY'
+          import struct
+          p='iosruntimepatchmenu/dist-v0562-sealed/ZonoPatch_v0.5.6.2_Sealed.dylib'
+          data=open(p,'rb').read()
+          if struct.unpack_from('<I',data,0)[0] != 0xfeedfacf:
+              raise SystemExit('not thin arm64 Mach-O')
+          ncmds=struct.unpack_from('<I',data,16)[0]
+          off=32
+          init_size=None
+          for _ in range(ncmds):
+              cmd,cmdsize=struct.unpack_from('<II',data,off)
+              if cmd==0x19:
+                  nsects=struct.unpack_from('<I',data,off+64)[0]
+                  so=off+72
+                  for __ in range(nsects):
+                      sectname=data[so:so+16].split(b'\0',1)[0]
+                      if sectname==b'__init_offsets':
+                          init_size=struct.unpack_from('<Q',data,so+40)[0]
+                      so+=80
+              off+=cmdsize
+          print('init_offsets_size=',init_size)
+          if init_size != 4:
+              raise SystemExit(f'expected exactly one cold-launch constructor, got {init_size}')
+          PY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.6.2-Sealed
+          path: |
+            iosruntimepatchmenu/dist-v0562-sealed/ZonoPatch_v0.5.6.2_Sealed.dylib
+            iosruntimepatchmenu/dist-v0562-sealed/SHA256.txt
+          if-no-files-found: error
