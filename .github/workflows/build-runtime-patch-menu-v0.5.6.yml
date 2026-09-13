@@ -21,6 +21,7 @@ jobs:
         run: |
           set -euxo pipefail
           python3 iosruntimepatchmenu/tools/apply_v056_protection_v2.py
+          python3 iosruntimepatchmenu/tools/normalize_v056_protection_v2.py
 
       - name: Install dependencies
         run: |
@@ -52,6 +53,11 @@ jobs:
           grep -q 'protection_v2_validation.json' "$builder"
           grep -q 'direct ARM64 B' "$builder"
           if grep -q 'static BOOL ZNV3WriteVariant(' "$builder"; then exit 1; fi
+
+          # Report notes must be idempotent: exactly one copy each.
+          test "$(grep -c 'Protection V2 stores each relocated source instruction' "$builder")" = "1"
+          test "$(grep -c 'Protection V2 varies thunk live length and entry placement' "$builder")" = "1"
+          test "$(grep -c 'Original patch sites remain one direct ARM64 B' "$builder")" = "1"
 
           grep -q 'payloadProtectionV2' "$runtime"
           grep -q 'Payload V2' "$runtime"
