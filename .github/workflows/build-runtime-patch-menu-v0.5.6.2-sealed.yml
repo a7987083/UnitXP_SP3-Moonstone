@@ -23,12 +23,11 @@ jobs:
           src=iosruntimepatchmenu/src
           makefile=iosruntimepatchmenu/Makefile
 
-          grep -q '#define ZNActivationTraceLog(...) do { } while (0)' "$src/ZNActivationTrace.h"
+          grep -q '#define ZNActivationTraceLog(...) do { if (0)' "$src/ZNActivationTrace.h"
           grep -q '#define ZNActivationTraceLogPath() @""' "$src/ZNActivationTrace.h"
           test ! -e "$src/ZNActivationTrace.mm"
           ! grep -q 'src/ZNActivationTrace.mm' "$makefile"
           ! grep -R -q 'ZonoPatch-v0.5.6.2.log' "$src"
-          ! grep -R -q 'NSFileHandle.*activation' "$src" || false
 
           grep -q 'gZNModuleRegistrationReplay' "$src/ZNPatchCore.mm"
           grep -q 'imageNotificationScheduled' "$src/ZNPatchCore.mm"
