@@ -6,9 +6,8 @@
 // ZonoPatch v0.5.4 Builder Consolidation.
 //
 // There is exactly one public buildWorkspace implementation and its stage order
-// is explicit in source. No +load, method_exchangeImplementations, constructor
-// ordering, or main-queue delay is used to decide which builder/postprocessor
-// wins at runtime.
+// is explicit in source. Builder selection no longer depends on runtime swizzle
+// hooks, constructor ordering, or a delayed main-queue wrapper.
 @implementation ZNStaticBinaryBuilder
 
 + (BOOL)buildWorkspace:(ZNBinaryPatchWorkspace *)workspace
