@@ -1,88 +1,89 @@
 # ROADMAP
 
-## 当前阶段
+## Current stage
 
 - Project: ZonoPatch Runtime Patch Menu
-- Version: `0.5.7-dev`
-- Branch: `feature/runtime-patch-menu-v0.5.7-toggle-method-finder`
-- Stage: `ZONOE Toggle + Hybrid Low-Memory Method Finder`
-- Functional code head: `f678d1c1850503eef6926b324112e0782236f522`
-- CI-validated head: `3f7c2176304942f4adc24d2941b4b13310ca8af8`
-- Final CI run: `34805178354` — `success`
-- Artifact: `ZonoPatch-v0.5.7-NamedOffset-Test` / ID `10332369005`
-- Device validation: `PENDING`
+- Version: `0.5.8-dev`
+- Active branch: `feature/runtime-patch-menu-v0.5.8-method-finder-v3-m2`
+- Stage: `Method Finder V3 Milestone 2 — async wide search + persistent IL2CPP index`
+- M2 product source: `69b546edd0ed83a5699805951304aa3371a0bc30`
+- CI run: `34881764073` — `success`
+- Artifact ID: `10363436049`
+- M2 device validation: `PENDING`
 
-## 基线
+## Baselines
 
-- v0.5.6.2 sealed: `86edac4d70ef467e9a58912768b6c6c72077842a`
-- v0.5.7 Named Offset baseline: `8300cf41589bf8aa9a690152d4dab3dd6333073c`
-- 不直接修改 sealed release 分支；后续功能继续从当前开发线推进。
+- v0.5.6.2 sealed: `86edac4d70ef467e9a58912768b6c6c72077842a` — never modify directly.
+- v0.5.7 Named Offset baseline: `8300cf41589bf8aa9a690152d4dab3dd6333073c`.
+- V2 device-verified Method Finder/zero-vmaddr baseline: `4377d4a4c6e325e54299e3055346240f4963940f`.
+- V3 M1 product source: `ef98a090e1df5b69df3fbb86adb905008285d82c`.
+- V3 M1 device acceptance: PASS for the agreed candidate/detail/RVA/Builder paths.
 
-## 已完成 — 当前开发线
+## Completed — V3 Milestone 1
 
-### ZONOE Feature Toggle
+- Multiple candidate result list.
+- Qualified lookup and RVA reverse lookup.
+- Detail page with RVA / Preferred VA / Runtime VA / MethodInfo / Method Pointer.
+- First 16-byte code preview and copy controls.
+- Exact selected candidate -> Builder canonical expression bridge.
+- Known target `Cash::get_TotalCashReward/0` device-verified at RVA `0x2DA9E10`.
 
-- Feature 页由文字 `开/关/MIXED` 按钮改为自定义 `UIControl`。
-- ON：主题 accent 描边/轻微 glow、左侧 `✓`、右侧白色 knob。
-- OFF：深色半透明轨道、左侧 knob、无额外文字。
-- MIXED：居中 knob + 低干扰状态提示。
-- 保留原 `ZN50SetFeatureEnabled` transaction/rollback、Shared Site 行为与 `zn.f.%016llx.enabled` 持久化。
+## Implemented — V3 Milestone 2
 
-### Hybrid Low-Memory Method Finder
+- Bare-name wide search, case-insensitive.
+- Ranking: `exact > prefix > suffix > contains`.
+- Structured expressions remain exact.
+- RVA reverse remains exact.
+- Background search execution; UI thread is no longer responsible for full metadata scanning.
+- Cooperative Cancel support.
+- 12,000-class shard progress updates.
+- Full compact local IL2CPP index built on first broad search.
+- Index fingerprint: UnityFramework Mach-O UUID + file size.
+- Binary plist persistence with deduplicated Assembly/Namespace/Class/Method tables and fixed 32-byte records.
+- Persist only Assembly/Namespace/Class/Method/argCount/RVA; never persist launch-specific MethodInfo/Method Pointer/Runtime VA.
+- Subsequent broad searches use index first and re-resolve live runtime candidates.
+- Assembly-CSharp-first ordering preserved.
 
-- 新增 `ZNIL2CPPHybridFinder`，不建立全量方法索引。
-- 完整 Namespace/Class 优先直接定位；裸方法名/不完整限定使用 bounded streaming。
-- 方法名大小写不敏感但要求 exact match，例如 `gethp` 可匹配 `GetHP`。
-- Assembly-CSharp 优先。
-- 当前预算：最多 8 个候选、12,000 个类、750 ms。
-- 歧义不自动取第一个，要求用户进一步限定。
-- 地址输出：RVA、真实 Mach-O `__TEXT.vmaddr` 推导的 Preferred/IDA VA、Runtime VA、MethodInfo、Method Pointer。
-- Pointer 当前区分 `direct-api / direct-fallback / virtual-fallback`；仅 executable UnityFramework 地址可接受。
-- Named Offset 已切到 Hybrid Finder；最终仍进入原 Runtime Validator / Static Builder V3。
+## CI gate — M2 passed
 
-### Method Finder UI
-
-- 新增开发者菜单 `方法查找`。
-- 提供搜索、地址详情、复制信息、加入 Builder。
-- `加入 Builder` 只写入 symbolic expression + `UnityFramework` target，不自动填 Patch 字节、不绕过 `读取验证`。
-
-## CI Gate — 已通过
-
-Run `34805178354` 已完成：
+Run `34881764073`:
 
 - source assertions: PASS
-- Named Offset parser tests: PASS
-- Payload Protection V2 layout tests: PASS
-- Feature metadata codec tests: PASS
-- Static RVA Protection tests: PASS
-- Theos arm64 build/link/sign: PASS
+- Named Offset parser: PASS
+- static protection tests: PASS
+- Theos arm64 compile/link/sign: PASS
 - binary verify: PASS
-- exactly one constructor / no compiled ObjC `+load`: PASS
+- exported API symbols: PASS
+- M1 + M2 binary markers: PASS
+- `__init_offsets == 4`: PASS
 - artifact upload: PASS
 
-Final dylib SHA256:
-`2de69ca9215e3eebec8a9072d9060a74a6fbaed3523c85b7921f2fbf422c881e`
+Artifact:
 
-## 下一阶段 — Physical Device Acceptance
+- `ZonoPatch-v0.5.8-MethodFinder-V3-M2`
+- ID `10363436049`
+- ZIP SHA256 `f4cc5d6bdf1549cd0f35c7dd7341f355e1907c208bc8a6e4ae1ee7a694b9161e`
+- dylib SHA256 `77d1cd3fe30c403c5f5db35ee35fbce8fa4da5f62352be04474bbabe52f24784`
+
+## Next — M2 physical-device acceptance
 
 Status: `NEXT`
 
-必须在真实 IL2CPP 游戏上完成：
+1. First `cash` search: verify UI responsiveness and visible progress during index construction.
+2. Cancel one first-time index build and verify clean cancellation/no partial-index reuse.
+3. Complete a `cash` index build; inspect matches such as `get_TotalCashReward` and ranking order.
+4. Repeat `cash`; verify `m2-wide-index` / `index=hit` path and materially lower latency.
+5. Regress known target detail to RVA `0x2DA9E10`.
+6. Regress full qualified expression and exact RVA reverse lookup.
+7. Regress copy controls and Create Patch canonical handoff.
+8. Record first-build duration, second-search duration, class/method counts, index record count, and any thermal/memory symptom.
 
-1. 检查最终 Toggle 在 Full / Compact / 多主题下的尺寸、点击、ON/OFF/MIXED、长名称布局。
-2. 验证 Feature 持久化恢复、Shared Site、失败 rollback 的视觉与实际状态一致。
-3. 用已知方法测试 `gethp` / `GetMoney`，确认大小写不敏感 exact match；与已知数值 RVA 对比。
-4. 核对 RVA / Preferred(IDA) VA / Runtime VA / MethodInfo / Method Pointer。
-5. 连续搜索，观察耗时、内存和候选截断；验证超预算不会误报唯一结果。
-6. 验证同名重载/同名类歧义会被拒绝。
-7. 验证隐藏/缺失 IL2CPP API 时安全失败，不崩溃。
-8. Method Finder -> 加入 Builder -> 填入已知安全 Patch -> `读取验证` -> 临时应用/恢复 -> generated binary build。
+## After M2 device acceptance
 
-## Device Acceptance 之后
+- Clean Objective-C category dependency declarations and remove the temporary `-Wno-incomplete-implementation` suppression before sealing.
+- Decide whether binary plist performance is sufficient or move index to mmap/SQLite only if device evidence justifies it.
+- Add stale-index cache cleanup.
+- Improve generic / inflated / shared native-pointer classification.
+- Then proceed to IL2CPP signature/ABI metadata, Return Override, jailbreak Hook/Replace, call trace, and unified Runtime Modification management.
 
-- 根据真实游戏证据调整 8 / 12,000 / 750 ms 搜索预算。
-- 增加 generic / inflated 可靠识别；thunk 只在有确定证据时标记，不猜测。
-- 如 Runtime API 隐藏率高，再评估 `global-metadata.dat + UnityFramework` metadata-backed narrowing。
-- 补真实 generated `.znpatched` fixture/gate 和最终 IPA 重签回归。
-- 审计 `ZonoePatchGetVersion` 及旧 `0.5.5/0.5.6` 内部版本字符串的调用方后，再统一版本元数据。
-- 设备验收通过后再决定封为 `0.5.7.x` 还是下一功能版本。
+Do not start Hook/Replace work until M2 search/index behavior has device evidence and M1 regressions remain green.
