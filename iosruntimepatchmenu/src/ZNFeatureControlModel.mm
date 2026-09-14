@@ -11,6 +11,18 @@ static NSString *ZNFCTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
 
+static BOOL ZNFCValidControlType(ZNFeatureControlType type) {
+    switch (type) {
+        case ZNFeatureControlTypeSwitch:
+        case ZNFeatureControlTypeSlider:
+        case ZNFeatureControlTypeButton:
+        case ZNFeatureControlTypeNumber:
+            return YES;
+        default:
+            return NO;
+    }
+}
+
 static BOOL ZNFCFeatureMatches(ZNBinaryPatchRow *row, NSString *featureName) {
     NSString *wanted = ZNFCTrim(featureName);
     if (!wanted.length) return NO;
@@ -24,9 +36,9 @@ static BOOL ZNFCFeatureMatches(ZNBinaryPatchRow *row, NSString *featureName) {
 NSString *ZNFeatureControlTypeName(ZNFeatureControlType type) {
     switch (type) {
         case ZNFeatureControlTypeNumber: return @"数值";
-        case ZNFeatureControlTypeAction: return @"按钮";
+        case ZNFeatureControlTypeButton: return @"按钮";
         case ZNFeatureControlTypeSlider: return @"滑杆";
-        case ZNFeatureControlTypeToggle:
+        case ZNFeatureControlTypeSwitch:
         default: return @"开关";
     }
 }
@@ -35,16 +47,13 @@ NSString *ZNFeatureControlTypeName(ZNFeatureControlType type) {
 
 - (ZNFeatureControlType)featureControlType {
     NSNumber *value = objc_getAssociatedObject(self, kZNFeatureControlTypeKey);
-    if (!value) return ZNFeatureControlTypeToggle;
-    NSInteger raw = value.integerValue;
-    return (raw >= ZNFeatureControlTypeToggle && raw <= ZNFeatureControlTypeSlider)
-        ? (ZNFeatureControlType)raw : ZNFeatureControlTypeToggle;
+    if (!value) return ZNFeatureControlTypeSwitch;
+    ZNFeatureControlType type = (ZNFeatureControlType)value.integerValue;
+    return ZNFCValidControlType(type) ? type : ZNFeatureControlTypeSwitch;
 }
 
 - (void)setFeatureControlType:(ZNFeatureControlType)type {
-    if (type < ZNFeatureControlTypeToggle || type > ZNFeatureControlTypeSlider) {
-        type = ZNFeatureControlTypeToggle;
-    }
+    if (!ZNFCValidControlType(type)) type = ZNFeatureControlTypeSwitch;
     objc_setAssociatedObject(self, kZNFeatureControlTypeKey, @(type), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
@@ -56,7 +65,7 @@ NSString *ZNFeatureControlTypeName(ZNFeatureControlType type) {
     for (ZNBinaryPatchRow *row in self.rows) {
         if (ZNFCFeatureMatches(row, featureName)) return row.featureControlType;
     }
-    return ZNFeatureControlTypeToggle;
+    return ZNFeatureControlTypeSwitch;
 }
 
 - (BOOL)setControlType:(ZNFeatureControlType)type
@@ -66,7 +75,7 @@ NSString *ZNFeatureControlTypeName(ZNFeatureControlType type) {
         if (error) *error = @"当前状态不可修改控件类型，请先恢复 Runtime Patch 或等待生成结束";
         return NO;
     }
-    if (type < ZNFeatureControlTypeToggle || type > ZNFeatureControlTypeSlider) {
+    if (!ZNFCValidControlType(type)) {
         if (error) *error = @"控件类型无效";
         return NO;
     }
