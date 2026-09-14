@@ -6,6 +6,7 @@
 extern "C" void ZNInstallIL2CPPMethodFinderSearchV2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
+extern "C" void ZNInstallIL2CPPMethodFinderV3Deferred(void);
 
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
 // swizzles. Method Finder is a developer-authoring surface, so it follows the
@@ -24,10 +25,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
 @implementation ZNRuntimeMenuControllerV040 (ZNIL2CPPMethodFinderMenuBinding)
 
 - (NSArray<NSString *> *)zn57mfb_baseCategories {
-    // After swapping, this selector points at the Method Finder UI layer's
-    // previously installed category implementation. Preserve its result, then
-    // repair the visibility rule for devices that have developer `g` access
-    // but do not have the independent Other-category `q` access.
     NSArray<NSString *> *base = [self zn57mfb_baseCategories];
     if ([base containsObject:@"方法查找"] || ![ZNDeveloperGate sharedGate].authorized) return base;
 
@@ -43,8 +40,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
 }
 
 - (NSArray<NSString *> *)zn57mfb_baseSymbols {
-    // After swapping, this selector points at the previously installed symbol
-    // implementation. It intentionally gives us the pre-binding list.
     NSArray<NSString *> *base = [self zn57mfb_baseSymbols];
     NSArray<NSString *> *categories = [self zn40_baseCategories];
     if (base.count == categories.count) return base;
@@ -61,14 +56,9 @@ extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // Search V2 is backend-only and can be installed before touching menu UI.
-        // It adds no constructor/+load and therefore preserves the deferred
-        // activation lifecycle inherited from v0.5.6.2.
+        // Device-verified V2 resolver stays authoritative for Named Offset and
+        // single-result authoring. V3 must not silently alter that contract.
         ZNInstallIL2CPPMethodFinderSearchV2Deferred();
-
-        // V2.1 only intercepts the specific zero-__TEXT.vmaddr regression seen
-        // on real UnityFramework builds. It chains after V2, so all ordinary
-        // non-zero-vmaddr devices keep the V2 backend unchanged.
         ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
 
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
@@ -86,8 +76,9 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
             method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
         }
 
-        // UI V2 augments the already-installed v0.5.7 Finder renderer with
-        // per-address copy/help and clearer Patch-Builder semantics.
+        // Keep V2 compatibility helpers installed first, then let V3 own the
+        // visible Finder workflow: search -> candidates -> detail -> Builder.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
+        ZNInstallIL2CPPMethodFinderV3Deferred();
     });
 }
