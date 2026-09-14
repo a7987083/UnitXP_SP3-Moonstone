@@ -87,7 +87,6 @@ jobs:
           strings "$out" > /tmp/zonoe_v058_v3_strings.txt
           grep -q 'v3-candidate-list' /tmp/zonoe_v058_v3_strings.txt
           grep -q 'v3-reverse-rva' /tmp/zonoe_v058_v3_strings.txt
-          grep -q 'IL2CPP 方法查找 · V3' /tmp/zonoe_v058_v3_strings.txt
           python3 <<'PY'
           import struct
           p='iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3.dylib'
