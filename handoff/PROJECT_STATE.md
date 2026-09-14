@@ -1,79 +1,50 @@
 # PROJECT_STATE
 
-## 当前目标
+## 当前阶段
 
-恢复并理解该 Unity iOS 游戏的运行时配置、资源更新与 Lua 数据表链路；同时维护一个可注入的 `JSONCapture` dylib，在真机运行时自动抓取网络 JSON、解密 JSON、TextAsset、AssetBundle 请求、Lua loader 输入以及 Lua 5.3 bytecode。
+`JSONCapture` 真机抓取链路保持稳定基线；四个目标 Lua 5.3 静态数据表已完成离线确定性恢复。当前阶段已从 **Lua bytecode reconstruction** 切换到 **服务器权威 JSON 对比与最终落盘确认**。
 
-当前已经从“抓未知二进制”推进到“Lua 5.3 format=1 已完整解析”的阶段。
-
-## 已验证事实
-
-1. v0.1 的 AesHelper 解密 Hook 真机有效。
-2. v0.2 的 IL2CPP Hook 真机有效。
-3. v0.3 成功在 `tolua_loadbuffer` 抓到真正进入 Lua VM 的内容。
-4. v0.4.1 已成功把 VM-ready 输入交给 Lua53Analyzer。
-5. `TAB_Drop_1 / TAB_Monster_1 / TAB_Recharge_1 / TAB_MonsterEX_1` 四份 analysis 全部：
-   - `parse_ok = true`
-   - `trailing_bytes = 0`
-   - `profile = lua53-format1-official-layout`
-   - `opcode_out_of_range_0_46 = 0`
-6. 当前最强格式判断：Lua 5.3、`format=1`、official-layout、opcode 编号高度吻合标准 Lua 5.3。
-7. 四份目标 `.luac` 已上传到当前对话。
-8. 当前阻塞点：本地容器曾持续 `TransportTimeoutError`，因此尚未完成离线标准化、反编译和静态表重建。
-
-## 四个目标 bytecode
-
-### TAB_Drop_1
-- bytes: `124094`
-- SHA-256: `a3fe7f8952d3871252a2c3e8d00603e1965b21617eb81cc77378d14e192f3584`
-- instructions: `23925`
-- constants: `3145`
-- strings_unique: `8`
-
-### TAB_Monster_1
-- bytes: `495126`
-- SHA-256: `55d2f749f17b1657457fa474cadf422489b9d09dc4d09f512c75d5452a484008`
-- instructions: `104480`
-- constants: `8547`
-- strings_unique: `76`
-
-### TAB_Recharge_1
-- bytes: `66945`
-- SHA-256: `f4ba8c5f902e2e0886e04a1046d27886c886140fa9537a5189c6b94b6ef134bc`
-- instructions: `13201`
-- constants: `1381`
-- strings_unique: `307`
-
-### TAB_MonsterEX_1
-- bytes: `804140`
-- SHA-256: `1d2aa62a45f619da98c9759b0e6692a0adced0fd7b6e5ccb6e3863f1d627698b`
-- instructions: `175009`
-- constants: `11546`
-- strings_unique: `57`
-
-## Lua 5.3 结构
-
-四份 analysis 一致：
-
-- `header_bytes = 33`
-- `lua_version_byte = 83 (0x53)`
-- `luac_format = 1`
-- little-endian
-- `sizeof_int = 4`
-- `sizeof_size_t = 4`
-- `sizeof_instruction = 4`
-- `sizeof_lua_integer = 8`
-- `sizeof_lua_number = 8`
-- `root_upvalues = 1`
-
-出现 opcode：`1, 6, 8, 10, 11, 30, 34, 38, 43`。
-
-## 当前分支
+## 分支
 
 - repo: `a7987083/UnitXP_SP3-Moonstone`
-- 当前抓取器：`feature/json-capture-v0.4.1`
-- handoff 分支：`handoff/jsoncapture-20260915`
+- 真机抓取稳定基线：`feature/json-capture-v0.4.1`
+- handoff：`handoff/jsoncapture-20260915`
+- 当前工作分支：`feature/lua53-static-recovery-v0.1`
 
-## 用户固定发布要求
+## 已验证
 
-以后本项目所有发布包必须直接包含编译好的 `.dylib`，并在回复中明确 dylib 文件名、SHA-256、架构和下载包。
+1. v0.4.1 真机运行时抓取已验证，不需要重做 Hook。
+2. 四份目标均为 Lua 5.3 / format=1 / official-layout。
+3. 四份原始 chunk 均完整解析到 EOF，`trailing_bytes=0`。
+4. 离线恢复器仅执行静态表构造所需白名单 opcode；本批四表未遇到 unsupported opcode。
+5. 对副本仅修改 byte offset `0x05`：`LUAC_FORMAT 1 -> 0`；四份原始与标准化副本恢复出的 canonical semantic JSON 分别完全一致。
+6. 原始 `.luac` 均未修改。
+7. Recharge 与历史 307-row `Recharge.test_channel_21825.json` 交叉验证：295/307 在忽略 id 后完全一致；忽略 id/channel/des 后 307/307 业务字段一致；12 条差异为历史测试渠道数据。
+
+## 恢复结果
+
+| Table | Records | Instructions | Original SHA-256 |
+|---|---:|---:|---|
+| Recharge | 947 | 13201 | `f4ba8c5f902e2e0886e04a1046d27886c886140fa9537a5189c6b94b6ef134bc` |
+| Drop | 2001 | 23925 | `a3fe7f8952d3871252a2c3e8d00603e1965b21617eb81cc77378d14e192f3584` |
+| Monster | 2001 | 104480 | `55d2f749f17b1657457fa474cadf422489b9d09dc4d09f512c75d5452a484008` |
+| MonsterEX | 2001 | 175009 | `1d2aa62a45f619da98c9759b0e6692a0adced0fd7b6e5ccb6e3863f1d627698b` |
+
+恢复工具：`tools/lua53_static_recover.py`
+
+## 尚未验证
+
+当前环境没有 `lua5.3/luac5.3` 可执行文件，且容器外网 DNS 不可用，因此尚未用官方原生 loader 执行 `*.normalized-format0.luac`。这是附加验证项，不阻塞已经完成的静态表恢复和语义一致性验证。
+
+## Next Task
+
+从服务器恢复数据中找到权威：
+
+- `/home/ubuntu/runtime/json/{Recharge,Drop,Monster,MonsterEX}.json`
+- `/home/ubuntu/runtime/wjson/{Recharge,Drop,Monster,MonsterEX}.json`
+
+逐 id / 字段 diff 本次 recovered JSON，并继续核查 `Ios_json.txt`、`resource_json.txt`、`adv_gm.tt_update`、`adv_gm.gm_resource`，最终确定服务器应部署的版本。
+
+## 发布要求
+
+所有后续涉及 dylib 的正式发布包必须明确提供：编译产物文件名、SHA-256、架构、下载包，并区分“已编译 / 已运行 / 已真机验证 / 已回归验证”。
