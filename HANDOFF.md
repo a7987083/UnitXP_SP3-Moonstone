@@ -2,165 +2,185 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M2.2 Builder / Feature Controls / Stable Cancel UX**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M3.1 IL2CPP Signature / ABI + Return Override Foundation**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-m2.2-builder-feature-controls`
+- Active branch: `feature/runtime-patch-menu-v0.5.8-m3.1-il2cpp-abi-return-foundation`
 - Sealed predecessor: `86edac4d70ef467e9a58912768b6c6c72077842a` — do not modify
-- Device-verified V2 baseline: `4377d4a4c6e325e54299e3055346240f4963940f`
-- M1 product source: `ef98a090e1df5b69df3fbb86adb905008285d82c` — device verified
-- M2 product source: `69b546edd0ed83a5699805951304aa3371a0bc30`
-- M2.1 product source: `47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5`
-- M2.2 product source / CI validated / device-accepted runtime: `19b912c840e7223adbc2c26ef80185c32b8eb77a`
-- M2.2 CI run: `34893082122` — success
-- M2.2 artifact: `ZonoPatch-v0.5.8-MethodFinder-V3-M2.2`
-- Artifact ID: `10367337459`
-- Artifact ZIP SHA256: `4d632a38efb92a53ce492d07b6c6160f06193adffe37cdc3ca4c7d9e00bacaf5`
-- Dylib SHA256: `4a42a698af2bcc0926a28413b8f6099215db2a8899747139f1018b284ba40bae`
-- Dylib size: `784656` bytes
-- Validation: source assertions + parser/protection tests + Theos compile/link/sign + binary verification passed. User then tested the M2.2 build on the real device and reported: `目前没问题了。`
+- Device-accepted M2.2 runtime baseline: `19b912c840e7223adbc2c26ef80185c32b8eb77a`
+- M3.1 runtime product / CI validated source: `81a9cf9291bd95e300106e708e9dc492d74a778f`
+- CI run: `34898345483` — success
+- Artifact: `ZonoPatch-v0.5.8-M3.1-ABI-ReturnFoundation`
+- Artifact ID: `10369996035`
+- ZIP SHA256: `9938d7e7f061fd0d09e9690abdcdac616eb3af378bd99e5e2e5f4d242dd6c8ab`
+- Dylib SHA256: `00e3aa4e3d638ba184c51f2b31c7374a172a12796b831b8b8a04c3cd73340079`
+- Dylib size: `801376` bytes
+- Validation: source assertions + Named Offset parser + ABI classifier + static protection tests + Theos arm64 compile/link/sign + binary verification passed; **device validation pending**.
 
-Interpret that report as **M2.2 device accepted for the currently exercised build**, but do not overstate it as a separately itemized full regression pass: the user did not enumerate every acceptance step individually.
+Documentation commits after `81a9cf9...` do not change the delivered dylib. Always distinguish product source from later docs-only branch HEADs.
 
-Docs-only commits after product source do not change the built dylib. Always distinguish runtime product SHA `19b912c...` from later documentation branch HEADs.
+## Previous accepted baseline
 
-## Device-verified search baseline
+M2.2 was installed on the real target and the user reported `目前没问题了。` Treat `19b912c...` as the current device-accepted runtime baseline. The report was aggregate rather than an itemized full regression, so `full_regression_verified` remains false.
 
-Known target:
+Known Method Finder target:
 
 `Assembly-CSharp.dll!com.notdoppler.ETDR.Cash::get_TotalCashReward/0`
 
-Known RVA: `0x2DA9E10`.
+Known device-verified RVA: `0x2DA9E10`.
 
-M1 device-verified paths:
+Earlier proven behavior that M3.1 must not regress:
 
-- candidate-list search;
-- method detail/address display;
-- `0xRVA` reverse lookup;
-- full qualified lookup;
-- address/detail copy;
-- selected candidate -> Builder canonical expression.
+- V3 candidate list / detail / address-copy flow;
+- qualified lookup and `0xRVA` reverse lookup;
+- selected candidate -> Builder canonical expression;
+- broad bare-name matching `exact > prefix > suffix > contains`;
+- real-device broad query `cash`: first `423.1 ms`, second `147 ms`, later ~`150 ms`;
+- Feature/Patch delete and generic Toggle/Number/Action/Slider authoring from M2.2.
 
-M2 broad query `cash` real-device timings:
+## M3.1 implementation
 
-- first: `423.1 ms`
-- second: `147 ms`
-- later: approximately `150 ms`
+New files:
 
-Broad matching remains `exact > prefix > suffix > contains`; structured queries and RVA remain exact.
+- `iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.h`
+- `iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.mm`
+- `iosruntimepatchmenu/src/ZNIL2CPPABIDetailUI.mm`
+- `iosruntimepatchmenu/tests/il2cpp_abi_classifier_test.mm`
 
-## Why M2.2 exists
+Modified integration:
 
-M2.2 addressed three authoring/device issues:
+- `iosruntimepatchmenu/Makefile`
+- `iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm`
 
-1. Builder had `增加 Patch` but no per-Patch delete and no whole-Feature delete.
-2. Feature model needed generic controls, not hardcoded game functions.
-3. M2.1 Search/Cancel UX could flash because progress updates rebuilt the Method Finder page repeatedly.
+### Runtime metadata discovery
 
-## M2.2 deletion support
+M3.1 dynamically resolves IL2CPP exports from loaded UnityFramework / `RTLD_DEFAULT`, including when available:
 
-Files:
+- `il2cpp_method_get_return_type`
+- `il2cpp_method_get_param`
+- `il2cpp_method_get_param_count`
+- `il2cpp_method_get_param_name`
+- `il2cpp_method_is_generic`
+- `il2cpp_method_is_inflated`
+- `il2cpp_method_is_instance`
+- `il2cpp_type_get_name`
+- pointer/byref helpers
+- class-from-type / value-type / enum helpers
+- `il2cpp_free`
 
-- `src/ZNFeatureControlModel.h/.mm`
-- `src/ZNFeatureBuilderControlsV2.mm`
+The implementation fails closed when required signature exports are unavailable; it does not infer a safe hook ABI from the method name alone.
 
-Workspace provides guarded authoring operations:
+### ABI classes
 
-- `removeFeatureNamed:error:` — removes every Patch row in the logical Feature;
-- `removePatchAtGlobalIndex:error:` — removes only the selected Patch and renumbers ordinary `Patch #N` titles;
-- operations refuse while Runtime Patch is applied or a build is active.
+M3.1 describes:
 
-Expanded Feature authoring row:
+- void
+- bool / GPR32
+- signed <=32 / GPR32
+- unsigned <=32 / GPR32
+- signed64 / GPR64
+- unsigned64 / GPR64
+- float / FP32
+- double / FP64
+- raw pointer / GPR64
+- managed reference / GPR64
+- complex value type
+- unknown
 
-`＋ Patch | 类型 · <...> | 删除功能`
+Enums are reduced through the enum base type when the required IL2CPP APIs are present.
 
-Every visible Patch card gets its own `删除` button.
+### Conservative Return Override foundation
 
-The implementation decorates the existing Builder rather than replacing Offset/Enabled/validation/build behavior.
+`ZNIL2CPPBuildReturnOverridePlan(...)` validates and normalizes a future override value but **does not apply it**.
 
-## Generic Feature Control V2
+Automatic foundation readiness is limited to conservative scalar/raw-pointer returns and requires a valid Method Pointer. It blocks:
 
-Do not hardcode `Damage Multiplier`, `Defence Multiplier`, `God Mode`, or `Debug Menu` into the framework.
+- void;
+- byref returns;
+- managed object returns until GC/object-lifetime semantics are defined;
+- complex struct/value-type returns;
+- generic definitions;
+- inflated/shared generic methods;
+- unknown/unresolved ABI.
 
-M2.2 extends the project's existing `ZNFeatureControlType` while preserving historical numeric values:
+Generated plan explicitly says:
 
-- Switch / Toggle = 0
-- Slider = 1
-- Button / Action = 2
-- Number = 3
+- `foundationOnly = YES`
+- `applied = NO`
+- `requiresHookBackend = YES`
+- `backendState = pending-m3.2-hook-backend`
 
-The authoring selector exposes four semantic types:
+M3.1 installs **no Hook**, rewrites **no function entry**, and mutates **no target memory**.
 
-- 开关 / Toggle
-- 数值 / Number
-- 按钮 / Action
-- 滑杆 / Slider
+The hidden MethodInfo native argument is deliberately recorded as an expectation requiring backend validation, not as a universal ABI fact.
 
-Static ABI remains unchanged: `ZN44StaticEntry` stays 128 bytes. Control type is encoded in previously unused `entry.flags` bits 8..10. Legacy outputs have those bits zero and remain Toggle.
+## M3.1 detail UI
 
-Runtime generic surfaces:
+The existing V3 detail page is preserved and M3.1 appends an ABI card showing:
 
-- Toggle: existing Static Dispatch behavior.
-- Number: numeric text field, persistent value, emits `ZNFeatureNumberValueDidChangeNotification`.
-- Action: one-shot `执行` button, emits `ZNFeatureActionRequestedNotification` once per tap.
-- Slider: runtime slider, persistent value, emits `ZNFeatureSliderValueDidChangeNotification`.
+- managed signature;
+- return managed type + ABI kind;
+- instance/static state when available;
+- generic/inflated state;
+- parameter ABI summary;
+- `Return Override: Foundation Ready` or `Blocked` with reason;
+- `复制 ABI`.
 
-Important boundary: Number/Action/Slider are generic model + UI + event surfaces only in M2.2. They are **not yet bound to arbitrary IL2CPP Hook/Invoke semantics**. Later runtime backends should subscribe/bind to these generic events rather than special-casing game feature names.
+The UI explicitly states this build does not install a hook.
 
-## Stable Search -> Cancel fix
+## CI history / evidence
 
-File: `src/ZNIL2CPPMethodFinderM22StableCancelUX.mm`.
+First M3.1 run `34897881824` failed in the standalone ABI test compile because the new header used invalid `FOUNDATION_EXPORT nullable ...` syntax. It was fixed to pointer `_Nullable` at product source `81a9cf9...`.
 
-M2.2 behavior:
+Second run `34898021121`:
 
-- initial search gets one full render, allowing the primary action to enter Cancel state;
-- while the M2 token remains active and Method Finder is visible, progress updates modify the existing status label only;
-- the complete Method Finder page is not rebuilt on every shard/progress event;
-- completion/cancel/navigation performs a normal full render.
+- tests passed;
+- full Theos compile/link/sign passed;
+- verify stopped only on an unreliable Unicode `strings` assertion for the UI title.
 
-Goal: remove visible flashing without intentionally slowing search.
+No product-source change was made for that verifier issue. The workflow assertion was replaced with ASCII binary markers.
 
-## M2.2 CI evidence
-
-Run `34893082122` passed all steps:
+Final run `34898345483` passed:
 
 - source assertions;
 - Named Offset parser test;
-- Static Payload Protection V2 test;
+- IL2CPP ABI classifier test;
+- Static Payload Protection test;
 - Static RVA Protection test;
-- Theos arm64 build/link/sign;
-- binary marker verification;
+- Theos arm64 compile/link/sign;
+- API exports;
+- M1/M2/M3.1 ASCII binary markers;
 - one-constructor check (`__TEXT,__init_offsets == 4`);
 - artifact upload.
 
-First M2.2 build attempt `34892550447` failed at real clang compile because a new file accidentally redeclared the already-existing `ZNFeatureControlType` with a different underlying type. The error was fixed by extending/reusing the project's original enum instead of redefining it. Successful runtime product source: `19b912c...`.
+Independent artifact verification matched GitHub:
 
-Independent artifact verification:
-
-- ZIP SHA256: `4d632a38efb92a53ce492d07b6c6160f06193adffe37cdc3ca4c7d9e00bacaf5`
-- Dylib SHA256: `4a42a698af2bcc0926a28413b8f6099215db2a8899747139f1018b284ba40bae`
-- Dylib size: `784656`
+- ZIP SHA256 `9938d7e7f061fd0d09e9690abdcdac616eb3af378bd99e5e2e5f4d242dd6c8ab`
+- dylib SHA256 `00e3aa4e3d638ba184c51f2b31c7374a172a12796b831b8b8a04c3cd73340079`
+- size `801376`
 - thin arm64 Mach-O dylib
 - `__TEXT,__init_offsets` size `4`
-- markers present: `v3-candidate-list`, `m2-wide-index`, `ZNMethodFinderPrimaryCancel`, `ZNFeatureActionRequestedNotification`, `ZNFeatureNumberValueDidChangeNotification`.
-
-## M2.2 device acceptance
-
-After installing/testing the delivered M2.2 build, the user reported on 2026-09-15: `目前没问题了。`
-
-State to carry forward:
-
-- mark M2.2 runtime source `19b912c...` as the current **device-accepted baseline**;
-- do not claim every subtest was independently itemized, because the user gave an aggregate acceptance report rather than a per-step checklist;
-- `full_regression_verified` remains false until a future explicit full regression is performed;
-- do not modify or rewrite the M2.2 product history when starting the next milestone.
+- markers present: `v3-candidate-list`, `m2-wide-index`, `pending-m3.2-hook-backend`, `expected-by-generated-IL2CPP-code`, `signed64 / GPR64`, `il2cpp_method_get_return_type`.
 
 ## CI routing
 
-Feature-branch Actions registration previously produced synthetic `BuildFailed / startup_failure / 0 jobs` records. Working route is the workflow registered on `main` with checkout pinned to the exact feature source SHA. Do not confuse the `main` workflow commit with product source.
+Feature-branch Actions registration previously produced synthetic `BuildFailed / startup_failure / 0 jobs`. Continue using the workflow registered on `main` with checkout pinned to the exact feature source SHA. Do not confuse the main workflow commit with product source.
 
-## Next milestone
+## Next device acceptance
 
-M2.2 is accepted. Start the next milestone from runtime product `19b912c...` on a new branch rather than piling new runtime behavior onto the accepted branch.
+Install the M3.1 artifact and use the known target:
 
-Recommended next scope: bind the generic Number / Action / Slider controls to validated runtime backends, then continue toward the jailbreak IL2CPP debugger roadmap (Return Override / Inline Hook / Trace), while preserving the existing M2.2 Builder and Method Finder behavior.
+`Assembly-CSharp.dll!com.notdoppler.ETDR.Cash::get_TotalCashReward/0`
+
+Expected acceptance work is to **observe**, not assume:
+
+1. Confirm the normal M2.2 search/detail flow still works and RVA remains `0x2DA9E10`.
+2. Confirm a new `IL2CPP Signature / ABI · M3.1` card appears.
+3. Report the exact managed return type shown.
+4. Report `instance` vs `static`.
+5. Report `generic` / `inflated` values.
+6. Confirm parameter list/count.
+7. Report whether Return Override says `Foundation Ready` or `Blocked` and its exact reason.
+8. Test `复制 ABI`.
+
+Do not start M3.2 Hook/Return Override application until those runtime metadata values are confirmed on the real device.
