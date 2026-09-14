@@ -4,6 +4,7 @@
 
 - Branch: `feature/runtime-patch-menu-v0.5.8-method-finder-v3`
 - Parent device-verified V2 baseline: `4377d4a4c6e325e54299e3055346240f4963940f`
+- Current compiled V3 source commit: `ef98a090e1df5b69df3fbb86adb905008285d82c`
 - V2 bare-name search, qualified lookup, RVA reverse lookup, and zero-`__TEXT.vmaddr` compatibility are preserved.
 
 ## Milestone 1 scope
@@ -32,13 +33,41 @@ Not implemented yet:
 - call trace / argument / return logging;
 - unified Runtime Modification management page.
 
+## CI recovery and Milestone 1 build
+
+Feature-branch pushes had been routed to a synthetic GitHub Actions entry (`BuildFailed`, workflow id `358009564`) and failed with `startup_failure` before any job was created. A default-branch health workflow proved GitHub-hosted runners were healthy.
+
+The build is now performed through a workflow registered on `main` that checks out the exact V3 source commit. This avoids the broken feature-branch workflow registration without changing V3 product source semantics.
+
+Successful Milestone 1 build:
+
+- Source commit: `ef98a090e1df5b69df3fbb86adb905008285d82c`
+- Workflow: `Build Method Finder V3 via Main`
+- Run: `34878983443`
+- Result: success
+- Source assertions: success
+- Named Offset parser tests: success
+- Static protection tests: success
+- clang/Theos build/link/sign: success
+- Binary verification: success
+- Artifact upload: success
+- Artifact id: `10361858260`
+- Artifact name: `ZonoPatch-v0.5.8-MethodFinder-V3-M1`
+- Artifact archive digest: `sha256:a8726474677cc4f2b3caa583820806e10df1841c6b096621cb5c10cecfd4a92d`
+- Dylib: `ZonoPatch_v0.5.8_MethodFinderV3.dylib`
+- Dylib size: `717488` bytes
+- Dylib SHA256: `1b05fcd88ad2b80915bb5668442f8523604ad81567b2a16e78013f1781faad6e`
+- Mach-O: thin arm64 dynamic library
+- `__init_offsets` size: 4 bytes (one cold-launch constructor)
+- ASCII binary markers `v3-candidate-list` and `v3-reverse-rva`: present
+
+The earlier verification failure was a CI-script false negative caused by using the standard `strings` tool to assert a Chinese UTF-8 UI literal. The product binary had already compiled successfully. The fragile Unicode assertion was removed; product source was not changed for that issue.
+
 ## Validation boundary
 
-At this point Milestone 1 source is committed and statically reviewed, but it is not device-verified and has not yet received a successful post-V3 clang/Theos build.
+Milestone 1 is now **source-reviewed + CI-compiled + binary-verified**.
 
-Recent GitHub Actions pushes still return the synthetic `BuildFailed / startup_failure / 0 jobs` state before any runner is created, including a temporary minimal `ubuntu-latest + echo` probe. Therefore those runs are CI-dispatch failures and are not evidence of a source compile failure. The temporary probe has been removed from both `main` and the V3 feature branch after diagnosis.
-
-Do not publish a V3 dylib until a real job reaches the build step and binary verification succeeds.
+It is **not yet device-verified**. Do not mark v0.5.8 as sealed/release until the device acceptance checks below pass.
 
 ## Device acceptance target for Milestone 1
 
