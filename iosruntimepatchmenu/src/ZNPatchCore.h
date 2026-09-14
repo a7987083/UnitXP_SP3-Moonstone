@@ -16,11 +16,17 @@ typedef NS_ENUM(NSInteger, ZNPatchState) {
     ZNPatchStateConflict,
 };
 
+// Generic public Feature controls. Preserve the historical numeric values for
+// Switch/Slider/Button and append Number so existing descriptors stay ABI/
+// behavior compatible. M2.2 aliases Toggle/Action to the established names.
 typedef NS_ENUM(NSInteger, ZNFeatureControlType) {
     ZNFeatureControlTypeSwitch = 0,
-    ZNFeatureControlTypeSlider,
-    ZNFeatureControlTypeButton,
+    ZNFeatureControlTypeSlider = 1,
+    ZNFeatureControlTypeButton = 2,
+    ZNFeatureControlTypeNumber = 3,
 };
+#define ZNFeatureControlTypeToggle ZNFeatureControlTypeSwitch
+#define ZNFeatureControlTypeAction ZNFeatureControlTypeButton
 
 typedef NS_ENUM(NSInteger, ZNPatchActionType) {
     ZNPatchActionTypeBytes = 0,
@@ -88,17 +94,16 @@ typedef NS_ENUM(NSInteger, ZNPatchActionType) {
 - (void)setFeature:(NSString *)identifier enabled:(BOOL)enabled;
 - (double)valueForFeature:(NSString *)identifier fallback:(double)fallback;
 - (void)setFeature:(NSString *)identifier value:(double)value;
+@property(nonatomic,copy,readonly) NSArray<ZNPatchDescriptor *> *allDescriptors;
+@property(nonatomic,assign,readonly) NSUInteger actionCount;
+@property(nonatomic,copy,readonly) NSDictionary<NSString *, NSNumber *> *stateCounts;
 - (nullable ZNPatchDescriptor *)descriptorForIdentifier:(NSString *)identifier;
-- (NSArray<ZNPatchDescriptor *> *)allDescriptors;
-- (NSDictionary<NSString *, NSNumber *> *)stateCounts;
-- (NSUInteger)actionCount;
 - (void)refreshResolution;
-- (BOOL)runSelfTest;
 - (NSString *)diagnosticReport;
+- (BOOL)runSelfTest;
 @end
 
 FOUNDATION_EXPORT NSString *ZNStringForPatchState(ZNPatchState state);
-FOUNDATION_EXPORT NSString *ZNStringForActionType(ZNPatchActionType type);
 FOUNDATION_EXPORT NSString *ZNStringForControlType(ZNFeatureControlType type);
 
 NS_ASSUME_NONNULL_END
