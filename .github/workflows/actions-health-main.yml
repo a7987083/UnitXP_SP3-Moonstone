@@ -1,0 +1,14 @@
+name: Actions Health Main
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health
+        run: echo "actions-health-main-ok"
