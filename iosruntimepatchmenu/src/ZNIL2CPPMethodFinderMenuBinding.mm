@@ -10,6 +10,9 @@ extern "C" void ZNInstallIL2CPPMethodFinderV3Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM21CancelUXDeferred(void);
+extern "C" void ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(void);
+extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
+extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void);
 
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
 // swizzles. Method Finder is a developer-authoring surface, so it follows the
@@ -79,15 +82,19 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
             method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
         }
 
-        // Preserve the proven layering order: V2 compatibility first, M1 V3
-        // visible workflow second, candidate->Builder bridge third, then M2
-        // asynchronously wraps search/render behavior. M2.1 is a UI-only
-        // overlay installed last so it can convert the primary Search action
-        // into a visible Cancel action without changing M2 engine semantics.
+        // Preserve proven resolver/search layering, then install M2.2 UI-only
+        // overlays. No constructor/+load is added; all remain inside the
+        // deferred activation chain.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
         ZNInstallIL2CPPMethodFinderV3Deferred();
         ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
         ZNInstallIL2CPPMethodFinderM2Deferred();
         ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();
+        ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();
+
+        // Generic Feature model/editor/runtime controls are independent of the
+        // Method Finder backend but share this already-deferred install point.
+        ZNInstallFeatureBuilderControlsV2Deferred();
+        ZNInstallFeatureRuntimeControlsV2Deferred();
     });
 }
