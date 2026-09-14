@@ -1,0 +1,43 @@
+{
+  "project": "JSONCapture / Unity iOS runtime capture and server recovery",
+  "repo": "a7987083/UnitXP_SP3-Moonstone",
+  "current_capture_branch": "feature/json-capture-v0.4.1",
+  "handoff_branch": "handoff/jsoncapture-20260915",
+  "current_phase": "Lua 5.3 format-1 offline reconstruction",
+  "runtime_capture_status": "validated",
+  "container_status_last_known": "TransportTimeoutError",
+  "targets": {
+    "Drop": {
+      "file": "@src_datazb_TAB_Drop_1.lua_a3fe7f8952d3.luac",
+      "sha256": "a3fe7f8952d3871252a2c3e8d00603e1965b21617eb81cc77378d14e192f3584",
+      "bytes": 124094,
+      "parse_ok": true
+    },
+    "Monster": {
+      "file": "@src_datazb_TAB_Monster_1.lua_55d2f749f17b.luac",
+      "sha256": "55d2f749f17b1657457fa474cadf422489b9d09dc4d09f512c75d5452a484008",
+      "bytes": 495126,
+      "parse_ok": true
+    },
+    "Recharge": {
+      "file": "@src_datazb_TAB_Recharge_1.lua_f4ba8c5f902e.luac",
+      "sha256": "f4ba8c5f902e2e0886e04a1046d27886c886140fa9537a5189c6b94b6ef134bc",
+      "bytes": 66945,
+      "parse_ok": true
+    },
+    "MonsterEX": {
+      "file": "@src_datazb_TAB_MonsterEX_1.lua_1d2aa62a45f6.luac",
+      "sha256": "1d2aa62a45f619da98c9759b0e6692a0adced0fd7b6e5ccb6e3863f1d627698b",
+      "bytes": 804140,
+      "parse_ok": true
+    }
+  },
+  "next_action": [
+    "validate Lua 5.3 header",
+    "test format byte normalization 1->0 on copies",
+    "decode instructions/constants/protos",
+    "reconstruct static Lua tables",
+    "export lua/json"
+  ],
+  "release_requirement": "future packages must include compiled dylib with filename, SHA-256, architecture and download package"
+}
