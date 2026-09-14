@@ -4,7 +4,7 @@
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
   "phase": "method-finder-v3-m2.2-builder-feature-controls",
-  "phase_status": "m2.2-ci-binary-verified-device-pending",
+  "phase_status": "m2.2-device-accepted-user-reported-no-current-issues",
   "branch": "feature/runtime-patch-menu-v0.5.8-m2.2-builder-feature-controls",
   "runtime_code_head": "19b912c840e7223adbc2c26ef80185c32b8eb77a",
   "ci_validated_head": "19b912c840e7223adbc2c26ef80185c32b8eb77a",
@@ -13,7 +13,8 @@
     "method_finder_v2_device_verified": "4377d4a4c6e325e54299e3055346240f4963940f",
     "method_finder_v3_m1_product": "ef98a090e1df5b69df3fbb86adb905008285d82c",
     "method_finder_v3_m2_product": "69b546edd0ed83a5699805951304aa3371a0bc30",
-    "method_finder_v3_m2_1_product": "47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5"
+    "method_finder_v3_m2_1_product": "47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5",
+    "method_finder_v3_m2_2_device_accepted": "19b912c840e7223adbc2c26ef80185c32b8eb77a"
   },
   "m1_validation": {
     "device_verified": true,
@@ -50,6 +51,13 @@
     "game_specific_hook_binding": "not implemented in M2.2",
     "stable_cancel_fix": "first full render only; active progress updates status label without whole-page render"
   },
+  "m2_2_device_acceptance": {
+    "device_verified": true,
+    "user_report": "目前没问题了。",
+    "interpretation": "M2.2 was installed/tested on the real device and the user reported no current problem after the requested acceptance checks.",
+    "itemized_subtest_results_separately_reported": false,
+    "full_regression_verified": false
+  },
   "build": {
     "system": "Theos",
     "workflow": "Build Method Finder V3 via Main",
@@ -61,7 +69,7 @@
     "named_offset_parser_tests": true,
     "static_protection_tests": true,
     "binary_verified": true,
-    "device_verified": false,
+    "device_verified": true,
     "full_regression_verified": false,
     "constructor_count": 1
   },
@@ -94,7 +102,7 @@
     "repeat indexed search still re-resolves current-launch MethodInfo/Method Pointer",
     "feature-branch GitHub Actions registration still uses the main-registered exact-SHA workflow workaround"
   ],
-  "next_phase": "m2.2-physical-device-acceptance",
-  "next_task": "Install M2.2 and verify Feature delete, individual Patch delete, four generic control types, stable Search-to-Cancel UX without flashing, plus M1/M2 search regression.",
+  "next_phase": "ready-for-next-milestone",
+  "next_task": "Keep M2.2 runtime source 19b912c as the device-accepted baseline. The next milestone may bind the generic Number/Action/Slider controls to validated runtime Hook/Invoke backends without changing M2.2 history.",
   "captured_at": "2026-09-15"
 }
