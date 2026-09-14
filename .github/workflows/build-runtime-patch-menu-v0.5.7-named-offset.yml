@@ -142,7 +142,7 @@ jobs:
           strings "$out" > /tmp/zonoe_v057_named_strings.txt
           ! grep -q 'ZonoPatch-v0.5.6.2.log' /tmp/zonoe_v057_named_strings.txt
           grep -q 'Assembly-CSharp-first' /tmp/zonoe_v057_named_strings.txt
-          grep -q '方法查找' /tmp/zonoe_v057_named_strings.txt
+          grep -q 'bounded search -> detail -> Builder' /tmp/zonoe_v057_named_strings.txt
           grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v057_named_strings.txt
 
           python3 <<'PY'
