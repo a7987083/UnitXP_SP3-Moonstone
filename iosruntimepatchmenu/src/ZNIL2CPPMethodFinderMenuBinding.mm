@@ -4,6 +4,7 @@
 #import "ZNDeveloperGate.h"
 
 extern "C" void ZNInstallIL2CPPMethodFinderSearchV2Deferred(void);
+extern "C" void ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
 
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
@@ -64,6 +65,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         // It adds no constructor/+load and therefore preserves the deferred
         // activation lifecycle inherited from v0.5.6.2.
         ZNInstallIL2CPPMethodFinderSearchV2Deferred();
+
+        // V2.1 only intercepts the specific zero-__TEXT.vmaddr regression seen
+        // on real UnityFramework builds. It chains after V2, so all ordinary
+        // non-zero-vmaddr devices keep the V2 backend unchanged.
+        ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
 
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
