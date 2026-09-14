@@ -35,6 +35,8 @@ jobs:
           # Named Offset / Hybrid Method Finder must be explicit, deferred, and compiled.
           grep -q 'src/ZNIL2CPPHybridFinder.mm' "$makefile"
           grep -q 'src/ZNIL2CPPNamedOffsetWorkspace.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderUI.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderMenuBinding.mm' "$makefile"
           grep -q 'resolveNamedOffsetExpression' "$src/ZNIL2CPPResolver.h"
           grep -q 'kZN57FinderMaxClasses' "$src/ZNIL2CPPHybridFinder.mm"
           grep -q 'kZN57FinderTimeBudgetSeconds' "$src/ZNIL2CPPHybridFinder.mm"
@@ -43,6 +45,12 @@ jobs:
           grep -q 'preferredTextVMAddr' "$src/ZNIL2CPPHybridFinder.mm"
           grep -q 'virtual-fallback' "$src/ZNIL2CPPHybridFinder.mm"
           grep -q 'resolveExpression:offset' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderUIDeferred' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderMenuBindingDeferred' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
+          grep -q '方法查找' "$src/ZNIL2CPPMethodFinderUI.mm"
+          grep -q '加入 Builder' "$src/ZNIL2CPPMethodFinderUI.mm"
+          grep -q 'Preferred / IDA' "$src/ZNIL2CPPMethodFinderUI.mm"
+          grep -q 'magnifyingglass' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
           grep -q 'ZNInstallIL2CPPNamedOffsetWorkspaceDeferred' "$src/ZNDeferredBootstrap.mm"
           grep -q 'row.target = @"UnityFramework"' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
           grep -q 'static dispatch_once_t onceToken' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
@@ -134,6 +142,7 @@ jobs:
           strings "$out" > /tmp/zonoe_v057_named_strings.txt
           ! grep -q 'ZonoPatch-v0.5.6.2.log' /tmp/zonoe_v057_named_strings.txt
           grep -q 'Assembly-CSharp-first' /tmp/zonoe_v057_named_strings.txt
+          grep -q '方法查找' /tmp/zonoe_v057_named_strings.txt
           grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v057_named_strings.txt
 
           python3 <<'PY'
