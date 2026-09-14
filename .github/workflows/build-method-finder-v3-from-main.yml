@@ -104,7 +104,8 @@ jobs:
           grep -q 'v3-candidate-list' /tmp/zonoe_m31_strings.txt
           grep -q 'm2-wide-index' /tmp/zonoe_m31_strings.txt
           grep -q 'pending-m3.2-hook-backend' /tmp/zonoe_m31_strings.txt
-          grep -q 'IL2CPP Signature / ABI' /tmp/zonoe_m31_strings.txt
+          grep -q 'expected-by-generated-IL2CPP-code' /tmp/zonoe_m31_strings.txt
+          grep -q 'signed64 / GPR64' /tmp/zonoe_m31_strings.txt
           grep -q 'il2cpp_method_get_return_type' /tmp/zonoe_m31_strings.txt
           python3 <<'PY'
           import struct
