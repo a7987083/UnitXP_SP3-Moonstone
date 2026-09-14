@@ -1,0 +1,61 @@
+name: Build JSONCapture Conversation Handoff
+
+on:
+  push:
+    branches:
+      - handoff/jsoncapture-20260915
+    paths:
+      - '.github/workflows/build-jsoncapture-handoff-20260915.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build dylib
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          cp .theos/obj/JSONCapture.dylib dist/JSONCapture_v0.4.1_HFAMap187.dylib
+          shasum -a 256 dist/JSONCapture_v0.4.1_HFAMap187.dylib > dist/SHA256.txt
+          file dist/JSONCapture_v0.4.1_HFAMap187.dylib > dist/DYLIB_INFO.txt
+
+      - name: Build handoff ZIP
+        run: |
+          set -euxo pipefail
+          rm -rf handoff_package
+          mkdir -p handoff_package/source
+          cp -R handoff/* handoff_package/
+          cp jsoncapture/Makefile handoff_package/source/
+          cp jsoncapture/README.md handoff_package/source/ || true
+          cp -R jsoncapture/src handoff_package/source/
+          cp jsoncapture/dist/JSONCapture_v0.4.1_HFAMap187.dylib handoff_package/
+          cp jsoncapture/dist/SHA256.txt handoff_package/
+          cp jsoncapture/dist/DYLIB_INFO.txt handoff_package/
+          printf '%s\n' 'handoff/jsoncapture-20260915' > handoff_package/BRANCH.txt
+          git rev-parse HEAD > handoff_package/HANDOFF_HEAD.txt
+          ditto -c -k --sequesterRsrc --keepParent handoff_package JSONCapture_conversation_handoff_2026-09-15.zip
+          shasum -a 256 JSONCapture_conversation_handoff_2026-09-15.zip | tee JSONCapture_conversation_handoff_2026-09-15.zip.sha256
+
+      - name: Upload handoff package
+        uses: actions/upload-artifact@v4
+        with:
+          name: JSONCapture-conversation-handoff-2026-09-15
+          path: |
+            JSONCapture_conversation_handoff_2026-09-15.zip
+            JSONCapture_conversation_handoff_2026-09-15.zip.sha256
+          if-no-files-found: error
