@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/runtime-patch-menu-il2cpp-named-offset-resolver-v1
+      - feature/runtime-patch-menu-v0.5.7-toggle-method-finder
   workflow_dispatch:
 
 jobs:
@@ -41,11 +42,18 @@ jobs:
           grep -q 'row.target = @"UnityFramework"' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
           grep -q 'static dispatch_once_t onceToken' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
 
+          # Public feature surface keeps the existing transaction semantics but
+          # renders the agreed ZONOE-styled custom toggle instead of text buttons.
+          grep -q 'ZN50FeatureToggleControl' "$src/ZNFeatureGroupUI.mm"
+          grep -q 'ZN50FeatureVisualStateMixed' "$src/ZNFeatureGroupUI.mm"
+          grep -q 'UIControlEventTouchUpInside' "$src/ZNFeatureGroupUI.mm"
+          grep -q 'zn.f.%016llx.enabled' "$src/ZNFeatureGroupUI.mm"
+          grep -q 'toggle rollback' "$src/ZNFeatureGroupUI.mm"
+
           # Preserve sealed Static Builder/Protection invariants.
           grep -q 'ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2' "$src/ZNStaticPatchFormat.h"
           grep -q 'ZNStaticPayloadProtectionV2.h' "$src/ZNStaticBinaryBuilderV3.mm"
           grep -q 'payload-v2+static-rva-protection-v1' "$src/ZNGeneratedBinaryPostprocess.mm"
-          grep -q 'zn.f.%016llx.enabled' "$src/ZNFeatureGroupUI.mm"
 
           compiled="$(sed -n 's/^ZonoePatchV03_FILES = //p' "$makefile")"
           ctor_hits=""
