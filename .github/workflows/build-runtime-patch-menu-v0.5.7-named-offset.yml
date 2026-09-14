@@ -5,6 +5,7 @@ on:
     branches:
       - feature/runtime-patch-menu-il2cpp-named-offset-resolver-v1
       - feature/runtime-patch-menu-v0.5.7-toggle-method-finder
+      - feature/runtime-patch-menu-v0.5.7-method-finder-v2
   workflow_dispatch:
 
 jobs:
@@ -37,6 +38,8 @@ jobs:
           grep -q 'src/ZNIL2CPPNamedOffsetWorkspace.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderUI.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderMenuBinding.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderSearchV2.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderUXV2.mm' "$makefile"
           grep -q 'resolveNamedOffsetExpression' "$src/ZNIL2CPPResolver.h"
           grep -q 'kZN57FinderMaxClasses' "$src/ZNIL2CPPHybridFinder.mm"
           grep -q 'kZN57FinderTimeBudgetSeconds' "$src/ZNIL2CPPHybridFinder.mm"
@@ -44,6 +47,14 @@ jobs:
           grep -q 'caseInsensitiveCompare' "$src/ZNIL2CPPHybridFinder.mm"
           grep -q 'preferredTextVMAddr' "$src/ZNIL2CPPHybridFinder.mm"
           grep -q 'virtual-fallback' "$src/ZNIL2CPPHybridFinder.mm"
+          grep -q 'kZN58FinderShardClasses = 12000' "$src/ZNIL2CPPMethodFinderSearchV2.mm"
+          grep -q 'sharded-stream' "$src/ZNIL2CPPMethodFinderSearchV2.mm"
+          grep -q 'reverse-rva' "$src/ZNIL2CPPMethodFinderSearchV2.mm"
+          grep -q '没有重扫前 12000 类' "$src/ZNIL2CPPMethodFinderSearchV2.mm"
+          grep -q '这些地址分别做什么' "$src/ZNIL2CPPMethodFinderUXV2.mm"
+          grep -q '创建 Patch 是什么' "$src/ZNIL2CPPMethodFinderUXV2.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderSearchV2Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderUXV2Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
           grep -q 'resolveExpression:offset' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderUIDeferred' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderMenuBindingDeferred' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
@@ -143,6 +154,8 @@ jobs:
           ! grep -q 'ZonoPatch-v0.5.6.2.log' /tmp/zonoe_v057_named_strings.txt
           grep -q 'Assembly-CSharp-first' /tmp/zonoe_v057_named_strings.txt
           grep -q 'bounded search -> detail -> Builder' /tmp/zonoe_v057_named_strings.txt
+          grep -q 'sharded-stream' /tmp/zonoe_v057_named_strings.txt
+          grep -q 'reverse-rva' /tmp/zonoe_v057_named_strings.txt
           grep -q 'payload-v2+static-rva-protection-v1' /tmp/zonoe_v057_named_strings.txt
 
           python3 <<'PY'
