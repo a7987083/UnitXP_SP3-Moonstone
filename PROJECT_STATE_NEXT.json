@@ -1,0 +1,74 @@
+{
+  "schema_version": 2,
+  "project": "ZonoPatch Runtime Patch Menu",
+  "repository": "a7987083/UnitXP_SP3-Moonstone",
+  "version": "0.5.7-dev",
+  "phase": "toggle-hybrid-method-finder",
+  "phase_status": "ci-validated-device-pending",
+  "branch": "feature/runtime-patch-menu-v0.5.7-toggle-method-finder",
+  "runtime_code_head": "f678d1c1850503eef6926b324112e0782236f522",
+  "ci_validated_head": "3f7c2176304942f4adc24d2941b4b13310ca8af8",
+  "baseline": {
+    "sealed_v0_5_6_2": "86edac4d70ef467e9a58912768b6c6c72077842a",
+    "named_offset_v0_5_7": "8300cf41589bf8aa9a690152d4dab3dd6333073c"
+  },
+  "build": {
+    "system": "Theos",
+    "workflow": "Build Runtime Patch Menu v0.5.7 Named Offset",
+    "workflow_file": ".github/workflows/build-runtime-patch-menu-v0.5.7-named-offset.yml",
+    "run_id": 34805178354,
+    "result": "success",
+    "compiled": true,
+    "named_offset_parser_tests": true,
+    "payload_protection_v2_tests": true,
+    "feature_metadata_codec_tests": true,
+    "static_rva_protection_tests": true,
+    "binary_verified": true,
+    "device_verified": false,
+    "full_regression_verified": false
+  },
+  "artifact": {
+    "name": "ZonoPatch-v0.5.7-NamedOffset-Test",
+    "id": 10332369005,
+    "archive_digest": "sha256:10871aa93e276ba1b73dd568d3208b2ea957dd3120e99d9e453dc2fa8b234df3",
+    "dylib_name": "ZonoPatch_v0.5.7_NamedOffset.dylib",
+    "dylib_sha256": "2de69ca9215e3eebec8a9072d9060a74a6fbaed3523c85b7921f2fbf422c881e"
+  },
+  "runtime": {
+    "feature_toggle": {
+      "implementation": "custom UIControl",
+      "on": "theme accent outline/glow + checkmark left + knob right",
+      "off": "dark translucent track + knob left",
+      "mixed": "centered knob + understated accent indicator",
+      "transaction_semantics": "existing ZN50SetFeatureEnabled with rollback preserved",
+      "preference_format": "zn.f.%016llx.enabled"
+    },
+    "method_finder": {
+      "implementation": "ZNIL2CPPHybridFinder",
+      "global_index": false,
+      "matching": "case-insensitive exact",
+      "assembly_priority": "Assembly-CSharp-first",
+      "max_candidates": 8,
+      "max_classes": 12000,
+      "time_budget_ms": 750,
+      "address_model": ["RVA", "Preferred/IDA VA from Mach-O __TEXT.vmaddr", "Runtime VA", "MethodInfo", "Method Pointer"],
+      "pointer_kinds": ["direct-api", "direct-fallback", "virtual-fallback"],
+      "generic_inflated_thunk_classification": "pending",
+      "builder_integration_bypasses_validator": false
+    },
+    "full_deferred_bootstrap": true,
+    "compiled_constructor_count": 1,
+    "compiled_objc_load_count": 0,
+    "protected_static_rva_fields": ["siteRVA", "offRVA", "onRVA"],
+    "payload_protection_v2": true,
+    "final_ipa_resign_required": true
+  },
+  "known_state_drift": {
+    "exported_version_string": "0.5.6-ui-consolidated",
+    "legacy_internal_labels": ["0.5.5", "0.5.6"],
+    "policy": "audit callers/consumers before changing version strings"
+  },
+  "next_phase": "physical-device-acceptance",
+  "next_task": "Install the final CI artifact on a real IL2CPP target. Validate the custom toggle in Full/Compact/themes including persistence/MIXED/rollback, resolve a known method such as gethp/GetMoney and compare RVA/Preferred VA/Runtime VA, repeat searches for memory stability, verify ambiguity/hidden-API failure behavior, then use Method Finder -> Builder with known-safe Patch bytes through 读取验证 -> apply/restore.",
+  "captured_at": "2026-09-14"
+}
