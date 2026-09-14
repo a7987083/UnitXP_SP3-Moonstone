@@ -4,7 +4,7 @@
 // V3 candidate -> Builder bridge.
 // The legacy Builder helper writes its current query into row.offsetText.
 // For a multi-candidate search that query may be intentionally ambiguous
-// (for example "gethp").  Preserve the user's search text in the Finder UI,
+// (for example "gethp"). Preserve the user's search text in the Finder UI,
 // but feed the selected candidate's canonical expression to Builder so the
 // exact candidate remains selected through Runtime Validator.
 
@@ -14,6 +14,9 @@
 - (void)zn57mf_setQuery:(NSString *)value;
 - (void)zn57mf_setResult:(NSDictionary *)value;
 - (void)zn60v3_createPatch:(id)sender;
+@end
+
+@interface ZNRuntimeMenuControllerV040 (ZNIL2CPPMethodFinderPatchBridgeV3)
 - (void)zn61v3_createPatch:(id)sender;
 @end
 
