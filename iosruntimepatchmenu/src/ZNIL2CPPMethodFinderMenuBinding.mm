@@ -3,6 +3,9 @@
 
 #import "ZNDeveloperGate.h"
 
+extern "C" void ZNInstallIL2CPPMethodFinderSearchV2Deferred(void);
+extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
+
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
 // swizzles. Method Finder is a developer-authoring surface, so it follows the
 // developer `g` authorization and must not depend on the independent `q`
@@ -57,6 +60,11 @@
 extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        // Search V2 is backend-only and can be installed before touching menu UI.
+        // It adds no constructor/+load and therefore preserves the deferred
+        // activation lifecycle inherited from v0.5.6.2.
+        ZNInstallIL2CPPMethodFinderSearchV2Deferred();
+
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
 
@@ -71,5 +79,9 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         if (symbolsOriginal && symbolsReplacement) {
             method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
         }
+
+        // UI V2 augments the already-installed v0.5.7 Finder renderer with
+        // per-address copy/help and clearer Patch-Builder semantics.
+        ZNInstallIL2CPPMethodFinderUXV2Deferred();
     });
 }
