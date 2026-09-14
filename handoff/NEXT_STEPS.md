@@ -1,41 +1,44 @@
 # NEXT_STEPS
 
-## P0：恢复四个静态数据表
+## P0：恢复四个静态数据表 — DONE
 
-已有文件：
+已完成确定性离线恢复：
 
-- `@src_datazb_TAB_Drop_1.lua_a3fe7f8952d3.luac`
-- `@src_datazb_TAB_Monster_1.lua_55d2f749f17b.luac`
-- `@src_datazb_TAB_Recharge_1.lua_f4ba8c5f902e.luac`
-- `@src_datazb_TAB_MonsterEX_1.lua_1d2aa62a45f6.luac`
+| Table | Records | Instructions | Status |
+|---|---:|---:|---|
+| Recharge | 947 | 13201 | recovered |
+| Drop | 2001 | 23925 | recovered |
+| Monster | 2001 | 104480 | recovered |
+| MonsterEX | 2001 | 175009 | recovered |
 
-执行顺序：
+共同验证：
 
-1. 读取并确认 33-byte Lua 5.3 header。
-2. 对副本测试 `LUAC_FORMAT 1 -> 0`。
-3. 重新解析完整 Proto / Code / Constants / Upvalues / child protos。
-4. 按 Lua 5.3 标准解码 A/B/C/Bx/Ax/sBx。
-5. 验证 `LOADK / NEWTABLE / SETTABLE / SETLIST / RETURN` 等语义。
-6. 重建静态 table。
-7. 输出 `.lua`。
-8. 再序列化为 `.json`。
-9. 后续与服务器恢复出的旧 `Recharge.json / Monster.json / MonsterEX.json / Drop.json` 对比。
+- Lua 5.3 official-layout；原始 `LUAC_FORMAT=1`。
+- 原始 chunk 全部解析到 EOF，`trailing_bytes=0`。
+- 静态恢复执行无 unsupported opcode。
+- format-0 副本只修改 zero-based offset `5`。
+- 原始 format-1 与 format-0 副本恢复后的 canonical semantic JSON 完全一致。
+- 原始 `.luac` 保持不变。
 
-## P1：确认 format=1 的本质
+工具：`tools/lua53_static_recover.py`
 
-当前证据：chunk layout 是标准 Lua 5.3 official-layout，opcode 编号也高度吻合标准 Lua 5.3。下一步只需通过副本验证标准 Lua 5.3 loader / parser 是否在仅修改 format byte 后完整接受。
+## P1：服务器权威文件对比 — NEXT
 
-## P2：服务器恢复继续排查
+拿到服务器恢复出的旧文件后：
 
-重点路径：
+1. 检查 `/home/ubuntu/runtime/json` 与 `/home/ubuntu/runtime/wjson`。
+2. 定位 `Recharge.json / Drop.json / Monster.json / MonsterEX.json`。
+3. 对 recovered JSON 做按 `id`、字段、记录增删的结构化 diff。
+4. 把渠道/运营人工修改与客户端静态表版本变化分开。
+5. 确认最终应部署到服务器的权威版本，并生成可审计 diff。
+6. 再检查：
+   - `/home/ubuntu/runtime/www/def/Ios_json.txt`
+   - `/home/ubuntu/runtime/www/master/GM/tmp_process/resource_json.txt`
+   - `adv_gm.tt_update`
+   - `adv_gm.gm_resource`
 
-- `/home/ubuntu/runtime/json`
-- `/home/ubuntu/runtime/wjson`
-- `/home/ubuntu/runtime/www/def/Ios_json.txt`
-- `/home/ubuntu/runtime/www/master/GM/tmp_process/resource_json.txt`
-- `adv_gm.tt_update`
-- `adv_gm.gm_resource`
+## P2：原生 Lua 5.3 loader 验证 — OPTIONAL
 
-## 当前阻塞
+官方 Lua 5.3 loader 会校验 `LUAC_FORMAT`。当前容器没有 `lua5.3/luac5.3` 可执行文件且外网 DNS 不可用，因此尚未执行原生 loader 测试。
 
-本地 container 最近持续 `TransportTimeoutError`。容器恢复后无需重新上传四份 `.luac`，直接继续。
+这不阻塞已完成的数据恢复；若之后有 Lua 5.3 环境，只需对 `*.normalized-format0.luac` 执行原生加载/`luac -l` 作为额外一致性验证。
