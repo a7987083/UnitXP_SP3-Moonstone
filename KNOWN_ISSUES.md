@@ -63,3 +63,43 @@ Severity: `MEDIUM`
 Status: `OPEN / RELEASE REQUIREMENT`
 
 Generated binary 会在 ZNF1 + RVA Protection 后重建并校验 CodeDirectory，但替换回 IPA 后仍必须正常整包重签并验证安装/启动。
+
+## KI-008 — Method Finder M2 首次完整索引成本尚未实机量化
+
+Severity: `MEDIUM`
+
+Status: `OPEN / DEVICE VALIDATION`
+
+M2 首次宽泛搜索会在后台枚举 IL2CPP classes/methods，并为每个 method 尝试得到可验证 native pointer/RVA，再写入紧凑索引。UI 线程不会执行完整扫描，并支持取消，但真实游戏上的总耗时、峰值内存和热量影响尚无设备数据。
+
+下一步：真实设备第一次搜索 `cash`，记录 classes/methods/records、完成时间、取消响应和游戏帧率/交互表现；完成后再次搜索同词对比 index-hit 延迟。
+
+## KI-009 — Method Finder M2 索引缓存缺少主动垃圾回收
+
+Severity: `LOW`
+
+Status: `OPEN / CLEANUP`
+
+索引绑定 UnityFramework UUID + file size，因此游戏更新后旧索引不会被错误复用；但旧 fingerprint 的 binary plist 暂时不会被 ZonoPatch 主动删除，只能等待系统清理 Cache。
+
+下一步：M2 实机稳定后增加按 fingerprint/版本保留策略和大小上限。
+
+## KI-010 — M2 Objective-C dependency declarations 暂时依赖 warning suppression
+
+Severity: `LOW`
+
+Status: `OPEN / PRE-SEAL CLEANUP`
+
+M2 bridge 需要声明由主类/M1 category 实现的方法。当前 clang/Theos 会把这些 category dependency declarations 报为 `-Wincomplete-implementation` 并在项目 `-Werror` 策略下终止编译，因此 Makefile 临时加入 `-Wno-incomplete-implementation`。
+
+这不是运行时错误，M2 已真实编译/链接/二进制验证通过，但在封板前应把 dependency declarations 整理到专用接口/协议并移除 suppression。
+
+## KI-011 — Feature-branch GitHub Actions registration 异常
+
+Severity: `LOW`
+
+Status: `OPEN / INFRASTRUCTURE WORKAROUND ACTIVE`
+
+部分 feature branch push 被 GitHub Actions 记录为 synthetic `BuildFailed / startup_failure / 0 jobs`，没有创建 runner。已经通过在默认分支 `main` 注册 workflow、再 checkout 固定 feature source SHA 的方式恢复真实构建。
+
+当前 workaround 已能稳定编译 M1/M2；该问题不得被解释为产品源码编译失败。
