@@ -17,7 +17,7 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: bf525af0fcba3634b20fe99781eb7df173145ec9
+          ref: 69b546edd0ed83a5699805951304aa3371a0bc30
           fetch-depth: 0
 
       - name: V3 source assertions
