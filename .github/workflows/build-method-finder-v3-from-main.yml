@@ -17,7 +17,7 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: 32ca2b5a8345c0142fa19ffba54efb4d525e6891
+          ref: 19b912c840e7223adbc2c26ef80185c32b8eb77a
           fetch-depth: 0
 
       - name: V3 M2.2 source assertions
@@ -32,9 +32,9 @@ jobs:
           grep -q 'src/ZNFeatureControlModel.mm' "$makefile"
           grep -q 'src/ZNFeatureBuilderControlsV2.mm' "$makefile"
           grep -q 'src/ZNFeatureRuntimeControlsV2.mm' "$makefile"
-          grep -q 'ZNFeatureControlTypeNumber' "$src/ZNFeatureControlModel.h"
-          grep -q 'ZNFeatureControlTypeAction' "$src/ZNFeatureControlModel.h"
-          grep -q 'ZNFeatureControlTypeSlider' "$src/ZNFeatureControlModel.h"
+          grep -q 'ZNFeatureControlTypeNumber' "$src/ZNPatchCore.h"
+          grep -q 'ZNFeatureControlTypeAction' "$src/ZNPatchCore.h"
+          grep -q 'ZNFeatureControlTypeSlider' "$src/ZNPatchCore.h"
           grep -q 'removeFeatureNamed' "$src/ZNFeatureControlModel.mm"
           grep -q 'removePatchAtGlobalIndex' "$src/ZNFeatureControlModel.mm"
           grep -q '删除功能' "$src/ZNFeatureBuilderControlsV2.mm"
