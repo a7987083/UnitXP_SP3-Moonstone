@@ -18,6 +18,8 @@ Implemented in source:
 - Safe first-16-byte native code preview via `vm_read_overwrite`.
 - Per-address/raw-byte copy actions.
 - `Create Patch` continues to reuse the existing Builder + Runtime Validator chain; V3 does not bypass validation.
+- Candidate -> Builder bridge forces the selected candidate's canonical expression into the new Builder row, so an ambiguous original query such as a bare method name cannot lose the user's exact selection.
+- The Finder restores the user's original search text after the Builder row has been created.
 - V2 remains authoritative for Named Offset single-result resolution.
 
 Not implemented yet:
@@ -32,14 +34,18 @@ Not implemented yet:
 
 ## Validation boundary
 
-At this point V3 source is committed, but it is not device-verified. CI must compile and binary-verify the candidate before any dylib is offered for device testing.
+At this point Milestone 1 source is committed and statically reviewed, but it is not device-verified and has not yet received a successful post-V3 clang/Theos build.
 
-The repository Actions dispatcher is also being probed independently because recent runs returned the synthetic `BuildFailed/startup_failure/0 jobs` state before any runner was created. This is CI-infrastructure state, not a compile result.
+Recent GitHub Actions pushes still return the synthetic `BuildFailed / startup_failure / 0 jobs` state before any runner is created, including a temporary minimal `ubuntu-latest + echo` probe. Therefore those runs are CI-dispatch failures and are not evidence of a source compile failure. The temporary probe has been removed from both `main` and the V3 feature branch after diagnosis.
 
-Device acceptance target for milestone 1:
+Do not publish a V3 dylib until a real job reaches the build step and binary verification succeeds.
+
+## Device acceptance target for Milestone 1
 
 1. `get_TotalCashReward` opens a result list and includes the known `Cash::get_TotalCashReward/0` target.
 2. Selecting that candidate shows RVA `0x2DA9E10` and the detailed address/raw-byte page.
 3. `0x2DA9E10` produces an RVA reverse-result list and preserves multiple MethodInfo aliases if present.
 4. `Assembly-CSharp.dll!com.notdoppler.ETDR.Cash::get_TotalCashReward/0` uses qualified candidate mode and returns the known target.
-5. Copy actions and Create Patch entry behave correctly without changing the existing Validator transaction semantics.
+5. Copy actions behave correctly.
+6. Selecting one candidate and pressing `Create Patch` creates an unvalidated Builder row whose `offsetText` is that candidate's canonical expression, not the possibly ambiguous original search text.
+7. Runtime Validator/rollback semantics remain unchanged.
