@@ -8,6 +8,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderV3Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred(void);
+extern "C" void ZNInstallIL2CPPMethodFinderM2Deferred(void);
 
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
 // swizzles. Method Finder is a developer-authoring surface, so it follows the
@@ -58,7 +59,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         // Device-verified V2 resolver stays authoritative for Named Offset and
-        // single-result authoring. V3 must not silently alter that contract.
+        // single-result authoring. V3/M2 must not silently alter that contract.
         ZNInstallIL2CPPMethodFinderSearchV2Deferred();
         ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
 
@@ -77,14 +78,12 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
             method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
         }
 
-        // Keep V2 compatibility helpers installed first, then let V3 own the
-        // visible Finder workflow: search -> candidates -> detail -> Builder.
+        // Preserve the proven layering order: V2 compatibility first, M1 V3
+        // visible workflow second, candidate->Builder bridge third, then M2
+        // asynchronously wraps only search/render behavior.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
         ZNInstallIL2CPPMethodFinderV3Deferred();
-
-        // Multi-candidate selection must survive the transition into the legacy
-        // Builder.  This bridge writes the selected candidate's canonical
-        // expression into the new row instead of the possibly ambiguous query.
         ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
+        ZNInstallIL2CPPMethodFinderM2Deferred();
     });
 }
