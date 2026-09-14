@@ -1,18 +1,16 @@
 #import <Foundation/Foundation.h>
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNPatchCore.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-typedef NS_ENUM(uint32_t, ZNFeatureControlType) {
-    ZNFeatureControlTypeToggle = 0,
-    ZNFeatureControlTypeNumber = 1,
-    ZNFeatureControlTypeAction = 2,
-    ZNFeatureControlTypeSlider = 3,
-};
+// Reuse ZNPatchCore's established ZNFeatureControlType. M2.2 extends that enum
+// with Number while preserving historical Switch/Slider/Button numeric values.
+// Toggle and Action are semantic aliases declared in ZNPatchCore.h.
 
 // Keep the existing 128-byte Static Entry ABI. Bits 8..10 of entry.flags are
 // reserved for the public Feature control model. Legacy outputs leave them 0
-// and therefore decode as Toggle.
+// and therefore decode as Toggle/Switch.
 #define ZN_FEATURE_CONTROL_FLAG_SHIFT 8u
 #define ZN_FEATURE_CONTROL_FLAG_MASK  UINT32_C(0x00000700)
 
@@ -22,7 +20,15 @@ static inline uint32_t ZNFeatureControlFlags(ZNFeatureControlType type) {
 
 static inline ZNFeatureControlType ZNFeatureControlTypeFromFlags(uint32_t flags) {
     uint32_t raw = (flags & ZN_FEATURE_CONTROL_FLAG_MASK) >> ZN_FEATURE_CONTROL_FLAG_SHIFT;
-    return raw <= ZNFeatureControlTypeSlider ? (ZNFeatureControlType)raw : ZNFeatureControlTypeToggle;
+    switch (raw) {
+        case ZNFeatureControlTypeSwitch:
+        case ZNFeatureControlTypeSlider:
+        case ZNFeatureControlTypeButton:
+        case ZNFeatureControlTypeNumber:
+            return (ZNFeatureControlType)raw;
+        default:
+            return ZNFeatureControlTypeSwitch;
+    }
 }
 
 FOUNDATION_EXPORT NSString *ZNFeatureControlTypeName(ZNFeatureControlType type);
