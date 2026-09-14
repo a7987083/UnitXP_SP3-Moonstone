@@ -7,6 +7,9 @@
 #import "ZNIL2CPPHybridFinder.h"
 #import "ZNPatchRuntimeValidator.h"
 
+extern "C" void ZNInstallIL2CPPMethodFinderUIDeferred(void);
+extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void);
+
 // v0.5.7 Named Offset integration.
 //
 // This layer is authoring-time only. A symbolic Offset is resolved when the
@@ -161,5 +164,10 @@ extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void) {
         Method replacement = class_getInstanceMethod(cls, @selector(zn57_validateAll:));
         if (!original || !replacement) return;
         method_exchangeImplementations(original, replacement);
+
+        // Method Finder remains part of the same authoring-time deferred stage:
+        // no new constructor/+load and nothing runs before first ZN activation.
+        ZNInstallIL2CPPMethodFinderUIDeferred();
+        ZNInstallIL2CPPMethodFinderMenuBindingDeferred();
     });
 }
