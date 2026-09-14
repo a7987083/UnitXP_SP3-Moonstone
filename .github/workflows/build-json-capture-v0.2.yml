@@ -1,0 +1,56 @@
+name: Build JSONCapture v0.2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.2
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.2.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify JSONCapture v0.2
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist
+          out="dist/JSONCapture_v0.2_HFAMap187.dylib"
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" > dist/strings.txt
+          grep -Fq "JSONCapture v0.1" dist/strings.txt
+          grep -Fq "JSONCapture IL2CPP v0.2" dist/strings.txt
+          grep -Fq "TextAsset::get_text" dist/strings.txt
+          grep -Fq "TextAsset::get_bytes" dist/strings.txt
+          grep -Fq "AssetBundle::LoadAsset" dist/strings.txt
+          grep -Fq "il2cpp_domain_get" dist/strings.txt
+          shasum -a 256 "$out" | tee dist/SHA256.txt
+          ls -lh "$out" dist/SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: JSONCapture-v0.2-HFAMap187
+          path: |
+            jsoncapture/dist/JSONCapture_v0.2_HFAMap187.dylib
+            jsoncapture/dist/SHA256.txt
+          if-no-files-found: error
