@@ -17,37 +17,31 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: 19b912c840e7223adbc2c26ef80185c32b8eb77a
+          ref: b48beed8f1fd87d02c1eb17156b8fc28ff80b461
           fetch-depth: 0
 
-      - name: V3 M2.2 source assertions
+      - name: V3 M3.1 source assertions
         run: |
           set -euxo pipefail
           src=iosruntimepatchmenu/src
           makefile=iosruntimepatchmenu/Makefile
-          grep -q 'src/ZNIL2CPPMethodFinderSearchV3.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderM2.mm' "$makefile"
-          grep -q 'src/ZNIL2CPPMethodFinderM21CancelUX.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderM22StableCancelUX.mm' "$makefile"
-          grep -q 'src/ZNFeatureControlModel.mm' "$makefile"
           grep -q 'src/ZNFeatureBuilderControlsV2.mm' "$makefile"
           grep -q 'src/ZNFeatureRuntimeControlsV2.mm' "$makefile"
-          grep -q 'ZNFeatureControlTypeNumber' "$src/ZNPatchCore.h"
-          grep -q 'ZNFeatureControlTypeAction' "$src/ZNPatchCore.h"
-          grep -q 'ZNFeatureControlTypeSlider' "$src/ZNPatchCore.h"
-          grep -q 'removeFeatureNamed' "$src/ZNFeatureControlModel.mm"
-          grep -q 'removePatchAtGlobalIndex' "$src/ZNFeatureControlModel.mm"
-          grep -q '删除功能' "$src/ZNFeatureBuilderControlsV2.mm"
-          grep -q 'ZNFeatureActionRequestedNotification' "$src/ZNFeatureRuntimeControlsV2.mm"
-          grep -q 'ZN_FEATURE_CONTROL_FLAG_MASK' "$src/ZNFeatureMetadataCodec.mm"
-          grep -q 'kZN63SuppressProgressRenderKey' "$src/ZNIL2CPPMethodFinderM22StableCancelUX.mm"
-          grep -q 'ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
-          grep -q 'ZNInstallFeatureBuilderControlsV2Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
-          grep -q 'ZNInstallFeatureRuntimeControlsV2Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+          grep -q 'src/ZNIL2CPPABIMetadata.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPABIDetailUI.mm' "$makefile"
+          grep -q 'ZNIL2CPPABIValueKindFloat64' "$src/ZNIL2CPPABIMetadata.h"
+          grep -q 'il2cpp_method_get_return_type' "$src/ZNIL2CPPABIMetadata.mm"
+          grep -q 'il2cpp_method_get_param' "$src/ZNIL2CPPABIMetadata.mm"
+          grep -q 'il2cpp_method_is_generic' "$src/ZNIL2CPPABIMetadata.mm"
+          grep -q 'il2cpp_method_is_inflated' "$src/ZNIL2CPPABIMetadata.mm"
+          grep -q 'ZNIL2CPPBuildReturnOverridePlan' "$src/ZNIL2CPPABIMetadata.mm"
+          grep -q 'foundationOnly' "$src/ZNIL2CPPABIMetadata.mm"
+          grep -q 'M3.1 只解析签名' "$src/ZNIL2CPPABIDetailUI.mm"
+          grep -q 'ZNInstallIL2CPPABIDetailUIDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
           grep -q 'kZN61ShardClasses = 12000' "$src/ZNIL2CPPMethodFinderM2.mm"
           grep -q 'ZN61MatchContains' "$src/ZNIL2CPPMethodFinderM2.mm"
-          grep -q 'NSPropertyListBinaryFormat_v1_0' "$src/ZNIL2CPPMethodFinderM2.mm"
-          grep -q 'LC_UUID' "$src/ZNIL2CPPMethodFinderM2.mm"
 
       - name: Named Offset parser tests
         run: |
@@ -57,6 +51,15 @@ jobs:
             iosruntimepatchmenu/src/ZNIL2CPPResolver.mm \
             -o /tmp/zn_il2cpp_named_offset_parser_test
           /tmp/zn_il2cpp_named_offset_parser_test
+
+      - name: IL2CPP ABI classifier tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/il2cpp_abi_classifier_test.mm \
+            iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.mm \
+            -o /tmp/zn_il2cpp_abi_classifier_test
+          /tmp/zn_il2cpp_abi_classifier_test
 
       - name: Static protection tests
         run: |
@@ -80,32 +83,32 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
-      - name: Build V3 M2.2
+      - name: Build V3 M3.1
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-v058-method-finder-v3
-          cp .theos/obj/ZonoePatchV03.dylib dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_2.dylib
-          shasum -a 256 dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_2.dylib | tee dist-v058-method-finder-v3/SHA256.txt
+          mkdir -p dist-v058-m3-1
+          cp .theos/obj/ZonoePatchV03.dylib dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib
+          shasum -a 256 dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib | tee dist-v058-m3-1/SHA256.txt
 
-      - name: Verify V3 M2.2 binary
+      - name: Verify V3 M3.1 binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_2.dylib
+          out=iosruntimepatchmenu/dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib
           file "$out"
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
           nm -gU "$out" | grep '_ZonoePatchGetVersion'
-          strings "$out" > /tmp/zonoe_v058_v3_strings.txt
-          grep -q 'v3-candidate-list' /tmp/zonoe_v058_v3_strings.txt
-          grep -q 'm2-wide-index' /tmp/zonoe_v058_v3_strings.txt
-          grep -q 'ZNMethodFinderPrimaryCancel' /tmp/zonoe_v058_v3_strings.txt
-          grep -q 'ZNFeatureActionRequestedNotification' /tmp/zonoe_v058_v3_strings.txt
-          grep -q 'ZNFeatureNumberValueDidChangeNotification' /tmp/zonoe_v058_v3_strings.txt
+          strings "$out" > /tmp/zonoe_m31_strings.txt
+          grep -q 'v3-candidate-list' /tmp/zonoe_m31_strings.txt
+          grep -q 'm2-wide-index' /tmp/zonoe_m31_strings.txt
+          grep -q 'pending-m3.2-hook-backend' /tmp/zonoe_m31_strings.txt
+          grep -q 'IL2CPP Signature / ABI' /tmp/zonoe_m31_strings.txt
+          grep -q 'il2cpp_method_get_return_type' /tmp/zonoe_m31_strings.txt
           python3 <<'PY'
           import struct
-          p='iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_2.dylib'
+          p='iosruntimepatchmenu/dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib'
           data=open(p,'rb').read()
           if struct.unpack_from('<I',data,0)[0] != 0xfeedfacf:
               raise SystemExit('not thin arm64 Mach-O')
@@ -128,11 +131,11 @@ jobs:
               raise SystemExit(f'expected exactly one cold-launch constructor, got {init_size}')
           PY
 
-      - name: Upload V3 M2.2 artifact
+      - name: Upload V3 M3.1 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.8-MethodFinder-V3-M2.2
+          name: ZonoPatch-v0.5.8-M3.1-ABI-ReturnFoundation
           path: |
-            iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_2.dylib
-            iosruntimepatchmenu/dist-v058-method-finder-v3/SHA256.txt
+            iosruntimepatchmenu/dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib
+            iosruntimepatchmenu/dist-v058-m3-1/SHA256.txt
           if-no-files-found: error
