@@ -2,6 +2,54 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-15 — v0.5.8-dev Method Finder V3 Milestone 2
+
+Product source head: `69b546edd0ed83a5699805951304aa3371a0bc30`
+
+实际修改：
+
+- 从已真机通过的 V3 M1 独立切出 `feature/runtime-patch-menu-v0.5.8-method-finder-v3-m2`。
+- 新增 `ZNIL2CPPMethodFinderM2.mm`，作为 M1 之后的增量层，不重写 Named Offset / M1 detail / Builder 语义。
+- 裸方法名新增大小写不敏感宽泛搜索，优先级为 `exact > prefix > suffix > contains`。
+- 结构化表达式继续 exact；RVA 反查继续 exact。
+- 搜索移到后台 user-initiated queue；加入 UUID cancel token、分片进度与 Cancel UI。
+- 首次宽泛搜索按 12,000-class shard 建立完整紧凑本地索引；取消时不保存半成品。
+- 索引绑定 UnityFramework `LC_UUID + file size`，并以 binary plist 保存到 Cache。
+- 索引只保存 Assembly/Namespace/Class/Method/argumentCount/RVA，不保存 Runtime VA/MethodInfo/Method Pointer。
+- 使用去重字符串表 + 32-byte fixed record。
+- 第二次宽泛搜索优先读索引，再通过已验证 M1 resolver 恢复当前 launch 的 MethodInfo/Pointer/Runtime VA。
+- RVA 反查有索引时可用索引，无索引时回退到 M1 已真机验证路径。
+- 为 M2 bridge 的 Objective-C category dependency 声明临时加入 `-Wno-incomplete-implementation`；运行时逻辑不变，封板前需清理。
+
+CI / Build：
+
+- Workflow: `Build Method Finder V3 via Main`
+- Run: `34881764073`
+- Result: `success`
+- Artifact ID: `10363436049`
+- Artifact ZIP SHA256: `f4cc5d6bdf1549cd0f35c7dd7341f355e1907c208bc8a6e4ae1ee7a694b9161e`
+- Dylib SHA256: `77d1cd3fe30c403c5f5db35ee35fbce8fa4da5f62352be04474bbabe52f24784`
+- Mach-O: thin arm64 dylib
+- `__init_offsets == 4`: PASS
+- M2 markers (`m2-wide-index`, `m2-wide-build`, `built-and-saved`): PASS
+- Independent post-download ZIP/dylib hash + Mach-O constructor recheck: PASS
+
+验证边界：
+
+- M2: source implemented / CI compiled / binary verified.
+- M2: 尚未真机验证。
+
+## 2026-09-15 — v0.5.8-dev Method Finder V3 Milestone 1 device acceptance
+
+- M1 user real-device acceptance passed.
+- `get_TotalCashReward` candidate list works.
+- Known target `Assembly-CSharp.dll!com.notdoppler.ETDR.Cash::get_TotalCashReward/0` detail resolves RVA `0x2DA9E10`.
+- `0x2DA9E10` reverse lookup works.
+- Qualified lookup works.
+- Candidate detail/copy flow works.
+- `Create Patch` preserves the selected full canonical expression instead of the ambiguous original bare query.
+- M1 tested paths are DEVICE-VERIFIED; M1 is not marked sealed/release.
+
 ## 2026-09-13 — v0.5.1 Static RVA Protection V1
 
 Runtime code head: `7360f72c8e27b6e3da5c70f6394f2fac17cd6ba5`
