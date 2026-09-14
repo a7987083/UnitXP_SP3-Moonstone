@@ -7,6 +7,9 @@
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
+@end
+
+@interface ZNRuntimeMenuControllerV040 (ZNIL2CPPMethodFinderMenuBinding)
 - (NSArray<NSString *> *)zn57mfb_baseSymbols;
 @end
 
