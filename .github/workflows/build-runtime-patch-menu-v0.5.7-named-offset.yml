@@ -6,6 +6,7 @@ on:
       - feature/runtime-patch-menu-il2cpp-named-offset-resolver-v1
       - feature/runtime-patch-menu-v0.5.7-toggle-method-finder
       - feature/runtime-patch-menu-v0.5.7-method-finder-v2
+      - feature/runtime-patch-menu-v0.5.8-method-finder-v3
   workflow_dispatch:
 
 jobs:
@@ -25,7 +26,6 @@ jobs:
           src=iosruntimepatchmenu/src
           makefile=iosruntimepatchmenu/Makefile
 
-          # Keep the sealed v0.5.6.2 lifecycle/performance baseline intact.
           test ! -e "$src/ZNActivationTrace.mm"
           ! grep -q 'src/ZNActivationTrace.mm' "$makefile"
           ! grep -R -q 'ZonoPatch-v0.5.6.2.log' "$src"
@@ -33,7 +33,6 @@ jobs:
           grep -q 'imageNotificationScheduled' "$src/ZNPatchCore.mm"
           grep -q 'zn44_scheduleRefreshAfter' "$src/ZNStaticDispatchRuntime.mm"
 
-          # Named Offset / Hybrid Method Finder must be explicit, deferred, and compiled.
           grep -q 'src/ZNIL2CPPHybridFinder.mm' "$makefile"
           grep -q 'src/ZNIL2CPPNamedOffsetWorkspace.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderUI.mm' "$makefile"
@@ -66,15 +65,20 @@ jobs:
           grep -q 'row.target = @"UnityFramework"' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
           grep -q 'static dispatch_once_t onceToken' "$src/ZNIL2CPPNamedOffsetWorkspace.mm"
 
-          # Public feature surface keeps the existing transaction semantics but
-          # renders the agreed ZONOE-styled custom toggle instead of text buttons.
+          # V3 candidate-list files must be compiled while V2 remains present.
+          grep -q 'src/ZNIL2CPPMethodFinderSearchV3.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderUIV3.mm' "$makefile"
+          grep -q 'zn60_searchCandidates' "$src/ZNIL2CPPMethodFinderSearchV3.h"
+          grep -q 'v3-candidate-list' "$src/ZNIL2CPPMethodFinderSearchV3.mm"
+          grep -q 'v3-reverse-rva' "$src/ZNIL2CPPMethodFinderSearchV3.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderV3Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+
           grep -q 'ZN50FeatureToggleControl' "$src/ZNFeatureGroupUI.mm"
           grep -q 'ZN50FeatureVisualStateMixed' "$src/ZNFeatureGroupUI.mm"
           grep -q 'UIControlEventTouchUpInside' "$src/ZNFeatureGroupUI.mm"
           grep -q 'zn.f.%016llx.enabled' "$src/ZNFeatureGroupUI.mm"
           grep -q 'toggle rollback' "$src/ZNFeatureGroupUI.mm"
 
-          # Preserve sealed Static Builder/Protection invariants.
           grep -q 'ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2' "$src/ZNStaticPatchFormat.h"
           grep -q 'ZNStaticPayloadProtectionV2.h' "$src/ZNStaticBinaryBuilderV3.mm"
           grep -q 'payload-v2+static-rva-protection-v1' "$src/ZNGeneratedBinaryPostprocess.mm"
