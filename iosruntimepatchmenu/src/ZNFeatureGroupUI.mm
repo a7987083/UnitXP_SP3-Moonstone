@@ -41,6 +41,141 @@
 
 static const NSInteger kZN50FeatureToggleTagBase = 450000;
 
+typedef NS_ENUM(NSInteger, ZN50FeatureVisualState) {
+    ZN50FeatureVisualStateOff = 0,
+    ZN50FeatureVisualStateOn,
+    ZN50FeatureVisualStateMixed,
+};
+
+@interface ZN50FeatureToggleControl : UIControl
+@property(nonatomic,strong) ZNTheme *znTheme;
+@property(nonatomic,assign) ZN50FeatureVisualState visualState;
+@property(nonatomic,assign) BOOL compact;
+@property(nonatomic,strong) UIView *knobView;
+@property(nonatomic,strong) UILabel *markLabel;
+- (instancetype)initWithFrame:(CGRect)frame
+                        theme:(ZNTheme *)theme
+                        state:(ZN50FeatureVisualState)state
+                      compact:(BOOL)compact;
+@end
+
+@implementation ZN50FeatureToggleControl
+
+- (instancetype)initWithFrame:(CGRect)frame
+                        theme:(ZNTheme *)theme
+                        state:(ZN50FeatureVisualState)state
+                      compact:(BOOL)compact {
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+
+    self.znTheme = theme;
+    self.visualState = state;
+    self.compact = compact;
+    self.clipsToBounds = NO;
+    self.isAccessibilityElement = YES;
+    self.accessibilityTraits = UIAccessibilityTraitButton;
+    self.accessibilityLabel = @"功能开关";
+
+    self.knobView = [UIView new];
+    self.knobView.userInteractionEnabled = NO;
+    [self addSubview:self.knobView];
+
+    self.markLabel = [UILabel new];
+    self.markLabel.userInteractionEnabled = NO;
+    self.markLabel.textAlignment = NSTextAlignmentCenter;
+    self.markLabel.font = [UIFont systemFontOfSize:(compact ? 12.0 : 13.0) weight:UIFontWeightBold];
+    [self addSubview:self.markLabel];
+
+    [self zn50_applyVisualState];
+    return self;
+}
+
+- (void)setHighlighted:(BOOL)highlighted {
+    [super setHighlighted:highlighted];
+    self.alpha = highlighted ? 0.78 : 1.0;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat h = CGRectGetHeight(self.bounds);
+    CGFloat w = CGRectGetWidth(self.bounds);
+    CGFloat inset = self.compact ? 3.5 : 4.0;
+    CGFloat knob = MAX(12.0, h - inset * 2.0);
+    CGFloat knobX = inset;
+
+    if (self.visualState == ZN50FeatureVisualStateOn) {
+        knobX = w - inset - knob;
+    } else if (self.visualState == ZN50FeatureVisualStateMixed) {
+        knobX = (w - knob) * 0.5;
+    }
+
+    self.layer.cornerRadius = h * 0.5;
+    self.knobView.frame = CGRectMake(knobX, inset, knob, knob);
+    self.knobView.layer.cornerRadius = knob * 0.5;
+
+    CGFloat markWidth = MAX(14.0, w - knob - inset * 3.0);
+    if (self.visualState == ZN50FeatureVisualStateOn) {
+        self.markLabel.frame = CGRectMake(inset, 0, markWidth, h);
+    } else if (self.visualState == ZN50FeatureVisualStateMixed) {
+        self.markLabel.frame = CGRectMake(inset, 0, markWidth, h);
+    } else {
+        self.markLabel.frame = CGRectZero;
+    }
+}
+
+- (void)zn50_applyVisualState {
+    ZNTheme *theme = self.znTheme;
+    UIColor *knobColor = theme.lightAppearance
+        ? [UIColor colorWithWhite:1.0 alpha:0.98]
+        : [UIColor colorWithWhite:0.96 alpha:0.98];
+
+    self.layer.borderWidth = 1.0;
+    self.layer.shadowOffset = CGSizeZero;
+    self.layer.shadowRadius = 4.5;
+    self.knobView.backgroundColor = knobColor;
+    self.knobView.layer.borderWidth = 0.7;
+    self.knobView.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.65].CGColor;
+    self.knobView.layer.shadowColor = UIColor.blackColor.CGColor;
+    self.knobView.layer.shadowOffset = CGSizeMake(0, 1.0);
+    self.knobView.layer.shadowRadius = 1.8;
+    self.knobView.layer.shadowOpacity = theme.lightAppearance ? 0.16 : 0.34;
+
+    if (self.visualState == ZN50FeatureVisualStateOn) {
+        self.backgroundColor = [theme.accentColor colorWithAlphaComponent:(theme.lightAppearance ? 0.16 : 0.15)];
+        self.layer.borderColor = [theme.accentColor colorWithAlphaComponent:0.95].CGColor;
+        self.layer.shadowColor = theme.accentColor.CGColor;
+        self.layer.shadowOpacity = theme.neonAppearance ? 0.48 : 0.30;
+        self.markLabel.hidden = NO;
+        self.markLabel.text = @"✓";
+        self.markLabel.textColor = theme.accentColor;
+        self.accessibilityValue = @"开";
+        self.accessibilityTraits = UIAccessibilityTraitButton | UIAccessibilityTraitSelected;
+    } else if (self.visualState == ZN50FeatureVisualStateMixed) {
+        UIColor *mixed = theme.accent2Color ?: theme.accentColor;
+        self.backgroundColor = [mixed colorWithAlphaComponent:(theme.lightAppearance ? 0.12 : 0.10)];
+        self.layer.borderColor = [mixed colorWithAlphaComponent:0.62].CGColor;
+        self.layer.shadowColor = mixed.CGColor;
+        self.layer.shadowOpacity = theme.neonAppearance ? 0.28 : 0.14;
+        self.markLabel.hidden = NO;
+        self.markLabel.text = @"•";
+        self.markLabel.textColor = mixed;
+        self.accessibilityValue = @"部分开启";
+        self.accessibilityTraits = UIAccessibilityTraitButton;
+    } else {
+        self.backgroundColor = [theme.trackColor colorWithAlphaComponent:(theme.lightAppearance ? 0.42 : 0.58)];
+        self.layer.borderColor = [theme.borderColor colorWithAlphaComponent:(theme.lightAppearance ? 0.62 : 0.78)].CGColor;
+        self.layer.shadowColor = theme.shadowColor.CGColor;
+        self.layer.shadowOpacity = 0.12;
+        self.markLabel.hidden = YES;
+        self.markLabel.text = @"";
+        self.accessibilityValue = @"关";
+        self.accessibilityTraits = UIAccessibilityTraitButton;
+    }
+    [self setNeedsLayout];
+}
+
+@end
+
 static NSString *ZN50Trim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
@@ -123,12 +258,12 @@ static BOOL ZN50AnyEnabled(NSArray<ZNStaticPatchRecord *> *records) {
     return NO;
 }
 
-static NSString *ZN50FeatureStateText(NSArray<ZNStaticPatchRecord *> *records) {
+static ZN50FeatureVisualState ZN50VisualState(NSArray<ZNStaticPatchRecord *> *records) {
     BOOL all = ZN50AllEnabled(records);
     BOOL any = ZN50AnyEnabled(records);
-    if (all) return @"开";
-    if (any) return @"MIXED";
-    return @"关";
+    if (all) return ZN50FeatureVisualStateOn;
+    if (any) return ZN50FeatureVisualStateMixed;
+    return ZN50FeatureVisualStateOff;
 }
 
 static BOOL ZN50SetFeatureEnabled(NSArray<ZNStaticPatchRecord *> *records, BOOL enabled, NSString **error) {
@@ -196,12 +331,26 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
     }
 }
 
+static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
+                                                NSArray<ZNStaticPatchRecord *> *records,
+                                                CGRect frame,
+                                                BOOL compact,
+                                                id target,
+                                                SEL action) {
+    ZN50FeatureToggleControl *toggle = [[ZN50FeatureToggleControl alloc] initWithFrame:frame
+                                                                                theme:theme
+                                                                                state:ZN50VisualState(records)
+                                                                              compact:compact];
+    [toggle addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    return toggle;
+}
+
 @interface ZNRuntimeMenuControllerV040 (ZNFeatureGroupUI)
 - (void)zn50_renderFullPage;
 - (void)zn50_renderCompactPage;
 - (void)zn50_renderFeatureGroupsCompact;
 - (void)zn50_renderFeatureGroupsFull;
-- (void)zn50_toggleFeature:(UIButton *)sender;
+- (void)zn50_toggleFeature:(UIControl *)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureGroupUI)
@@ -248,16 +397,21 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
         NSDictionary *feature = features[featureIndex];
         NSString *title = feature[@"title"];
         NSArray<ZNStaticPatchRecord *> *records = feature[@"records"];
-        NSString *state = ZN50FeatureStateText(records);
 
         UIView *card = [self cardAtY:y height:46 width:width compact:NO];
         UILabel *name = [self label:title ?: @"功能" size:11.4 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
-        name.frame = CGRectMake(13, 13, card.bounds.size.width - 90, 20);
+        name.frame = CGRectMake(13, 13, card.bounds.size.width - 100, 20);
         name.lineBreakMode = NSLineBreakByTruncatingTail;
         [card addSubview:name];
 
-        UIButton *toggle = [self zn40_button:state selector:@selector(zn50_toggleFeature:) frame:CGRectMake(card.bounds.size.width - 70, 8, 58, 30)];
+        ZN50FeatureToggleControl *toggle = ZN50MakeToggle(self.theme,
+                                                          records,
+                                                          CGRectMake(card.bounds.size.width - 78, 8, 66, 30),
+                                                          NO,
+                                                          self,
+                                                          @selector(zn50_toggleFeature:));
         toggle.tag = kZN50FeatureToggleTagBase + (NSInteger)featureIndex;
+        toggle.accessibilityLabel = title.length ? title : @"功能开关";
         [card addSubview:toggle];
         [self.contentView addSubview:card];
         y += 52;
@@ -291,16 +445,21 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
         NSDictionary *feature = features[featureIndex];
         NSString *title = feature[@"title"];
         NSArray<ZNStaticPatchRecord *> *records = feature[@"records"];
-        NSString *state = ZN50FeatureStateText(records);
 
         UIView *card = [self cardAtY:y height:40 width:width compact:YES];
         UILabel *name = [self label:title ?: @"功能" size:10.7 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
-        name.frame = CGRectMake(9, 10, card.bounds.size.width - 78, 20);
+        name.frame = CGRectMake(9, 10, card.bounds.size.width - 88, 20);
         name.lineBreakMode = NSLineBreakByTruncatingTail;
         [card addSubview:name];
 
-        UIButton *toggle = [self zn40_button:state selector:@selector(zn50_toggleFeature:) frame:CGRectMake(card.bounds.size.width - 65, 6, 56, 28)];
+        ZN50FeatureToggleControl *toggle = ZN50MakeToggle(self.theme,
+                                                          records,
+                                                          CGRectMake(card.bounds.size.width - 69, 6, 60, 28),
+                                                          YES,
+                                                          self,
+                                                          @selector(zn50_toggleFeature:));
         toggle.tag = kZN50FeatureToggleTagBase + (NSInteger)featureIndex;
+        toggle.accessibilityLabel = title.length ? title : @"功能开关";
         [card addSubview:toggle];
         [self.contentView addSubview:card];
         y += 46;
@@ -309,7 +468,7 @@ static void ZN50RestorePersistedFeatureStates(NSArray<NSDictionary *> *features)
     [self zn40_updateContentHeight:y];
 }
 
-- (void)zn50_toggleFeature:(UIButton *)sender {
+- (void)zn50_toggleFeature:(UIControl *)sender {
     NSInteger index = sender.tag - kZN50FeatureToggleTagBase;
     if (index < 0) return;
 
@@ -347,6 +506,6 @@ extern "C" void ZNInstallFeatureGroupUIDeferred(void) {
         if (!cls) return;
         ZN50SwapInstanceMethod(cls, @selector(renderFullPage), @selector(zn50_renderFullPage));
         ZN50SwapInstanceMethod(cls, @selector(renderCompactPage), @selector(zn50_renderCompactPage));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.6 feature UI installed after first activation: ZNF1 feature renderer owns compact mode"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5.7 feature UI installed after first activation: ZNF1 feature renderer + themed toggle"];
     }
 }
