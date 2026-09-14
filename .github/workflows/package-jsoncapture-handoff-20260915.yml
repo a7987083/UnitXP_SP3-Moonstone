@@ -1,0 +1,56 @@
+name: Package JSONCapture Handoff 20260915
+
+on:
+  push:
+    branches:
+      - handoff/jsoncapture-20260915
+    paths:
+      - 'handoff/**'
+      - 'jsoncapture/**'
+      - '.github/workflows/package-jsoncapture-handoff-20260915.yml'
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build JSONCapture v0.4.1
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          cd ..
+
+      - name: Assemble handoff package
+        run: |
+          set -euxo pipefail
+          PKG="JSONCapture_Conversation_Handoff_2026-09-15"
+          mkdir -p "$PKG/source"
+          cp -R handoff/* "$PKG/"
+          cp jsoncapture/.theos/obj/JSONCapture.dylib "$PKG/JSONCapture_v0.4.1_HFAMap187.dylib"
+          cp jsoncapture/Makefile "$PKG/source/Makefile"
+          cp -R jsoncapture/src "$PKG/source/src"
+          shasum -a 256 "$PKG/JSONCapture_v0.4.1_HFAMap187.dylib" > "$PKG/SHA256.txt"
+          file "$PKG/JSONCapture_v0.4.1_HFAMap187.dylib" > "$PKG/DYLIB_INFO.txt"
+          echo "handoff/jsoncapture-20260915" > "$PKG/BRANCH.txt"
+          git rev-parse HEAD > "$PKG/HANDOFF_HEAD.txt"
+          ls -la "$PKG"
+
+      - name: Upload handoff package
+        uses: actions/upload-artifact@v4
+        with:
+          name: JSONCapture-Conversation-Handoff-2026-09-15
+          path: JSONCapture_Conversation_Handoff_2026-09-15/
+          if-no-files-found: error
