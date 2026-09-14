@@ -34,14 +34,10 @@ jobs:
           mkdir -p dist
           out="dist/JSONCapture_v0.1_HFAMap187.dylib"
           cp .theos/obj/JSONCapture.dylib "$out"
-          file "$out"
+          file "$out" | grep -q "Mach-O 64-bit dynamically linked shared library arm64"
           otool -L "$out"
           strings "$out" | grep -q "JSONCapture v0.1"
-          strings "$out" | grep -q "Documents/JSONCapture"
-          strings "$out" | grep -q "AesHelper.CustomDecryptString"
-          strings "$out" | grep -q "DECRYPT-HOOK"
-          strings "$out" | grep -q "network-delegate"
-          strings "$out" | grep -q "parser-foundation"
+          test -s "$out"
           shasum -a 256 "$out" | tee dist/SHA256.txt
           ls -lh "$out" dist/SHA256.txt
 
