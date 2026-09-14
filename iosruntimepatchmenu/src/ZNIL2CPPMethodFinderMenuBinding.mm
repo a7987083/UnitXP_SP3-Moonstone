@@ -11,6 +11,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM21CancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(void);
+extern "C" void ZNInstallIL2CPPABIDetailUIDeferred(void);
 extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
 extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void);
 
@@ -63,7 +64,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         // Device-verified V2 resolver stays authoritative for Named Offset and
-        // single-result authoring. V3/M2 must not silently alter that contract.
+        // single-result authoring. Later layers must not alter that contract.
         ZNInstallIL2CPPMethodFinderSearchV2Deferred();
         ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
 
@@ -82,18 +83,17 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
             method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
         }
 
-        // Preserve proven resolver/search layering, then install M2.2 UI-only
-        // overlays. No constructor/+load is added; all remain inside the
-        // deferred activation chain.
+        // Preserve the device-accepted M2.2 stack. M3.1 only decorates the
+        // existing detail renderer with ABI/signature metadata and does not
+        // install a hook or mutate target memory.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
         ZNInstallIL2CPPMethodFinderV3Deferred();
         ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
         ZNInstallIL2CPPMethodFinderM2Deferred();
         ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();
         ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();
+        ZNInstallIL2CPPABIDetailUIDeferred();
 
-        // Generic Feature model/editor/runtime controls are independent of the
-        // Method Finder backend but share this already-deferred install point.
         ZNInstallFeatureBuilderControlsV2Deferred();
         ZNInstallFeatureRuntimeControlsV2Deferred();
     });
