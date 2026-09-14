@@ -3,17 +3,18 @@
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "method-finder-v3-m2",
-  "phase_status": "ci-binary-verified-device-pending",
-  "branch": "feature/runtime-patch-menu-v0.5.8-method-finder-v3-m2",
-  "runtime_code_head": "69b546edd0ed83a5699805951304aa3371a0bc30",
-  "ci_validated_head": "69b546edd0ed83a5699805951304aa3371a0bc30",
+  "phase": "method-finder-v3-m2.1-cancel-ux",
+  "phase_status": "m2-wide-search-device-observed-m2.1-ci-binary-verified-device-pending",
+  "branch": "feature/runtime-patch-menu-v0.5.8-method-finder-v3-m2.1-cancel-ux",
+  "runtime_code_head": "47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5",
+  "ci_validated_head": "47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5",
   "baseline": {
     "sealed_v0_5_6_2": "86edac4d70ef467e9a58912768b6c6c72077842a",
     "named_offset_v0_5_7": "8300cf41589bf8aa9a690152d4dab3dd6333073c",
     "method_finder_v2_device_verified": "4377d4a4c6e325e54299e3055346240f4963940f",
     "method_finder_v3_m1_product": "ef98a090e1df5b69df3fbb86adb905008285d82c",
-    "method_finder_v3_m1_state_head": "92f64c9dc6e208904228ada6059cea7ba102972d"
+    "method_finder_v3_m1_state_head": "92f64c9dc6e208904228ada6059cea7ba102972d",
+    "method_finder_v3_m2_product": "69b546edd0ed83a5699805951304aa3371a0bc30"
   },
   "m1_validation": {
     "device_verified": true,
@@ -27,11 +28,21 @@
       "candidate-to-Builder canonical expression"
     ]
   },
+  "m2_device_observation": {
+    "wide_query": "cash",
+    "first_search_ms": 423.1,
+    "second_search_ms": 147.0,
+    "steady_repeat_ms_approx": 150.0,
+    "interpretation": "broad search is working; repeat latency reduction is consistent with local-index reuse but index=hit text was not independently reported",
+    "original_cancel_button_visible": false,
+    "cancel_manual_test_practical": false,
+    "reason": "current target finishes the first search in about 0.42s and repeats in about 0.15s"
+  },
   "build": {
     "system": "Theos",
     "workflow": "Build Method Finder V3 via Main",
     "workflow_file": ".github/workflows/build-method-finder-v3-from-main.yml",
-    "run_id": 34881764073,
+    "run_id": 34885020233,
     "result": "success",
     "compiled": true,
     "named_offset_parser_tests": true,
@@ -42,13 +53,13 @@
     "constructor_count": 1
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-MethodFinder-V3-M2",
-    "id": 10363436049,
-    "archive_size": 327976,
-    "archive_digest": "sha256:f4cc5d6bdf1549cd0f35c7dd7341f355e1907c208bc8a6e4ae1ee7a694b9161e",
-    "dylib_name": "ZonoPatch_v0.5.8_MethodFinderV3_M2.dylib",
-    "dylib_size": 751216,
-    "dylib_sha256": "77d1cd3fe30c403c5f5db35ee35fbce8fa4da5f62352be04474bbabe52f24784"
+    "name": "ZonoPatch-v0.5.8-MethodFinder-V3-M2.1",
+    "id": 10364618234,
+    "archive_size": 328930,
+    "archive_digest": "sha256:f0dc1779dbb129bca51b9a4221aa76e0f02756c832022171df6d50038ed54637",
+    "dylib_name": "ZonoPatch_v0.5.8_MethodFinderV3_M2_1.dylib",
+    "dylib_size": 751232,
+    "dylib_sha256": "f6778203804b2d28c90b201a2de7cf8b141a31d2d215f5d0ed3dfb5e99a86ba6"
   },
   "runtime": {
     "method_finder_m2": {
@@ -66,19 +77,26 @@
       "never_persist": ["Runtime VA", "MethodInfo", "Method Pointer"],
       "generic_inflated_shared_classification": "pending"
     },
+    "m2_1_cancel_ux": {
+      "engine_semantics_changed": false,
+      "primary_search_button_becomes_cancel_while_token_active": true,
+      "legacy_bottom_cancel_card_removed_while_active": true,
+      "accessibility_identifier": "ZNMethodFinderPrimaryCancel",
+      "device_verified": false
+    },
     "full_deferred_bootstrap": true,
     "compiled_constructor_count": 1,
     "final_ipa_resign_required": true
   },
   "known_technical_debt": [
-    "first complete index build resolves native pointer/RVA for every method; real-device duration not yet measured",
+    "repeat indexed search still re-resolves current-launch MethodInfo/Method Pointer and therefore is not a pure string-index lookup",
     "binary plist index is not mmap/SQLite-backed",
     "stale index files are fingerprint-isolated but not proactively garbage-collected",
     "generic/inflated/shared native pointer classification incomplete",
     "-Wno-incomplete-implementation temporarily tolerates M2 category dependency declarations",
     "feature-branch GitHub Actions registration still routes to synthetic BuildFailed; main-registered exact-SHA build workflow is the working CI path"
   ],
-  "next_phase": "m2-physical-device-acceptance",
-  "next_task": "Install the M2 CI artifact. First search cash and confirm UI responsiveness/progress; test Cancel during first index build; then allow a full cash index build and inspect broad results/ranking; search cash again and confirm m2-wide-index/index=hit is materially faster; regress the known 0x2DA9E10 target, qualified lookup, RVA reverse, detail/copy, and Create Patch canonical handoff.",
+  "next_phase": "m2.1-physical-device-acceptance",
+  "next_task": "Install M2.1. Confirm the primary Search button changes to Cancel while an M2 search token is active and returns to Search after completion. Do not require a human to beat the 147-423ms search time to prove cancellation on this target. Regress cash broad search timing/results plus qualified lookup, 0x2DA9E10 reverse lookup, detail/copy and Create Patch canonical handoff.",
   "captured_at": "2026-09-15"
 }
