@@ -3,41 +3,64 @@
   "repo": "a7987083/UnitXP_SP3-Moonstone",
   "current_capture_branch": "feature/json-capture-v0.4.1",
   "handoff_branch": "handoff/jsoncapture-20260915",
-  "current_phase": "Lua 5.3 format-1 offline reconstruction",
+  "current_work_branch": "feature/lua53-static-recovery-v0.1",
+  "current_phase": "static tables recovered; authoritative server comparison",
   "runtime_capture_status": "validated",
-  "container_status_last_known": "TransportTimeoutError",
+  "offline_recovery_status": "validated",
+  "native_lua53_loader_test": "not_run_environment_missing_lua53_and_dns",
+  "recovery_tool": "tools/lua53_static_recover.py",
   "targets": {
     "Drop": {
       "file": "@src_datazb_TAB_Drop_1.lua_a3fe7f8952d3.luac",
       "sha256": "a3fe7f8952d3871252a2c3e8d00603e1965b21617eb81cc77378d14e192f3584",
       "bytes": 124094,
-      "parse_ok": true
+      "instructions": 23925,
+      "records": 2001,
+      "recovered": true,
+      "trailing_bytes": 0,
+      "normalized_sha256": "87761d94c498178dbe4b281dfad6bb9ad239471f760b653cfc9e046ba470ac04",
+      "semantic_sha256": "73aecca81e87993c0281b2f2064f937c36b39c93db5b53289add62e76ae3778d"
     },
     "Monster": {
       "file": "@src_datazb_TAB_Monster_1.lua_55d2f749f17b.luac",
       "sha256": "55d2f749f17b1657457fa474cadf422489b9d09dc4d09f512c75d5452a484008",
       "bytes": 495126,
-      "parse_ok": true
+      "instructions": 104480,
+      "records": 2001,
+      "recovered": true,
+      "trailing_bytes": 0,
+      "normalized_sha256": "273b2261d3c9c2fdf69004efbe817746f8fee0916ac223f9af86c87cd2eaa5f7",
+      "semantic_sha256": "3fc148cc353bbb11b0e8f115a1c3149f8e5fcd79f490c94df1b7f8748f16c8c3"
     },
     "Recharge": {
       "file": "@src_datazb_TAB_Recharge_1.lua_f4ba8c5f902e.luac",
       "sha256": "f4ba8c5f902e2e0886e04a1046d27886c886140fa9537a5189c6b94b6ef134bc",
       "bytes": 66945,
-      "parse_ok": true
+      "instructions": 13201,
+      "records": 947,
+      "recovered": true,
+      "trailing_bytes": 0,
+      "normalized_sha256": "e510c2abbc04c2f5f495a54c3440eef2e256b6af06c8db1d11f164e44dac05a3",
+      "semantic_sha256": "9ab193847112623967b18c9258ea5bfd1e526fdc9b5b450282abbb2840dbc930"
     },
     "MonsterEX": {
       "file": "@src_datazb_TAB_MonsterEX_1.lua_1d2aa62a45f6.luac",
       "sha256": "1d2aa62a45f619da98c9759b0e6692a0adced0fd7b6e5ccb6e3863f1d627698b",
       "bytes": 804140,
-      "parse_ok": true
+      "instructions": 175009,
+      "records": 2001,
+      "recovered": true,
+      "trailing_bytes": 0,
+      "normalized_sha256": "e55238179920b4ac70801c3ebaf5c63194df43a1f1e2449aac9d60a1a95d6500",
+      "semantic_sha256": "c489caf90bad9c250693ed0c876992721109e9f4f81a3ae7d82738a56399bb22"
     }
   },
   "next_action": [
-    "validate Lua 5.3 header",
-    "test format byte normalization 1->0 on copies",
-    "decode instructions/constants/protos",
-    "reconstruct static Lua tables",
-    "export lua/json"
+    "locate authoritative server Recharge/Drop/Monster/MonsterEX JSON files",
+    "diff recovered tables by id and field against server copies",
+    "classify historical channel/operator edits separately from source-version differences",
+    "select and audit final server deployment files",
+    "optionally run native Lua 5.3 loader against normalized-format0 copies"
   ],
-  "release_requirement": "future packages must include compiled dylib with filename, SHA-256, architecture and download package"
+  "release_requirement": "future dylib packages must include compiled dylib with filename, SHA-256, architecture and download package"
 }
