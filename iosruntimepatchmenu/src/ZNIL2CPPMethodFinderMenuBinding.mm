@@ -7,6 +7,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderSearchV2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderUXV2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderV3Deferred(void);
+extern "C" void ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred(void);
 
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
 // swizzles. Method Finder is a developer-authoring surface, so it follows the
@@ -80,5 +81,10 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         // visible Finder workflow: search -> candidates -> detail -> Builder.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
         ZNInstallIL2CPPMethodFinderV3Deferred();
+
+        // Multi-candidate selection must survive the transition into the legacy
+        // Builder.  This bridge writes the selected candidate's canonical
+        // expression into the new row instead of the possibly ambiguous query.
+        ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
     });
 }
