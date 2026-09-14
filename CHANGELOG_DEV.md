@@ -2,6 +2,48 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-15 — v0.5.8-dev Method Finder V3 Milestone 2.1 Cancel UX
+
+Product source head: `47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5`
+
+真机反馈：
+
+- 宽泛查询 `cash` 第一次 `423.1 ms`。
+- 第二次 `147 ms`。
+- 后续约 `150 ms`。
+- 原 M2 未观察到 Cancel 按钮；当前目标搜索过快，人工抢点取消没有测试意义。
+
+实际修改：
+
+- 从 M2 docs/state head 独立切出 `feature/runtime-patch-menu-v0.5.8-method-finder-v3-m2.1-cancel-ux`。
+- 新增 `ZNIL2CPPMethodFinderM21CancelUX.mm`，不改 M2 搜索/索引/cancel engine。
+- active token 存在时，搜索页顶部原 `搜索` 主按钮原位切换成 `取消`。
+- active 状态下移除原先页面底部临时 Cancel 卡片，避免短搜索还要滚动寻找取消入口。
+- 主按钮 action 从 `zn60v3_startSearch:` 切换为 `zn61m2_cancelSearch:`；搜索完成后 token 清空，下一次正常 render 自动恢复为 `搜索`。
+- 新增 accessibility/binary marker `ZNMethodFinderPrimaryCancel`。
+- 不通过人为 sleep/throttle 降低生产搜索速度来测试 Cancel。
+
+CI / Build：
+
+- Workflow: `Build Method Finder V3 via Main`
+- Run: `34885020233`
+- Result: `success`
+- Artifact ID: `10364618234`
+- Artifact ZIP SHA256: `f0dc1779dbb129bca51b9a4221aa76e0f02756c832022171df6d50038ed54637`
+- Dylib SHA256: `f6778203804b2d28c90b201a2de7cf8b141a31d2d215f5d0ed3dfb5e99a86ba6`
+- Dylib size: `751232` bytes
+- Mach-O: thin arm64 dylib
+- `__init_offsets == 4`: PASS
+- M2.1 marker `ZNMethodFinderPrimaryCancel`: PASS
+- Independent post-download ZIP/dylib hash + Mach-O constructor recheck: PASS
+
+验证边界：
+
+- M2 `cash` 宽泛搜索与时延：已真机观察。
+- M2 原底部 Cancel UI：真机未观察到。
+- M2.1 顶部 `搜索 -> 取消` 切换：CI/binary verified，待真机确认。
+- 不把 `index=hit` UI 文本标记记为真机已确认，因为用户尚未单独报告该文本。
+
 ## 2026-09-15 — v0.5.8-dev Method Finder V3 Milestone 2
 
 Product source head: `69b546edd0ed83a5699805951304aa3371a0bc30`
@@ -92,7 +134,7 @@ CI / Build：
 
 - Protection V1 是静态分析成本层，不宣称客户端秘密不可提取。
 - Patch Variant 仍位于 `__ZNTEXT`，本阶段没有对 Patch payload 本体做加密/变换保护。
-- 动态调试环境仍可能观察 Runtime 解码后的地址。
+- 动态调试环境仍可观察 Runtime 解码后的地址。
 
 ## 2026-09-13 — Compact Public UI + plist privacy cleanup
 
