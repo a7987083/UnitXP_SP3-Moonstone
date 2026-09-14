@@ -4,7 +4,7 @@
 #import <stdlib.h>
 
 #import "ZNBinaryPatchWorkspace.h"
-#import "ZNIL2CPPResolver.h"
+#import "ZNIL2CPPHybridFinder.h"
 #import "ZNPatchRuntimeValidator.h"
 
 // v0.5.7 Named Offset integration.
@@ -57,7 +57,7 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
 
 - (BOOL)zn57_validateAll:(NSString **)error {
     NSMutableArray<NSDictionary *> *symbolic = [NSMutableArray array];
-    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
+    ZNIL2CPPHybridFinder *finder = [ZNIL2CPPHybridFinder sharedFinder];
 
     // Resolve every symbolic row first without mutating workspace state. This
     // makes ambiguity/error handling transactional: if one name is not unique,
@@ -71,15 +71,15 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
         if (ZN57ParseNumericRVA(offset, &numeric)) continue;
 
         NSString *resolveError = nil;
-        NSDictionary *resolution = [resolver resolveNamedOffsetExpression:offset error:&resolveError];
+        NSDictionary *resolution = [finder resolveExpression:offset error:&resolveError];
         if (!resolution) {
             NSString *message = [NSString stringWithFormat:@"#%lu %@",
                                  (unsigned long)index + 1,
-                                 resolveError ?: @"IL2CPP Named Offset 解析失败"];
+                                 resolveError ?: @"IL2CPP Method Finder 解析失败"];
             row.validated = NO;
             row.validator = nil;
             row.originalHex = @"";
-            row.statusText = [NSString stringWithFormat:@"❌ %@", resolveError ?: @"Named Offset 解析失败"];
+            row.statusText = [NSString stringWithFormat:@"❌ %@", resolveError ?: @"Method Finder 解析失败"];
             self.lastStatus = message;
             if (error) *error = message;
             return NO;
@@ -87,7 +87,7 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
 
         NSString *rvaText = resolution[@"rvaText"];
         if (!rvaText.length) {
-            NSString *message = [NSString stringWithFormat:@"#%lu IL2CPP Named Offset 未返回 RVA", (unsigned long)index + 1];
+            NSString *message = [NSString stringWithFormat:@"#%lu IL2CPP Method Finder 未返回 RVA", (unsigned long)index + 1];
             row.validated = NO;
             row.validator = nil;
             row.originalHex = @"";
@@ -132,16 +132,20 @@ static NSString *ZN57ShortCanonical(NSDictionary *resolution) {
         if (row.validated && row.validator) {
             NSString *shortName = ZN57ShortCanonical(resolution);
             NSString *rvaText = resolution[@"rvaText"] ?: @"?";
-            NSString *source = resolution[@"pointerSource"] ?: @"?";
-            row.statusText = [NSString stringWithFormat:@"✅ IL2CPP %@ → %@ · %@",
+            uint64_t preferredVA = [resolution[@"preferredVA"] unsignedLongLongValue];
+            uint64_t runtimeVA = [resolution[@"runtimeVA"] unsignedLongLongValue];
+            NSString *pointerKind = resolution[@"pointerKind"] ?: resolution[@"pointerSource"] ?: @"?";
+            row.statusText = [NSString stringWithFormat:@"✅ IL2CPP %@ → RVA %@ · IDA 0x%llX · Runtime 0x%llX · %@",
                               shortName.length ? shortName : item[@"expression"],
                               rvaText,
-                              source];
+                              (unsigned long long)preferredVA,
+                              (unsigned long long)runtimeVA,
+                              pointerKind];
         }
     }
 
     if (ok && symbolic.count) {
-        self.lastStatus = [NSString stringWithFormat:@"读取验证通过：%lu 个 IL2CPP Named Offset 已解析并固定到 UnityFramework；生成阶段使用已验证 RVA",
+        self.lastStatus = [NSString stringWithFormat:@"读取验证通过：%lu 个 IL2CPP Method Finder 结果已解析并固定到 UnityFramework；生成阶段使用已验证 RVA",
                            (unsigned long)symbolic.count];
     }
     return ok;
