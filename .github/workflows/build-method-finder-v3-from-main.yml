@@ -17,7 +17,7 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: ed34453e8b6ae3c6d0c904230a2c50bd93a6ba63
+          ref: ef98a090e1df5b69df3fbb86adb905008285d82c
           fetch-depth: 0
 
       - name: V3 source assertions
@@ -33,7 +33,6 @@ jobs:
           grep -q 'v3-reverse-rva' "$src/ZNIL2CPPMethodFinderSearchV3.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderV3Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
-          grep -q 'selected candidate canonical expression' "$src/ZNIL2CPPMethodFinderPatchBridgeV3.mm" || true
           grep -q 'kZN58FinderShardClasses = 12000' "$src/ZNIL2CPPMethodFinderSearchV2.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
 
