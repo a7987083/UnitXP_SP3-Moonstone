@@ -9,7 +9,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy,readonly) NSString *unityPath;
 @property(nonatomic,copy,readonly) NSString *lastError;
 @property(nonatomic,copy,readonly) NSString *lastNamedResolution;
-@property(nonatomic,copy,readonly) NSDictionary<NSString *, id> *lastSearchStats;
 
 - (void)refresh;
 - (NSDictionary<NSString *, NSNumber *> *)capabilities;
@@ -25,11 +24,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable NSDictionary<NSString *, id> *)parseNamedOffsetExpression:(NSString *)expression
                                                                 error:(NSString * _Nullable * _Nullable)error;
 
-// Resolves a named IL2CPP method to a UnityFramework RVA. Bare names use a
-// low-memory bounded streaming search with case-insensitive exact matching and
-// Assembly-CSharp priority. Ambiguous names are rejected instead of silently
-// choosing the first match. The result includes resolved RVA, preferred/runtime
-// VA, MethodInfo, method pointer source/kind and search statistics.
+// Baseline v0.5.7 resolver retained for compatibility. The authoring workspace
+// now uses ZNIL2CPPHybridFinder for bounded low-memory search.
 - (nullable NSDictionary<NSString *, id> *)resolveNamedOffsetExpression:(NSString *)expression
                                                                    error:(NSString * _Nullable * _Nullable)error;
 
