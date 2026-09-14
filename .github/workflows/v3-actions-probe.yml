@@ -1,0 +1,13 @@
+name: V3 Actions Probe
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-method-finder-v3
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe
+        run: echo "actions-dispatch-ok"
