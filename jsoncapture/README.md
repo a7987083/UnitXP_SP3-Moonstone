@@ -1,68 +1,50 @@
-# JSONCapture v0.1
+# JSONCapture v0.4
 
-Runtime JSON collector for the current HFAMap/Unity iOS target.
+Runtime collector/analyzer for the current HFAMap Unity iOS target.
 
-## Goal
-
-Open the game and collect JSON that actually enters the process at runtime, without changing the JSON before the game consumes it.
-
-Output root:
+## Output root
 
 `Documents/JSONCapture/`
 
-Subdirectories:
+Important outputs:
 
-- `network/` — NSURLSession / NSURLConnection response JSON, including delegate and completion-handler paths.
-- `parser/` — JSON accepted by `NSJSONSerialization JSONObjectWithData:options:error:`.
-- `file/` — JSON loaded through common `NSData` / `NSString` file and URL helpers.
-- `decrypt/` — optional output from the known `AesHelper.CustomDecryptString` / `CustomDecryptBytes` RVAs when an available runtime hook API can attach.
-- `outgoing/` — JSON produced or sent by the process.
+- `JSONCapture.log` — v0.1 network/Foundation/decrypt capture.
+- `IL2CPP_v0.4.log` — TextAsset / AssetBundle hook status and capture events.
+- `LuaLoader_v0.3.log` — Lua VM loader input capture retained from v0.3.
+- `textasset/` — raw TextAsset payloads.
+- `lua_loader/` — loader input captured by v0.3.
+- `lua53_analysis/` — v0.4 Lua 5.3 extraction and structural analysis.
 
-Each new JSON body is saved byte-for-byte as `*.json`, plus a sidecar `*.meta.json` containing source, context, byte size, SHA-256 and capture time.
+## v0.4: Lua 5.3 format-1 analyzer
 
-`JSONCapture.log` records hook status and capture events.
+The verified runtime sample `TAB_Drop_1.lua` enters `tolua_loadbuffer` with header:
 
-## Deduplication
+`1B 4C 75 61 53 01 19 93 0D 0A 1A 0A 04 04 04 08 08 78 56 ...`
 
-JSON bodies are deduplicated by SHA-256 for the lifetime of the process. Repeated reads increment the duplicate counter instead of creating another file.
+This is Lua 5.3 (`0x53`) with format byte `1`. The observed header still contains five size fields (`sizeof(int)`, `sizeof(size_t)`, `sizeof(Instruction)`, `sizeof(lua_Integer)`, `sizeof(lua_Number)`), so v0.4 does **not** assume Tencent/xLua's `LUAC_COMPATIBLE_FORMAT` layout. It detects both layouts and reports which one actually matches the captured chunk.
 
-## UI
+For TextAsset payloads, v0.4 scans the first 32 bytes for an embedded `\x1bLua\x53` signature. This covers the verified `TAB_*` case where the raw TextAsset is four bytes larger than the Lua VM input.
 
-A movable `JSON` floating button appears after UIKit is ready.
+For every unique clean Lua 5.3 chunk, `lua53_analysis/` receives:
 
-Panel controls:
+- `<chunk>_<sha>.luac` — wrapper-stripped chunk, byte-for-byte from the detected Lua signature.
+- `<chunk>_<sha>.analysis.json` — header/layout, endian, sizes, parse status, function/instruction/constant counts, opcode histogram, trailing bytes and wrapper offset.
+- `<chunk>_<sha>.strings.txt` — unique UTF-8 strings recovered while parsing Lua prototypes/constants/debug data.
 
-- `Pause` / `Resume` capture.
-- `Clear` captured storage and counters.
+The parser understands standard Lua 5.3 prototype layout and supports the observed format-1 + official-size-field header as well as the xLua-compatible four-size-field variant.
 
-The panel shows total captures plus network/parser/file/decrypt counts.
+## Opcode validation boundary
 
-## Current target-specific decrypt probes
+v0.4 checks that 32-bit instructions use opcode numbers in the stock Lua 5.3 range `0..46` and records a histogram. This is only a structural check. A zero `opcode_out_of_range_0_46` value does **not** prove that opcode meanings/order were not customized.
 
-These are inherited from the verified RuntimeConfig target mapping for the current UnityFramework build:
+## Capture layers retained
 
-- `AesHelper.CustomDecryptString` RVA `0x186A4B8`
-- `AesHelper.CustomDecryptBytes` RVA `0x186FA64`
+- NSURLSession / NSURLConnection and Foundation JSON capture.
+- `AesHelper.CustomDecryptString` / `CustomDecryptBytes` optional hooks.
+- `UnityEngine.TextAsset::get_text` / `get_bytes`.
+- `AssetBundle::LoadAsset` / `LoadAssetAsync` request logging.
+- `LuaStatePtr::LuaLoadBuffer`, `tolua_loadbuffer`, `luaL_loadbuffer`, `luaL_loadbufferx` from v0.3.
 
-The decrypt layer is optional. It tries `MSHookFunction` first and `DobbyHook` second if either symbol is available. If neither can attach, Foundation/network/file capture remains active.
+## Safety / limits
 
-## Limits / expected blind spots
-
-v0.1 does **not** claim that one launch can copy the server directory `/home/ubuntu/runtime/json`. It captures JSON that actually reaches the iOS process.
-
-Potential blind spots:
-
-- managed/IL2CPP JSON parsers that never cross Foundation APIs;
-- custom native HTTP stacks whose plaintext does not pass NSURLSession/NSURLConnection;
-- custom binary/AssetBundle config that is not converted to JSON text;
-- decrypt functions whose RVA/signature differs from the current target build;
-- runtime inline-hook restrictions on jailed iOS.
-
-Network delegate buffering is candidate-based and capped at 128 MiB; individual JSON capture is capped at 256 MiB to avoid turning a large asset download into an in-process memory sink.
-
-## Safety characteristics
-
-- Read/copy only for captured payloads; no replacement of network responses or parser input.
-- No connect redirection.
-- No mutation of game JSON.
-- Internal writes are guarded to avoid recursively capturing JSONCapture's own metadata.
+Capture is read/copy only. It does not replace game data or redirect connections. TextAsset/Lua buffers are capped to avoid unbounded in-process copies. Runtime hook availability still depends on the injected environment.

@@ -6,7 +6,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#define JC2_VERSION @"JSONCapture IL2CPP v0.2"
+#import "Lua53Analyzer.h"
+
+#define JC2_VERSION @"JSONCapture IL2CPP v0.4"
 #define JC2_MAX_TEXTASSET_BYTES (64ULL * 1024ULL * 1024ULL)
 #define JC2_POLL_MAX 240
 
@@ -78,10 +80,11 @@ static void JC2EnsureDirectory(NSString *path) {
 static void JC2SetupPaths(void) {
     if (gJC2RootPath.length) return;
     gJC2RootPath = [[[JC2DocumentsPath() stringByAppendingPathComponent:@"JSONCapture"] stringByStandardizingPath] retain];
-    gJC2LogPath = [[gJC2RootPath stringByAppendingPathComponent:@"IL2CPP_v0.2.log"] retain];
+    gJC2LogPath = [[gJC2RootPath stringByAppendingPathComponent:@"IL2CPP_v0.4.log"] retain];
     JC2EnsureDirectory(gJC2RootPath);
     JC2EnsureDirectory([gJC2RootPath stringByAppendingPathComponent:@"textasset"]);
     JC2EnsureDirectory([gJC2RootPath stringByAppendingPathComponent:@"assetbundle"]);
+    JC2EnsureDirectory([gJC2RootPath stringByAppendingPathComponent:@"lua53_analysis"]);
 }
 
 static void JC2Log(NSString *text) {
@@ -190,8 +193,10 @@ static BOOL JC2LooksText(NSData *data) {
 
 static NSString *JC2FormatForData(NSData *data, NSString *assetName) {
     if (JC2LooksJSON(data)) return @"json";
+    NSInteger luaOff = JC4FindLua53SignatureOffset(data);
+    if (luaOff == 0) return @"luac";
+    if (luaOff != NSNotFound) return @"luacwrap";
     const uint8_t *p = data.bytes;
-    if (data.length >= 4 && p[0] == 0x1B && p[1] == 'L' && p[2] == 'u' && p[3] == 'a') return @"luac";
     if (data.length >= 7 && memcmp(p, "UnityFS", 7) == 0) return @"bundle";
     if (JC2LooksText(data)) {
         NSString *lower = assetName.lowercaseString;
@@ -244,6 +249,12 @@ static void JC2CaptureData(NSData *data, NSString *source, NSString *assetName) 
             [meta writeToFile:metaPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
             JC2Log([NSString stringWithFormat:@"CAPTURE #%llu source=%@ asset=%@ bytes=%lu format=%@ sha256=%@ file=%@",
                     idx, src, name, (unsigned long)snapshot.length, fmt, hash, dataPath.lastPathComponent]);
+
+            NSInteger luaOff = JC4FindLua53SignatureOffset(snapshot);
+            if (luaOff != NSNotFound) {
+                JC2Log([NSString stringWithFormat:@"LUA53-DETECTED asset=%@ signature_offset=%ld source=%@", name, (long)luaOff, src]);
+                JC4AnalyzeLua53Data(snapshot, src, name, gJC2RootPath);
+            }
         }
     });
 }
@@ -471,9 +482,9 @@ static void JC2Poll(NSUInteger attempt) {
 __attribute__((constructor)) static void JC2Entry(void) {
     @autoreleasepool {
         JC2SetupPaths();
-        gJC2Queue = dispatch_queue_create("com.hfamap187.jsoncapture.il2cpp", DISPATCH_QUEUE_SERIAL);
+        gJC2Queue = dispatch_queue_create("com.hfamap187.jsoncapture.il2cpp.v04", DISPATCH_QUEUE_SERIAL);
         gJC2SeenHashes = [[NSMutableSet alloc] init];
-        JC2Log([NSString stringWithFormat:@"%@ loaded; waiting for IL2CPP domain", JC2_VERSION]);
+        JC2Log([NSString stringWithFormat:@"%@ loaded; waiting for IL2CPP domain; Lua53 wrapper analyzer enabled", JC2_VERSION]);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
                        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{ JC2Poll(0); });
     }
