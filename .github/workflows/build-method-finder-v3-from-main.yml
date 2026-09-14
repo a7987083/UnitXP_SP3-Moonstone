@@ -1,0 +1,124 @@
+name: Build Method Finder V3 via Main
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/build-method-finder-v3-from-main.yml
+  workflow_dispatch:
+
+jobs:
+  build-v3:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout V3 source
+        uses: actions/checkout@v4
+        with:
+          ref: ed34453e8b6ae3c6d0c904230a2c50bd93a6ba63
+          fetch-depth: 0
+
+      - name: V3 source assertions
+        run: |
+          set -euxo pipefail
+          src=iosruntimepatchmenu/src
+          makefile=iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNIL2CPPMethodFinderSearchV3.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderUIV3.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderPatchBridgeV3.mm' "$makefile"
+          grep -q 'zn60_searchCandidates' "$src/ZNIL2CPPMethodFinderSearchV3.h"
+          grep -q 'v3-candidate-list' "$src/ZNIL2CPPMethodFinderSearchV3.mm"
+          grep -q 'v3-reverse-rva' "$src/ZNIL2CPPMethodFinderSearchV3.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderV3Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+          grep -q 'selected candidate canonical expression' "$src/ZNIL2CPPMethodFinderPatchBridgeV3.mm" || true
+          grep -q 'kZN58FinderShardClasses = 12000' "$src/ZNIL2CPPMethodFinderSearchV2.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+
+      - name: Named Offset parser tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/il2cpp_named_offset_parser_test.mm \
+            iosruntimepatchmenu/src/ZNIL2CPPResolver.mm \
+            -o /tmp/zn_il2cpp_named_offset_parser_test
+          /tmp/zn_il2cpp_named_offset_parser_test
+
+      - name: Static protection tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/static_payload_protection_v2_test.mm \
+            -o /tmp/zn_static_payload_protection_v2_test
+          /tmp/zn_static_payload_protection_v2_test
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/static_rva_protection_test.mm \
+            -o /tmp/zn_static_rva_protection_test
+          /tmp/zn_static_rva_protection_test
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build V3
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v058-method-finder-v3
+          cp .theos/obj/ZonoePatchV03.dylib dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3.dylib
+          shasum -a 256 dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3.dylib | tee dist-v058-method-finder-v3/SHA256.txt
+
+      - name: Verify V3 binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3.dylib
+          file "$out"
+          nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
+          nm -gU "$out" | grep '_ZonoePatchGetVersion'
+          strings "$out" > /tmp/zonoe_v058_v3_strings.txt
+          grep -q 'v3-candidate-list' /tmp/zonoe_v058_v3_strings.txt
+          grep -q 'v3-reverse-rva' /tmp/zonoe_v058_v3_strings.txt
+          grep -q 'IL2CPP 方法查找 · V3' /tmp/zonoe_v058_v3_strings.txt
+          python3 <<'PY'
+          import struct
+          p='iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3.dylib'
+          data=open(p,'rb').read()
+          if struct.unpack_from('<I',data,0)[0] != 0xfeedfacf:
+              raise SystemExit('not thin arm64 Mach-O')
+          ncmds=struct.unpack_from('<I',data,16)[0]
+          off=32
+          init_size=None
+          for _ in range(ncmds):
+              cmd,cmdsize=struct.unpack_from('<II',data,off)
+              if cmd==0x19:
+                  nsects=struct.unpack_from('<I',data,off+64)[0]
+                  so=off+72
+                  for __ in range(nsects):
+                      sectname=data[so:so+16].split(b'\0',1)[0]
+                      if sectname==b'__init_offsets':
+                          init_size=struct.unpack_from('<Q',data,so+40)[0]
+                      so+=80
+              off+=cmdsize
+          print('init_offsets_size=',init_size)
+          if init_size != 4:
+              raise SystemExit(f'expected exactly one cold-launch constructor, got {init_size}')
+          PY
+
+      - name: Upload V3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-MethodFinder-V3-M1
+          path: |
+            iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3.dylib
+            iosruntimepatchmenu/dist-v058-method-finder-v3/SHA256.txt
+          if-no-files-found: error
