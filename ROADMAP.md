@@ -4,111 +4,95 @@
 
 - Project: ZonoPatch Runtime Patch Menu
 - Version: `0.5.8-dev`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-method-finder-v3-m2.1-cancel-ux`
-- Stage: `Method Finder V3 Milestone 2.1 — visible cancel UX on top of async wide search/index`
-- M2 core product source: `69b546edd0ed83a5699805951304aa3371a0bc30`
-- M2.1 product source: `47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5`
-- CI run: `34885020233` — `success`
-- Artifact ID: `10364618234`
-- M2 wide-search device observation: `PARTIAL PASS`
-- M2.1 cancel UX device validation: `PENDING`
+- Active branch: `feature/runtime-patch-menu-v0.5.8-m3.1-il2cpp-abi-return-foundation`
+- Stage: `M3.1 — IL2CPP Signature / ABI + Return Override Foundation`
+- Device-accepted baseline: M2.2 runtime `19b912c840e7223adbc2c26ef80185c32b8eb77a`
+- M3.1 product source: `81a9cf9291bd95e300106e708e9dc492d74a778f`
+- CI run: `34898345483` — `success`
+- Artifact ID: `10369996035`
+- M3.1 validation: `CI/BINARY VERIFIED · DEVICE PENDING`
 
-## Baselines
+## Completed baselines
 
 - v0.5.6.2 sealed: `86edac4d70ef467e9a58912768b6c6c72077842a` — never modify directly.
-- v0.5.7 Named Offset baseline: `8300cf41589bf8aa9a690152d4dab3dd6333073c`.
-- V2 device-verified Method Finder/zero-vmaddr baseline: `4377d4a4c6e325e54299e3055346240f4963940f`.
-- V3 M1 product source: `ef98a090e1df5b69df3fbb86adb905008285d82c`.
-- V3 M1 device acceptance: PASS for the agreed candidate/detail/RVA/Builder paths.
+- V2 Method Finder / zero-vmaddr: device verified.
+- V3 M1 candidate/detail/RVA/Builder path: device verified.
+- M2 broad search/index: device observed; `cash` first `423.1 ms`, repeat ~`147–150 ms`.
+- M2.2 Builder delete + generic Toggle/Number/Action/Slider + stable cancel rendering: device accepted by aggregate user report.
 
-## Completed — V3 Milestone 1
+## Implemented — M3.1
 
-- Multiple candidate result list.
-- Qualified lookup and RVA reverse lookup.
-- Detail page with RVA / Preferred VA / Runtime VA / MethodInfo / Method Pointer.
-- First 16-byte code preview and copy controls.
-- Exact selected candidate -> Builder canonical expression bridge.
-- Known target `Cash::get_TotalCashReward/0` device-verified at RVA `0x2DA9E10`.
+- Dynamic IL2CPP signature API discovery from UnityFramework.
+- Managed return type + parameter type/name extraction.
+- instance/static metadata when available.
+- generic/inflated metadata when available.
+- Primitive/raw-pointer ABI classes for ARM64 planning.
+- Enum base-type reduction when runtime APIs permit it.
+- Conservative guards for byref, managed object, complex value type, generic/inflated and unknown ABI.
+- `ZNIL2CPPBuildReturnOverridePlan` data contract for the future hook backend.
+- Detail-page ABI card with Copy ABI action.
+- M3.1 never installs a hook and never mutates target memory.
 
-## Implemented — V3 Milestone 2
+## M3.1 validation gate
 
-- Bare-name wide search, case-insensitive.
-- Ranking: `exact > prefix > suffix > contains`.
-- Structured expressions remain exact.
-- RVA reverse remains exact.
-- Background search execution; UI thread is no longer responsible for full metadata scanning.
-- Cooperative Cancel engine.
-- 12,000-class shard progress updates.
-- Compact local IL2CPP index built on first broad search.
-- Index fingerprint: UnityFramework Mach-O UUID + file size.
-- Binary plist persistence with deduplicated Assembly/Namespace/Class/Method tables and fixed 32-byte records.
-- Persist only Assembly/Namespace/Class/Method/argCount/RVA; never persist launch-specific MethodInfo/Method Pointer/Runtime VA.
-- Subsequent broad searches use index first and re-resolve live runtime candidates.
-- Assembly-CSharp-first ordering preserved.
+Run `34898345483` passed:
 
-## M2 real-device evidence
-
-Broad query `cash` on the real target:
-
-- first run: `423.1 ms`
-- second run: `147 ms`
-- later runs: approximately `150 ms`
-
-This is enough to mark the broad-search path as real-device observed and performant on the current target. The repeat-query reduction is consistent with index reuse, but the `index=hit` UI/log marker itself was not separately reported and remains unconfirmed.
-
-The original bottom-of-page Cancel control was not observed. At these durations, especially ~150 ms repeats, asking the user to manually race the search is not a useful acceptance criterion.
-
-## Implemented — M2.1 cancel UX
-
-- Search/cancel engine remains unchanged.
-- While an active M2 token exists, the primary top `搜索` button changes to `取消`.
-- Primary action target switches to `zn61m2_cancelSearch:`.
-- Old temporary bottom Cancel card is removed while active.
-- Completion clears token and normal re-render restores `搜索`.
-- Accessibility marker: `ZNMethodFinderPrimaryCancel`.
-- Production search is not intentionally slowed for testing.
-
-## CI gate — M2.1 passed
-
-Run `34885020233`:
-
-- source assertions: PASS
-- Named Offset parser: PASS
-- static protection tests: PASS
-- Theos arm64 compile/link/sign: PASS
-- M2.1 source compile: PASS
-- binary verify: PASS
-- exported API symbols: PASS
-- M1/M2/M2.1 binary markers: PASS
-- `__init_offsets == 4`: PASS
-- artifact upload: PASS
+- source assertions;
+- Named Offset parser test;
+- IL2CPP ABI classifier test;
+- static payload/RVA protection tests;
+- Theos arm64 compile/link/sign;
+- binary marker verification;
+- exported API checks;
+- one-constructor check (`__init_offsets == 4`);
+- artifact upload.
 
 Artifact:
 
-- `ZonoPatch-v0.5.8-MethodFinder-V3-M2.1`
-- ID `10364618234`
-- ZIP SHA256 `f0dc1779dbb129bca51b9a4221aa76e0f02756c832022171df6d50038ed54637`
-- dylib SHA256 `f6778203804b2d28c90b201a2de7cf8b141a31d2d215f5d0ed3dfb5e99a86ba6`
-- dylib size `751232` bytes
+- `ZonoPatch-v0.5.8-M3.1-ABI-ReturnFoundation`
+- ID `10369996035`
+- ZIP SHA256 `9938d7e7f061fd0d09e9690abdcdac616eb3af378bd99e5e2e5f4d242dd6c8ab`
+- dylib SHA256 `00e3aa4e3d638ba184c51f2b31c7374a172a12796b831b8b8a04c3cd73340079`
+- dylib size `801376`
+- thin arm64 Mach-O
+- single constructor.
 
-## Next — M2.1 physical-device acceptance
+## NEXT — M3.1 physical-device acceptance
 
-Status: `NEXT`
+Use known target:
 
-1. Install M2.1 and run `cash` once; confirm the top action changes from `搜索` to `取消` for whatever portion of the search duration is visually observable.
-2. Do not require a successful manual tap on a 147–423 ms search. Cancellation behavior should be exercised later on a naturally slower/larger target if needed.
-3. Confirm broad search still completes normally and remains near the current performance profile.
-4. If visible in results/log, confirm `m2-wide-index` / `index=hit` on a repeat query.
-5. Regress known target detail to RVA `0x2DA9E10`.
-6. Regress full qualified expression and exact RVA reverse lookup.
-7. Regress copy controls and Create Patch canonical handoff.
+`Assembly-CSharp.dll!com.notdoppler.ETDR.Cash::get_TotalCashReward/0`
 
-## After M2.1 acceptance
+RVA must remain `0x2DA9E10`.
 
-- Clean Objective-C category dependency declarations and remove the temporary `-Wno-incomplete-implementation` suppression before sealing.
-- Decide whether ~150 ms indexed lookup is already sufficient. Only optimize further if real UX needs it, because part of that time is deliberate current-launch MethodInfo/Method Pointer re-resolution.
-- Add stale-index cache cleanup.
-- Improve generic / inflated / shared native-pointer classification.
-- Then proceed to IL2CPP signature/ABI metadata, Return Override, jailbreak Hook/Replace, call trace, and unified Runtime Modification management.
+Confirm the new ABI card's actual runtime values:
 
-Do not start Hook/Replace work until M2.1 search/index behavior has device evidence and M1 regressions remain green.
+- managed return type;
+- return ABI class;
+- instance/static;
+- generic/inflated;
+- parameter list/count;
+- Return Override Foundation Ready/Blocked + reason;
+- Copy ABI.
+
+Do not assume `get_TotalCashReward` is int/instance until the device card confirms it.
+
+## After M3.1 acceptance — M3.2
+
+Implement actual **Return Override backend** on a new branch. Requirements before enabling a hook:
+
+- consume the M3.1 validated ABI descriptor/plan;
+- dynamically detect an available jailbreak-native hook backend, with ElleKit / `MSHookFunction`-compatible API as the preferred direction after runtime verification;
+- preserve original trampoline;
+- enable/disable/restore safely;
+- initially support only M3.1-approved scalar/raw-pointer return kinds;
+- refuse complex struct/HFA, managed-object, generic/inflated/shared and unresolved ABI;
+- bind Number/Slider/Toggle controls generically rather than hardcoding game feature names;
+- add transaction/rollback and conflict state to unified Runtime Modification management.
+
+## Later milestones
+
+- M3.3: Inline Hook / Function Replace with ABI-safe templates and original-call support.
+- M3.4: Trace/call monitoring, call counts, thread, arguments/return/duration where ABI is known.
+- M3.5: unified Runtime Modification page for Instruction Patch / Return Override / Inline Hook.
+- Hardening: stale index cleanup, generic/shared classification improvements, remove temporary Objective-C warning suppression before sealing.
