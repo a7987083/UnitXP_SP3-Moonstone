@@ -34,6 +34,8 @@ Not implemented yet:
 
 At this point V3 source is committed, but it is not device-verified. CI must compile and binary-verify the candidate before any dylib is offered for device testing.
 
+The repository Actions dispatcher is also being probed independently because recent runs returned the synthetic `BuildFailed/startup_failure/0 jobs` state before any runner was created. This is CI-infrastructure state, not a compile result.
+
 Device acceptance target for milestone 1:
 
 1. `get_TotalCashReward` opens a result list and includes the known `Cash::get_TotalCashReward/0` target.
