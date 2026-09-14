@@ -17,7 +17,7 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: 69b546edd0ed83a5699805951304aa3371a0bc30
+          ref: 47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5
           fetch-depth: 0
 
       - name: V3 source assertions
@@ -29,16 +29,21 @@ jobs:
           grep -q 'src/ZNIL2CPPMethodFinderUIV3.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderPatchBridgeV3.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderM2.mm' "$makefile"
+          grep -q 'src/ZNIL2CPPMethodFinderM21CancelUX.mm' "$makefile"
           grep -q 'zn60_searchCandidates' "$src/ZNIL2CPPMethodFinderSearchV3.h"
           grep -q 'v3-candidate-list' "$src/ZNIL2CPPMethodFinderSearchV3.mm"
           grep -q 'v3-reverse-rva' "$src/ZNIL2CPPMethodFinderSearchV3.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderV3Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderM2Deferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+          grep -q 'ZNInstallIL2CPPMethodFinderM21CancelUXDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
           grep -q 'kZN61ShardClasses = 12000' "$src/ZNIL2CPPMethodFinderM2.mm"
           grep -q 'ZN61MatchContains' "$src/ZNIL2CPPMethodFinderM2.mm"
           grep -q 'NSPropertyListBinaryFormat_v1_0' "$src/ZNIL2CPPMethodFinderM2.mm"
           grep -q 'LC_UUID' "$src/ZNIL2CPPMethodFinderM2.mm"
+          grep -q 'ZNMethodFinderPrimaryCancel' "$src/ZNIL2CPPMethodFinderM21CancelUX.mm"
+          grep -q 'removeTarget:self action:@selector(zn60v3_startSearch:)' "$src/ZNIL2CPPMethodFinderM21CancelUX.mm"
+          grep -q 'addTarget:self action:@selector(zn61m2_cancelSearch:)' "$src/ZNIL2CPPMethodFinderM21CancelUX.mm"
           grep -q 'ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
 
       - name: Named Offset parser tests
@@ -79,13 +84,13 @@ jobs:
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-v058-method-finder-v3
-          cp .theos/obj/ZonoePatchV03.dylib dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2.dylib
-          shasum -a 256 dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2.dylib | tee dist-v058-method-finder-v3/SHA256.txt
+          cp .theos/obj/ZonoePatchV03.dylib dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_1.dylib
+          shasum -a 256 dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_1.dylib | tee dist-v058-method-finder-v3/SHA256.txt
 
       - name: Verify V3 binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2.dylib
+          out=iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_1.dylib
           file "$out"
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
           nm -gU "$out" | grep '_ZonoePatchGetVersion'
@@ -95,9 +100,10 @@ jobs:
           grep -q 'm2-wide-index' /tmp/zonoe_v058_v3_strings.txt
           grep -q 'm2-wide-build' /tmp/zonoe_v058_v3_strings.txt
           grep -q 'built-and-saved' /tmp/zonoe_v058_v3_strings.txt
+          grep -q 'ZNMethodFinderPrimaryCancel' /tmp/zonoe_v058_v3_strings.txt
           python3 <<'PY'
           import struct
-          p='iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2.dylib'
+          p='iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_1.dylib'
           data=open(p,'rb').read()
           if struct.unpack_from('<I',data,0)[0] != 0xfeedfacf:
               raise SystemExit('not thin arm64 Mach-O')
@@ -123,8 +129,8 @@ jobs:
       - name: Upload V3 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.8-MethodFinder-V3-M2
+          name: ZonoPatch-v0.5.8-MethodFinder-V3-M2.1
           path: |
-            iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2.dylib
+            iosruntimepatchmenu/dist-v058-method-finder-v3/ZonoPatch_v0.5.8_MethodFinderV3_M2_1.dylib
             iosruntimepatchmenu/dist-v058-method-finder-v3/SHA256.txt
           if-no-files-found: error
