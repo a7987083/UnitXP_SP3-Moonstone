@@ -27,10 +27,9 @@ jobs:
           grep -q 'src/ZNOffsetResolverV2.mm' iosruntimepatchmenu/Makefile
           grep -q 'src/ZNBinaryPatchWorkspaceAddressV2.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNAnyImageAddressResolver.mm' iosruntimepatchmenu/Makefile
-          grep -q 'ZNONV2' /dev/null || true
-          grep -q 'ZNO' /dev/null || true
           grep -q 'Unslid VA' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
-          grep -q 'historical ZonoPatch RVA' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'ZNOV2AddressKindRVA' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'layout.imageVMBase + input' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
           grep -q 'VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
           grep -q 'mach_vm_read_overwrite' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
           grep -q 'vm_write' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
@@ -98,7 +97,6 @@ jobs:
           grep -q 'RVA' /tmp/zono_m31_offset_v2_strings.txt
           grep -q 'workspace input preservation installed' /tmp/zono_m31_offset_v2_strings.txt
           grep -q 'pending-m3.2-hook-backend' /tmp/zono_m31_offset_v2_strings.txt
-          ! grep -q 'no runtime/file ambiguity' /dev/null || true
           init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
           echo "__init_offsets size=$init_size"
           test "$init_size" = '0x0000000000000004' -o "$init_size" = '0x4'
