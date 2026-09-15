@@ -1,0 +1,113 @@
+name: Build Runtime Patch Menu v0.5.8 M3.1 Offset V2
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m3.1-offset-resolver-v2
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          test -f iosruntimepatchmenu/src/ZNBinaryPatchWorkspaceAddressV2.mm
+          test -f iosruntimepatchmenu/src/ZNRuntimeMenuModalShell.mm
+          grep -q 'src/ZNOffsetResolverV2.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNBinaryPatchWorkspaceAddressV2.mm' iosruntimepatchmenu/Makefile
+          ! grep -q 'src/ZNAnyImageAddressResolver.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZNONV2' /dev/null || true
+          grep -q 'ZNO' /dev/null || true
+          grep -q 'Unslid VA' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'historical ZonoPatch RVA' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'mach_vm_read_overwrite' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'vm_write' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'Target 名称有歧义' iosruntimepatchmenu/src/ZNOffsetResolverV2.mm
+          grep -q 'workspace input preservation installed' iosruntimepatchmenu/src/ZNBinaryPatchWorkspaceAddressV2.mm
+          grep -q 'ZNInstallOffsetResolverV2Deferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNInstallBinaryPatchWorkspaceAddressV2Deferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          ! grep -q 'ZNInstallAnyImageAddressResolverDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'UIModalPresentationOverFullScreen' iosruntimepatchmenu/src/ZNRuntimeMenuModalShell.mm
+          git diff --exit-code 81a9cf9291bd95e300106e708e9dc492d74a778f -- iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm
+
+      - name: Address normalization contract test
+        run: |
+          python3 - <<'PY'
+          text = 0x100000000
+          segments = [(0x100000000, 0x102000000)]
+          def inside(v, n=4):
+              return any(v >= a and v+n <= b for a,b in segments)
+          def resolve(v):
+              if inside(v):
+                  preferred=v; kind='Unslid VA'
+              elif inside(text+v):
+                  preferred=text+v; kind='RVA'
+              else:
+                  raise AssertionError(hex(v))
+              return kind, preferred-text, preferred
+          a=resolve(0x101034B64)
+          b=resolve(0x1034B64)
+          assert a == ('Unslid VA',0x1034B64,0x101034B64), a
+          assert b == ('RVA',0x1034B64,0x101034B64), b
+          assert a[1:] == b[1:]
+          print('offset-v2 normalization contract PASS', a, b)
+          PY
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build M3.1 Offset V2
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m31-offset-v2
+          cp .theos/obj/ZonoePatchV03.dylib dist-m31-offset-v2/ZonoPatch_v0.5.8_M3_1_OffsetResolverV2.dylib
+          shasum -a 256 dist-m31-offset-v2/ZonoPatch_v0.5.8_M3_1_OffsetResolverV2.dylib | tee dist-m31-offset-v2/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m31-offset-v2/ZonoPatch_v0.5.8_M3_1_OffsetResolverV2.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out"
+          strings "$out" > /tmp/zono_m31_offset_v2_strings.txt
+          grep -q '\[menu-modal\]' /tmp/zono_m31_offset_v2_strings.txt
+          grep -q '\[offset-v2\]' /tmp/zono_m31_offset_v2_strings.txt
+          grep -q 'Unslid VA' /tmp/zono_m31_offset_v2_strings.txt
+          grep -q 'RVA' /tmp/zono_m31_offset_v2_strings.txt
+          grep -q 'workspace input preservation installed' /tmp/zono_m31_offset_v2_strings.txt
+          grep -q 'pending-m3.2-hook-backend' /tmp/zono_m31_offset_v2_strings.txt
+          ! grep -q 'no runtime/file ambiguity' /dev/null || true
+          init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
+          echo "__init_offsets size=$init_size"
+          test "$init_size" = '0x0000000000000004' -o "$init_size" = '0x4'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M3.1-OffsetResolverV2
+          path: |
+            iosruntimepatchmenu/dist-m31-offset-v2/ZonoPatch_v0.5.8_M3_1_OffsetResolverV2.dylib
+            iosruntimepatchmenu/dist-m31-offset-v2/SHA256.txt
+          if-no-files-found: error
