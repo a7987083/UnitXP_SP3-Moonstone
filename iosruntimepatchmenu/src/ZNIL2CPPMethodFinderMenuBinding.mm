@@ -14,6 +14,8 @@ extern "C" void ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPABIDetailUIDeferred(void);
 extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
 extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void);
+extern "C" void ZNInstallAnyImageAddressResolverDeferred(void);
+extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
 // swizzles. Method Finder is a developer-authoring surface, so it follows the
@@ -96,5 +98,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
 
         ZNInstallFeatureBuilderControlsV2Deferred();
         ZNInstallFeatureRuntimeControlsV2Deferred();
+
+        // M3.1 follow-up: keep the visual tree unchanged, but move the menu
+        // into a real UIKit modal presentation and normalize author-supplied
+        // addresses against the exact loaded Mach-O before validation.
+        ZNInstallAnyImageAddressResolverDeferred();
+        ZNInstallRuntimeMenuModalShellDeferred();
     });
 }
