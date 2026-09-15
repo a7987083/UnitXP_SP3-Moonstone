@@ -23,9 +23,14 @@ jobs:
           set -euxo pipefail
           grep -Fq '#define JC42_BATCH_SIZE 10' jsoncapture/src/LuaSweep.m
           grep -Fq '#define JC42_INTERVAL_SECONDS 5.0' jsoncapture/src/LuaSweep.m
+          grep -Fq '#define JC42_ENCM_XOR_KEY 0x4D' jsoncapture/src/LuaSweep.m
+          grep -Fq 'memcmp(src, "ENCM", 4)' jsoncapture/src/LuaSweep.m
           grep -Fq 'FindObjectsOfTypeAll' jsoncapture/src/LuaSweep.m
           grep -Fq 'GetAllAssetNames' jsoncapture/src/LuaSweep.m
           grep -Fq 'LoadAsset' jsoncapture/src/LuaSweep.m
+          grep -Fq 'mainState' jsoncapture/src/LuaSweep.m
+          grep -Fq 'il2cpp_field_static_get_value' jsoncapture/src/LuaSweep.m
+          grep -Fq 'il2cpp_field_get_value' jsoncapture/src/LuaSweep.m
           grep -Fq 'luaL_loadbufferx' jsoncapture/src/LuaSweep.m
           grep -Fq 'lua_gettop' jsoncapture/src/LuaSweep.m
           grep -Fq 'lua_settop' jsoncapture/src/LuaSweep.m
@@ -34,6 +39,18 @@ jobs:
             echo 'TAB Sweep must never execute loaded chunks' >&2
             exit 1
           fi
+
+      - name: Verify ENCM decode vector
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          raw = bytes.fromhex('454e434d5601382c1e4c54de40475747')
+          decoded = bytes(b ^ 0x4D for b in raw[4:])
+          expected = bytes.fromhex('1b4c7561530119930d0a1a0a')
+          assert decoded == expected, (decoded.hex(), expected.hex())
+          assert decoded.startswith(b'\x1bLuaS\x01')
+          print('ENCM decode vector PASS:', decoded.hex())
+          PY
 
       - name: Install build dependencies
         run: brew install ldid
@@ -59,8 +76,11 @@ jobs:
           grep -Fq "JSONCapture LuaLoader v0.4.1" dist/strings.txt
           grep -Fq "Lua53Analyzer v0.4" dist/strings.txt
           grep -Fq "JSONCapture TAB Sweep v0.4.2" dist/strings.txt
+          grep -Fq "ENCM-XOR4D" dist/strings.txt
+          grep -Fq "LUA-METADATA-READY" dist/strings.txt
+          grep -Fq "LUA-STATE-READY" dist/strings.txt
+          grep -Fq "TAB-DECODE-OK" dist/strings.txt
           grep -Fq "TAB-COMPILE-OK" dist/strings.txt
-          grep -Fq "TAB-RAW-ONLY" dist/strings.txt
           grep -Fq "TAB_Sweep_v0.4.2.status.json" dist/strings.txt
           grep -Fq "FindObjectsOfTypeAll" dist/strings.txt
           grep -Fq "GetAllAssetNames" dist/strings.txt
