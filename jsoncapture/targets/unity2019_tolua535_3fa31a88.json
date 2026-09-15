@@ -1,0 +1,27 @@
+{
+  "profile": "Unity2019.4/IL2CPP/ToLua/Lua5.3",
+  "source": "user-supplied UnityFramework.zip",
+  "unityframework_sha256": "3fa31a88c2704e7129987439b3e5fd68b6eeb8ee82af894e930ca6964ae45098",
+  "architecture": "arm64",
+  "unity_version": "2019.4.33f1",
+  "lua_version": "5.3.5",
+  "runtime": "ToLua",
+  "verified_exports": {
+    "tolua_loadbuffer": "0x01985D40",
+    "tolua_getmainstate": "0x01987FB8",
+    "lua_version": "0x0199CB14",
+    "lua_gettop": "0x0199CB64",
+    "lua_settop": "0x0199CB80",
+    "luaL_loadbufferx": "0x019A01B4",
+    "luaL_newstate": "0x019A08E0",
+    "lua_newstate": "0x019A2E08"
+  },
+  "safety": {
+    "fixed_game_rva_hooks": false,
+    "compile_only": true,
+    "lua_pcall": false,
+    "batch_textassets": 10,
+    "interval_seconds": 5.0,
+    "max_asset_names_per_tick": 100
+  }
+}
