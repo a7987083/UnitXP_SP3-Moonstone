@@ -1,0 +1,93 @@
+name: Build Unity Bundle Lua Recovery Windows v0.2.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.4.2-g2-full-sweep
+    paths:
+      - 'tools/unity_bundle_lua_recovery.py'
+      - 'tools/unity_bundle_lua_recovery_gui.py'
+      - 'tools/unity_bundle_lua_recovery_v021.py'
+      - 'tools/unity_bundle_lua_recovery_gui_v021.py'
+      - '.github/workflows/build-unity-bundle-lua-recovery-windows-v021.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install UnityPy==1.25.3 pyinstaller==6.22.3 tkinterdnd2
+          python -c "import UnityPy; print('UnityPy', UnityPy.__version__)"
+          pyinstaller --version
+
+      - name: Verify v0.2.1 fixes
+        shell: pwsh
+        run: |
+          python -m py_compile tools/unity_bundle_lua_recovery.py tools/unity_bundle_lua_recovery_gui.py tools/unity_bundle_lua_recovery_v021.py tools/unity_bundle_lua_recovery_gui_v021.py
+          python tools/unity_bundle_lua_recovery_v021.py
+          python tools/unity_bundle_lua_recovery_gui_v021.py --self-test
+          Select-String -Path tools/unity_bundle_lua_recovery_v021.py -SimpleMatch 'FALLBACK_UNITY_VERSION = TARGET_UNITY_VERSION'
+          Select-String -Path tools/unity_bundle_lua_recovery_v021.py -SimpleMatch '2019.4.33f1'
+          Select-String -Path tools/unity_bundle_lua_recovery_v021.py -SimpleMatch 'safe_append_jsonl'
+          if (Select-String -Path tools/unity_bundle_lua_recovery.py,tools/unity_bundle_lua_recovery_v021.py -Pattern 'exec\(|eval\(' -Quiet) { throw 'arbitrary code execution primitive found' }
+
+      - name: Build GUI EXE
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name UnityBundleLuaRecovery `
+            --paths tools `
+            --collect-all UnityPy `
+            --collect-all tkinterdnd2 `
+            tools/unity_bundle_lua_recovery_gui_v021.py
+          Get-Item dist/UnityBundleLuaRecovery.exe | Format-List Name,Length
+          Get-FileHash dist/UnityBundleLuaRecovery.exe -Algorithm SHA256 | Format-List
+
+      - name: Pack release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item dist/UnityBundleLuaRecovery.exe release/
+          @'
+          Unity Bundle Lua Recovery v0.2.1
+
+          修复：
+          - 对缺失 Unity 版本字段的 SerializedFile，按本项目已确认的 Unity 2019.4.33f1 配置 UnityPy fallback。
+          - bundle_errors.jsonl 无权限或路径冲突时，错误日志自动降级，不再让整个扫描崩溃。
+
+          用法：
+          1. 选择从手机导出的游戏数据根目录。
+          2. 输出目录建议使用程序默认目录，或选择一个普通可写目录。
+          3. 点击“开始全量处理”。
+
+          原始游戏文件只读；不执行 Lua。
+          '@ | Set-Content -Encoding UTF8 release/README.txt
+          $hash = (Get-FileHash release/UnityBundleLuaRecovery.exe -Algorithm SHA256).Hash.ToLower()
+          "${hash}  UnityBundleLuaRecovery.exe" | Set-Content -Encoding ASCII release/SHA256.txt
+          Compress-Archive -Path release/UnityBundleLuaRecovery.exe,release/README.txt,release/SHA256.txt -DestinationPath release/UnityBundleLuaRecovery_Windows_x64_v0.2.1.zip -Force
+          $zhash = (Get-FileHash release/UnityBundleLuaRecovery_Windows_x64_v0.2.1.zip -Algorithm SHA256).Hash.ToLower()
+          "${zhash}  UnityBundleLuaRecovery_Windows_x64_v0.2.1.zip" | Set-Content -Encoding ASCII release/ZIP_SHA256.txt
+
+      - name: Upload Windows release
+        uses: actions/upload-artifact@v7
+        with:
+          name: UnityBundleLuaRecovery-Windows-x64-v0.2.1
+          path: |
+            release/UnityBundleLuaRecovery.exe
+            release/README.txt
+            release/SHA256.txt
+            release/UnityBundleLuaRecovery_Windows_x64_v0.2.1.zip
+            release/ZIP_SHA256.txt
+          if-no-files-found: error
