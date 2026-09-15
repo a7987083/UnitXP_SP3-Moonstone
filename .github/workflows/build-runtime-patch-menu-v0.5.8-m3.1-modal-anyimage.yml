@@ -1,0 +1,80 @@
+name: Build Runtime Patch Menu v0.5.8 M3.1 Modal AnyImage
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m3.1-modal-anyimage-address
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNAnyImageAddressResolver.mm
+          test -f iosruntimepatchmenu/src/ZNRuntimeMenuModalShell.mm
+          grep -q 'src/ZNAnyImageAddressResolver.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNRuntimeMenuModalShell.mm' iosruntimepatchmenu/Makefile
+          grep -q 'RVA / Preferred VA / Runtime VA / File Offset' iosruntimepatchmenu/src/ZNAnyImageAddressResolver.mm
+          grep -q 'rva:/va:/runtime:/file:' iosruntimepatchmenu/src/ZNAnyImageAddressResolver.mm
+          grep -q 'UIModalPresentationOverFullScreen' iosruntimepatchmenu/src/ZNRuntimeMenuModalShell.mm
+          grep -q 'floating button remains UIWindow overlay' iosruntimepatchmenu/src/ZNRuntimeMenuModalShell.mm
+          grep -q 'ZNInstallAnyImageAddressResolverDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNInstallRuntimeMenuModalShellDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          git diff --exit-code 81a9cf9291bd95e300106e708e9dc492d74a778f -- iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build M3.1 Modal AnyImage
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m31-modal-anyimage
+          cp .theos/obj/ZonoePatchV03.dylib dist-m31-modal-anyimage/ZonoPatch_v0.5.8_M3_1_Modal_AnyImage.dylib
+          shasum -a 256 dist-m31-modal-anyimage/ZonoPatch_v0.5.8_M3_1_Modal_AnyImage.dylib | tee dist-m31-modal-anyimage/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m31-modal-anyimage/ZonoPatch_v0.5.8_M3_1_Modal_AnyImage.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out"
+          strings "$out" > /tmp/zono_m31_modal_anyimage_strings.txt
+          grep -q '\[menu-modal\]' /tmp/zono_m31_modal_anyimage_strings.txt
+          grep -q '\[address-resolver\]' /tmp/zono_m31_modal_anyimage_strings.txt
+          grep -q 'Preferred VA' /tmp/zono_m31_modal_anyimage_strings.txt
+          grep -q 'Runtime VA' /tmp/zono_m31_modal_anyimage_strings.txt
+          grep -q 'File Offset' /tmp/zono_m31_modal_anyimage_strings.txt
+          grep -q 'pending-m3.2-hook-backend' /tmp/zono_m31_modal_anyimage_strings.txt
+          init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
+          echo "__init_offsets size=$init_size"
+          test "$init_size" = '0x0000000000000004' -o "$init_size" = '0x4'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M3.1-Modal-AnyImage
+          path: |
+            iosruntimepatchmenu/dist-m31-modal-anyimage/ZonoPatch_v0.5.8_M3_1_Modal_AnyImage.dylib
+            iosruntimepatchmenu/dist-m31-modal-anyimage/SHA256.txt
+          if-no-files-found: error
