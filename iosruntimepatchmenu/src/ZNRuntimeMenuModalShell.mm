@@ -20,6 +20,14 @@
 - (void)layoutForWindow:(UIWindow *)window initial:(BOOL)initial;
 - (void)applyTheme;
 - (void)zn40_updateSubtitle;
+- (void)makeUI:(UIWindow *)window;
+- (void)attach:(UIWindow *)window;
+- (void)tick:(NSTimer *)timer;
+- (void)show;
+- (void)hide;
+- (BOOL)isVisible;
+- (void)togglePanel:(id)sender;
+- (void)closeTapped:(id)sender;
 @end
 
 @interface ZNModalPassthroughView : UIView
