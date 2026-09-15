@@ -22,6 +22,12 @@ jobs:
           file AssetManager.normalized.luac
           xxd -l 16 AssetManager.normalized.luac
 
+      - name: Install LuaDec build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreadline-dev
+
       - name: Build LuaDec 5.3
         shell: bash
         run: |
