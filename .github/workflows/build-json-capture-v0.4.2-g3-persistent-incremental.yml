@@ -1,0 +1,116 @@
+name: Build JSONCapture v0.4.2 g3 Persistent Incremental
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.4.2-g3-persistent-incremental
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.4.2-g3-persistent-incremental.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify persistent-incremental source contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          wrap=jsoncapture/src/GenericPersistentSweep.m
+          core=jsoncapture/src/GenericFullSweep.m
+          grep -Fq 'JSONCapture_FILES = src/GenericPersistentSweep.m src/Lua53Analyzer.m' jsoncapture/Makefile
+          grep -Fq 'JSONCapture Persistent Incremental v0.4.2-g3' "$wrap"
+          grep -Fq 'bundle_index.json' "$wrap"
+          grep -Fq 'PersistentIncremental.status.json' "$wrap"
+          grep -Fq 'gDiskSeenVersions[path] = version' "$wrap"
+          grep -Fq 'BUNDLE-SWEEP origin=disk:' "$wrap"
+          grep -Fq 'DISK-BUNDLE-LOAD-FAIL path=' "$wrap"
+          grep -Fq 'Delete bundle_index.json to force a complete disk rescan.' "$wrap"
+          grep -Fq '#include "GenericFullSweep.m"' "$wrap"
+          grep -Fq 'artificial_batch_limits' "$core"
+          grep -Fq 'LoadFromFile' "$core"
+          grep -Fq 'tolua_loadbuffer' "$core"
+          grep -Fq 'luaL_loadbufferx' "$core"
+          if grep -Eq 'JCG2_BATCH_TEXTASSETS|JCG2_MAX_NAMES_PER_TICK|JCG2_INTERVAL_SECONDS|lua_pcall|lua_call' "$wrap" "$core"; then
+            echo 'forbidden batch/execute limiter leaked into g3' >&2
+            exit 1
+          fi
+          if grep -Eq '0x186A4B8|0x186FA64|RVA_CUSTOM_DECRYPT|AesHelper.CustomDecrypt' "$wrap" "$core" jsoncapture/Makefile; then
+            echo 'old game-specific fixed RVA leaked into g3' >&2
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify g3 dylib
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-g3
+          out="dist-g3/JSONCapture_v0.4.2-g3_PersistentIncremental_ToLua535.dylib"
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" > dist-g3/strings.txt
+          grep -Fq 'JSONCapture Persistent Incremental v0.4.2-g3' dist-g3/strings.txt
+          grep -Fq 'bundle_index.json' dist-g3/strings.txt
+          grep -Fq 'PersistentIncremental.status.json' dist-g3/strings.txt
+          grep -Fq 'PERSIST-INDEX ready' dist-g3/strings.txt
+          grep -Fq 'UnityFS' dist-g3/strings.txt
+          grep -Fq 'LoadFromFile' dist-g3/strings.txt
+          grep -Fq 'tolua_loadbuffer' dist-g3/strings.txt
+          if grep -Eq 'AesHelper.CustomDecrypt|0x186A4B8|0x186FA64' dist-g3/strings.txt; then
+            echo 'game-specific decrypt code present in g3 binary' >&2
+            exit 1
+          fi
+          shasum -a 256 "$out" | tee dist-g3/SHA256.txt
+
+      - name: Package mobile release
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-g3
+          cat > README.txt <<'EOF'
+          JSONCapture v0.4.2-g3 Persistent Incremental
+          Target: Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5
+
+          Runtime behavior:
+          - Keeps g2 Full Sweep behavior: no 5-second / 100-name / 10-TextAsset limits.
+          - Current/newly loaded runtime AssetBundles are still observed to catch memory-only content.
+          - Disk Bundle processing is persistent across launches.
+          - Documents/JSONCapture/FullSweep/bundle_index.json stores handled path+size+mtime versions.
+          - On relaunch, unchanged on-disk Bundle versions are seeded into the in-memory seen map and skipped.
+          - New files or files whose size/mtime changed are processed and then persisted.
+          - A successful disk Bundle is committed only after BUNDLE-SWEEP completes (crash-safe retry).
+          - A LoadFromFile failure is terminal only for that exact version; a changed version is retried.
+          - Delete bundle_index.json to force a complete disk rescan.
+          - Lua chunks remain load/compile-only; no lua_pcall/lua_call execution.
+
+          Output root: Documents/JSONCapture/FullSweep/
+          Persistent status: PersistentIncremental.status.json
+          Persistent index: bundle_index.json
+          EOF
+          zip -9 JSONCapture_v0.4.2-g3_PersistentIncremental_ToLua535.zip JSONCapture_v0.4.2-g3_PersistentIncremental_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.4.2-g3_PersistentIncremental_ToLua535.zip | tee ZIP_SHA256.txt
+
+      - name: Upload mobile build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.4.2-g3-PersistentIncremental-ToLua535
+          path: |
+            jsoncapture/dist-g3/JSONCapture_v0.4.2-g3_PersistentIncremental_ToLua535.dylib
+            jsoncapture/dist-g3/SHA256.txt
+            jsoncapture/dist-g3/JSONCapture_v0.4.2-g3_PersistentIncremental_ToLua535.zip
+            jsoncapture/dist-g3/ZIP_SHA256.txt
+          if-no-files-found: error
