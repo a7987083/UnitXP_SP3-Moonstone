@@ -29,6 +29,8 @@ jobs:
           grep -Fq 'GetAllAssetNames' jsoncapture/src/LuaSweep.m
           grep -Fq 'LoadAsset' jsoncapture/src/LuaSweep.m
           grep -Fq 'mainState' jsoncapture/src/LuaSweep.m
+          grep -Fq 'luaL_newstate' jsoncapture/src/LuaSweep.m
+          grep -Fq 'lua_newstate' jsoncapture/src/LuaSweep.m
           grep -Fq 'il2cpp_field_static_get_value' jsoncapture/src/LuaSweep.m
           grep -Fq 'il2cpp_field_get_value' jsoncapture/src/LuaSweep.m
           grep -Fq 'luaL_loadbufferx' jsoncapture/src/LuaSweep.m
@@ -78,7 +80,8 @@ jobs:
           grep -Fq "JSONCapture TAB Sweep v0.4.2" dist/strings.txt
           grep -Fq "ENCM-XOR4D" dist/strings.txt
           grep -Fq "LUA-METADATA-READY" dist/strings.txt
-          grep -Fq "LUA-STATE-READY" dist/strings.txt
+          grep -Fq "LUA-STATE-OBSERVED" dist/strings.txt
+          grep -Fq "LUA-CREATE-HOOK" dist/strings.txt
           grep -Fq "TAB-DECODE-OK" dist/strings.txt
           grep -Fq "TAB-COMPILE-OK" dist/strings.txt
           grep -Fq "TAB_Sweep_v0.4.2.status.json" dist/strings.txt
