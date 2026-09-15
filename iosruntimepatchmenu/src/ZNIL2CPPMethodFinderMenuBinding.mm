@@ -14,6 +14,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPABIDetailUIDeferred(void);
 extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
 extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void);
+extern "C" void ZNInstallMenuPresentationHostFixDeferred(void);
 
 // Corrects Method Finder category/symbol visibility after the v0.5.7 UI
 // swizzles. Method Finder is a developer-authoring surface, so it follows the
@@ -93,6 +94,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();
         ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();
         ZNInstallIL2CPPABIDetailUIDeferred();
+
+        // Keep editable menu controls inside the root view-controller
+        // hierarchy so UIKit Translate / Look Up / Share presentation is not
+        // obscured or reparented by the menu's periodic window tracking.
+        ZNInstallMenuPresentationHostFixDeferred();
 
         ZNInstallFeatureBuilderControlsV2Deferred();
         ZNInstallFeatureRuntimeControlsV2Deferred();
