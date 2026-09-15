@@ -17,7 +17,7 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: a5c686027385c73d6ed6acd9ed989a5d438c60bc
+          ref: acfce4935b47a9394372eeb656771a1b3e44cef1
           fetch-depth: 0
 
       - name: V3 M3.1 text interaction source assertions
@@ -36,9 +36,10 @@ jobs:
           grep -q 'il2cpp_method_get_return_type' "$src/ZNIL2CPPABIMetadata.mm"
           grep -q 'ZNIL2CPPBuildReturnOverridePlan' "$src/ZNIL2CPPABIMetadata.mm"
           grep -q 'ZNInstallMenuPresentationHostFixDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
-          grep -q 'ZN62PresentationHostView' "$src/ZNMenuPresentationHostFix.mm"
-          grep -q 'rootViewController' "$src/ZNMenuPresentationHostFix.mm"
-          grep -q 'ZN62WindowIsUsable(self.hostWindow)' "$src/ZNMenuPresentationHostFix.mm"
+          grep -q 'ZN62ContainsFirstResponder' "$src/ZNMenuPresentationHostFix.mm"
+          grep -q 'bringSubviewToFront:self.floatButton' "$src/ZNMenuPresentationHostFix.mm"
+          ! grep -q '\[window bringSubviewToFront:self.panel\]' "$src/ZNMenuPresentationHostFix.mm"
+          ! grep -q 'ZN62PresentationHostView' "$src/ZNMenuPresentationHostFix.mm"
           grep -q 'kZN61ShardClasses = 12000' "$src/ZNIL2CPPMethodFinderM2.mm"
           grep -q 'ZN61MatchContains' "$src/ZNIL2CPPMethodFinderM2.mm"
 
@@ -106,7 +107,6 @@ jobs:
           grep -q 'expected-by-generated-IL2CPP-code' /tmp/zonoe_m31_translate_strings.txt
           grep -q 'ZNRuntimeMenuControllerV040' /tmp/zonoe_m31_translate_strings.txt
           grep -q 'zn62_tick:' /tmp/zonoe_m31_translate_strings.txt
-          grep -q 'zn62_attach:' /tmp/zonoe_m31_translate_strings.txt
           python3 <<'PY'
           import struct
           p='iosruntimepatchmenu/dist-v058-m3-1-translate-hotfix/ZonoPatch_v0.5.8_M3_1_TextTranslateHotfix.dylib'
