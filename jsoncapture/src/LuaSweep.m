@@ -11,6 +11,7 @@
 #define JC42_MAX_BUFFER (64ULL * 1024ULL * 1024ULL)
 #define JC42_MAX_ARRAY_ITEMS 200000
 #define JC42_MAX_RETRY 3
+#define JC42_ENCM_XOR_KEY 0x4D
 
 typedef struct {
     void *klass;
@@ -41,25 +42,24 @@ typedef void *(*JC42AssemblyGetImageFn)(const void *assembly);
 typedef void *(*JC42ClassFromNameFn)(const void *image, const char *namespaze, const char *name);
 typedef const void *(*JC42ClassGetMethodFromNameFn)(void *klass, const char *name, int argsCount);
 typedef const void *(*JC42ClassGetTypeFn)(void *klass);
+typedef void *(*JC42ClassGetParentFn)(void *klass);
 typedef void *(*JC42TypeGetObjectFn)(const void *type);
 typedef void *(*JC42StringNewFn)(const char *str);
 typedef void *(*JC42ObjectGetClassFn)(void *obj);
 typedef int (*JC42ClassIsAssignableFromFn)(void *klass, void *oklass);
+typedef void *(*JC42ClassGetFieldFromNameFn)(void *klass, const char *name);
+typedef void (*JC42FieldStaticGetValueFn)(void *field, void *value);
+typedef void (*JC42FieldGetValueFn)(void *obj, void *field, void *value);
 
 typedef void *(*JC42ResourcesFindAllFn)(void *typeObj, const void *method);
 typedef void *(*JC42AssetBundleGetAllNamesFn)(void *self, const void *method);
 typedef void *(*JC42AssetBundleLoadAssetFn)(void *self, void *name, void *typeObj, const void *method);
 typedef void *(*JC42TextAssetGetBytesFn)(void *self, const void *method);
 
-typedef int (*JC42LuaLoadFn)(void *L, void *reader, void *data, const char *chunkname, const char *mode);
 typedef int (*JC42LuaLLoadBufferXFn)(void *L, const char *buffer, size_t size, const char *name, const char *mode);
 typedef int (*JC42LuaGetTopFn)(void *L);
 typedef void (*JC42LuaSetTopFn)(void *L, int idx);
 
-typedef void (*JC42MSHookFunctionFn)(void *symbol, void *replace, void **result);
-typedef int (*JC42DobbyHookFn)(void *address, void *replace, void **origin);
-
-static JC42LuaLoadFn gJC42OrigLuaLoad;
 static JC42LuaLLoadBufferXFn gJC42LuaLLoadBufferX;
 static JC42LuaGetTopFn gJC42LuaGetTop;
 static JC42LuaSetTopFn gJC42LuaSetTop;
@@ -80,20 +80,30 @@ static JC42StringNewFn gJC42StringNew;
 static JC42ObjectGetClassFn gJC42ObjectGetClass;
 static JC42ClassIsAssignableFromFn gJC42ClassIsAssignableFrom;
 
+static JC42ClassGetFieldFromNameFn gJC42ClassGetFieldFromName;
+static JC42FieldStaticGetValueFn gJC42FieldStaticGetValue;
+static JC42FieldGetValueFn gJC42FieldGetValue;
+static void *gJC42LuaStateClass;
+static void *gJC42LuaStatePtrClass;
+static void *gJC42MainStateField;
+static void *gJC42NativeLField;
+
 static NSString *gJC42RootPath;
 static NSString *gJC42LogPath;
 static NSMutableSet *gJC42Done;
 static NSMutableDictionary *gJC42Retry;
 static pthread_mutex_t gJC42LogLock = PTHREAD_MUTEX_INITIALIZER;
-static BOOL gJC42LuaTapAttempted = NO;
 static BOOL gJC42UnityReady = NO;
+static BOOL gJC42LuaMetadataReady = NO;
 static BOOL gJC42Running = YES;
 static unsigned long long gJC42Ticks = 0;
 static unsigned long long gJC42Candidates = 0;
 static unsigned long long gJC42Processed = 0;
+static unsigned long long gJC42DecodedENCM = 0;
+static unsigned long long gJC42DecodedPlain = 0;
+static unsigned long long gJC42DecodeFail = 0;
 static unsigned long long gJC42CompiledOK = 0;
 static unsigned long long gJC42CompileError = 0;
-static unsigned long long gJC42RawOnly = 0;
 static unsigned long long gJC42LoadFail = 0;
 
 #pragma mark - Helpers
@@ -160,15 +170,10 @@ static BOOL JC42IsTABName(NSString *name) {
     return [name rangeOfString:@"TAB_" options:NSCaseInsensitiveSearch].location != NSNotFound;
 }
 
-static NSInteger JC42Lua53Offset(NSData *data) {
-    if (data.length < 6) return NSNotFound;
+static BOOL JC42HasLua53Signature(NSData *data) {
+    if (data.length < 6) return NO;
     const uint8_t *p = data.bytes;
-    NSUInteger limit = MIN((NSUInteger)64, data.length - 5);
-    for (NSUInteger i = 0; i <= limit; i++) {
-        if (p[i] == 0x1b && p[i + 1] == 'L' && p[i + 2] == 'u' && p[i + 3] == 'a' && p[i + 4] == 0x53)
-            return (NSInteger)i;
-    }
-    return NSNotFound;
+    return p[0] == 0x1b && p[1] == 'L' && p[2] == 'u' && p[3] == 'a' && p[4] == 0x53;
 }
 
 static BOOL JC42LooksLuaText(NSData *data) {
@@ -187,19 +192,45 @@ static BOOL JC42LooksLuaText(NSData *data) {
     return s != nil;
 }
 
+/*
+ * Captured client evidence (JSONCapture(2).zip): all 265 observed TAB TextAssets
+ * use ENCM wrapper. For every matched raw/VM-ready pair:
+ *   decoded[i] = raw[i + 4] XOR 0x4D
+ * and decoded bytes exactly equal the VM-ready Lua 5.3 chunk.
+ */
+static NSData *JC42DecodeTAB(NSData *raw, BOOL *wasENCM) {
+    if (wasENCM) *wasENCM = NO;
+    if (!raw.length || raw.length > JC42_MAX_BUFFER) return nil;
+
+    const uint8_t *src = raw.bytes;
+    if (raw.length > 4 && memcmp(src, "ENCM", 4) == 0) {
+        NSUInteger outLen = raw.length - 4;
+        NSMutableData *out = [NSMutableData dataWithLength:outLen];
+        uint8_t *dst = out.mutableBytes;
+        for (NSUInteger i = 0; i < outLen; i++) dst[i] = src[i + 4] ^ JC42_ENCM_XOR_KEY;
+        if (!JC42HasLua53Signature(out) && !JC42LooksLuaText(out)) return nil;
+        if (wasENCM) *wasENCM = YES;
+        return out;
+    }
+
+    if (JC42HasLua53Signature(raw) || JC42LooksLuaText(raw)) return raw;
+    return nil;
+}
+
 static void JC42WriteStatus(NSUInteger bundleCount, NSUInteger batchCount) {
     JC42SetupPaths();
     NSString *path = [gJC42RootPath stringByAppendingPathComponent:@"TAB_Sweep_v0.4.2.status.json"];
     NSString *luaState = gJC42LuaState ? [NSString stringWithFormat:@"%p", gJC42LuaState] : @"0x0";
     NSString *json = [NSString stringWithFormat:
-        @"{\n  \"version\": \"%@\",\n  \"running\": %@,\n  \"interval_seconds\": %.1f,\n  \"batch_size\": %d,\n  \"tick\": %llu,\n  \"loaded_bundles\": %lu,\n  \"last_batch\": %lu,\n  \"candidates_seen\": %llu,\n  \"processed\": %llu,\n  \"compiled_ok\": %llu,\n  \"compile_error\": %llu,\n  \"raw_only\": %llu,\n  \"load_fail\": %llu,\n  \"lua_state\": \"%@\",\n  \"updated_at\": \"%@\"\n}\n",
+        @"{\n  \"version\": \"%@\",\n  \"running\": %@,\n  \"interval_seconds\": %.1f,\n  \"batch_size\": %d,\n  \"tick\": %llu,\n  \"loaded_bundles\": %lu,\n  \"last_batch\": %lu,\n  \"candidates_seen\": %llu,\n  \"processed\": %llu,\n  \"decoded_encm\": %llu,\n  \"decoded_plain\": %llu,\n  \"decode_fail\": %llu,\n  \"compiled_ok\": %llu,\n  \"compile_error\": %llu,\n  \"load_fail\": %llu,\n  \"lua_metadata_ready\": %@,\n  \"lua_state\": \"%@\",\n  \"updated_at\": \"%@\"\n}\n",
         JC42Escape(JC42_VERSION), gJC42Running ? @"true" : @"false", JC42_INTERVAL_SECONDS, JC42_BATCH_SIZE,
         gJC42Ticks, (unsigned long)bundleCount, (unsigned long)batchCount, gJC42Candidates, gJC42Processed,
-        gJC42CompiledOK, gJC42CompileError, gJC42RawOnly, gJC42LoadFail, JC42Escape(luaState), JC42Escape(JC42Now())];
+        gJC42DecodedENCM, gJC42DecodedPlain, gJC42DecodeFail, gJC42CompiledOK, gJC42CompileError, gJC42LoadFail,
+        gJC42LuaMetadataReady ? @"true" : @"false", JC42Escape(luaState), JC42Escape(JC42Now())];
     [json writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
-#pragma mark - Runtime resolution / hook backend
+#pragma mark - Runtime resolution
 
 static void *JC42ResolveExport(const char *name) {
     void *p = dlsym(RTLD_DEFAULT, name);
@@ -212,49 +243,6 @@ static void *JC42ResolveExport(const char *name) {
         if (p) return p;
     }
     return NULL;
-}
-
-static void *JC42ResolveHookSymbol(const char *symbol) {
-    void *p = dlsym(RTLD_DEFAULT, symbol);
-    if (p) return p;
-    const char *libs[] = {
-        "/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
-        "/var/jb/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
-        "/usr/lib/libsubstrate.dylib",
-        "/var/jb/usr/lib/libsubstrate.dylib",
-        "/usr/lib/libhooker.dylib",
-        "/var/jb/usr/lib/libhooker.dylib",
-        "/usr/lib/libellekit.dylib",
-        "/var/jb/usr/lib/libellekit.dylib"
-    };
-    for (size_t i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
-        void *h = dlopen(libs[i], RTLD_LAZY | RTLD_GLOBAL);
-        if (!h) continue;
-        p = dlsym(h, symbol);
-        if (p) return p;
-    }
-    return NULL;
-}
-
-static BOOL JC42Hook(void *address, void *replacement, void **original, NSString **apiOut) {
-    if (!address) return NO;
-    JC42MSHookFunctionFn ms = (JC42MSHookFunctionFn)JC42ResolveHookSymbol("MSHookFunction");
-    if (ms) {
-        ms(address, replacement, original);
-        if (original && *original) {
-            if (apiOut) *apiOut = @"MSHookFunction";
-            return YES;
-        }
-    }
-    JC42DobbyHookFn dobby = (JC42DobbyHookFn)JC42ResolveHookSymbol("DobbyHook");
-    if (dobby) {
-        int rc = dobby(address, replacement, original);
-        if (rc == 0 && original && *original) {
-            if (apiOut) *apiOut = @"DobbyHook";
-            return YES;
-        }
-    }
-    return NO;
 }
 
 static void *JC42MethodPointer(const void *methodInfo) {
@@ -270,30 +258,6 @@ static void *JC42MethodPointer(const void *methodInfo) {
         return NULL;
     }
 }
-
-#pragma mark - Lua state tap
-
-static int JC42HookLuaLoad(void *L, void *reader, void *data, const char *chunkname, const char *mode) {
-    if (L) gJC42LuaState = L;
-    return gJC42OrigLuaLoad ? gJC42OrigLuaLoad(L, reader, data, chunkname, mode) : -1;
-}
-
-static void JC42InstallLuaTap(void) {
-    if (gJC42LuaTapAttempted) return;
-    gJC42LuaTapAttempted = YES;
-
-    void *pLuaLoad = JC42ResolveExport("lua_load");
-    gJC42LuaLLoadBufferX = (JC42LuaLLoadBufferXFn)JC42ResolveExport("luaL_loadbufferx");
-    gJC42LuaGetTop = (JC42LuaGetTopFn)JC42ResolveExport("lua_gettop");
-    gJC42LuaSetTop = (JC42LuaSetTopFn)JC42ResolveExport("lua_settop");
-
-    NSString *api = nil;
-    BOOL hooked = pLuaLoad ? JC42Hook(pLuaLoad, (void *)JC42HookLuaLoad, (void **)&gJC42OrigLuaLoad, &api) : NO;
-    JC42Log([NSString stringWithFormat:@"LUA-TAP hooked=%d api=%@ lua_load=%p luaL_loadbufferx=%p lua_gettop=%p lua_settop=%p",
-             hooked, api ?: @"none", pLuaLoad, gJC42LuaLLoadBufferX, gJC42LuaGetTop, gJC42LuaSetTop]);
-}
-
-#pragma mark - Unity API resolution
 
 static void *JC42FindClass(JC42DomainGetAssembliesFn assembliesFn,
                            JC42AssemblyGetImageFn imageFn,
@@ -361,6 +325,69 @@ static BOOL JC42ResolveUnity(void) {
     return gJC42UnityReady;
 }
 
+/*
+ * ToLua reference layout used by this game family:
+ * LuaInterface.LuaState has private static mainState;
+ * LuaInterface.LuaStatePtr has protected IntPtr L.
+ * Resolve both through IL2CPP metadata rather than guessing object offsets.
+ */
+static BOOL JC42ResolveLuaMetadata(void) {
+    if (gJC42LuaMetadataReady) return YES;
+
+    JC42DomainGetFn domainGet = (JC42DomainGetFn)JC42ResolveExport("il2cpp_domain_get");
+    JC42DomainGetAssembliesFn assembliesFn = (JC42DomainGetAssembliesFn)JC42ResolveExport("il2cpp_domain_get_assemblies");
+    JC42AssemblyGetImageFn imageFn = (JC42AssemblyGetImageFn)JC42ResolveExport("il2cpp_assembly_get_image");
+    JC42ClassFromNameFn classFn = (JC42ClassFromNameFn)JC42ResolveExport("il2cpp_class_from_name");
+    JC42ClassGetParentFn parentFn = (JC42ClassGetParentFn)JC42ResolveExport("il2cpp_class_get_parent");
+    gJC42ClassGetFieldFromName = (JC42ClassGetFieldFromNameFn)JC42ResolveExport("il2cpp_class_get_field_from_name");
+    gJC42FieldStaticGetValue = (JC42FieldStaticGetValueFn)JC42ResolveExport("il2cpp_field_static_get_value");
+    gJC42FieldGetValue = (JC42FieldGetValueFn)JC42ResolveExport("il2cpp_field_get_value");
+
+    gJC42LuaLLoadBufferX = (JC42LuaLLoadBufferXFn)JC42ResolveExport("luaL_loadbufferx");
+    gJC42LuaGetTop = (JC42LuaGetTopFn)JC42ResolveExport("lua_gettop");
+    gJC42LuaSetTop = (JC42LuaSetTopFn)JC42ResolveExport("lua_settop");
+
+    if (!domainGet || !assembliesFn || !imageFn || !classFn || !gJC42ClassGetFieldFromName ||
+        !gJC42FieldStaticGetValue || !gJC42FieldGetValue || !gJC42LuaLLoadBufferX || !gJC42LuaGetTop || !gJC42LuaSetTop)
+        return NO;
+
+    void *domain = domainGet();
+    if (!domain) return NO;
+    const char *namespaces[] = {"LuaInterface", "LuaFramework", ""};
+    for (size_t n = 0; n < sizeof(namespaces)/sizeof(namespaces[0]) && !gJC42LuaStateClass; n++)
+        gJC42LuaStateClass = JC42FindClass(assembliesFn, imageFn, classFn, domain, namespaces[n], "LuaState");
+    for (size_t n = 0; n < sizeof(namespaces)/sizeof(namespaces[0]) && !gJC42LuaStatePtrClass; n++)
+        gJC42LuaStatePtrClass = JC42FindClass(assembliesFn, imageFn, classFn, domain, namespaces[n], "LuaStatePtr");
+    if (!gJC42LuaStatePtrClass && gJC42LuaStateClass && parentFn)
+        gJC42LuaStatePtrClass = parentFn(gJC42LuaStateClass);
+    if (!gJC42LuaStateClass || !gJC42LuaStatePtrClass) return NO;
+
+    gJC42MainStateField = gJC42ClassGetFieldFromName(gJC42LuaStateClass, "mainState");
+    gJC42NativeLField = gJC42ClassGetFieldFromName(gJC42LuaStatePtrClass, "L");
+    gJC42LuaMetadataReady = gJC42MainStateField && gJC42NativeLField;
+    if (gJC42LuaMetadataReady) {
+        JC42Log([NSString stringWithFormat:@"LUA-METADATA-READY LuaState=%p LuaStatePtr=%p mainState=%p L=%p luaL_loadbufferx=%p",
+                 gJC42LuaStateClass, gJC42LuaStatePtrClass, gJC42MainStateField, gJC42NativeLField, gJC42LuaLLoadBufferX]);
+    }
+    return gJC42LuaMetadataReady;
+}
+
+static BOOL JC42RefreshLuaState(void) {
+    if (!JC42ResolveLuaMetadata()) return NO;
+    void *managedState = NULL;
+    gJC42FieldStaticGetValue(gJC42MainStateField, &managedState);
+    if (!managedState) return NO;
+
+    void *nativeL = NULL;
+    gJC42FieldGetValue(managedState, gJC42NativeLField, &nativeL);
+    if (!nativeL) return NO;
+    if (nativeL != gJC42LuaState) {
+        gJC42LuaState = nativeL;
+        JC42Log([NSString stringWithFormat:@"LUA-STATE-READY managed=%p native=%p", managedState, nativeL]);
+    }
+    return YES;
+}
+
 #pragma mark - Sweep
 
 static BOOL JC42ObjectIsTextAsset(void *obj) {
@@ -381,22 +408,14 @@ static NSData *JC42DataFromByteArray(void *ptr) {
     }
 }
 
-static int JC42CompileOnly(NSData *data, NSString *assetName) {
-    if (!data.length || !gJC42LuaState || !gJC42LuaLLoadBufferX || !gJC42LuaGetTop || !gJC42LuaSetTop) return -1000;
+static int JC42CompileOnly(NSData *decoded, NSString *assetName) {
+    if (!decoded.length || !JC42RefreshLuaState()) return -1000;
+    if (!JC42HasLua53Signature(decoded) && !JC42LooksLuaText(decoded)) return -1001;
 
-    const uint8_t *bytes = data.bytes;
-    NSUInteger length = data.length;
-    NSInteger off = JC42Lua53Offset(data);
-    if (off != NSNotFound) {
-        bytes += off;
-        length -= (NSUInteger)off;
-    } else if (!JC42LooksLuaText(data)) {
-        return -1001;
-    }
-
-    const char *name = assetName.length ? assetName.UTF8String : "@TAB_Sweep.lua";
+    NSString *leaf = assetName.lastPathComponent.length ? assetName.lastPathComponent : assetName;
+    NSString *chunk = [NSString stringWithFormat:@"@sweep_%@", leaf ?: @"TAB_unknown.lua"];
     int oldTop = gJC42LuaGetTop(gJC42LuaState);
-    int rc = gJC42LuaLLoadBufferX(gJC42LuaState, (const char *)bytes, length, name, "bt");
+    int rc = gJC42LuaLLoadBufferX(gJC42LuaState, (const char *)decoded.bytes, decoded.length, chunk.UTF8String, "bt");
     gJC42LuaSetTop(gJC42LuaState, oldTop);
     return rc;
 }
@@ -404,6 +423,11 @@ static int JC42CompileOnly(NSData *data, NSString *assetName) {
 static NSUInteger JC42SweepBatch(void) {
     if (!JC42ResolveUnity()) {
         JC42Log(@"WAIT unity metadata not ready");
+        return 0;
+    }
+    if (!JC42RefreshLuaState()) {
+        JC42Log(@"WAIT LuaState.mainState/L not ready");
+        JC42WriteStatus(0, 0);
         return 0;
     }
 
@@ -447,8 +471,8 @@ static NSUInteger JC42SweepBatch(void) {
             }
 
             void *bytesObj = gJC42TextAssetGetBytes(asset, gJC42TextAssetGetBytesMethod);
-            NSData *data = JC42DataFromByteArray(bytesObj);
-            if (!data.length) {
+            NSData *raw = JC42DataFromByteArray(bytesObj);
+            if (!raw.length) {
                 NSUInteger n = retry ? retry.unsignedIntegerValue + 1 : 1;
                 [gJC42Retry setObject:[NSNumber numberWithUnsignedInteger:n] forKey:key];
                 gJC42LoadFail++;
@@ -456,19 +480,42 @@ static NSUInteger JC42SweepBatch(void) {
                 continue;
             }
 
-            int rc = JC42CompileOnly(data, assetName);
+            BOOL wasENCM = NO;
+            NSData *decoded = JC42DecodeTAB(raw, &wasENCM);
+            if (!decoded.length) {
+                gJC42DecodeFail++;
+                [gJC42Done addObject:key];
+                JC42Log([NSString stringWithFormat:@"TAB-DECODE-FAIL asset=%@ bytes=%lu head=%02x%02x%02x%02x",
+                         assetName, (unsigned long)raw.length,
+                         raw.length > 0 ? ((const uint8_t *)raw.bytes)[0] : 0,
+                         raw.length > 1 ? ((const uint8_t *)raw.bytes)[1] : 0,
+                         raw.length > 2 ? ((const uint8_t *)raw.bytes)[2] : 0,
+                         raw.length > 3 ? ((const uint8_t *)raw.bytes)[3] : 0]);
+                continue;
+            }
+
+            if (wasENCM) gJC42DecodedENCM++; else gJC42DecodedPlain++;
+            JC42Log([NSString stringWithFormat:@"TAB-DECODE-OK mode=%@ asset=%@ raw=%lu decoded=%lu",
+                     wasENCM ? @"ENCM-XOR4D" : @"plain", assetName,
+                     (unsigned long)raw.length, (unsigned long)decoded.length]);
+
+            int rc = JC42CompileOnly(decoded, assetName);
+            if (rc == -1000) {
+                NSUInteger n = retry ? retry.unsignedIntegerValue + 1 : 1;
+                [gJC42Retry setObject:[NSNumber numberWithUnsignedInteger:n] forKey:key];
+                JC42Log([NSString stringWithFormat:@"TAB-COMPILE-WAIT retry=%lu/%d asset=%@", (unsigned long)n, JC42_MAX_RETRY, assetName]);
+                continue;
+            }
+
             [gJC42Done addObject:key];
             [gJC42Retry removeObjectForKey:key];
             gJC42Processed++;
             if (rc == 0) {
                 gJC42CompiledOK++;
-                JC42Log([NSString stringWithFormat:@"TAB-COMPILE-OK asset=%@ bytes=%lu", assetName, (unsigned long)data.length]);
-            } else if (rc == -1000 || rc == -1001) {
-                gJC42RawOnly++;
-                JC42Log([NSString stringWithFormat:@"TAB-RAW-ONLY rc=%d asset=%@ bytes=%lu", rc, assetName, (unsigned long)data.length]);
+                JC42Log([NSString stringWithFormat:@"TAB-COMPILE-OK asset=%@ decoded=%lu", assetName, (unsigned long)decoded.length]);
             } else {
                 gJC42CompileError++;
-                JC42Log([NSString stringWithFormat:@"TAB-COMPILE-ERR rc=%d asset=%@ bytes=%lu", rc, assetName, (unsigned long)data.length]);
+                JC42Log([NSString stringWithFormat:@"TAB-COMPILE-ERR rc=%d asset=%@ decoded=%lu", rc, assetName, (unsigned long)decoded.length]);
             }
         }
     }
@@ -483,10 +530,10 @@ static void JC42Tick(void) {
     if (!gJC42Running) return;
     @autoreleasepool {
         gJC42Ticks++;
-        JC42InstallLuaTap();
         NSUInteger batch = JC42SweepBatch();
-        JC42Log([NSString stringWithFormat:@"TICK #%llu batch=%lu done=%lu lua=%p unity=%d",
-                 gJC42Ticks, (unsigned long)batch, (unsigned long)gJC42Done.count, gJC42LuaState, gJC42UnityReady]);
+        JC42Log([NSString stringWithFormat:@"TICK #%llu batch=%lu done=%lu lua=%p unity=%d luaMeta=%d",
+                 gJC42Ticks, (unsigned long)batch, (unsigned long)gJC42Done.count, gJC42LuaState,
+                 gJC42UnityReady, gJC42LuaMetadataReady]);
     }
     JC42ScheduleNext();
 }
@@ -502,7 +549,8 @@ __attribute__((constructor)) static void JC42Entry(void) {
         JC42SetupPaths();
         gJC42Done = [[NSMutableSet alloc] init];
         gJC42Retry = [[NSMutableDictionary alloc] init];
-        JC42Log([NSString stringWithFormat:@"%@ loaded; TAB-only batch=%d interval=%.1fs; compile-only/no-pcall", JC42_VERSION, JC42_BATCH_SIZE, JC42_INTERVAL_SECONDS]);
+        JC42Log([NSString stringWithFormat:@"%@ loaded; TAB-only batch=%d interval=%.1fs; ENCM decode + compile-only/no-execute",
+                 JC42_VERSION, JC42_BATCH_SIZE, JC42_INTERVAL_SECONDS]);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{ JC42Tick(); });
     }
