@@ -17,10 +17,10 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: 81a9cf9291bd95e300106e708e9dc492d74a778f
+          ref: a5c686027385c73d6ed6acd9ed989a5d438c60bc
           fetch-depth: 0
 
-      - name: V3 M3.1 source assertions
+      - name: V3 M3.1 text interaction source assertions
         run: |
           set -euxo pipefail
           src=iosruntimepatchmenu/src
@@ -31,15 +31,14 @@ jobs:
           grep -q 'src/ZNFeatureRuntimeControlsV2.mm' "$makefile"
           grep -q 'src/ZNIL2CPPABIMetadata.mm' "$makefile"
           grep -q 'src/ZNIL2CPPABIDetailUI.mm' "$makefile"
+          grep -q 'src/ZNMenuPresentationHostFix.mm' "$makefile"
           grep -q 'ZNIL2CPPABIValueKindFloat64' "$src/ZNIL2CPPABIMetadata.h"
           grep -q 'il2cpp_method_get_return_type' "$src/ZNIL2CPPABIMetadata.mm"
-          grep -q 'il2cpp_method_get_param' "$src/ZNIL2CPPABIMetadata.mm"
-          grep -q 'il2cpp_method_is_generic' "$src/ZNIL2CPPABIMetadata.mm"
-          grep -q 'il2cpp_method_is_inflated' "$src/ZNIL2CPPABIMetadata.mm"
           grep -q 'ZNIL2CPPBuildReturnOverridePlan' "$src/ZNIL2CPPABIMetadata.mm"
-          grep -q 'foundationOnly' "$src/ZNIL2CPPABIMetadata.mm"
-          grep -q 'M3.1 只解析签名' "$src/ZNIL2CPPABIDetailUI.mm"
-          grep -q 'ZNInstallIL2CPPABIDetailUIDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+          grep -q 'ZNInstallMenuPresentationHostFixDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
+          grep -q 'ZN62PresentationHostView' "$src/ZNMenuPresentationHostFix.mm"
+          grep -q 'rootViewController' "$src/ZNMenuPresentationHostFix.mm"
+          grep -q 'ZN62WindowIsUsable(self.hostWindow)' "$src/ZNMenuPresentationHostFix.mm"
           grep -q 'kZN61ShardClasses = 12000' "$src/ZNIL2CPPMethodFinderM2.mm"
           grep -q 'ZN61MatchContains' "$src/ZNIL2CPPMethodFinderM2.mm"
 
@@ -83,33 +82,34 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
-      - name: Build V3 M3.1
+      - name: Build M3.1 text interaction hotfix
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-v058-m3-1
-          cp .theos/obj/ZonoePatchV03.dylib dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib
-          shasum -a 256 dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib | tee dist-v058-m3-1/SHA256.txt
+          mkdir -p dist-v058-m3-1-translate-hotfix
+          cp .theos/obj/ZonoePatchV03.dylib dist-v058-m3-1-translate-hotfix/ZonoPatch_v0.5.8_M3_1_TextTranslateHotfix.dylib
+          shasum -a 256 dist-v058-m3-1-translate-hotfix/ZonoPatch_v0.5.8_M3_1_TextTranslateHotfix.dylib | tee dist-v058-m3-1-translate-hotfix/SHA256.txt
 
-      - name: Verify V3 M3.1 binary
+      - name: Verify M3.1 text interaction hotfix binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib
+          out=iosruntimepatchmenu/dist-v058-m3-1-translate-hotfix/ZonoPatch_v0.5.8_M3_1_TextTranslateHotfix.dylib
           file "$out"
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
           nm -gU "$out" | grep '_ZonoePatchGetVersion'
-          strings "$out" > /tmp/zonoe_m31_strings.txt
-          grep -q 'v3-candidate-list' /tmp/zonoe_m31_strings.txt
-          grep -q 'm2-wide-index' /tmp/zonoe_m31_strings.txt
-          grep -q 'pending-m3.2-hook-backend' /tmp/zonoe_m31_strings.txt
-          grep -q 'expected-by-generated-IL2CPP-code' /tmp/zonoe_m31_strings.txt
-          grep -q 'signed64 / GPR64' /tmp/zonoe_m31_strings.txt
-          grep -q 'il2cpp_method_get_return_type' /tmp/zonoe_m31_strings.txt
+          strings "$out" > /tmp/zonoe_m31_translate_strings.txt
+          grep -q 'v3-candidate-list' /tmp/zonoe_m31_translate_strings.txt
+          grep -q 'm2-wide-index' /tmp/zonoe_m31_translate_strings.txt
+          grep -q 'pending-m3.2-hook-backend' /tmp/zonoe_m31_translate_strings.txt
+          grep -q 'expected-by-generated-IL2CPP-code' /tmp/zonoe_m31_translate_strings.txt
+          grep -q 'ZNRuntimeMenuControllerV040' /tmp/zonoe_m31_translate_strings.txt
+          grep -q 'zn62_tick:' /tmp/zonoe_m31_translate_strings.txt
+          grep -q 'zn62_attach:' /tmp/zonoe_m31_translate_strings.txt
           python3 <<'PY'
           import struct
-          p='iosruntimepatchmenu/dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib'
+          p='iosruntimepatchmenu/dist-v058-m3-1-translate-hotfix/ZonoPatch_v0.5.8_M3_1_TextTranslateHotfix.dylib'
           data=open(p,'rb').read()
           if struct.unpack_from('<I',data,0)[0] != 0xfeedfacf:
               raise SystemExit('not thin arm64 Mach-O')
@@ -132,11 +132,11 @@ jobs:
               raise SystemExit(f'expected exactly one cold-launch constructor, got {init_size}')
           PY
 
-      - name: Upload V3 M3.1 artifact
+      - name: Upload M3.1 text interaction hotfix artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.8-M3.1-ABI-ReturnFoundation
+          name: ZonoPatch-v0.5.8-M3.1-TextTranslate-Hotfix
           path: |
-            iosruntimepatchmenu/dist-v058-m3-1/ZonoPatch_v0.5.8_M3_1_ABI_ReturnFoundation.dylib
-            iosruntimepatchmenu/dist-v058-m3-1/SHA256.txt
+            iosruntimepatchmenu/dist-v058-m3-1-translate-hotfix/ZonoPatch_v0.5.8_M3_1_TextTranslateHotfix.dylib
+            iosruntimepatchmenu/dist-v058-m3-1-translate-hotfix/SHA256.txt
           if-no-files-found: error
