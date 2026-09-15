@@ -1,0 +1,111 @@
+name: Build JSONCapture v0.4.2 Generic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.4.2-generic
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.4.2-generic.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify generic source contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'JSONCapture_FILES = src/GenericSweep.m src/Lua53Analyzer.m' jsoncapture/Makefile
+          grep -Fq '#define JCG_BATCH_TEXTASSETS 10' jsoncapture/src/GenericSweep.m
+          grep -Fq '#define JCG_INTERVAL_SECONDS 5.0' jsoncapture/src/GenericSweep.m
+          grep -Fq '#define JCG_MAX_NAMES_PER_TICK 100' jsoncapture/src/GenericSweep.m
+          grep -Fq 'tolua_loadbuffer' jsoncapture/src/GenericSweep.m
+          grep -Fq 'luaL_loadbufferx' jsoncapture/src/GenericSweep.m
+          grep -Fq 'luaL_newstate' jsoncapture/src/GenericSweep.m
+          grep -Fq 'lua_newstate' jsoncapture/src/GenericSweep.m
+          grep -Fq 'FindObjectsOfTypeAll' jsoncapture/src/GenericSweep.m
+          grep -Fq 'GetAllAssetNames' jsoncapture/src/GenericSweep.m
+          grep -Fq 'TextAsset' jsoncapture/src/GenericSweep.m
+          grep -Fq 'raw_textasset' jsoncapture/src/GenericSweep.m
+          grep -Fq 'manifest.jsonl' jsoncapture/src/GenericSweep.m
+          grep -Fq 'GenericSweep.status.json' jsoncapture/src/GenericSweep.m
+          if grep -Eq 'lua_pcall|lua_call' jsoncapture/src/GenericSweep.m; then
+            echo 'generic sweep must never execute loaded chunks' >&2
+            exit 1
+          fi
+          if grep -Eq '0x186A4B8|0x186FA64|RVA_CUSTOM_DECRYPT' jsoncapture/src/GenericSweep.m jsoncapture/Makefile; then
+            echo 'old game-specific fixed RVA leaked into generic build' >&2
+            exit 1
+          fi
+          grep -Fq '"fixed_game_rva_hooks": false' jsoncapture/targets/unity2019_tolua535_3fa31a88.json
+          grep -Fq '3fa31a88c2704e7129987439b3e5fd68b6eeb8ee82af894e930ca6964ae45098' jsoncapture/targets/unity2019_tolua535_3fa31a88.json
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify generic dylib
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-generic
+          out="dist-generic/JSONCapture_v0.4.2-g1_ToLua535.dylib"
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" > dist-generic/strings.txt
+          grep -Fq 'JSONCapture Generic Sweep v0.4.2-g1' dist-generic/strings.txt
+          grep -Fq 'Unity2019.4/IL2CPP/ToLua/Lua5.3' dist-generic/strings.txt
+          grep -Fq 'tolua_loadbuffer' dist-generic/strings.txt
+          grep -Fq 'luaL_loadbufferx' dist-generic/strings.txt
+          grep -Fq 'GenericSweep.status.json' dist-generic/strings.txt
+          grep -Fq 'manifest.jsonl' dist-generic/strings.txt
+          if grep -Eq 'AesHelper.CustomDecrypt|0x186A4B8|0x186FA64' dist-generic/strings.txt; then
+            echo 'game-specific decrypt code present in generic binary' >&2
+            exit 1
+          fi
+          shasum -a 256 "$out" | tee dist-generic/SHA256.txt
+
+      - name: Package release
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-generic
+          cat > README.txt <<'EOF'
+          JSONCapture v0.4.2-g1 Generic
+          Target profile: Unity 2019.4 / IL2CPP / ToLua / Lua 5.3.5
+          Runtime behavior:
+          - No fixed game-specific UnityFramework RVA hooks.
+          - Observes lua_newstate/luaL_newstate/tolua_loadbuffer/luaL_loadbufferx.
+          - Every 5 seconds inspects up to 100 new AssetBundle names and processes up to 10 TextAssets.
+          - Dumps all discovered TextAsset bytes to Documents/JSONCapture/Generic/raw_textasset/.
+          - Writes valid JSON TextAssets to Documents/JSONCapture/Generic/json/.
+          - Known Lua 5.3 / simple wrapped / ENCM-XOR4D candidates are load-compiled only; no lua_pcall/lua_call.
+          - Status: Documents/JSONCapture/Generic/GenericSweep.status.json
+          - Log: Documents/JSONCapture/Generic/GenericSweep.log
+          - Inventory: Documents/JSONCapture/Generic/manifest.jsonl
+          EOF
+          zip -9 JSONCapture_v0.4.2-g1_ToLua535.zip JSONCapture_v0.4.2-g1_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.4.2-g1_ToLua535.zip | tee ZIP_SHA256.txt
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.4.2-g1-ToLua535
+          path: |
+            jsoncapture/dist-generic/JSONCapture_v0.4.2-g1_ToLua535.dylib
+            jsoncapture/dist-generic/SHA256.txt
+            jsoncapture/dist-generic/JSONCapture_v0.4.2-g1_ToLua535.zip
+            jsoncapture/dist-generic/ZIP_SHA256.txt
+          if-no-files-found: error
