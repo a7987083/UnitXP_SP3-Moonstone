@@ -14,13 +14,9 @@ extern "C" void ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPABIDetailUIDeferred(void);
 extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
 extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void);
-extern "C" void ZNInstallAnyImageAddressResolverDeferred(void);
+extern "C" void ZNInstallOffsetResolverV2Deferred(void);
+extern "C" void ZNInstallBinaryPatchWorkspaceAddressV2Deferred(void);
 extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
-
-// Corrects Method Finder category/symbol visibility after the v0.5.7 UI
-// swizzles. Method Finder is a developer-authoring surface, so it follows the
-// developer `g` authorization and must not depend on the independent `q`
-// authorization that owns the Other category.
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -36,7 +32,6 @@ extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 - (NSArray<NSString *> *)zn57mfb_baseCategories {
     NSArray<NSString *> *base = [self zn57mfb_baseCategories];
     if ([base containsObject:@"方法查找"] || ![ZNDeveloperGate sharedGate].authorized) return base;
-
     NSMutableArray<NSString *> *items = [base mutableCopy];
     NSUInteger other = [items indexOfObject:@"其他"];
     NSUInteger settings = [items indexOfObject:@"设置"];
@@ -52,7 +47,6 @@ extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
     NSArray<NSString *> *base = [self zn57mfb_baseSymbols];
     NSArray<NSString *> *categories = [self zn40_baseCategories];
     if (base.count == categories.count) return base;
-
     NSUInteger finder = [categories indexOfObject:@"方法查找"];
     if (finder == NSNotFound || finder > base.count) return base;
     NSMutableArray<NSString *> *symbols = [base mutableCopy];
@@ -65,8 +59,6 @@ extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // Device-verified V2 resolver stays authoritative for Named Offset and
-        // single-result authoring. Later layers must not alter that contract.
         ZNInstallIL2CPPMethodFinderSearchV2Deferred();
         ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
 
@@ -75,19 +67,12 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
 
         Method categoriesOriginal = class_getInstanceMethod(cls, @selector(zn40_baseCategories));
         Method categoriesReplacement = class_getInstanceMethod(cls, @selector(zn57mfb_baseCategories));
-        if (categoriesOriginal && categoriesReplacement) {
-            method_exchangeImplementations(categoriesOriginal, categoriesReplacement);
-        }
+        if (categoriesOriginal && categoriesReplacement) method_exchangeImplementations(categoriesOriginal, categoriesReplacement);
 
         Method symbolsOriginal = class_getInstanceMethod(cls, @selector(zn40_baseSymbols));
         Method symbolsReplacement = class_getInstanceMethod(cls, @selector(zn57mfb_baseSymbols));
-        if (symbolsOriginal && symbolsReplacement) {
-            method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
-        }
+        if (symbolsOriginal && symbolsReplacement) method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
 
-        // Preserve the device-accepted M2.2 stack. M3.1 only decorates the
-        // existing detail renderer with ABI/signature metadata and does not
-        // install a hook or mutate target memory.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
         ZNInstallIL2CPPMethodFinderV3Deferred();
         ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
@@ -95,14 +80,14 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();
         ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();
         ZNInstallIL2CPPABIDetailUIDeferred();
-
         ZNInstallFeatureBuilderControlsV2Deferred();
         ZNInstallFeatureRuntimeControlsV2Deferred();
 
-        // M3.1 follow-up: keep the visual tree unchanged, but move the menu
-        // into a real UIKit modal presentation and normalize author-supplied
-        // addresses against the exact loaded Mach-O before validation.
-        ZNInstallAnyImageAddressResolverDeferred();
+        // Device-accepted modal shell stays untouched. Only the address/patch
+        // plumbing changes here: exact dyld image identity, Unslid VA first,
+        // historical RVA fallback, and preservation of the author's input.
+        ZNInstallOffsetResolverV2Deferred();
+        ZNInstallBinaryPatchWorkspaceAddressV2Deferred();
         ZNInstallRuntimeMenuModalShellDeferred();
     });
 }
