@@ -96,7 +96,7 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
     return nil;
 }
 
-@interface ZNRuntimeMenuControllerV024 : NSObject
+@interface ZNRuntimeMenuControllerV024 : UIViewController
 @property(nonatomic,strong) UIButton *floatButton;
 @property(nonatomic,strong) UIView *panel;
 @property(nonatomic,strong) UIView *headerView;
@@ -506,7 +506,7 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
 - (void)makeUI:(UIWindow *)window {
     if (self.uiReady || !window) return; self.hostWindow=window; self.theme=[ZNTheme themeForMode:self.themeMode interfaceStyle:[self interfaceStyle]];
     self.floatButton=[UIButton buttonWithType:UIButtonTypeCustom]; self.floatButton.bounds=CGRectMake(0,0,kZNFloatSize,kZNFloatSize); self.floatButton.layer.cornerRadius=kZNFloatSize*0.5; [self.floatButton setTitle:@"ZN" forState:UIControlStateNormal]; self.floatButton.titleLabel.font=[UIFont systemFontOfSize:14 weight:UIFontWeightBold]; [self.floatButton addTarget:self action:@selector(togglePanel:) forControlEvents:UIControlEventTouchUpInside]; [self.floatButton addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panFloat:)]];
-    self.panel=[UIView new]; self.panel.layer.masksToBounds=NO; self.headerView=[UIView new]; self.headerView.layer.maskedCorners=kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner; [self.headerView addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panPanel:)]]; [self.panel addSubview:self.headerView];
+    self.panel=[UIView new]; self.view=self.panel; self.panel.layer.masksToBounds=NO; self.headerView=[UIView new]; self.headerView.layer.maskedCorners=kCALayerMinXMinYCorner|kCALayerMaxXMinYCorner; [self.headerView addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panPanel:)]]; [self.panel addSubview:self.headerView];
     self.titleLabel=[UILabel new]; [self.headerView addSubview:self.titleLabel]; self.subtitleLabel=[UILabel new]; [self.headerView addSubview:self.subtitleLabel]; self.readyDot=[UIView new]; self.readyDot.layer.cornerRadius=4; [self.headerView addSubview:self.readyDot]; self.readyLabel=[self label:@"Ready" size:10.5 weight:UIFontWeightMedium color:self.theme.primaryTextColor]; [self.headerView addSubview:self.readyLabel];
     self.themeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.themeButton setImage:ZNSymbol(@"paintpalette.fill",14,UIImageSymbolWeightSemibold) forState:UIControlStateNormal]; [self.themeButton addTarget:self action:@selector(themeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.themeButton];
     self.modeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.modeButton addTarget:self action:@selector(modeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.modeButton]; self.closeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.closeButton setTitle:@"×" forState:UIControlStateNormal]; self.closeButton.titleLabel.font=[UIFont systemFontOfSize:22 weight:UIFontWeightLight]; [self.closeButton addTarget:self action:@selector(closeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.closeButton];
