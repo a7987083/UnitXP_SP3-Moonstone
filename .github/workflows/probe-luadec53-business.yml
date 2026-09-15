@@ -1,0 +1,58 @@
+name: Probe LuaDec 5.3 Business Decompile
+
+on:
+  push:
+    branches:
+      - feature/lua53-business-recovery-probe
+    paths:
+      - 'tests/fixtures/**'
+      - '.github/workflows/probe-luadec53-business.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decode fixture
+        shell: bash
+        run: |
+          base64 -d tests/fixtures/AssetManager.normalized.luac.b64 > AssetManager.normalized.luac
+          file AssetManager.normalized.luac
+          xxd -l 16 AssetManager.normalized.luac
+
+      - name: Build LuaDec 5.3
+        shell: bash
+        run: |
+          git clone https://github.com/viruscamp/luadec.git /tmp/luadec
+          cd /tmp/luadec
+          git submodule update --init lua-5.3
+          cd lua-5.3
+          make linux
+          cd ../luadec
+          make LUAVER=5.3
+          find /tmp/luadec -maxdepth 3 -type f -name 'luadec*' -ls
+
+      - name: Decompile and disassemble stripped business chunk
+        shell: bash
+        run: |
+          BIN=$(find /tmp/luadec -type f -name luadec -perm -111 | head -1)
+          echo "BIN=$BIN"
+          mkdir -p probe-output
+          set +e
+          "$BIN" AssetManager.normalized.luac > probe-output/AssetManager.decompiled.lua 2> probe-output/decompile.stderr.txt
+          DEC_RC=$?
+          "$BIN" -dis AssetManager.normalized.luac > probe-output/AssetManager.disassembly.txt 2> probe-output/disassembly.stderr.txt
+          DIS_RC=$?
+          set -e
+          echo "decompile_rc=$DEC_RC" | tee probe-output/status.txt
+          echo "disassembly_rc=$DIS_RC" | tee -a probe-output/status.txt
+          wc -c probe-output/* | tee -a probe-output/status.txt
+          head -120 probe-output/AssetManager.decompiled.lua || true
+          test -s probe-output/AssetManager.disassembly.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luadec53-business-probe
+          path: probe-output/
