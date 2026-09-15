@@ -28,12 +28,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libreadline-dev
 
-      - name: Build LuaDec 5.3
+      - name: Build patched LuaDec 5.3
         shell: bash
         run: |
           git clone https://github.com/viruscamp/luadec.git /tmp/luadec
           cd /tmp/luadec
           git submodule update --init lua-5.3
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/luadec/lua-5.3/src/lundump.c')
+          s=p.read_text()
+          s=s.replace('if (size == 0xFF)\n    LoadVar(S, size);', 'if (size == 0xFF) {\n    unsigned int size4;\n    LoadVar(S, size4);\n    size = size4;\n  }')
+          s=s.replace('checksize(S, size_t);', 'fchecksize(S, 4, "size_t");')
+          p.write_text(s)
+          PY
           cd lua-5.3
           make linux
           cd ../luadec
@@ -55,10 +63,16 @@ jobs:
           echo "decompile_rc=$DEC_RC" | tee probe-output/status.txt
           echo "disassembly_rc=$DIS_RC" | tee -a probe-output/status.txt
           wc -c probe-output/* | tee -a probe-output/status.txt
+          echo '--- decompile stderr ---'
+          cat probe-output/decompile.stderr.txt || true
+          echo '--- disassembly stderr ---'
+          cat probe-output/disassembly.stderr.txt || true
+          echo '--- decompiled head ---'
           head -120 probe-output/AssetManager.decompiled.lua || true
           test -s probe-output/AssetManager.disassembly.txt
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: luadec53-business-probe
           path: probe-output/
