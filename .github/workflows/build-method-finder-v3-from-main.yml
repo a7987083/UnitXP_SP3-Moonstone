@@ -17,13 +17,15 @@ jobs:
       - name: Checkout V3 source
         uses: actions/checkout@v4
         with:
-          ref: feafa7ac9744763013c21fb751780ec0253b3f7e
+          ref: 25e4cacfff2aa6fbe72dedb946f11904142dfd9a
           fetch-depth: 0
 
-      - name: V3 M3.1 host controller source assertions
+      - name: V3 M3.1 menu UIViewController source assertions
         run: |
           set -euxo pipefail
           src=iosruntimepatchmenu/src
+          core=$src/ZonoeRuntimeMenu.mm
+          host=$src/ZNMenuPresentationHostFix.mm
           makefile=iosruntimepatchmenu/Makefile
           grep -q 'src/ZNIL2CPPMethodFinderM2.mm' "$makefile"
           grep -q 'src/ZNIL2CPPMethodFinderM22StableCancelUX.mm' "$makefile"
@@ -32,13 +34,18 @@ jobs:
           grep -q 'src/ZNIL2CPPABIMetadata.mm' "$makefile"
           grep -q 'src/ZNIL2CPPABIDetailUI.mm' "$makefile"
           grep -q 'src/ZNMenuPresentationHostFix.mm' "$makefile"
+          grep -q '@interface ZNRuntimeMenuControllerV024 : UIViewController' "$core"
+          grep -q 'self.panel=\[UIView new\]; self.view=self.panel;' "$core"
+          grep -q '@interface ZNRuntimeMenuControllerV040 : UIViewController' "$host"
+          grep -q 'addChildViewController:self' "$host"
+          grep -q 'didMoveToParentViewController:root' "$host"
+          grep -q 'self.view != self.panel' "$host"
+          grep -q 'ZN63DetachMenuController' "$host"
+          grep -q 'ZN63ContainsFirstResponder' "$host"
+          grep -q 'bringSubviewToFront:self.floatButton' "$host"
+          ! grep -q 'ZN62MenuHostController' "$host"
+          ! grep -q 'ZN62PassthroughView' "$host"
           grep -q 'ZNInstallMenuPresentationHostFixDeferred' "$src/ZNIL2CPPMethodFinderMenuBinding.mm"
-          grep -q 'ZN62MenuHostController' "$src/ZNMenuPresentationHostFix.mm"
-          grep -q 'ZN62PassthroughView' "$src/ZNMenuPresentationHostFix.mm"
-          grep -q 'addChildViewController:host' "$src/ZNMenuPresentationHostFix.mm"
-          grep -q 'self.panel.superview != host.view' "$src/ZNMenuPresentationHostFix.mm"
-          grep -q 'bringSubviewToFront:self.floatButton' "$src/ZNMenuPresentationHostFix.mm"
-          ! grep -q '\[window bringSubviewToFront:self.panel\]' "$src/ZNMenuPresentationHostFix.mm"
           grep -q 'kZN61ShardClasses = 12000' "$src/ZNIL2CPPMethodFinderM2.mm"
           grep -q 'ZN61MatchContains' "$src/ZNIL2CPPMethodFinderM2.mm"
 
@@ -82,35 +89,34 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
-      - name: Build M3.1 host controller hotfix
+      - name: Build M3.1 menu UIViewController hotfix
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-v058-m3-1-host-controller
-          cp .theos/obj/ZonoePatchV03.dylib dist-v058-m3-1-host-controller/ZonoPatch_v0.5.8_M3_1_MenuHostControllerHotfix.dylib
-          shasum -a 256 dist-v058-m3-1-host-controller/ZonoPatch_v0.5.8_M3_1_MenuHostControllerHotfix.dylib | tee dist-v058-m3-1-host-controller/SHA256.txt
+          mkdir -p dist-v058-m3-1-menu-viewcontroller
+          cp .theos/obj/ZonoePatchV03.dylib dist-v058-m3-1-menu-viewcontroller/ZonoPatch_v0.5.8_M3_1_MenuUIViewControllerHotfix.dylib
+          shasum -a 256 dist-v058-m3-1-menu-viewcontroller/ZonoPatch_v0.5.8_M3_1_MenuUIViewControllerHotfix.dylib | tee dist-v058-m3-1-menu-viewcontroller/SHA256.txt
 
-      - name: Verify M3.1 host controller hotfix binary
+      - name: Verify M3.1 menu UIViewController hotfix binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-v058-m3-1-host-controller/ZonoPatch_v0.5.8_M3_1_MenuHostControllerHotfix.dylib
+          out=iosruntimepatchmenu/dist-v058-m3-1-menu-viewcontroller/ZonoPatch_v0.5.8_M3_1_MenuUIViewControllerHotfix.dylib
           file "$out"
           nm -gU "$out" | grep '_ZonoePatchGetAPIVersion'
           nm -gU "$out" | grep '_ZonoePatchGetVersion'
-          strings "$out" > /tmp/zonoe_m31_host_strings.txt
-          grep -q 'v3-candidate-list' /tmp/zonoe_m31_host_strings.txt
-          grep -q 'm2-wide-index' /tmp/zonoe_m31_host_strings.txt
-          grep -q 'pending-m3.2-hook-backend' /tmp/zonoe_m31_host_strings.txt
-          grep -q 'ZN62MenuHostController' /tmp/zonoe_m31_host_strings.txt
-          grep -q 'ZN62PassthroughView' /tmp/zonoe_m31_host_strings.txt
-          grep -q 'zn62_attach:' /tmp/zonoe_m31_host_strings.txt
-          grep -q 'zn62_tick:' /tmp/zonoe_m31_host_strings.txt
-          grep -q 'zn62_show' /tmp/zonoe_m31_host_strings.txt
+          strings "$out" > /tmp/zonoe_m31_menuvc_strings.txt
+          grep -q 'v3-candidate-list' /tmp/zonoe_m31_menuvc_strings.txt
+          grep -q 'm2-wide-index' /tmp/zonoe_m31_menuvc_strings.txt
+          grep -q 'pending-m3.2-hook-backend' /tmp/zonoe_m31_menuvc_strings.txt
+          grep -q 'ZNRuntimeMenuControllerV040' /tmp/zonoe_m31_menuvc_strings.txt
+          grep -q 'zn63_attach:' /tmp/zonoe_m31_menuvc_strings.txt
+          grep -q 'zn63_tick:' /tmp/zonoe_m31_menuvc_strings.txt
+          grep -q 'zn63_show' /tmp/zonoe_m31_menuvc_strings.txt
           python3 <<'PY'
           import struct
-          p='iosruntimepatchmenu/dist-v058-m3-1-host-controller/ZonoPatch_v0.5.8_M3_1_MenuHostControllerHotfix.dylib'
+          p='iosruntimepatchmenu/dist-v058-m3-1-menu-viewcontroller/ZonoPatch_v0.5.8_M3_1_MenuUIViewControllerHotfix.dylib'
           data=open(p,'rb').read()
           if struct.unpack_from('<I',data,0)[0] != 0xfeedfacf:
               raise SystemExit('not thin arm64 Mach-O')
@@ -133,11 +139,11 @@ jobs:
               raise SystemExit(f'expected exactly one cold-launch constructor, got {init_size}')
           PY
 
-      - name: Upload M3.1 host controller hotfix artifact
+      - name: Upload M3.1 menu UIViewController hotfix artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.8-M3.1-MenuHostController-Hotfix
+          name: ZonoPatch-v0.5.8-M3.1-MenuUIViewController-Hotfix
           path: |
-            iosruntimepatchmenu/dist-v058-m3-1-host-controller/ZonoPatch_v0.5.8_M3_1_MenuHostControllerHotfix.dylib
-            iosruntimepatchmenu/dist-v058-m3-1-host-controller/SHA256.txt
+            iosruntimepatchmenu/dist-v058-m3-1-menu-viewcontroller/ZonoPatch_v0.5.8_M3_1_MenuUIViewControllerHotfix.dylib
+            iosruntimepatchmenu/dist-v058-m3-1-menu-viewcontroller/SHA256.txt
           if-no-files-found: error
