@@ -96,8 +96,9 @@ jobs:
           grep -Fq 'Recovery.failures.json' dist-v05/strings.txt
           grep -Fq 'RuntimeCapture.cache.jsonl' dist-v05/strings.txt
           grep -Fq 'RUNTIME-CACHE ready' dist-v05/strings.txt
-          grep -Fq '已抓过' dist-v05/strings.txt
-          grep -Fq '缓存MD5' dist-v05/strings.txt
+          grep -Fq 'migrated-duplicate' dist-v05/strings.txt
+          grep -Fq 'algorithm' dist-v05/strings.txt
+          grep -Fq 'md5' dist-v05/strings.txt
           grep -Fq 'ManualV05' dist-v05/strings.txt
           if grep -Fq 'com.openai.jsoncapture.fullsweep.disk' dist-v05/strings.txt; then
             echo 'old automatic full-sweep disk watcher present' >&2
@@ -119,7 +120,7 @@ jobs:
           - MD5 is the primary cross-launch duplicate key; SHA256 is retained for compatibility and migration.
           - Existing v0.5/v0.5.1 loader_manifest SHA256 entries are imported automatically.
           - Already captured Lua is NOT written again and does NOT preempt local scan/decrypt/recovery.
-          - UI shows new captures, skipped duplicates, MD5 cache count and latest Lua status such as "xxx.lua | 已抓过".
+          - UI shows new captures, skipped duplicates, MD5 cache count and latest Lua status such as "xxx.lua | already captured".
           - New runtime Lua still has absolute priority and safely stops the active manual task.
 
           v0.5.1 UI changes retained:
