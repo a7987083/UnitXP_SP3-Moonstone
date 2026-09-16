@@ -16,17 +16,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Verify g4 source contract
+      - name: Verify g4-r2 source contract
         shell: bash
         run: |
           set -euxo pipefail
-          ui=jsoncapture/src/GenericG4ChineseUI.m
+          ui=jsoncapture/src/GenericG4ChineseUIR2.m
           rec=jsoncapture/src/OnDeviceLuaRecovery.m
           hdr=jsoncapture/src/OnDeviceLuaRecovery.h
-          grep -Fq 'JSONCapture_FILES = src/GenericG4ChineseUI.m src/Lua53Analyzer.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'JSONCapture_FILES = src/GenericG4ChineseUIR2.m src/Lua53Analyzer.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
           grep -Fq '#include "GenericPersistentSweep.m"' "$ui"
-          grep -Fq 'JSONCapture g4 中文监控 + 手机JSON恢复' "$ui"
-          grep -Fq '任务队列（抓取优先）' "$ui"
+          grep -Fq 'JSONCapture g4-r2 中文监控 + 手机JSON恢复' "$ui"
+          grep -Fq 'JCG4PassthroughWindow' "$ui"
+          grep -Fq 'if (hit == self || hit == root) return nil;' "$ui"
+          grep -Fq 'JCG4_CAPTURE_QUIET_SECONDS' "$ui"
+          grep -Fq 'gDiskWorkerActive?@"扫描中":@"空闲"' "$ui"
+          grep -Fq '磁盘发现中（不阻塞后台）' "$ui"
           grep -Fq '重新解密' "$ui"
           grep -Fq '重新恢复JSON' "$ui"
           grep -Fq '仅恢复新增' "$ui"
@@ -56,23 +60,20 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build and verify g4 dylib
+      - name: Build and verify g4-r2 dylib
         run: |
           set -euxo pipefail
           cd jsoncapture
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-g4
-          out="dist-g4/JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.dylib"
+          out="dist-g4/JSONCapture_v0.4.2-g4-r2_ChineseUI_OnDeviceJSON_ToLua535.dylib"
           cp .theos/obj/JSONCapture.dylib "$out"
           file "$out"
           otool -L "$out"
           strings "$out" > dist-g4/strings.txt
-          # Chinese NSString literals live in CFString/UTF-16 sections, so the
-          # source-contract step validates those. Here verify stable ASCII markers
-          # that prove the g4 queue/recovery and g3 capture core were linked.
-          grep -Fq 'com.openai.jsoncapture.g4.decrypt' dist-g4/strings.txt
-          grep -Fq 'com.openai.jsoncapture.g4.recovery' dist-g4/strings.txt
+          grep -Fq 'com.openai.jsoncapture.g4r2.decrypt' dist-g4/strings.txt
+          grep -Fq 'com.openai.jsoncapture.g4r2.recovery' dist-g4/strings.txt
           grep -Fq 'MobileRecovery.report.json' dist-g4/strings.txt
           grep -Fq 'OnDeviceLuaRecovery 0.4.2-g4' dist-g4/strings.txt
           grep -Fq 'bundle_index.json' dist-g4/strings.txt
@@ -88,35 +89,34 @@ jobs:
           set -euxo pipefail
           cd jsoncapture/dist-g4
           cat > README.txt <<'TXT'
-          JSONCapture v0.4.2-g4 Chinese UI + On-device JSON Recovery
+          JSONCapture v0.4.2-g4-r2 Chinese UI + On-device JSON Recovery
           Target: Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5
+
+          r2 fixes:
+          - Transparent overlay window now passes non-UI touches through to the Unity game.
+          - Filesystem discovery no longer counts as active capture by itself.
+          - Background decrypt/recovery only yields to actual recent capture activity.
+          - Incremental JSON recovery is no longer re-queued every idle worker tick.
 
           Core:
           - Reuses g3 persistent full sweep behavior and bundle_index.json.
           - Chinese floating UI; collapsed by default, draggable, compact panel.
-          - Capture has priority. Historical re-decrypt and JSON recovery run on serial background queues and yield while disk capture is active.
-          - Existing g2/g3 capture still writes raw_textasset and decoded_lua; g4 adds queued static Lua recovery.
           - Static recovery never calls lua_pcall/lua_call.
           - Complete JSON: Documents/JSONCapture/FullSweep/recovered_json/
           - Partial JSON: Documents/JSONCapture/FullSweep/recovered_partial/
           - Report: MobileRecovery.report.json
           - Status: MobileRecovery.status.json
-
-          UI actions:
-          暂停/继续扫描, 强制全扫, 重新解密, 重新恢复JSON,
-          仅恢复新增, 打开JSON目录, 导出恢复报告, 打开状态,
-          清空持久索引, 清空恢复索引.
           TXT
-          zip -9 JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.zip JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.dylib SHA256.txt README.txt
-          shasum -a 256 JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.zip | tee ZIP_SHA256.txt
+          zip -9 JSONCapture_v0.4.2-g4-r2_ChineseUI_OnDeviceJSON_ToLua535.zip JSONCapture_v0.4.2-g4-r2_ChineseUI_OnDeviceJSON_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.4.2-g4-r2_ChineseUI_OnDeviceJSON_ToLua535.zip | tee ZIP_SHA256.txt
 
       - name: Upload mobile build output
         uses: actions/upload-artifact@v7
         with:
-          name: JSONCapture-v0.4.2-g4-ChineseUI-OnDeviceJSON-ToLua535
+          name: JSONCapture-v0.4.2-g4-r2-ChineseUI-OnDeviceJSON-ToLua535
           path: |
-            jsoncapture/dist-g4/JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.dylib
+            jsoncapture/dist-g4/JSONCapture_v0.4.2-g4-r2_ChineseUI_OnDeviceJSON_ToLua535.dylib
             jsoncapture/dist-g4/SHA256.txt
-            jsoncapture/dist-g4/JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.zip
+            jsoncapture/dist-g4/JSONCapture_v0.4.2-g4-r2_ChineseUI_OnDeviceJSON_ToLua535.zip
             jsoncapture/dist-g4/ZIP_SHA256.txt
           if-no-files-found: error
