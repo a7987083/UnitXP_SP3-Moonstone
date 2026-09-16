@@ -1,0 +1,121 @@
+name: Build JSONCapture v0.5 Manual Task Engine
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.5-manual-task-engine
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.5-manual.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify v0.5 manual architecture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src=jsoncapture/src/ManualTaskEngineV05.m
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'Documents/Bundle' "$src"
+          grep -Fq '开始本地扫描' "$src"
+          grep -Fq '重试扫描失败' "$src"
+          grep -Fq '开始解密' "$src"
+          grep -Fq '重试解密失败' "$src"
+          grep -Fq '开始JSON恢复' "$src"
+          grep -Fq '重试恢复失败' "$src"
+          grep -Fq '停止当前任务' "$src"
+          grep -Fq '检测到运行时抓取：当前手动任务已停止' "$src"
+          grep -Fq 'no bundle watcher, no disk watcher, no auto decrypt, no auto recovery' "$src"
+          grep -Fq 'LocalScan.failures.json' "$src"
+          grep -Fq 'Decrypt.failures.json' "$src"
+          grep -Fq 'Recovery.failures.json' "$src"
+          ! grep -Fq 'GenericPersistentSweep.m' jsoncapture/Makefile
+          ! grep -Fq 'MobileRecoveryInputBridge.m' jsoncapture/Makefile
+          ! grep -Fq 'GenericG4ChineseUIR2.m' jsoncapture/Makefile
+          ! grep -Fq '打开JSON目录' "$src"
+          ! grep -Fq '导出恢复报告' "$src"
+          ! grep -Fq '打开状态' "$src"
+          ! grep -Fq '清空持久索引' "$src"
+          ! grep -Fq '强制全扫' "$src"
+          ! grep -Fq '仅恢复新增' "$src"
+          if grep -Eq '0x186A4B8|0x186FA64|AesHelper.CustomDecrypt|RVA_CUSTOM_DECRYPT' "$src" jsoncapture/Makefile; then
+            echo 'old game-specific RVA leaked into v0.5' >&2
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v05
+          out="dist-v05/JSONCapture_v0.5_ManualTaskEngine_ToLua535.dylib"
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" > dist-v05/strings.txt
+          grep -Fq 'JSONCapture v0.5 Manual Task Engine' dist-v05/strings.txt
+          grep -Fq 'com.openai.jsoncapture.v05.capture' dist-v05/strings.txt
+          grep -Fq 'com.openai.jsoncapture.v05.manualtask' dist-v05/strings.txt
+          grep -Fq 'LocalScan.failures.json' dist-v05/strings.txt
+          grep -Fq 'Decrypt.failures.json' dist-v05/strings.txt
+          grep -Fq 'Recovery.failures.json' dist-v05/strings.txt
+          grep -Fq 'Documents/Bundle' dist-v05/strings.txt
+          if grep -Fq 'com.openai.jsoncapture.fullsweep.disk' dist-v05/strings.txt; then
+            echo 'old automatic full-sweep disk watcher present' >&2
+            exit 1
+          fi
+          shasum -a 256 "$out" | tee dist-v05/SHA256.txt
+
+      - name: Package release
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v05
+          cat > README.txt <<'TXT'
+          JSONCapture v0.5 Manual Task Engine
+          Target: Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5
+
+          Design:
+          - Runtime Lua loader capture is highest priority.
+          - Local scan is manual only and only scans Documents/Bundle.
+          - Local scan stops when complete; failures can be retried explicitly.
+          - Decrypt is manual only; failures can be retried explicitly.
+          - JSON recovery is manual only; failures can be retried explicitly.
+          - Only one manual task may run at a time.
+          - Any runtime capture requests the active manual task to stop at a safe boundary.
+          - No automatic bundle watcher, disk watcher, persistent log poll, auto decrypt or auto recovery.
+          - Removed nonessential buttons: Open Status, Open JSON, Export Report, Force Full Scan, Clear Indices, Incremental Recover.
+
+          Local scan input: Documents/Bundle
+          Working root: Documents/JSONCapture/ManualV05
+          TXT
+          zip -9 JSONCapture_v0.5_ManualTaskEngine_ToLua535.zip JSONCapture_v0.5_ManualTaskEngine_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.5_ManualTaskEngine_ToLua535.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.5-ManualTaskEngine-ToLua535
+          path: |
+            jsoncapture/dist-v05/JSONCapture_v0.5_ManualTaskEngine_ToLua535.dylib
+            jsoncapture/dist-v05/SHA256.txt
+            jsoncapture/dist-v05/JSONCapture_v0.5_ManualTaskEngine_ToLua535.zip
+            jsoncapture/dist-v05/ZIP_SHA256.txt
+          if-no-files-found: error
