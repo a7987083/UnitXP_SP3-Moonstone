@@ -1,0 +1,122 @@
+name: Build JSONCapture v0.5.3 Runtime Capture 2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.5.3-runtime-capture2
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.5.3-runtime2.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify v0.5.3 source contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src=jsoncapture/src/ManualTaskEngineV05.m
+          runtime2=jsoncapture/src/JCG53RuntimeCapture2.m
+          runtime2ui=jsoncapture/src/JCG53RuntimeCapture2UI.m
+          cache=jsoncapture/scripts/apply_v052_runtime_cache.py
+          grep -Fq 'src/JCG53RuntimeCapture2.m' jsoncapture/Makefile
+          grep -Fq 'src/JCG53RuntimeCapture2UI.m' jsoncapture/Makefile
+          grep -Fq 'JCG5_RUNTIME_CACHE_V052' "$cache"
+          grep -Fq 'lua_pushlstring' "$runtime2"
+          grep -Fq 'NSJSONSerialization JSONObjectWithData' "$runtime2"
+          grep -Fq 'RuntimeCapture2.cache.jsonl' "$runtime2"
+          grep -Fq 'runtime_json_manifest.jsonl' "$runtime2"
+          grep -Fq 'runtime_json' "$runtime2"
+          grep -Fq '运行时抓取二' "$runtime2ui"
+          grep -Fq 'JCG53ToggleCaptureHook' "$runtime2ui"
+          grep -Fq 'master switch shared with runtime capture' "$runtime2"
+          grep -Fq 'complete JSON only' "$runtime2"
+          grep -Fq 'Documents/Bundle' "$src"
+          grep -Fq '开始本地扫描' "$src"
+          grep -Fq '开始解密' "$src"
+          grep -Fq '开始JSON恢复' "$src"
+          if grep -Eq '0x[0-9A-Fa-f]{6,}|RVA_' "$runtime2" "$runtime2ui"; then
+            echo 'Runtime Capture 2 must not depend on fixed game RVAs' >&2
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          grep -Fq 'JCG5_RUNTIME_CACHE_V052' src/ManualTaskEngineV05.m
+          grep -Fq 'RuntimeCapture.cache.jsonl' src/ManualTaskEngineV05.m
+          mkdir -p dist-v053
+          out="dist-v053/JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.dylib"
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" > dist-v053/strings.txt
+          grep -Fq 'JSONCapture v0.5.3 Runtime Capture 2' dist-v053/strings.txt
+          grep -Fq 'lua_pushlstring' dist-v053/strings.txt
+          grep -Fq 'RuntimeCapture2.cache.jsonl' dist-v053/strings.txt
+          grep -Fq 'runtime_json_manifest.jsonl' dist-v053/strings.txt
+          grep -Fq 'com.openai.jsoncapture.v053.runtime2' dist-v053/strings.txt
+          grep -Fq 'RUNTIME2-HOOK' dist-v053/strings.txt
+          grep -Fq 'RUNTIME2-CACHE' dist-v053/strings.txt
+          grep -Fq 'RuntimeCapture.cache.jsonl' dist-v053/strings.txt
+          grep -Fq 'ManualV05' dist-v053/strings.txt
+          shasum -a 256 "$out" | tee dist-v053/SHA256.txt
+
+      - name: Package release
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v053
+          cat > README.txt <<'TXT'
+          JSONCapture v0.5.3 Manual Task Engine + Runtime Capture 2
+          Target: Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5
+
+          Base:
+          - v0.5.2 persistent runtime Lua cache architecture retained.
+          - Existing Runtime Capture remains unchanged.
+
+          Runtime Capture 2:
+          - Hooks exported Lua 5.3 lua_pushlstring instead of NSURLSession/Foundation networking.
+          - Cocos cc.XMLHttpRequest response/responseText crosses this API with the full data buffer and explicit length.
+          - Only complete JSON objects/arrays accepted by NSJSONSerialization are saved.
+          - Non-JSON strings are ignored without file writes.
+          - Duplicate valid JSON uses an independent persistent MD5/SHA256 cache and is skipped across relaunches.
+          - Runtime Capture and Runtime Capture 2 share the existing master capture switch; master OFF disables both.
+          - Menu adds "运行时抓取二" directly below the original runtime capture status with matching status/count/cache/latest display semantics.
+
+          Output:
+          - Documents/JSONCapture/ManualV05/runtime_json/
+          - Documents/JSONCapture/ManualV05/runtime_json_manifest.jsonl
+          - Documents/JSONCapture/ManualV05/state/RuntimeCapture2.cache.jsonl
+          - Documents/JSONCapture/ManualV05/RuntimeCapture2.log
+          TXT
+          zip -9 JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.zip JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.5.3-RuntimeCapture2-ToLua535
+          path: |
+            jsoncapture/dist-v053/JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.dylib
+            jsoncapture/dist-v053/SHA256.txt
+            jsoncapture/dist-v053/JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.zip
+            jsoncapture/dist-v053/ZIP_SHA256.txt
+          if-no-files-found: error
