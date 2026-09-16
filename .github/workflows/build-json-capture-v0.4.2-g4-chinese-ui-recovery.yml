@@ -1,0 +1,121 @@
+name: Build JSONCapture v0.4.2 g4 Chinese UI Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.4.2-g4-chinese-ui-recovery
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.4.2-g4-chinese-ui-recovery.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify g4 source contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ui=jsoncapture/src/GenericG4ChineseUI.m
+          rec=jsoncapture/src/OnDeviceLuaRecovery.m
+          hdr=jsoncapture/src/OnDeviceLuaRecovery.h
+          grep -Fq 'JSONCapture_FILES = src/GenericG4ChineseUI.m src/Lua53Analyzer.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq '#include "GenericPersistentSweep.m"' "$ui"
+          grep -Fq 'JSONCapture g4 中文监控 + 手机JSON恢复' "$ui"
+          grep -Fq '任务队列（抓取优先）' "$ui"
+          grep -Fq '重新解密' "$ui"
+          grep -Fq '重新恢复JSON' "$ui"
+          grep -Fq '仅恢复新增' "$ui"
+          grep -Fq '打开JSON目录' "$ui"
+          grep -Fq '导出恢复报告' "$ui"
+          grep -Fq 'ODLRDecryptRawDirectory' "$hdr" "$rec"
+          grep -Fq 'ODLRRecoverDecodedDirectory' "$hdr" "$rec"
+          grep -Fq 'encm-xor4d' "$rec"
+          grep -Fq 'recovered_json' "$rec"
+          grep -Fq 'recovered_partial' "$rec"
+          grep -Fq 'MobileRecovery.report.json' "$rec"
+          grep -Fq 'yielded_for_capture' "$rec"
+          if grep -Eq 'lua_pcall|lua_call' "$ui" "$rec"; then
+            echo 'g4 must remain static/no-execute for JSON recovery' >&2
+            exit 1
+          fi
+          if grep -Eq '0x186A4B8|0x186FA64|RVA_CUSTOM_DECRYPT|AesHelper.CustomDecrypt' "$ui" "$rec" jsoncapture/Makefile; then
+            echo 'old game-specific fixed RVA leaked into g4' >&2
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build and verify g4 dylib
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-g4
+          out="dist-g4/JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.dylib"
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          strings "$out" > dist-g4/strings.txt
+          grep -Fq 'JSONCapture g4' dist-g4/strings.txt
+          grep -Fq '重新解密' dist-g4/strings.txt
+          grep -Fq '重新恢复JSON' dist-g4/strings.txt
+          grep -Fq '打开JSON目录' dist-g4/strings.txt
+          grep -Fq 'MobileRecovery.report.json' dist-g4/strings.txt
+          grep -Fq 'OnDeviceLuaRecovery 0.4.2-g4' dist-g4/strings.txt
+          grep -Fq 'bundle_index.json' dist-g4/strings.txt
+          grep -Fq 'tolua_loadbuffer' dist-g4/strings.txt
+          if grep -Eq 'AesHelper.CustomDecrypt|0x186A4B8|0x186FA64' dist-g4/strings.txt; then
+            echo 'game-specific decrypt code present in g4 binary' >&2
+            exit 1
+          fi
+          shasum -a 256 "$out" | tee dist-g4/SHA256.txt
+
+      - name: Package mobile release
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-g4
+          cat > README.txt <<'TXT'
+          JSONCapture v0.4.2-g4 Chinese UI + On-device JSON Recovery
+          Target: Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5
+
+          Core:
+          - Reuses g3 persistent full sweep behavior and bundle_index.json.
+          - Chinese floating UI; collapsed by default, draggable, compact panel.
+          - Capture has priority. Historical re-decrypt and JSON recovery run on serial background queues and yield while disk capture is active.
+          - Existing g2/g3 capture still writes raw_textasset and decoded_lua; g4 adds queued static Lua recovery.
+          - Static recovery never calls lua_pcall/lua_call.
+          - Complete JSON: Documents/JSONCapture/FullSweep/recovered_json/
+          - Partial JSON: Documents/JSONCapture/FullSweep/recovered_partial/
+          - Report: MobileRecovery.report.json
+          - Status: MobileRecovery.status.json
+
+          UI actions:
+          暂停/继续扫描, 强制全扫, 重新解密, 重新恢复JSON,
+          仅恢复新增, 打开JSON目录, 导出恢复报告, 打开状态,
+          清空持久索引, 清空恢复索引.
+          TXT
+          zip -9 JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.zip JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.zip | tee ZIP_SHA256.txt
+
+      - name: Upload mobile build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.4.2-g4-ChineseUI-OnDeviceJSON-ToLua535
+          path: |
+            jsoncapture/dist-g4/JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.dylib
+            jsoncapture/dist-g4/SHA256.txt
+            jsoncapture/dist-g4/JSONCapture_v0.4.2-g4_ChineseUI_OnDeviceJSON_ToLua535.zip
+            jsoncapture/dist-g4/ZIP_SHA256.txt
+          if-no-files-found: error

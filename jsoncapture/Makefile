@@ -5,13 +5,12 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = JSONCapture
 
-# Generic Persistent Incremental Sweep for the supplied UnityFramework:
-# Unity 2019.4 / IL2CPP / ToLua / Lua 5.3.5.
-# GenericPersistentSweep.m includes the g2 Full Sweep core in the same translation
-# unit and layers persistent cross-launch disk Bundle indexing on top.
+# g4 = device-validated g3 persistent full sweep + Chinese overlay UI +
+# queued on-device static Lua 5.3 -> JSON recovery.
+# GenericG4ChineseUI.m includes GenericPersistentSweep.m, which includes the g2 core.
 # No game-specific fixed RVA hooks are compiled in.
-JSONCapture_FILES = src/GenericPersistentSweep.m src/Lua53Analyzer.m
+JSONCapture_FILES = src/GenericG4ChineseUI.m src/Lua53Analyzer.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness
-JSONCapture_FRAMEWORKS = Foundation
+JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
 
 include $(THEOS_MAKE_PATH)/tweak.mk

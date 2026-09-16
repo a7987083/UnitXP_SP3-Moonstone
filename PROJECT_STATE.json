@@ -1,0 +1,25 @@
+{
+  "project": "JSONCapture",
+  "version": "0.4.2-g4",
+  "branch": "feature/json-capture-v0.4.2-g4-chinese-ui-recovery",
+  "base_commit": "d0c10fc1d4df1ab0e8151f4a91ae3bca050242f3",
+  "target": "Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5",
+  "features": {
+    "g3_persistent_incremental": true,
+    "chinese_ui": true,
+    "compact_floating_ui": true,
+    "background_redecrypt": true,
+    "on_device_static_json_recovery": true,
+    "capture_priority_yield": true,
+    "complete_partial_classification": true,
+    "lua_execution": false,
+    "game_specific_fixed_rvas": false
+  },
+  "validation": {
+    "source": "implemented locally, pending repository commit",
+    "ci_compile": "pending",
+    "artifact": "pending",
+    "device_ui": "pending",
+    "device_json_recovery": "pending"
+  }
+}
