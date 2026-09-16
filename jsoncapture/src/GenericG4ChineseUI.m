@@ -163,7 +163,7 @@ static void JCG4ScheduleWorkers(void) {
 @property(nonatomic, retain) UIButton *bubble;
 @property(nonatomic, retain) UIView *panel;
 @property(nonatomic, retain) UIScrollView *scroll;
-@property(nonatomic, retain) NSMutableDictionary *labels;
+@property(nonatomic, retain) NSMutableDictionary<NSString *, UILabel *> *labels;
 @property(nonatomic, assign) BOOL expanded;
 @end
 
