@@ -2,6 +2,8 @@
 #import <CommonCrypto/CommonDigest.h>
 #include <limits.h>
 
+#define JCG4_BRIDGE_SCHEMA 2
+
 static unsigned long long gJCG4BridgeLastManifestSize = ULLONG_MAX;
 static dispatch_queue_t gJCG4BridgeQueue;
 
@@ -25,11 +27,84 @@ static NSString *JCG4BridgeSHA12(NSData *data) {
     return s;
 }
 
+static BOOL JCG4BridgeIsHex12(NSString *s) {
+    if(s.length!=12)return NO;
+    NSCharacterSet *hex=[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"];
+    return [[s stringByTrimmingCharactersInSet:hex] length]==0;
+}
+
+static NSString *JCG4BridgeHashFromFileName(NSString *name) {
+    if(!name.length)return nil;
+    NSString *base=[name stringByDeletingPathExtension];
+    NSRange r=[base rangeOfString:@"_" options:NSBackwardsSearch];
+    if(r.location==NSNotFound||r.location+1>=base.length)return nil;
+    NSString *tail=[base substringFromIndex:r.location+1];
+    return JCG4BridgeIsHex12(tail)?[tail lowercaseString]:nil;
+}
+
 static NSString *JCG4BridgeLeaf(NSString *asset) {
     if(!asset.length)return @"unnamed";
     NSString *norm=[asset stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
     NSString *leaf=norm.lastPathComponent;
     return leaf.length?leaf:asset;
+}
+
+/*
+ * Unity TextAsset names in this title commonly end in ".lua.bytes".
+ * The old bridge removed only the outer generated .luac suffix later in the
+ * recovery parser, leaving names such as TAB_Drop_5.lua.bytes.  That prevents
+ * TAB_xxx_N fragments from grouping and makes fragment 2+ look dynamic because
+ * their shared table is missing.  Strip all known transport/source suffixes
+ * here so recovery sees canonical names such as TAB_Drop_5.
+ */
+static NSString *JCG4BridgeCanonicalStem(NSString *asset) {
+    NSString *stem=JCG4BridgeLeaf(asset);
+    NSArray *exts=@[@".luac",@".lua",@".bytes",@".txt",@".bin"];
+    for(NSUInteger guard=0;guard<8&&stem.length;guard++){
+        NSString *lower=stem.lowercaseString;
+        BOOL changed=NO;
+        for(NSString *ext in exts){
+            if([lower hasSuffix:ext]&&stem.length>ext.length){
+                stem=[stem substringToIndex:stem.length-ext.length];
+                changed=YES;
+                break;
+            }
+        }
+        if(!changed)break;
+    }
+    return JCG4BridgeSafe(stem.length?stem:@"unnamed");
+}
+
+static NSDictionary *JCG4BridgeReadDictionary(NSString *path) {
+    NSData *d=[NSData dataWithContentsOfFile:path];
+    if(!d.length)return nil;
+    id obj=[NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+    return [obj isKindOfClass:[NSDictionary class]]?obj:nil;
+}
+
+static void JCG4BridgeWriteDictionary(NSDictionary *obj, NSString *path) {
+    if(!obj||!path.length)return;
+    NSData *d=[NSJSONSerialization dataWithJSONObject:obj options:NSJSONWritingPrettyPrinted error:nil];
+    if(d.length)[d writeToFile:path atomically:YES];
+}
+
+static void JCG4BridgeResetStaleRecoveryIfNeeded(NSString *rootPath, BOOL *didReset) {
+    if(didReset)*didReset=NO;
+    NSString *schemaPath=[rootPath stringByAppendingPathComponent:@"MobileRecoveryInput.schema.json"];
+    NSDictionary *old=JCG4BridgeReadDictionary(schemaPath);
+    NSInteger oldVersion=[old[@"schema_version"] integerValue];
+    if(oldVersion>=JCG4_BRIDGE_SCHEMA)return;
+
+    NSFileManager *fm=[NSFileManager defaultManager];
+    for(NSString *name in @[@"MobileRecovery.index.json",@"MobileRecovery.report.json",@"MobileRecovery.status.json"])
+        [fm removeItemAtPath:[rootPath stringByAppendingPathComponent:name] error:nil];
+    for(NSString *name in @[@"recovered_json",@"recovered_partial"]){
+        NSString *dir=[rootPath stringByAppendingPathComponent:name];
+        [fm removeItemAtPath:dir error:nil];
+        [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    JCG4BridgeWriteDictionary(@{ @"schema_version":@(JCG4_BRIDGE_SCHEMA),@"updated_at":@([[NSDate date] timeIntervalSince1970]) },schemaPath);
+    if(didReset)*didReset=YES;
 }
 
 NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
@@ -42,15 +117,27 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
     NSDictionary *attrs=[fm attributesOfItemAtPath:manifest error:nil];
     unsigned long long manifestSize=[attrs[NSFileSize] unsignedLongLongValue];
     if(manifestSize==gJCG4BridgeLastManifestSize){
-        return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"unchanged":@YES };
+        return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"unchanged":@YES,@"schema_version":@(JCG4_BRIDGE_SCHEMA) };
     }
 
     NSData *md=[NSData dataWithContentsOfFile:manifest options:NSDataReadingMappedIfSafe error:nil];
-    if(!md.length)return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0 };
+    if(!md.length)return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"schema_version":@(JCG4_BRIDGE_SCHEMA) };
     NSString *text=[[[NSString alloc]initWithData:md encoding:NSUTF8StringEncoding]autorelease];
-    if(!text.length)return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0 };
+    if(!text.length)return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"schema_version":@(JCG4_BRIDGE_SCHEMA) };
+
+    /* Build a hash -> existing files map so r2 files already moved away from
+       manifest decoded_file names can still be migrated in-place. */
+    NSMutableDictionary *filesByHash=[NSMutableDictionary dictionary];
+    for(NSString *name in [fm contentsOfDirectoryAtPath:decoded error:nil]){
+        NSString *h=JCG4BridgeHashFromFileName(name);
+        if(!h.length)continue;
+        NSMutableArray *a=filesByHash[h];
+        if(!a){a=[NSMutableArray array];filesByHash[h]=a;}
+        [a addObject:name];
+    }
 
     unsigned long long mapped=0,missing=0,invalid=0,total=0,normalized=0,dedupRemoved=0;
+    NSMutableSet *seenDest=[NSMutableSet set];
     for(NSString *line in [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]){@autoreleasepool{
         if(line.length<2)continue;
         total++;
@@ -60,43 +147,76 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
         NSString *decodedFile=obj[@"decoded_file"];
         NSString *asset=obj[@"asset"];
         if(!decodedFile.length||!asset.length)continue;
+
+        NSString *hash=JCG4BridgeHashFromFileName(decodedFile);
         NSString *src=[decoded stringByAppendingPathComponent:decodedFile];
         BOOL isDir=NO;
-        if(![fm fileExistsAtPath:src isDirectory:&isDir]||isDir){continue;}
-        NSData *bytes=[NSData dataWithContentsOfFile:src options:NSDataReadingMappedIfSafe error:nil];
-        if(bytes.length<5){invalid++;continue;}
-        const uint8_t *p=bytes.bytes;
-        if(!(p[0]==0x1B&&p[1]=='L'&&p[2]=='u'&&p[3]=='a'&&p[4]==0x53))continue;
-        NSString *leaf=JCG4BridgeLeaf(asset);
-        NSString *safe=JCG4BridgeSafe(leaf);
-        NSString *hash=JCG4BridgeSHA12(bytes);
-        NSString *dstName=[NSString stringWithFormat:@"%@_%@.luac",safe,hash];
+        BOOL srcExists=[fm fileExistsAtPath:src isDirectory:&isDir]&&!isDir;
+        NSData *bytes=srcExists?[NSData dataWithContentsOfFile:src options:NSDataReadingMappedIfSafe error:nil]:nil;
+        if(bytes.length>=5){
+            const uint8_t *p=bytes.bytes;
+            if(!(p[0]==0x1B&&p[1]=='L'&&p[2]=='u'&&p[3]=='a'&&p[4]==0x53)){invalid++;continue;}
+            hash=JCG4BridgeSHA12(bytes);
+        }
+        if(!hash.length){missing++;continue;}
+
+        NSString *stem=JCG4BridgeCanonicalStem(asset);
+        NSString *dstName=[NSString stringWithFormat:@"%@_%@.luac",stem,hash];
+        if([seenDest containsObject:dstName])continue;
+        [seenDest addObject:dstName];
         NSString *dst=[decoded stringByAppendingPathComponent:dstName];
         mapped++;
-        if([dst isEqualToString:src])continue;
+
         if([fm fileExistsAtPath:dst]){
-            if([fm removeItemAtPath:src error:nil])dedupRemoved++;
+            for(NSString *other in [NSArray arrayWithArray:(filesByHash[hash]?:@[])]){
+                if([other isEqualToString:dstName])continue;
+                if([fm removeItemAtPath:[decoded stringByAppendingPathComponent:other] error:nil])dedupRemoved++;
+            }
             continue;
         }
+
+        NSString *candidate=nil;
+        if(srcExists)candidate=decodedFile;
+        if(!candidate){
+            for(NSString *other in filesByHash[hash]){
+                NSString *p=[decoded stringByAppendingPathComponent:other];
+                BOOL d=NO;if([fm fileExistsAtPath:p isDirectory:&d]&&!d){candidate=other;break;}
+            }
+        }
+        if(!candidate){missing++;continue;}
+
+        NSString *candidatePath=[decoded stringByAppendingPathComponent:candidate];
         NSError *err=nil;
-        if([fm moveItemAtPath:src toPath:dst error:&err]){normalized++;continue;}
-        err=nil;
-        if([fm copyItemAtPath:src toPath:dst error:&err]){
-            [fm removeItemAtPath:src error:nil];
+        if([fm moveItemAtPath:candidatePath toPath:dst error:&err]){
             normalized++;
         }else{
-            invalid++;
+            err=nil;
+            if([fm copyItemAtPath:candidatePath toPath:dst error:&err]){
+                [fm removeItemAtPath:candidatePath error:nil];
+                normalized++;
+            }else{invalid++;continue;}
         }
+
+        /* Remove stale r2 aliases/original flattened names with identical hash. */
+        for(NSString *other in [NSArray arrayWithArray:(filesByHash[hash]?:@[])]){
+            if([other isEqualToString:dstName]||[other isEqualToString:candidate])continue;
+            if([fm removeItemAtPath:[decoded stringByAppendingPathComponent:other] error:nil])dedupRemoved++;
+        }
+        filesByHash[hash]=[NSMutableArray arrayWithObject:dstName];
     }}
 
+    BOOL resetRecovery=NO;
+    JCG4BridgeResetStaleRecoveryIfNeeded(rootPath,&resetRecovery);
     gJCG4BridgeLastManifestSize=manifestSize;
     NSDictionary *status=@{
+        @"schema_version":@(JCG4_BRIDGE_SCHEMA),
         @"mapped":@(mapped),@"normalized_files":@(normalized),@"dedup_removed":@(dedupRemoved),@"missing":@(missing),@"invalid":@(invalid),@"total":@(total),
-        @"input_dir":decoded,@"strategy":@"manifest asset leaf -> canonical decoded_lua filename; no duplicate recovery groups",
+        @"canonical_groups_expected":@"TAB_xxx_N fragments now strip compound .lua.bytes suffixes before grouping",
+        @"recovery_state_reset":@(resetRecovery),
+        @"input_dir":decoded,@"strategy":@"manifest asset leaf -> strip compound suffixes -> canonical decoded_lua filename; dedup by decoded hash",
         @"updated_at":@([[NSDate date] timeIntervalSince1970])
     };
-    NSData *sd=[NSJSONSerialization dataWithJSONObject:status options:NSJSONWritingPrettyPrinted error:nil];
-    [sd writeToFile:[rootPath stringByAppendingPathComponent:@"MobileRecoveryInput.status.json"] atomically:YES];
+    JCG4BridgeWriteDictionary(status,[rootPath stringByAppendingPathComponent:@"MobileRecoveryInput.status.json"]);
     return status;
 }
 
@@ -117,5 +237,7 @@ static void JCG4BridgeSchedule(void){
 
 __attribute__((constructor)) static void JCG4BridgeEntry(void){
     gJCG4BridgeQueue=dispatch_queue_create("com.openai.jsoncapture.g4r2.recoveryinput",DISPATCH_QUEUE_SERIAL);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(1.0*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{JCG4BridgeTick();});
+    /* Start earlier than the UI worker's first recovery tick so one-time name
+       migration normally completes before static recovery begins. */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.20*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{JCG4BridgeTick();});
 }
