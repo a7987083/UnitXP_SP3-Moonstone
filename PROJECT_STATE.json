@@ -3,6 +3,7 @@
   "version": "0.4.2-g4",
   "branch": "feature/json-capture-v0.4.2-g4-chinese-ui-recovery",
   "base_commit": "d0c10fc1d4df1ab0e8151f4a91ae3bca050242f3",
+  "artifact_source_commit": "e1ab528ad2eadfd22fef56be48eb5baa06988081",
   "target": "Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5",
   "features": {
     "g3_persistent_incremental": true,
@@ -15,10 +16,17 @@
     "lua_execution": false,
     "game_specific_fixed_rvas": false
   },
+  "build": {
+    "workflow_run": 35134708046,
+    "artifact_id": 10463042415,
+    "artifact_digest": "sha256:3aa00f467d013c1c11f21ee9301513dec8cb6cbcf8e2116dc736b37c946da890",
+    "dylib_sha256": "9a6c48526c0fbd8a2bb0333edc97f9e4b904f4e472b56af608eb23c76b76970c",
+    "zip_sha256": "c994666cca1cedfc22ee07e55a00b815117ec26cd5de9764d06f3c55aff019d0"
+  },
   "validation": {
-    "source": "implemented locally, pending repository commit",
-    "ci_compile": "pending",
-    "artifact": "pending",
+    "source": "complete for initial g4",
+    "ci_compile": "passed",
+    "artifact": "downloaded and hashed",
     "device_ui": "pending",
     "device_json_recovery": "pending"
   }

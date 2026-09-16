@@ -10,7 +10,8 @@
 - [x] Buttons: pause/resume, force full sweep, re-decrypt, re-recover JSON, recover incremental, open JSON directory, export recovery report, status, clear indexes.
 - [x] On-device static Lua 5.3 parser/interpreter; no lua_pcall/lua_call.
 - [x] Complete/partial JSON output and persistent recovery report/index.
-- [ ] GitHub Actions compile validation.
+- [x] GitHub Actions compile/package validation — run 35134708046 passed on source commit e1ab528ad2eadfd22fef56be48eb5baa06988081.
+- [x] Artifact downloaded and independently hashed.
 - [ ] Real-device UI validation.
 - [ ] Real-device recovery parity comparison against Windows v0.3.
 - [ ] If profiling shows g3 inline ENCM/compile path materially stalls capture, split the validated capture core into raw-only P0 and deferred P1 decode in a follow-up g4.1.
