@@ -10,7 +10,7 @@ TWEAK_NAME = JSONCapture
 # GenericG4ChineseUI.m includes GenericPersistentSweep.m, which includes the g2 core.
 # No game-specific fixed RVA hooks are compiled in.
 JSONCapture_FILES = src/GenericG4ChineseUI.m src/Lua53Analyzer.m src/OnDeviceLuaRecovery.m
-JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness
+JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
 
 include $(THEOS_MAKE_PATH)/tweak.mk
