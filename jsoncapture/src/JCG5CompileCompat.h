@@ -1,10 +1,11 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
-// Compile-time declaration only. The v0.5 UI dictionary stores UILabel objects,
-// but the property is intentionally kept as an untyped NSMutableDictionary for
-// MRC/Theos compatibility. Declaring -text/-setText: on NSObject lets Clang
-// type-check dot syntax on values returned as id; runtime dispatch still goes
-// to UILabel's real implementation.
-@interface NSObject (JCG5UILabelTextCompileBridge)
-@property(nonatomic, copy) NSString *text;
+// Compile-time bridge only. ManualTaskEngineV05 stores UILabel instances in an
+// NSMutableDictionary. Redeclaring keyed subscript lookup with the concrete
+// UILabel return type lets Clang type-check `labels[@"key"].text` under the
+// older MRC/Theos Objective-C mode. NSMutableDictionary's runtime implementation
+// is unchanged.
+@interface NSMutableDictionary (JCG5UILabelTypedSubscript)
+- (UILabel *)objectForKeyedSubscript:(id)key;
 @end
