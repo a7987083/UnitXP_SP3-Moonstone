@@ -12,7 +12,7 @@ TWEAK_NAME = JSONCapture
 # - Decrypt and JSON recovery are manual, mutually exclusive tasks.
 # - Any runtime capture immediately requests the active manual task to stop.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/OnDeviceLuaRecovery.m
-JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
+JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -include src/JCG5CompileCompat.h -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
 
 include $(THEOS_MAKE_PATH)/tweak.mk
