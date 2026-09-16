@@ -76,7 +76,7 @@ jobs:
           grep -Fq 'LocalScan.failures.json' dist-v05/strings.txt
           grep -Fq 'Decrypt.failures.json' dist-v05/strings.txt
           grep -Fq 'Recovery.failures.json' dist-v05/strings.txt
-          grep -Fq 'Documents/Bundle' dist-v05/strings.txt
+          grep -Fq 'ManualV05' dist-v05/strings.txt
           if grep -Fq 'com.openai.jsoncapture.fullsweep.disk' dist-v05/strings.txt; then
             echo 'old automatic full-sweep disk watcher present' >&2
             exit 1
