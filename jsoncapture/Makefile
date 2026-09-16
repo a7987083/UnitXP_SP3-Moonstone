@@ -5,13 +5,13 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = JSONCapture
 
-# g4-r2 = device-validated g3 persistent full sweep + Chinese overlay UI +
-# queued on-device static Lua 5.3 -> JSON recovery.
-# GenericG4ChineseUIR2.m includes GenericPersistentSweep.m, which includes the g2 core.
-# r2 fixes overlay touch passthrough, false capture-busy detection, and
-# preserves original asset leaf names for TAB fragment grouping on-device.
-# No game-specific fixed RVA hooks are compiled in.
-JSONCapture_FILES = src/GenericG4ChineseUIR2.m src/Lua53Analyzer.m src/OnDeviceLuaRecovery.m src/MobileRecoveryInputBridge.m
+# v0.5 Manual Task Engine
+# - Runtime Lua loader capture hooks are always lightweight and user-toggleable.
+# - No loaded-bundle watcher, no disk watcher, no persistent log poll.
+# - Local scan only runs when the user presses Start and only scans Documents/Bundle.
+# - Decrypt and JSON recovery are manual, mutually exclusive tasks.
+# - Any runtime capture immediately requests the active manual task to stop.
+JSONCapture_FILES = src/ManualTaskEngineV05.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
 
