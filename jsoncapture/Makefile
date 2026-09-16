@@ -13,7 +13,9 @@ TWEAK_NAME = JSONCapture
 # - Only genuinely NEW runtime Lua captures preempt manual work.
 # - v0.5.1 restores scroll + draggable compact menu.
 # - v0.5.2 adds cross-launch MD5/SHA256 runtime Lua cache and duplicate skip UI.
-JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
+# - v0.5.3 adds Runtime Capture 2: complete JSON strings crossing lua_pushlstring,
+#   with an independent persistent cache/output while sharing the master capture switch.
+JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m src/JCG53RuntimeCapture2.m src/JCG53RuntimeCapture2UI.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
 JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
