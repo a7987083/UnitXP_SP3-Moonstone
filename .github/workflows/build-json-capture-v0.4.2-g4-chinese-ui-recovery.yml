@@ -44,7 +44,7 @@ jobs:
           grep -Fq 'recovered_partial' "$rec"
           grep -Fq 'MobileRecovery.report.json' "$rec"
           grep -Fq 'yielded_for_capture' "$rec"
-          grep -Fq 'manifest asset leaf -> normalized alias in decoded_lua' "$bridge"
+          grep -Fq 'manifest asset leaf -> canonical decoded_lua filename; no duplicate recovery groups' "$bridge"
           grep -Fq 'MobileRecoveryInput.status.json' "$bridge"
           grep -Fq 'com.openai.jsoncapture.g4r2.recoveryinput' "$bridge"
           if grep -Eq 'lua_pcall|lua_call' "$ui" "$rec"; then
@@ -103,7 +103,7 @@ jobs:
           - Filesystem discovery no longer counts as active capture by itself.
           - Background decrypt/recovery only yields to actual recent capture activity.
           - Incremental JSON recovery is no longer re-queued every idle worker tick.
-          - Original TextAsset leaf names are restored from manifest.jsonl before static recovery so TAB_xxx_1/_2 fragments group correctly.
+          - Original TextAsset leaf names are restored from manifest.jsonl and decoded_lua filenames are normalized in-place so TAB_xxx_1/_2 fragments group correctly without duplicate groups.
 
           Core:
           - Reuses g3 persistent full sweep behavior and bundle_index.json.
