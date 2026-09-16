@@ -68,10 +68,11 @@ jobs:
           file "$out"
           otool -L "$out"
           strings "$out" > dist-g4/strings.txt
-          grep -Fq 'JSONCapture g4' dist-g4/strings.txt
-          grep -Fq '重新解密' dist-g4/strings.txt
-          grep -Fq '重新恢复JSON' dist-g4/strings.txt
-          grep -Fq '打开JSON目录' dist-g4/strings.txt
+          # Chinese NSString literals live in CFString/UTF-16 sections, so the
+          # source-contract step validates those. Here verify stable ASCII markers
+          # that prove the g4 queue/recovery and g3 capture core were linked.
+          grep -Fq 'com.openai.jsoncapture.g4.decrypt' dist-g4/strings.txt
+          grep -Fq 'com.openai.jsoncapture.g4.recovery' dist-g4/strings.txt
           grep -Fq 'MobileRecovery.report.json' dist-g4/strings.txt
           grep -Fq 'OnDeviceLuaRecovery 0.4.2-g4' dist-g4/strings.txt
           grep -Fq 'bundle_index.json' dist-g4/strings.txt
