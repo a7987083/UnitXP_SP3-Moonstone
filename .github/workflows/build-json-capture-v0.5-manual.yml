@@ -16,12 +16,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Verify v0.5 manual architecture
+      - name: Verify v0.5.1 manual architecture and scroll UI
         shell: bash
         run: |
           set -euxo pipefail
           src=jsoncapture/src/ManualTaskEngineV05.m
-          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          scroll=jsoncapture/src/JCG5ScrollFix.m
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
           grep -Fq 'Documents/Bundle' "$src"
           grep -Fq '开始本地扫描' "$src"
           grep -Fq '重试扫描失败' "$src"
@@ -35,6 +36,10 @@ jobs:
           grep -Fq 'LocalScan.failures.json' "$src"
           grep -Fq 'Decrypt.failures.json' "$src"
           grep -Fq 'Recovery.failures.json' "$src"
+          grep -Fq 'UIScrollView' "$scroll"
+          grep -Fq 'alwaysBounceVertical = YES' "$scroll"
+          grep -Fq 'JCG5_SCROLL_TAG' "$scroll"
+          grep -Fq 'method_setImplementation' "$scroll"
           ! grep -Fq 'GenericPersistentSweep.m' jsoncapture/Makefile
           ! grep -Fq 'MobileRecoveryInputBridge.m' jsoncapture/Makefile
           ! grep -Fq 'GenericG4ChineseUIR2.m' jsoncapture/Makefile
@@ -65,7 +70,7 @@ jobs:
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-v05
-          out="dist-v05/JSONCapture_v0.5_ManualTaskEngine_ToLua535.dylib"
+          out="dist-v05/JSONCapture_v0.5.1_ManualTaskEngine_ScrollFix_ToLua535.dylib"
           cp .theos/obj/JSONCapture.dylib "$out"
           file "$out"
           otool -L "$out"
@@ -89,10 +94,15 @@ jobs:
           set -euxo pipefail
           cd jsoncapture/dist-v05
           cat > README.txt <<'TXT'
-          JSONCapture v0.5 Manual Task Engine
+          JSONCapture v0.5.1 Manual Task Engine + Scroll Fix
           Target: Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5
 
-          Design:
+          v0.5.1 UI fix:
+          - Restores vertical scrolling inside the compact menu.
+          - Keeps title and collapse button fixed while status rows/actions scroll.
+          - Does not change the game-touch passthrough behavior outside the panel.
+
+          Manual task design:
           - Runtime Lua loader capture is highest priority.
           - Local scan is manual only and only scans Documents/Bundle.
           - Local scan stops when complete; failures can be retried explicitly.
@@ -101,21 +111,20 @@ jobs:
           - Only one manual task may run at a time.
           - Any runtime capture requests the active manual task to stop at a safe boundary.
           - No automatic bundle watcher, disk watcher, persistent log poll, auto decrypt or auto recovery.
-          - Removed nonessential buttons: Open Status, Open JSON, Export Report, Force Full Scan, Clear Indices, Incremental Recover.
 
           Local scan input: Documents/Bundle
           Working root: Documents/JSONCapture/ManualV05
           TXT
-          zip -9 JSONCapture_v0.5_ManualTaskEngine_ToLua535.zip JSONCapture_v0.5_ManualTaskEngine_ToLua535.dylib SHA256.txt README.txt
-          shasum -a 256 JSONCapture_v0.5_ManualTaskEngine_ToLua535.zip | tee ZIP_SHA256.txt
+          zip -9 JSONCapture_v0.5.1_ManualTaskEngine_ScrollFix_ToLua535.zip JSONCapture_v0.5.1_ManualTaskEngine_ScrollFix_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.5.1_ManualTaskEngine_ScrollFix_ToLua535.zip | tee ZIP_SHA256.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: JSONCapture-v0.5-ManualTaskEngine-ToLua535
+          name: JSONCapture-v0.5.1-ManualTaskEngine-ScrollFix-ToLua535
           path: |
-            jsoncapture/dist-v05/JSONCapture_v0.5_ManualTaskEngine_ToLua535.dylib
+            jsoncapture/dist-v05/JSONCapture_v0.5.1_ManualTaskEngine_ScrollFix_ToLua535.dylib
             jsoncapture/dist-v05/SHA256.txt
-            jsoncapture/dist-v05/JSONCapture_v0.5_ManualTaskEngine_ToLua535.zip
+            jsoncapture/dist-v05/JSONCapture_v0.5.1_ManualTaskEngine_ScrollFix_ToLua535.zip
             jsoncapture/dist-v05/ZIP_SHA256.txt
           if-no-files-found: error
