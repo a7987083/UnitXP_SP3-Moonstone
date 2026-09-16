@@ -11,7 +11,8 @@ TWEAK_NAME = JSONCapture
 # - Local scan only runs when the user presses Start and only scans Documents/Bundle.
 # - Decrypt and JSON recovery are manual, mutually exclusive tasks.
 # - Any runtime capture immediately requests the active manual task to stop.
-JSONCapture_FILES = src/ManualTaskEngineV05.m src/OnDeviceLuaRecovery.m
+# - v0.5.1 restores a real UIScrollView for the compact task menu.
+JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
 JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
