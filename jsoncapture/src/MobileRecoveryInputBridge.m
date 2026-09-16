@@ -1,5 +1,6 @@
 #import "MobileRecoveryInputBridge.h"
 #import <CommonCrypto/CommonDigest.h>
+#include <limits.h>
 
 static unsigned long long gJCG4BridgeLastManifestSize = ULLONG_MAX;
 static dispatch_queue_t gJCG4BridgeQueue;
@@ -49,7 +50,7 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
     NSString *text=[[[NSString alloc]initWithData:md encoding:NSUTF8StringEncoding]autorelease];
     if(!text.length)return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0 };
 
-    unsigned long long mapped=0,missing=0,invalid=0,total=0,created=0;
+    unsigned long long mapped=0,missing=0,invalid=0,total=0,normalized=0,dedupRemoved=0;
     for(NSString *line in [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]){@autoreleasepool{
         if(line.length<2)continue;
         total++;
@@ -61,7 +62,7 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
         if(!decodedFile.length||!asset.length)continue;
         NSString *src=[decoded stringByAppendingPathComponent:decodedFile];
         BOOL isDir=NO;
-        if(![fm fileExistsAtPath:src isDirectory:&isDir]||isDir){missing++;continue;}
+        if(![fm fileExistsAtPath:src isDirectory:&isDir]||isDir){continue;}
         NSData *bytes=[NSData dataWithContentsOfFile:src options:NSDataReadingMappedIfSafe error:nil];
         if(bytes.length<5){invalid++;continue;}
         const uint8_t *p=bytes.bytes;
@@ -72,19 +73,26 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
         NSString *dstName=[NSString stringWithFormat:@"%@_%@.luac",safe,hash];
         NSString *dst=[decoded stringByAppendingPathComponent:dstName];
         mapped++;
-        if([dst isEqualToString:src]||[fm fileExistsAtPath:dst])continue;
-        NSError *err=nil;
-        if(![fm linkItemAtPath:src toPath:dst error:&err]){
-            err=nil;
-            if(![fm copyItemAtPath:src toPath:dst error:&err]){invalid++;continue;}
+        if([dst isEqualToString:src])continue;
+        if([fm fileExistsAtPath:dst]){
+            if([fm removeItemAtPath:src error:nil])dedupRemoved++;
+            continue;
         }
-        created++;
+        NSError *err=nil;
+        if([fm moveItemAtPath:src toPath:dst error:&err]){normalized++;continue;}
+        err=nil;
+        if([fm copyItemAtPath:src toPath:dst error:&err]){
+            [fm removeItemAtPath:src error:nil];
+            normalized++;
+        }else{
+            invalid++;
+        }
     }}
 
     gJCG4BridgeLastManifestSize=manifestSize;
     NSDictionary *status=@{
-        @"mapped":@(mapped),@"created_aliases":@(created),@"missing":@(missing),@"invalid":@(invalid),@"total":@(total),
-        @"input_dir":decoded,@"strategy":@"manifest asset leaf -> normalized alias in decoded_lua",
+        @"mapped":@(mapped),@"normalized_files":@(normalized),@"dedup_removed":@(dedupRemoved),@"missing":@(missing),@"invalid":@(invalid),@"total":@(total),
+        @"input_dir":decoded,@"strategy":@"manifest asset leaf -> canonical decoded_lua filename; no duplicate recovery groups",
         @"updated_at":@([[NSDate date] timeIntervalSince1970])
     };
     NSData *sd=[NSJSONSerialization dataWithJSONObject:status options:NSJSONWritingPrettyPrinted error:nil];
