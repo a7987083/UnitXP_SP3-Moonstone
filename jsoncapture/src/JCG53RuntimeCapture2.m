@@ -5,15 +5,23 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <string.h>
 
-#define JCG53_VERSION @"JSONCapture v0.5.3 Runtime Capture 2"
+#define JCG53_VERSION @"JSONCapture v0.5.3-r2 Runtime Capture 2"
 #define JCG53_MAX_JSON_BYTES (128ULL * 1024ULL * 1024ULL)
+#define JCG53_XHR_SEQUENCE_COUNT 8
 
-typedef const char *(*JCG53LuaPushLStringFn)(void *L, const char *s, size_t len);
+typedef int (*JCG53LuaCFunction)(void *L);
+typedef void (*JCG53ToluaVariableFn)(void *L, const char *name, JCG53LuaCFunction getter, JCG53LuaCFunction setter);
+typedef const char *(*JCG53LuaToLStringFn)(void *L, int index, size_t *len);
 typedef void (*JCG53MSHookFunctionFn)(void *symbol, void *replace, void **result);
 typedef int (*JCG53DobbyHookFn)(void *address, void *replace, void **origin);
 
-static JCG53LuaPushLStringFn gOrigLuaPushLString;
+static JCG53ToluaVariableFn gOrigToluaVariable;
+static JCG53LuaToLStringFn gLuaToLString;
+static JCG53LuaCFunction gOrigXHRResponseGetter;
+static JCG53LuaCFunction gOrigXHRResponseTextGetter;
+
 static dispatch_queue_t gQueue;
 static NSMutableSet *gMD5s;
 static NSMutableSet *gSHA256s;
@@ -26,12 +34,20 @@ static pthread_mutex_t gStateLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t gLogLock = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic(int) gEnabled = 1;
 static BOOL gStarted = NO;
-static BOOL gHookReady = NO;
+static BOOL gRegistrationHookReady = NO;
+static BOOL gResponseGetterReady = NO;
+static BOOL gResponseTextGetterReady = NO;
 static unsigned long long gCaptured = 0;
 static unsigned long long gSkipped = 0;
 static unsigned long long gCacheLoaded = 0;
 static NSString *gLastItem;
 static NSString *gLastStatus;
+static __thread unsigned int gXHRRegistrationProgress = 0;
+
+static const char * const gXHRVariableSequence[JCG53_XHR_SEQUENCE_COUNT] = {
+    "responseType", "withCredentials", "timeout", "readyState",
+    "status", "statusText", "responseText", "response"
+};
 
 static NSString *JCG53Documents(void) {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
@@ -105,12 +121,12 @@ static void JCG53LoadCache(void) {
     JCG53Log([NSString stringWithFormat:@"RUNTIME2-CACHE ready md5=%lu sha256=%lu path=%@",(unsigned long)gMD5s.count,(unsigned long)gSHA256s.count,gCachePath]);
 }
 
-static void JCG53AppendCache(NSString *md5,NSString *sha,NSUInteger bytes,NSString *status) {
-    JCG53AppendJSONL(gCachePath,@{@"schema":@1,@"algorithm":@"md5",@"md5":md5?:@"",@"sha256":sha?:@"",@"source":@"lua_pushlstring-json",@"bytes":@(bytes),@"status":status?:@"captured",@"time":@([[NSDate date]timeIntervalSince1970])});
+static void JCG53AppendCache(NSString *md5,NSString *sha,NSUInteger bytes,NSString *status,NSString *source) {
+    JCG53AppendJSONL(gCachePath,@{@"schema":@2,@"algorithm":@"md5",@"md5":md5?:@"",@"sha256":sha?:@"",@"source":source?:@"xhr-getter-json",@"bytes":@(bytes),@"status":status?:@"captured",@"time":@([[NSDate date]timeIntervalSince1970])});
 }
 
-static void JCG53AppendManifest(NSString *file,NSString *md5,NSString *sha,NSUInteger bytes) {
-    JCG53AppendJSONL(gManifestPath,@{@"file":file?:@"",@"source":@"lua_pushlstring-json",@"md5":md5?:@"",@"sha256":sha?:@"",@"bytes":@(bytes),@"time":@([[NSDate date]timeIntervalSince1970])});
+static void JCG53AppendManifest(NSString *file,NSString *md5,NSString *sha,NSUInteger bytes,NSString *source) {
+    JCG53AppendJSONL(gManifestPath,@{@"file":file?:@"",@"source":source?:@"xhr-getter-json",@"md5":md5?:@"",@"sha256":sha?:@"",@"bytes":@(bytes),@"time":@([[NSDate date]timeIntervalSince1970])});
 }
 
 BOOL JCG53Runtime2IsEnabled(void) { return atomic_load_explicit(&gEnabled,memory_order_relaxed)!=0; }
@@ -121,10 +137,19 @@ static void JCG53SetLast(NSString *item,NSString *status) {
     gLastItem=[(item.length?item:@"暂无") copy]; gLastStatus=[(status.length?status:@"暂无") copy]; pthread_mutex_unlock(&gStateLock);
 }
 
+static void JCG53BumpSkipped(void) {
+    pthread_mutex_lock(&gStateLock); gSkipped++; pthread_mutex_unlock(&gStateLock);
+}
+
 NSString *JCG53Runtime2StatusText(void) {
-    pthread_mutex_lock(&gStateLock); BOOL hook=gHookReady; unsigned long long captured=gCaptured,skipped=gSkipped,cache=gCacheLoaded;
-    NSString *last=[[(gLastItem?:@"暂无") copy]autorelease],*status=[[(gLastStatus?:@"暂无") copy]autorelease]; pthread_mutex_unlock(&gStateLock);
-    return [NSString stringWithFormat:@"状态：%@  Hook：%@  新抓%llu 跳过%llu\n缓存MD5：%llu  最新：%@｜%@",JCG53Runtime2IsEnabled()?@"开启 ✅":@"关闭",hook?@"就绪":@"等待",captured,skipped,cache,last.lastPathComponent?:last,status];
+    pthread_mutex_lock(&gStateLock);
+    BOOL registration=gRegistrationHookReady,response=gResponseGetterReady,responseText=gResponseTextGetterReady;
+    unsigned long long captured=gCaptured,skipped=gSkipped,cache=gCacheLoaded;
+    NSString *last=[[(gLastItem?:@"暂无") copy]autorelease],*status=[[(gLastStatus?:@"暂无") copy]autorelease];
+    pthread_mutex_unlock(&gStateLock);
+    NSUInteger targets=(response?1:0)+(responseText?1:0);
+    NSString *hook=targets?@"就绪":(registration?@"监听":@"等待");
+    return [NSString stringWithFormat:@"状态：%@  Hook：%@  目标%lu/2  新抓%llu\n跳过%llu 缓存MD5：%llu  最新：%@｜%@",JCG53Runtime2IsEnabled()?@"开启 ✅":@"关闭",hook,(unsigned long)targets,captured,skipped,cache,last.lastPathComponent?:last,status];
 }
 
 static BOOL JCG53PrefixLooksJSON(const char *bytes,size_t length) {
@@ -138,21 +163,69 @@ static BOOL JCG53CompleteJSON(NSData *data) {
     return obj&&err==nil&&([obj isKindOfClass:[NSDictionary class]]||[obj isKindOfClass:[NSArray class]]);
 }
 
-static void JCG53Queue(NSData *data) {
-    if(!data.length||data.length>JCG53_MAX_JSON_BYTES||!gQueue)return; NSData *snapshot=[NSData dataWithData:data];
+static NSString *JCG53SafeSource(NSString *source) {
+    if([source isEqualToString:@"xhr.responseText"])return @"xhr_responseText";
+    return @"xhr_response";
+}
+
+static void JCG53Queue(NSData *data,NSString *source) {
+    if(!data.length||data.length>JCG53_MAX_JSON_BYTES||!gQueue)return;
+    NSData *snapshot=[NSData dataWithData:data]; NSString *src=source.length?[NSString stringWithString:source]:@"xhr.response";
     dispatch_async(gQueue, ^{@autoreleasepool{
-        if(!JCG53Runtime2IsEnabled()||!JCG53CompleteJSON(snapshot))return;
+        if(!JCG53Runtime2IsEnabled())return;
+        if(!JCG53CompleteJSON(snapshot)){JCG53BumpSkipped();return;}
         NSString *md5=JCG53MD5(snapshot).lowercaseString,*sha=JCG53SHA256(snapshot).lowercaseString; if(!md5.length||!sha.length)return;
         BOOL duplicate=[gMD5s containsObject:md5]||[gSHA256s containsObject:sha]; NSString *shortHash=sha.length>12?[sha substringToIndex:12]:sha; NSString *display=[NSString stringWithFormat:@"JSON_%@",shortHash];
-        if(duplicate){BOOL migrate=![gMD5s containsObject:md5];if(migrate){[gMD5s addObject:md5];JCG53AppendCache(md5,sha,snapshot.length,@"migrated-duplicate");}
+        if(duplicate){BOOL migrate=![gMD5s containsObject:md5];if(migrate){[gMD5s addObject:md5];JCG53AppendCache(md5,sha,snapshot.length,@"migrated-duplicate",src);}
             pthread_mutex_lock(&gStateLock);gSkipped++;gCacheLoaded=gMD5s.count;pthread_mutex_unlock(&gStateLock);JCG53SetLast(display,@"已抓过");return;}
         pthread_mutex_lock(&gStateLock);unsigned long long seq=++gCaptured;pthread_mutex_unlock(&gStateLock);
-        NSString *file=[NSString stringWithFormat:@"%06llu_xhr_%@.json",seq,shortHash],*path=[gJSONDir stringByAppendingPathComponent:file];NSError *writeErr=nil;
-        if(![snapshot writeToFile:path options:NSDataWritingAtomic error:&writeErr]){JCG53SetLast(display,@"写入失败");JCG53Log([NSString stringWithFormat:@"RUNTIME2 WRITE-FAIL sha256=%@ err=%@",sha,writeErr]);return;}
+        NSString *file=[NSString stringWithFormat:@"%06llu_%@_%@.json",seq,JCG53SafeSource(src),shortHash],*path=[gJSONDir stringByAppendingPathComponent:file];NSError *writeErr=nil;
+        if(![snapshot writeToFile:path options:NSDataWritingAtomic error:&writeErr]){JCG53SetLast(display,@"写入失败");JCG53Log([NSString stringWithFormat:@"RUNTIME2 WRITE-FAIL source=%@ sha256=%@ err=%@",src,sha,writeErr]);return;}
         [gMD5s addObject:md5];[gSHA256s addObject:sha];pthread_mutex_lock(&gStateLock);gCacheLoaded=gMD5s.count;pthread_mutex_unlock(&gStateLock);
-        JCG53AppendManifest(file,md5,sha,snapshot.length);JCG53AppendCache(md5,sha,snapshot.length,@"captured");JCG53SetLast(file,@"新抓取");
-        JCG53Log([NSString stringWithFormat:@"RUNTIME2 CAPTURE file=%@ bytes=%lu md5=%@ sha256=%@",file,(unsigned long)snapshot.length,md5,sha]);
+        JCG53AppendManifest(file,md5,sha,snapshot.length,src);JCG53AppendCache(md5,sha,snapshot.length,@"captured",src);JCG53SetLast(file,@"新抓取");
+        JCG53Log([NSString stringWithFormat:@"RUNTIME2 CAPTURE source=%@ file=%@ bytes=%lu md5=%@ sha256=%@",src,file,(unsigned long)snapshot.length,md5,sha]);
     }});
+}
+
+static void JCG53CaptureGetterResult(void *L,int resultCount,NSString *source) {
+    if(!JCG53Runtime2IsEnabled()||resultCount!=1||!L||!gLuaToLString)return;
+    size_t len=0;const char *bytes=gLuaToLString(L,-1,&len);if(!bytes||!len||len>JCG53_MAX_JSON_BYTES)return;
+    if(!JCG53PrefixLooksJSON(bytes,len)){JCG53BumpSkipped();return;}
+    @autoreleasepool{NSData *data=[NSData dataWithBytes:bytes length:len];if(data.length)JCG53Queue(data,source);}
+}
+
+static int JCG53XHRResponseGetter(void *L) {
+    int rc=gOrigXHRResponseGetter?gOrigXHRResponseGetter(L):0;JCG53CaptureGetterResult(L,rc,@"xhr.response");return rc;
+}
+
+static int JCG53XHRResponseTextGetter(void *L) {
+    int rc=gOrigXHRResponseTextGetter?gOrigXHRResponseTextGetter(L):0;JCG53CaptureGetterResult(L,rc,@"xhr.responseText");return rc;
+}
+
+static int JCG53MatchXHRVariable(const char *name) {
+    if(!name){gXHRRegistrationProgress=0;return -1;}
+    unsigned int p=gXHRRegistrationProgress;
+    if(p<JCG53_XHR_SEQUENCE_COUNT&&strcmp(name,gXHRVariableSequence[p])==0){
+        int matched=(int)p;p++;gXHRRegistrationProgress=(p>=JCG53_XHR_SEQUENCE_COUNT)?0:p;return matched;
+    }
+    if(strcmp(name,gXHRVariableSequence[0])==0){gXHRRegistrationProgress=1;return 0;}
+    gXHRRegistrationProgress=0;return -1;
+}
+
+static void JCG53MarkGetterReady(BOOL responseText) {
+    pthread_mutex_lock(&gStateLock);if(responseText)gResponseTextGetterReady=YES;else gResponseGetterReady=YES;pthread_mutex_unlock(&gStateLock);
+}
+
+static void JCG53HookToluaVariable(void *L,const char *name,JCG53LuaCFunction getter,JCG53LuaCFunction setter) {
+    JCG53LuaCFunction passGetter=getter;int matched=JCG53MatchXHRVariable(name);
+    if(matched==6&&getter){
+        if(!gOrigXHRResponseTextGetter)gOrigXHRResponseTextGetter=getter;
+        if(gOrigXHRResponseTextGetter==getter){passGetter=JCG53XHRResponseTextGetter;JCG53MarkGetterReady(YES);}
+    }else if(matched==7&&getter){
+        if(!gOrigXHRResponseGetter)gOrigXHRResponseGetter=getter;
+        if(gOrigXHRResponseGetter==getter){passGetter=JCG53XHRResponseGetter;JCG53MarkGetterReady(NO);}
+    }
+    if(gOrigToluaVariable)gOrigToluaVariable(L,name,passGetter,setter);
 }
 
 static void *JCG53ResolveExport(const char *name) {
@@ -161,7 +234,7 @@ static void *JCG53ResolveExport(const char *name) {
 }
 
 static void *JCG53ResolveHookSymbol(const char *symbol) {
-    void *p=dlsym(RTLD_DEFAULT,symbol);if(p)return p;const char *libs[]={"/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate","/var/jb/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate","/usr/lib/libsubstrate.dylib","/var/jb/usr/libsubstrate.dylib","/usr/lib/libhooker.dylib","/var/jb/usr/lib/libhooker.dylib","/usr/lib/libellekit.dylib","/var/jb/usr/lib/libellekit.dylib"};
+    void *p=dlsym(RTLD_DEFAULT,symbol);if(p)return p;const char *libs[]={"/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate","/var/jb/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate","/usr/lib/libsubstrate.dylib","/var/jb/usr/lib/libsubstrate.dylib","/usr/lib/libhooker.dylib","/var/jb/usr/lib/libhooker.dylib","/usr/lib/libellekit.dylib","/var/jb/usr/lib/libellekit.dylib"};
     for(size_t i=0;i<sizeof(libs)/sizeof(libs[0]);i++){void*h=dlopen(libs[i],RTLD_LAZY|RTLD_GLOBAL);if(!h)continue;p=dlsym(h,symbol);if(p)return p;}return NULL;
 }
 
@@ -170,23 +243,19 @@ static BOOL JCG53HookAddress(void *address,void *replacement,void **original) {
     JCG53DobbyHookFn dobby=(JCG53DobbyHookFn)JCG53ResolveHookSymbol("DobbyHook");if(dobby){int rc=dobby(address,replacement,original);if(rc==0&&original&&*original)return YES;}return NO;
 }
 
-static const char *JCG53HookLuaPushLString(void *L,const char *s,size_t len) {
-    if(JCG53Runtime2IsEnabled()&&s&&len&&len<=JCG53_MAX_JSON_BYTES&&JCG53PrefixLooksJSON(s,len)){@autoreleasepool{NSData*d=[NSData dataWithBytes:s length:len];if(d.length)JCG53Queue(d);}}
-    return gOrigLuaPushLString?gOrigLuaPushLString(L,s,len):NULL;
-}
-
-static BOOL JCG53InstallHook(void) {
-    pthread_mutex_lock(&gStateLock);BOOL ready=gHookReady;pthread_mutex_unlock(&gStateLock);if(ready)return YES;
-    void *symbol=JCG53ResolveExport("lua_pushlstring");BOOL ok=symbol&&JCG53HookAddress(symbol,(void*)JCG53HookLuaPushLString,(void**)&gOrigLuaPushLString);
-    if(ok){pthread_mutex_lock(&gStateLock);gHookReady=YES;pthread_mutex_unlock(&gStateLock);JCG53Log([NSString stringWithFormat:@"RUNTIME2-HOOK ready lua_pushlstring=%p",symbol]);}return ok;
+static BOOL JCG53InstallRegistrationHook(void) {
+    pthread_mutex_lock(&gStateLock);BOOL ready=gRegistrationHookReady;pthread_mutex_unlock(&gStateLock);if(ready)return YES;
+    void *variable=JCG53ResolveExport("tolua_variable");void *tolstring=JCG53ResolveExport("lua_tolstring");if(!variable||!tolstring)return NO;
+    gLuaToLString=(JCG53LuaToLStringFn)tolstring;BOOL ok=JCG53HookAddress(variable,(void*)JCG53HookToluaVariable,(void**)&gOrigToluaVariable);
+    if(ok){pthread_mutex_lock(&gStateLock);gRegistrationHookReady=YES;pthread_mutex_unlock(&gStateLock);JCG53Log([NSString stringWithFormat:@"RUNTIME2-HOOK registration ready tolua_variable=%p lua_tolstring=%p",variable,tolstring]);}return ok;
 }
 
 static void JCG53PollHook(NSUInteger attempt) {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{if(JCG53InstallHook())return;if(attempt<120)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.25*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{JCG53PollHook(attempt+1);});else JCG53Log(@"RUNTIME2-HOOK unavailable/timeout lua_pushlstring");});
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{if(JCG53InstallRegistrationHook())return;if(attempt<300)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.1*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{JCG53PollHook(attempt+1);});else JCG53Log(@"RUNTIME2-HOOK unavailable/timeout tolua_variable or lua_tolstring");});
 }
 
 void JCG53Runtime2Start(void) {
     pthread_mutex_lock(&gStateLock);if(gStarted){pthread_mutex_unlock(&gStateLock);return;}gStarted=YES;pthread_mutex_unlock(&gStateLock);
     JCG53SetupPaths();gQueue=dispatch_queue_create("com.openai.jsoncapture.v053.runtime2",DISPATCH_QUEUE_SERIAL);gMD5s=[[NSMutableSet alloc]init];gSHA256s=[[NSMutableSet alloc]init];gLastItem=[@"暂无" copy];gLastStatus=[@"暂无" copy];
-    JCG53LoadCache();JCG53Log([NSString stringWithFormat:@"%@ loaded; complete JSON only; master switch shared with runtime capture",JCG53_VERSION]);JCG53PollHook(0);
+    JCG53LoadCache();JCG53Log([NSString stringWithFormat:@"%@ loaded; narrow tolua_variable registration hook; complete JSON only; master switch shared with runtime capture",JCG53_VERSION]);JCG53PollHook(0);
 }
