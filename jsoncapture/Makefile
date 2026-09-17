@@ -37,5 +37,6 @@ before-all::
 	@python3 scripts/apply_v059_network_coverage.py
 	@python3 scripts/apply_v059_compile_fix.py
 	@python3 scripts/apply_v060_page_protobuf.py
+	@python3 scripts/apply_v060_hardening.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
