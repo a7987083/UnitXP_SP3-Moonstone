@@ -26,5 +26,6 @@ before-all::
 	@python3 scripts/apply_v054_response_observer.py
 	@python3 scripts/apply_v055_response_capture.py
 	@python3 scripts/apply_v056_response_metadata.py
+	@python3 scripts/apply_v056_response_metadata_hardening.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
