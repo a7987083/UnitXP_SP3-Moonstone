@@ -25,6 +25,7 @@ jobs:
           grep -Fq 'apply_v059_network_coverage.py' jsoncapture/Makefile
           grep -Fq 'apply_v059_compile_fix.py' jsoncapture/Makefile
           grep -Fq 'apply_v060_page_protobuf.py' jsoncapture/Makefile
+          grep -Fq 'apply_v060_hardening.py' jsoncapture/Makefile
           test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
           test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
 
@@ -44,8 +45,10 @@ jobs:
           python3 scripts/apply_v059_network_coverage.py
           python3 scripts/apply_v059_compile_fix.py
           python3 scripts/apply_v060_page_protobuf.py
+          python3 scripts/apply_v060_hardening.py
           src=src/ManualTaskEngineV05.m
           grep -Fq 'JCG5_PAGE_PROTOBUF_V060' "$src"
+          grep -Fq 'JCG5_PAGE_PROTOBUF_V060_HARDENED' "$src"
           grep -Fq 'NetWorkManager.sendMsg' "$src"
           grep -Fq 'NetWorkManager.parseMsg' "$src"
           grep -Fq 'JCG60SendMsgWrapper' "$src"
@@ -60,10 +63,13 @@ jobs:
           grep -Fq 'decoded' "$src"
           grep -Fq 'PROTOBUF wrapper ready' "$src"
           grep -Fq 'JCG60TryInstallProtobuf(L);' "$src"
+          grep -Fq 'JCG60IsNoiseMessage' "$src"
 
-          # v0.6.0 expands only the Lua wrapper layer; native hook surface stays identical.
+          # v0.6.0 expands only the Lua wrapper layer; native hook/queue surface stays identical.
           test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
-          test "$(grep -c 'dispatch_queue_create' "$src" | tr -d ' ')" = '2'
+          queue_creates=$(grep -o 'dispatch_queue_create' "$src" | wc -l | tr -d ' ')
+          echo "dispatch_queue_create occurrences=$queue_creates"
+          test "$queue_creates" = '2'
           ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
           test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
           compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
@@ -118,6 +124,7 @@ jobs:
           grep -Fq 'runtime_page_network_map.json' dist-v060/strings.txt
           grep -Fq 'NetWorkManager.sendMsg' dist-v060/strings.txt
           grep -Fq 'NetWorkManager.parseMsg' dist-v060/strings.txt
+          grep -Fq 'KEEPALIVE' dist-v060/strings.txt
           grep -Fq 'UWR-BACKEND ready' dist-v060/strings.txt
           grep -Fq 'SOCKET-HTTP wrapper ready' dist-v060/strings.txt
           grep -Fq 'COVERAGE session ready' dist-v060/strings.txt
@@ -147,6 +154,7 @@ jobs:
           - Saves runtime_protobuf_events.jsonl with msgid, symbolic MSGID name, page context and decoded Lua object snapshot.
           - Saves exact inbound packet.payload bytes under runtime_protobuf_raw/*.pb (64 MiB cap).
           - Builds symbolic msgid names from the runtime msg_pb table.
+          - KEEPALIVE traffic is excluded from protobuf event persistence.
 
           Stability constraints:
           - No additional native hook target.
@@ -154,6 +162,7 @@ jobs:
           - No TLS/TLV.
           - No new polling queue.
           - No new dispatch queue; existing serial capture queue is reused.
+          - Lua table snapshot recursion/node limits are stack-balanced.
 
           Real-device validation:
           - Look for PROTOBUF Lua API ready and PROTOBUF wrapper ready send=1 parse=1.
