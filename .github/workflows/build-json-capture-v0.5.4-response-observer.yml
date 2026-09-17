@@ -1,0 +1,153 @@
+name: Build JSONCapture v0.5.4 Response Observer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.5.4-response-observer
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.5.4-response-observer.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify exact v0.5.2 baseline contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'apply_v052_runtime_cache.py' jsoncapture/Makefile
+          grep -Fq 'apply_v054_response_observer.py' jsoncapture/Makefile
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
+
+      - name: Apply patches and verify serialized observer architecture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v054_response_observer.py
+          src=src/ManualTaskEngineV05.m
+          grep -Fq 'JCG5_RUNTIME_CACHE_V052' "$src"
+          grep -Fq 'JCG5_RESPONSE_OBSERVER_V054' "$src"
+          grep -Fq 'JCG54_DOWNLOAD_HANDLER_BUFFER_GETDATA_RVA 0x0ECFC0C0ULL' "$src"
+          grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' "$src"
+          grep -Fq 'RESPONSE-OBSERVER ready' "$src"
+          grep -Fq '响应观察' "$src"
+          grep -Fq 'BOOL c=anchor?JCG54InstallResponseObserver(anchor):NO;' "$src"
+          grep -Fq 'observer hook installation is serialized in this SAME call' "$src"
+          ! grep -Fq 'tolua_variable' "$src"
+          ! grep -Fq 'lua_pushlstring-json' "$src"
+          ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
+          # Keep the exact v0.5.2 startup model: ManualTaskEngine has one ctor;
+          # the three compiled units still have two constructors total.
+          test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
+          compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
+            src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
+            | wc -l | tr -d ' ')
+          echo "compiled constructor count=$compiled_ctor_count"
+          test "$compiled_ctor_count" = '2'
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v054
+          out='dist-v054/JSONCapture_v0.5.4_ResponseObserver_0.5.2Base.dylib'
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist-v054/SHA256.txt
+
+      - name: Enforce startup and target-safety invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          out='dist-v054/JSONCapture_v0.5.4_ResponseObserver_0.5.2Base.dylib'
+          otool -l "$out" > dist-v054/load_commands.txt
+          otool -hv "$out" > dist-v054/header.txt
+          strings "$out" > dist-v054/strings.txt
+
+          modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v054/load_commands.txt)
+          echo "__mod_init_func size=$modinit"
+          test "$modinit" = '0x0000000000000010'
+          ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v054/load_commands.txt
+          ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v054/header.txt
+
+          grep -Fq 'RESPONSE-OBSERVER ready' dist-v054/strings.txt
+          grep -Fq 'RESPONSE-OBSERVER target UUID mismatch' dist-v054/strings.txt
+          grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' dist-v054/strings.txt
+          grep -Fq '响应观察' dist-v054/strings.txt
+          ! grep -Fq 'RUNTIME2-HOOK registration ready' dist-v054/strings.txt
+          ! grep -Fq 'xhr.responseText' dist-v054/strings.txt
+
+      - name: Package diagnostic artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v054
+          cat > README.txt <<'TXT'
+          JSONCapture v0.5.4 Response Observer — exact v0.5.2 base
+
+          Purpose:
+          - Diagnostic build only. It does NOT save HTTP response bodies yet.
+          - Confirms whether the game's UnityWebRequest DownloadHandlerBuffer path carries the wanted response bodies.
+
+          Exact target gate:
+          - UnityFramework UUID: CEF4252D-DCA1-3442-AED5-E5751D7BF5CD
+          - Observed method: UnityEngine.Networking.DownloadHandlerBuffer.GetData
+          - RVA: 0x0ECFC0C0
+          - If UUID does not match, the observer refuses to install.
+
+          Stability design:
+          - Based directly on v0.5.2.
+          - No extra constructor / +load.
+          - No TLS/TLV.
+          - No tolua_variable hook.
+          - No second hook polling queue.
+          - The response observer hook is installed sequentially in the same JCG5InstallHooks() call as the original v0.5.2 hooks.
+
+          UI:
+          - '响应观察' shows target match, hook readiness, hit count, JSON-prefix count, and latest byte length.
+          - The original master capture switch controls observation.
+
+          Real-device test:
+          1. Inject and confirm the game reaches the main screen repeatedly.
+          2. Perform several server requests.
+          3. Check '响应观察' hit/JSON counters.
+          4. Send ManualV05.log if JSON count remains zero or any crash occurs.
+          TXT
+          zip -9 JSONCapture_v0.5.4_ResponseObserver_0.5.2Base.zip \
+            JSONCapture_v0.5.4_ResponseObserver_0.5.2Base.dylib SHA256.txt README.txt load_commands.txt header.txt
+          shasum -a 256 JSONCapture_v0.5.4_ResponseObserver_0.5.2Base.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.5.4-ResponseObserver-0.5.2Base
+          path: |
+            jsoncapture/dist-v054/JSONCapture_v0.5.4_ResponseObserver_0.5.2Base.dylib
+            jsoncapture/dist-v054/JSONCapture_v0.5.4_ResponseObserver_0.5.2Base.zip
+            jsoncapture/dist-v054/SHA256.txt
+            jsoncapture/dist-v054/ZIP_SHA256.txt
+            jsoncapture/dist-v054/load_commands.txt
+            jsoncapture/dist-v054/header.txt
+          if-no-files-found: error
