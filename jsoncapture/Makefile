@@ -14,6 +14,7 @@ TWEAK_NAME = JSONCapture
 # - v0.5.1 restores scroll + draggable compact menu.
 # - v0.5.2 adds cross-launch MD5/SHA256 runtime Lua cache and duplicate skip UI.
 # - v0.5.4 adds an exact-target, read-only response observer on the SAME serialized hook-install path.
+# - v0.5.5 persists only fully validated JSON bodies from the proven response observer path.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -22,5 +23,6 @@ JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
 before-all::
 	@python3 scripts/apply_v052_runtime_cache.py
 	@python3 scripts/apply_v054_response_observer.py
+	@python3 scripts/apply_v055_response_capture.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
