@@ -13,6 +13,8 @@ TWEAK_NAME = JSONCapture
 # - Only genuinely NEW runtime Lua captures preempt manual work.
 # - v0.5.1 restores scroll + draggable compact menu.
 # - v0.5.2 adds cross-launch MD5/SHA256 runtime Lua cache and duplicate skip UI.
+# - v0.5.3-v3 adds Runtime Capture 2 INSIDE the existing v0.5.2 lifecycle.
+#   Source module list and constructor model intentionally remain unchanged.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -20,5 +22,6 @@ JSONCapture_FRAMEWORKS = Foundation UIKit QuartzCore
 
 before-all::
 	@python3 scripts/apply_v052_runtime_cache.py
+	@python3 scripts/apply_v053_runtime2_clean.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
