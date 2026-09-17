@@ -1,0 +1,225 @@
+name: Build NetworkCapture v0.7.1 Snapshot Completeness
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/network-capture-v0.7.1-snapshot-completeness
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-network-capture-v0.7.1-snapshot-completeness.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify v0.5.9-derived contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'apply_v058_socket_http_json.py' jsoncapture/Makefile
+          grep -Fq 'apply_v059_network_coverage.py' jsoncapture/Makefile
+          grep -Fq 'apply_v059_compile_fix.py' jsoncapture/Makefile
+          grep -Fq 'apply_v060_page_protobuf.py' jsoncapture/Makefile
+          grep -Fq 'apply_v070_page_snapshot.py' jsoncapture/Makefile
+          grep -Fq 'apply_v071_snapshot_completeness.py' jsoncapture/Makefile
+          grep -Fq 'apply_v060_hardening.py' jsoncapture/Makefile
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
+
+      - name: Apply patches and verify page/protobuf architecture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v054_response_observer.py
+          python3 scripts/apply_v055_response_capture.py
+          python3 scripts/apply_v056_response_metadata.py
+          python3 scripts/apply_v056_response_metadata_hardening.py
+          python3 scripts/apply_v057_unity_all_json.py
+          python3 scripts/apply_v057_compile_compat.py
+          python3 scripts/apply_v058_socket_http_json.py
+          python3 scripts/apply_v059_network_coverage.py
+          python3 scripts/apply_v059_compile_fix.py
+          python3 scripts/apply_v060_page_protobuf.py
+          python3 scripts/apply_v060_hardening.py
+          python3 scripts/apply_v070_page_snapshot.py
+          python3 scripts/apply_v071_snapshot_completeness.py
+          src=src/ManualTaskEngineV05.m
+          grep -Fq 'JCG5_PAGE_PROTOBUF_V060' "$src"
+          grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
+          grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
+          grep -Fq 'JCG71SnapshotProtobuf' "$src"
+          grep -Fq 'JCG71FindStableParentSession' "$src"
+          grep -Fq 'JCG71_CHILD_PARENT_MAX_GAP' "$src"
+          grep -Fq 'JCG70DescriptorKeyName' "$src"
+          grep -Fq 'runtime_page_snapshot' "$src"
+          grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' "$src"
+          grep -Fq 'matched_request' "$src"
+          grep -Fq 'page_local_tab_config' "$src"
+          grep -Fq 'JCG5_PAGE_PROTOBUF_V060_HARDENED' "$src"
+          grep -Fq 'NetWorkManager.sendMsg' "$src"
+          grep -Fq 'NetWorkManager.parseMsg' "$src"
+          grep -Fq 'JCG60SendMsgWrapper' "$src"
+          grep -Fq 'JCG60ParseMsgWrapper' "$src"
+          grep -Fq 'runtime_protobuf_events.jsonl' "$src"
+          grep -Fq 'runtime_protobuf_raw' "$src"
+          grep -Fq 'runtime_page_network_map.json' "$src"
+          grep -Fq 'page_context' "$src"
+          grep -Fq 'page_tab_lua' "$src"
+          grep -Fq 'page_ui_lua' "$src"
+          grep -Fq 'raw_sha256' "$src"
+          grep -Fq 'decoded' "$src"
+          grep -Fq 'PROTOBUF wrapper ready' "$src"
+          grep -Fq 'JCG60TryInstallProtobuf(L);' "$src"
+          grep -Fq 'JCG60IsNoiseMessage' "$src"
+
+          # v0.7.1 changes only snapshot/reducer logic; native hook/queue surface stays identical.
+          test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
+          queue_creates=$(grep -o 'dispatch_queue_create' "$src" | wc -l | tr -d ' ')
+          echo "dispatch_queue_create occurrences=$queue_creates"
+          test "$queue_creates" = '2'
+          ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
+          test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
+          compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
+            src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
+            | wc -l | tr -d ' ')
+          echo "compiled constructor count=$compiled_ctor_count"
+          test "$compiled_ctor_count" = '2'
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v071
+          out='dist-v071/NetworkCapture_v0.7.1_SnapshotCompleteness_0.7.0Base.dylib'
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist-v071/SHA256.txt
+
+      - name: Enforce startup and protobuf-safety invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          out='dist-v071/NetworkCapture_v0.7.1_SnapshotCompleteness_0.7.0Base.dylib'
+          otool -l "$out" > dist-v071/load_commands.txt
+          otool -hv "$out" > dist-v071/header.txt
+          strings "$out" > dist-v071/strings.txt
+
+          modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v071/load_commands.txt)
+          echo "__mod_init_func size=$modinit"
+          test "$modinit" = '0x0000000000000010'
+          ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v071/load_commands.txt
+          ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v071/header.txt
+
+          grep -Fq 'PROTOBUF Lua API ready' dist-v071/strings.txt
+          grep -Fq 'PROTOBUF wrapper ready' dist-v071/strings.txt
+          grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' dist-v071/strings.txt
+          grep -Fq 'runtime_page_snapshot' dist-v071/strings.txt
+          grep -Fq 'observed_page_snapshot' dist-v071/strings.txt
+          grep -Fq 'PAGE-SNAPSHOT child-ui merge' dist-v071/strings.txt
+          grep -Fq 'protobuf-depth=32' dist-v071/strings.txt
+          grep -Fq 'PROTOBUF request' dist-v071/strings.txt
+          grep -Fq 'PROTOBUF response' dist-v071/strings.txt
+          grep -Fq 'runtime_protobuf_events.jsonl' dist-v071/strings.txt
+          grep -Fq 'runtime_page_network_map.json' dist-v071/strings.txt
+          grep -Fq 'NetWorkManager.sendMsg' dist-v071/strings.txt
+          grep -Fq 'NetWorkManager.parseMsg' dist-v071/strings.txt
+          grep -Fq 'KEEPALIVE' dist-v071/strings.txt
+          grep -Fq 'UWR-BACKEND ready' dist-v071/strings.txt
+          grep -Fq 'SOCKET-HTTP wrapper ready' dist-v071/strings.txt
+          grep -Fq 'COVERAGE session ready' dist-v071/strings.txt
+          grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' dist-v071/strings.txt
+          ! grep -Fq 'RUNTIME2-HOOK registration ready' dist-v071/strings.txt
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v071
+          cat > README.txt <<'TXT'
+          NetworkCapture v0.7.1 Snapshot Completeness
+
+          Base:
+          - v0.6.0 page/protobuf capture retained, including v0.5.9 JSON/network coverage.
+          - Exact UnityFramework UUID gate remains unchanged.
+
+          Snapshot Completeness:
+          - Protobuf business snapshots use descriptor-aware max depth 32 / max nodes 32768.
+          - Generic Lua/TAB snapshot safety limits remain unchanged.
+          - New UIs sharing the same TAB merge into a recent stable parent only after that parent has >=8 events or >=5s lifetime.
+          - The child relation is recorded as child_ui_luas while original protobuf event records retain the actual UI context.
+          - No UI-name blacklist is used.
+
+          Page Snapshot:
+          - Produces runtime_page_snapshot/*.json and runtime_page_snapshot_index.json.
+          - Resolves protobuf FieldDescriptor table keys to real field names before JSON serialization.
+          - Correlates *_REQ to *_RESP and inherits the request page context for matched responses.
+          - Stores local TAB_* global config when available, plus exact event history and latest merged JSON/protobuf state.
+          - Query values are stripped from URLs in the snapshot view.
+
+          Existing page context:
+          - Tracks loader chunk names and keeps latest TAB_*.lua / UI*.lua context.
+          - Existing validated JSON metadata gains page_context/page_tab_lua/page_ui_lua.
+          - runtime_page_network_map.json groups JSON/protobuf activity by page context.
+
+          Existing protobuf business capture:
+          - Wraps NetWorkManager.sendMsg(msgid, protobufObject) on the existing Lua thread.
+          - Wraps NetWorkManager.parseMsg(packet), after the original ParseFromString, and preserves its two return values.
+          - Saves runtime_protobuf_events.jsonl with msgid, symbolic MSGID name, page context and decoded Lua object snapshot.
+          - Saves exact inbound packet.payload bytes under runtime_protobuf_raw/*.pb (64 MiB cap).
+          - Builds symbolic msgid names from the runtime msg_pb table.
+          - KEEPALIVE traffic is excluded from protobuf event persistence.
+
+          Stability constraints:
+          - No additional native hook target.
+          - No new constructor / +load.
+          - No TLS/TLV.
+          - No new polling queue.
+          - No new dispatch queue; existing serial capture queue is reused.
+          - Lua table snapshot recursion/node limits are stack-balanced.
+
+          Real-device validation:
+          - Look for PROTOBUF Lua API ready and PROTOBUF wrapper ready send=1 parse=1.
+          - Open a page such as Daily Active, then wait for its requests/responses to settle.
+          - Check runtime_page_snapshot/UIDaily__TAB_DailyActive_1.json (or the active page equivalent).
+          - Verify protobuf data uses real descriptor field names rather than <key-type-5> and deep activity data no longer contains <table-depth-limit> under normal depth.
+          - Open a child overlay such as UIReward; confirm it is listed in child_ui_luas and does not create a new current-run snapshot session when a stable parent exists.
+          - Then claim/refresh an item that sends a protobuf request.
+          - Look for PROTOBUF request/response lines and inspect runtime_protobuf_events.jsonl.
+          - Verify page_context shows TAB_DailyActive_1.lua / UIDaily or the page you actually opened.
+          TXT
+          zip -9 NetworkCapture_v0.7.1_SnapshotCompleteness_0.7.0Base.zip \
+            NetworkCapture_v0.7.1_SnapshotCompleteness_0.7.0Base.dylib SHA256.txt README.txt load_commands.txt header.txt
+          shasum -a 256 NetworkCapture_v0.7.1_SnapshotCompleteness_0.7.0Base.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: NetworkCapture-v0.7.1-SnapshotCompleteness-0.7.0Base
+          path: |
+            jsoncapture/dist-v071/NetworkCapture_v0.7.1_SnapshotCompleteness_0.7.0Base.dylib
+            jsoncapture/dist-v071/NetworkCapture_v0.7.1_SnapshotCompleteness_0.7.0Base.zip
+            jsoncapture/dist-v071/SHA256.txt
+            jsoncapture/dist-v071/ZIP_SHA256.txt
+            jsoncapture/dist-v071/load_commands.txt
+            jsoncapture/dist-v071/header.txt
+          if-no-files-found: error
