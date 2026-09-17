@@ -1,4 +1,4 @@
-name: Build JSONCapture v0.5.3 Runtime Capture 2
+name: Build JSONCapture v0.5.3-r2 Runtime Capture 2
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Verify v0.5.3 source contract
+      - name: Verify v0.5.3-r2 source contract
         shell: bash
         run: |
           set -euxo pipefail
@@ -27,7 +27,11 @@ jobs:
           grep -Fq 'src/JCG53RuntimeCapture2.m' jsoncapture/Makefile
           grep -Fq 'src/JCG53RuntimeCapture2UI.m' jsoncapture/Makefile
           grep -Fq 'JCG5_RUNTIME_CACHE_V052' "$cache"
-          grep -Fq 'lua_pushlstring' "$runtime2"
+          grep -Fq 'tolua_variable' "$runtime2"
+          grep -Fq 'lua_tolstring' "$runtime2"
+          grep -Fq 'gXHRVariableSequence' "$runtime2"
+          grep -Fq 'xhr.response' "$runtime2"
+          grep -Fq 'xhr.responseText' "$runtime2"
           grep -Fq 'NSJSONSerialization JSONObjectWithData' "$runtime2"
           grep -Fq 'RuntimeCapture2.cache.jsonl' "$runtime2"
           grep -Fq 'runtime_json_manifest.jsonl' "$runtime2"
@@ -40,6 +44,10 @@ jobs:
           grep -Fq '开始本地扫描' "$src"
           grep -Fq '开始解密' "$src"
           grep -Fq '开始JSON恢复' "$src"
+          if grep -Fq 'lua_pushlstring' "$runtime2"; then
+            echo 'Runtime Capture 2 must not globally hook lua_pushlstring' >&2
+            exit 1
+          fi
           if grep -Eq '0x[0-9A-Fa-f]{6,}|RVA_' "$runtime2" "$runtime2ui"; then
             echo 'Runtime Capture 2 must not depend on fixed game RVAs' >&2
             exit 1
@@ -62,44 +70,50 @@ jobs:
           make FINALPACKAGE=1
           grep -Fq 'JCG5_RUNTIME_CACHE_V052' src/ManualTaskEngineV05.m
           grep -Fq 'RuntimeCapture.cache.jsonl' src/ManualTaskEngineV05.m
-          mkdir -p dist-v053
-          out="dist-v053/JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.dylib"
+          mkdir -p dist-v053r2
+          out="dist-v053r2/JSONCapture_v0.5.3-r2_RuntimeCapture2_ToLua535.dylib"
           cp .theos/obj/JSONCapture.dylib "$out"
           file "$out"
           otool -L "$out"
-          strings "$out" > dist-v053/strings.txt
-          grep -Fq 'JSONCapture v0.5.3 Runtime Capture 2' dist-v053/strings.txt
-          grep -Fq 'lua_pushlstring' dist-v053/strings.txt
-          grep -Fq 'RuntimeCapture2.cache.jsonl' dist-v053/strings.txt
-          grep -Fq 'runtime_json_manifest.jsonl' dist-v053/strings.txt
-          grep -Fq 'com.openai.jsoncapture.v053.runtime2' dist-v053/strings.txt
-          grep -Fq 'RUNTIME2-HOOK' dist-v053/strings.txt
-          grep -Fq 'RUNTIME2-CACHE' dist-v053/strings.txt
-          grep -Fq 'RuntimeCapture.cache.jsonl' dist-v053/strings.txt
-          grep -Fq 'ManualV05' dist-v053/strings.txt
-          shasum -a 256 "$out" | tee dist-v053/SHA256.txt
+          strings "$out" > dist-v053r2/strings.txt
+          grep -Fq 'JSONCapture v0.5.3-r2 Runtime Capture 2' dist-v053r2/strings.txt
+          grep -Fq 'tolua_variable' dist-v053r2/strings.txt
+          grep -Fq 'lua_tolstring' dist-v053r2/strings.txt
+          grep -Fq 'xhr.response' dist-v053r2/strings.txt
+          grep -Fq 'xhr.responseText' dist-v053r2/strings.txt
+          grep -Fq 'RuntimeCapture2.cache.jsonl' dist-v053r2/strings.txt
+          grep -Fq 'runtime_json_manifest.jsonl' dist-v053r2/strings.txt
+          grep -Fq 'com.openai.jsoncapture.v053.runtime2' dist-v053r2/strings.txt
+          grep -Fq 'RUNTIME2-HOOK' dist-v053r2/strings.txt
+          grep -Fq 'RUNTIME2-CACHE' dist-v053r2/strings.txt
+          grep -Fq 'RuntimeCapture.cache.jsonl' dist-v053r2/strings.txt
+          grep -Fq 'ManualV05' dist-v053r2/strings.txt
+          shasum -a 256 "$out" | tee dist-v053r2/SHA256.txt
 
       - name: Package release
         shell: bash
         run: |
           set -euxo pipefail
-          cd jsoncapture/dist-v053
+          cd jsoncapture/dist-v053r2
           cat > README.txt <<'TXT'
-          JSONCapture v0.5.3 Manual Task Engine + Runtime Capture 2
+          JSONCapture v0.5.3-r2 Manual Task Engine + Runtime Capture 2
           Target: Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5
 
           Base:
           - v0.5.2 persistent runtime Lua cache architecture retained.
           - Existing Runtime Capture remains unchanged.
 
-          Runtime Capture 2:
-          - Hooks exported Lua 5.3 lua_pushlstring instead of NSURLSession/Foundation networking.
-          - Cocos cc.XMLHttpRequest response/responseText crosses this API with the full data buffer and explicit length.
-          - Only complete JSON objects/arrays accepted by NSJSONSerialization are saved.
-          - Non-JSON strings are ignored without file writes.
-          - Duplicate valid JSON uses an independent persistent MD5/SHA256 cache and is skipped across relaunches.
+          Runtime Capture 2 (r2 crash regression fix):
+          - Does NOT globally hook lua_pushlstring.
+          - Hooks only the low-frequency exported ToLua registration API tolua_variable.
+          - Recognizes the Cocos cc.XMLHttpRequest property registration sequence:
+            responseType -> withCredentials -> timeout -> readyState -> status -> statusText -> responseText -> response.
+          - During registration, only responseText/response getter pointers are replaced with wrappers; the original getters execute first and their exact Lua string result is read through lua_tolstring with an explicit length.
+          - The raw bytes are then passed through the mature JSONCapture-style pipeline: JSON prefix gate, complete NSJSONSerialization validation, MD5/SHA256 dedupe, asynchronous raw JSON write.
+          - Non-JSON/invalid JSON and duplicates are skipped.
           - Runtime Capture and Runtime Capture 2 share the existing master capture switch; master OFF disables both.
-          - Menu adds "运行时抓取二" directly below the original runtime capture status with matching status/count/cache/latest display semantics.
+          - Menu adds "运行时抓取二" directly below the original runtime capture row.
+          - No fixed game RVA is used; if required ToLua/Lua exports are unavailable, Capture 2 stays in waiting state instead of patching an unknown address.
 
           Output:
           - Documents/JSONCapture/ManualV05/runtime_json/
@@ -107,16 +121,16 @@ jobs:
           - Documents/JSONCapture/ManualV05/state/RuntimeCapture2.cache.jsonl
           - Documents/JSONCapture/ManualV05/RuntimeCapture2.log
           TXT
-          zip -9 JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.zip JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.dylib SHA256.txt README.txt
-          shasum -a 256 JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.zip | tee ZIP_SHA256.txt
+          zip -9 JSONCapture_v0.5.3-r2_RuntimeCapture2_ToLua535.zip JSONCapture_v0.5.3-r2_RuntimeCapture2_ToLua535.dylib SHA256.txt README.txt
+          shasum -a 256 JSONCapture_v0.5.3-r2_RuntimeCapture2_ToLua535.zip | tee ZIP_SHA256.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: JSONCapture-v0.5.3-RuntimeCapture2-ToLua535
+          name: JSONCapture-v0.5.3-r2-RuntimeCapture2-ToLua535
           path: |
-            jsoncapture/dist-v053/JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.dylib
-            jsoncapture/dist-v053/SHA256.txt
-            jsoncapture/dist-v053/JSONCapture_v0.5.3_RuntimeCapture2_ToLua535.zip
-            jsoncapture/dist-v053/ZIP_SHA256.txt
+            jsoncapture/dist-v053r2/JSONCapture_v0.5.3-r2_RuntimeCapture2_ToLua535.dylib
+            jsoncapture/dist-v053r2/SHA256.txt
+            jsoncapture/dist-v053r2/JSONCapture_v0.5.3-r2_RuntimeCapture2_ToLua535.zip
+            jsoncapture/dist-v053r2/ZIP_SHA256.txt
           if-no-files-found: error
