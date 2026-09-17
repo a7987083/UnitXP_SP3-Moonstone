@@ -7,7 +7,7 @@ on:
       - feature/network-capture-v0.7.0-page-snapshot
     paths:
       - 'jsoncapture/**'
-      - '.github/workflows/build-network-capture-v0.7.0-page-protobuf.yml'
+      - '.github/workflows/build-network-capture-v0.7.0-page-snapshot.yml'
 
 jobs:
   build:
@@ -48,7 +48,6 @@ jobs:
           python3 scripts/apply_v060_page_protobuf.py
           python3 scripts/apply_v060_hardening.py
           python3 scripts/apply_v070_page_snapshot.py
-          python3 scripts/apply_v060_hardening.py
           src=src/ManualTaskEngineV05.m
           grep -Fq 'JCG5_PAGE_PROTOBUF_V060' "$src"
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
@@ -152,7 +151,7 @@ jobs:
           NetworkCapture v0.7.0 Page Snapshot
 
           Base:
-          - v0.5.9 JSON capture and network coverage retained.
+          - v0.6.0 page/protobuf capture retained, including v0.5.9 JSON/network coverage.
           - Exact UnityFramework UUID gate remains unchanged.
 
           Page Snapshot:
