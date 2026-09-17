@@ -1,0 +1,186 @@
+name: Build JSONCapture v0.5.8 Socket HTTP JSON
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.5.8-socket-http-json
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.5.8-socket-http-json.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify v0.5.2-derived contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'apply_v052_runtime_cache.py' jsoncapture/Makefile
+          grep -Fq 'apply_v054_response_observer.py' jsoncapture/Makefile
+          grep -Fq 'apply_v055_response_capture.py' jsoncapture/Makefile
+          grep -Fq 'apply_v056_response_metadata.py' jsoncapture/Makefile
+          grep -Fq 'apply_v056_response_metadata_hardening.py' jsoncapture/Makefile
+          grep -Fq 'apply_v057_unity_all_json.py' jsoncapture/Makefile
+          grep -Fq 'apply_v057_compile_compat.py' jsoncapture/Makefile
+          grep -Fq 'apply_v058_socket_http_json.py' jsoncapture/Makefile
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
+
+      - name: Apply patches and verify SocketTCP architecture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v054_response_observer.py
+          python3 scripts/apply_v055_response_capture.py
+          python3 scripts/apply_v056_response_metadata.py
+          python3 scripts/apply_v056_response_metadata_hardening.py
+          python3 scripts/apply_v057_unity_all_json.py
+          python3 scripts/apply_v057_compile_compat.py
+          python3 scripts/apply_v058_socket_http_json.py
+          src=src/ManualTaskEngineV05.m
+          grep -Fq 'JCG5_SOCKET_HTTP_JSON_V058' "$src"
+          grep -Fq 'JCG58_SOCKET_JSON_MAX_BYTES (64ULL * 1024ULL * 1024ULL)' "$src"
+          grep -Fq 'g_requestHttpServer' "$src"
+          grep -Fq '__jcg58_orig_g_requestHttpServer' "$src"
+          grep -Fq 'SocketTCP.MSG_HTTP_RESPONE.responseFunc' "$src"
+          grep -Fq 'sockettcp_protobuf_post_decrypt' "$src"
+          grep -Fq 'SOCKET-HTTP wrapper ready' "$src"
+          grep -Fq 'SOCKET-HTTP callback' "$src"
+          grep -Fq 'JCG58TryInstallSocketHTTP(L);' "$src"
+          grep -Fq 'lua_getglobal' "$src"
+          grep -Fq 'lua_pushcclosure' "$src"
+          grep -Fq 'lua_callk' "$src"
+          grep -Fq 'lua_tointegerx' "$src"
+          grep -Fq 'JCG54MachOUUIDMatches(info.dli_fbase)' "$src"
+          grep -Fq 'gJCG5CaptureEnabled' "$src"
+          grep -Fq 'JCG55QueueValidatedResponse(body, hit, meta);' "$src"
+          grep -Fq '@"SOCKET_HTTP"' "$src"
+          grep -Fq '@"socket_decrypt"' "$src"
+          grep -Fq '@"socket_msg_id"' "$src"
+          grep -Fq 'self.labels[@"socket"].text=JCG58SocketStatusText();' "$src"
+
+          # v0.5.8 must not add another native hook installer or polling queue.
+          test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '6'
+          test "$(grep -c 'JCG58TryInstallSocketHTTP(L);' "$src" | tr -d ' ')" = '2'
+          ! grep -Fq 'socket.receive' "$src"
+          ! grep -Fq 'AesEncrypt.Decode' "$src"
+          ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
+          test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
+          compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
+            src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
+            | wc -l | tr -d ' ')
+          echo "compiled constructor count=$compiled_ctor_count"
+          test "$compiled_ctor_count" = '2'
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v058
+          out='dist-v058/JSONCapture_v0.5.8_SocketHTTPJSON_0.5.2Base.dylib'
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist-v058/SHA256.txt
+
+      - name: Enforce startup and target-safety invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          out='dist-v058/JSONCapture_v0.5.8_SocketHTTPJSON_0.5.2Base.dylib'
+          otool -l "$out" > dist-v058/load_commands.txt
+          otool -hv "$out" > dist-v058/header.txt
+          strings "$out" > dist-v058/strings.txt
+
+          modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v058/load_commands.txt)
+          echo "__mod_init_func size=$modinit"
+          test "$modinit" = '0x0000000000000010'
+          ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v058/load_commands.txt
+          ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v058/header.txt
+
+          grep -Fq 'SOCKET-HTTP wrapper ready' dist-v058/strings.txt
+          grep -Fq 'SOCKET-HTTP callback' dist-v058/strings.txt
+          grep -Fq 'SocketTCP.MSG_HTTP_RESPONE.responseFunc' dist-v058/strings.txt
+          grep -Fq 'sockettcp_protobuf_post_decrypt' dist-v058/strings.txt
+          grep -Fq '__jcg58_orig_g_requestHttpServer' dist-v058/strings.txt
+          grep -Fq 'UWR-BACKEND ready' dist-v058/strings.txt
+          grep -Fq 'RESPONSE-METADATA ready' dist-v058/strings.txt
+          grep -Fq 'RESPONSE-CAPTURE saved' dist-v058/strings.txt
+          grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' dist-v058/strings.txt
+          ! grep -Fq 'RUNTIME2-HOOK registration ready' dist-v058/strings.txt
+          ! grep -Fq 'xhr.responseText' dist-v058/strings.txt
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v058
+          cat > README.txt <<'TXT'
+          JSONCapture v0.5.8 Socket HTTP JSON
+
+          Base:
+          - v0.5.7 Unity All JSON retained unchanged.
+          - Exact UnityFramework UUID gate: CEF4252D-DCA1-3442-AED5-E5751D7BF5CD
+
+          New SocketTCP/protobuf coverage:
+          - Recovered g_requestHttpServer has 4 args and stores callback in g_socket.responseFunc.
+          - Recovered g_onHttpData parses MSG_HTTP_RESPONE, optionally applies AesEncrypt.Decode/DecodeNew,
+            then calls responseFunc(msgid, finalBody).
+          - v0.5.8 wraps g_requestHttpServer on the SAME Lua VM thread and wraps only the request callback.
+          - Captured body is therefore post-decrypt business data for both decrypt=true and decrypt=false paths.
+          - Bodies are copied binary-safely with lua_tolstring length and fed into the existing full JSON validator.
+          - Top-level JSON objects, arrays and scalar fragments remain supported.
+          - Socket bodies are capped at 64 MiB.
+          - Metadata records source, URL, decrypt flag and message id.
+
+          Stability constraints:
+          - No socket.receive hook.
+          - No AES hook.
+          - No new MSHookFunction target.
+          - No new polling queue.
+          - No extra constructor / +load.
+          - No TLS/TLV.
+          - Lua API is used only while already on the game's Lua loader/callback thread.
+
+          Real-device validation:
+          - Look for SOCKET-HTTP Lua API ready and SOCKET-HTTP wrapper ready.
+          - Trigger gameplay actions that use the SocketTCP HTTP bridge.
+          - Look for SOCKET-HTTP callback lines.
+          - Inspect runtime_response_requests.jsonl for source=SocketTCP.MSG_HTTP_RESPONE.responseFunc.
+          TXT
+          zip -9 JSONCapture_v0.5.8_SocketHTTPJSON_0.5.2Base.zip \
+            JSONCapture_v0.5.8_SocketHTTPJSON_0.5.2Base.dylib SHA256.txt README.txt load_commands.txt header.txt
+          shasum -a 256 JSONCapture_v0.5.8_SocketHTTPJSON_0.5.2Base.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.5.8-SocketHTTPJSON-0.5.2Base
+          path: |
+            jsoncapture/dist-v058/JSONCapture_v0.5.8_SocketHTTPJSON_0.5.2Base.dylib
+            jsoncapture/dist-v058/JSONCapture_v0.5.8_SocketHTTPJSON_0.5.2Base.zip
+            jsoncapture/dist-v058/SHA256.txt
+            jsoncapture/dist-v058/ZIP_SHA256.txt
+            jsoncapture/dist-v058/load_commands.txt
+            jsoncapture/dist-v058/header.txt
+          if-no-files-found: error
