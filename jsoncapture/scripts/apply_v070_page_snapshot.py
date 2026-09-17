@@ -399,7 +399,6 @@ static NSMutableDictionary *gJCG70SnapshotIndex;
 static NSMutableSet *gJCG70SnapshotWritePending;
 static unsigned long long gJCG70SnapshotPages = 0;
 static unsigned long long gJCG70SnapshotWrites = 0;
-static unsigned long long gJCG70DescriptorFields = 0;
 static NSString *gJCG70LastSnapshotFile;
 
 static NSString *JCG70PageSessionKey(NSDictionary *event) {
