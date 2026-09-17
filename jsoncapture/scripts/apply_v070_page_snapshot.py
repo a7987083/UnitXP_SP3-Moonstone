@@ -543,7 +543,7 @@ static void JCG70WriteSnapshotNow(NSString *sessionKey) {
             @"page_ui_lua": [entry objectForKey:@"page_ui_lua"] ?: @"",
             @"page_tab_lua": [entry objectForKey:@"page_tab_lua"] ?: @"",
             @"file": file,
-            @"events": @([[(NSArray *)[entry objectForKey:@"events"] count] unsignedLongLongValue]),
+            @"events": @([(NSArray *)[entry objectForKey:@"events"] count]),
             @"updated_at": [entry objectForKey:@"last_seen"] ?: @0
         };
         [gJCG70SnapshotIndex setObject:idx forKey:sessionKey];
