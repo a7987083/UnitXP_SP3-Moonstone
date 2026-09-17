@@ -44,8 +44,12 @@ jobs:
           grep -Fq 'xhr.responseText' "$src"
           grep -Fq 'RuntimeCapture2.cache.jsonl' "$src"
           grep -Fq 'runtime_json_manifest.jsonl' "$src"
-          # No second constructor / +load / TLS source state.
-          test "$(grep -R '__attribute__((constructor))' src/*.m | wc -l | tr -d ' ')" = '2'
+          # Only the three Makefile-compiled translation units define runtime initializers.
+          compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
+            src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
+            | wc -l | tr -d ' ')
+          echo "compiled constructor count=$compiled_ctor_count"
+          test "$compiled_ctor_count" = '2'
           test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
           ! grep -Eq '__thread|thread_local|JCG53UIEntry|lua_pushlstring' "$src"
 
@@ -86,7 +90,7 @@ jobs:
           echo "__mod_init_func size=$modinit"
           test "$modinit" = '0x0000000000000010'
 
-          # The failed r2 build introduced TLV sections / HAS_TLV_DESCRIPTORS.
+          # Failed r2 introduced TLV sections / HAS_TLV_DESCRIPTORS; clean v3 must not.
           ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v053-v3/load_commands.txt
           ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v053-v3/header.txt
 
