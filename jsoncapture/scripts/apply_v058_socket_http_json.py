@@ -186,7 +186,6 @@ static int JCG58ResponseWrapper(void *L) {
         }
     }
 
-    // Preserve direct Lua callback semantics and error propagation.
     if (gJCG58LuaPushValue && gJCG58LuaCallK) {
         gJCG58LuaPushValue(L, JCG58_LUA_UPVALUEINDEX(1));
         for (int i = 1; i <= nargs; i++) gJCG58LuaPushValue(L, i);
@@ -208,7 +207,6 @@ static int JCG58RequestWrapper(void *L) {
 
     for (int i = 1; i <= nargs; i++) {
         if (i == 2 && gJCG58LuaType && gJCG58LuaType(L, 2) == JCG58_LUA_TFUNCTION) {
-            // response wrapper upvalues: original callback, request URL, decrypt flag
             gJCG58LuaPushValue(L, 2);
             if (nargs >= 1) gJCG58LuaPushValue(L, 1); else gJCG58LuaPushBoolean(L, 0);
             if (nargs >= 3) gJCG58LuaPushValue(L, 3); else gJCG58LuaPushBoolean(L, 0);
@@ -218,7 +216,6 @@ static int JCG58RequestWrapper(void *L) {
         }
     }
 
-    // Recovered g_requestHttpServer bytecode has no meaningful return values.
     gJCG58LuaCallK(L, nargs, 0, (intptr_t)0, NULL);
     return 0;
 }
@@ -296,8 +293,8 @@ rep(
 )
 
 rep(
-    'NSArray*spec=@[@[@"capture",@"运行时抓取"],@[@"capture2",@"响应观察"],@[@"scan",@"本地扫描"],@[@"decrypt",@"解密"],@[@"recover",@"JSON恢复"],@[@"task",@"当前任务"]];',
-    'NSArray*spec=@[@[@"capture",@"运行时抓取"],@[@"capture2",@"响应观察"],@[@"socket",@"SocketHTTP"],@[@"scan",@"本地扫描"],@[@"decrypt",@"解密"],@[@"recover",@"JSON恢复"],@[@"task",@"当前任务"]];',
+    'NSArray*spec=@[@[@"capture",@"运行时抓取"],@[@"capture2",@"响应抓取"],@[@"scan",@"本地扫描"],@[@"decrypt",@"解密"],@[@"recover",@"JSON恢复"],@[@"task",@"当前任务"]];',
+    'NSArray*spec=@[@[@"capture",@"运行时抓取"],@[@"capture2",@"响应抓取"],@[@"socket",@"SocketHTTP"],@[@"scan",@"本地扫描"],@[@"decrypt",@"解密"],@[@"recover",@"JSON恢复"],@[@"task",@"当前任务"]];',
     "SocketHTTP UI row",
 )
 
