@@ -28,7 +28,8 @@ def rep(old: str, new: str, label: str) -> None:
 # weakening safety for unrelated Lua tables.
 rep(
     "static id JCG60SnapshotLuaValue(void *L, int idx, NSUInteger depth, NSMutableSet *visited, NSUInteger *budget) {\n",
-    "// JCG5_SNAPSHOT_COMPLETENESS_V071\\n"\n    "static id JCG60SnapshotLuaValueLimited(void *L, int idx, NSUInteger depth, NSMutableSet *visited, NSUInteger *budget, NSUInteger maxDepth, NSUInteger maxNodes) {\\n",
+    "// JCG5_SNAPSHOT_COMPLETENESS_V071\n"
+    "static id JCG60SnapshotLuaValueLimited(void *L, int idx, NSUInteger depth, NSMutableSet *visited, NSUInteger *budget, NSUInteger maxDepth, NSUInteger maxNodes) {\n",
     "parameterize lua snapshot function",
 )
 rep(
