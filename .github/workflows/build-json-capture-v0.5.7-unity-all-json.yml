@@ -1,0 +1,173 @@
+name: Build JSONCapture v0.5.7 Unity All JSON
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.5.7-unity-all-json
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.5.7-unity-all-json.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify v0.5.2-derived contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'apply_v052_runtime_cache.py' jsoncapture/Makefile
+          grep -Fq 'apply_v054_response_observer.py' jsoncapture/Makefile
+          grep -Fq 'apply_v055_response_capture.py' jsoncapture/Makefile
+          grep -Fq 'apply_v056_response_metadata.py' jsoncapture/Makefile
+          grep -Fq 'apply_v056_response_metadata_hardening.py' jsoncapture/Makefile
+          grep -Fq 'apply_v057_unity_all_json.py' jsoncapture/Makefile
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
+
+      - name: Apply patches and verify all-UnityWebRequest architecture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v054_response_observer.py
+          python3 scripts/apply_v055_response_capture.py
+          python3 scripts/apply_v056_response_metadata.py
+          python3 scripts/apply_v056_response_metadata_hardening.py
+          python3 scripts/apply_v057_unity_all_json.py
+          src=src/ManualTaskEngineV05.m
+          grep -Fq 'JCG5_UNITY_ALL_JSON_V057' "$src"
+          grep -Fq 'JCG57_UWR_DELEGATE_DATA_RVA 0x00013E88ULL' "$src"
+          grep -Fq 'JCG57_UWR_DELEGATE_COMPLETE_RVA 0x00014A1CULL' "$src"
+          grep -Fq 'JCG57_BACKEND_JSON_MAX_BYTES (64ULL * 1024ULL * 1024ULL)' "$src"
+          grep -Fq 'UnityWebRequestDelegate.URLSession:dataTask:didReceiveData:' "$src"
+          grep -Fq 'NSClassFromString(@"UnityWebRequestDelegate")' "$src"
+          grep -Fq 'NSJSONReadingAllowFragments' "$src"
+          grep -Fq '@"json_scalar"' "$src"
+          grep -Fq 'BOOL e=anchor?JCG57InstallUnityBackendJSON(anchor):NO;' "$src"
+          grep -Fq 'no new polling queue' "$src"
+          grep -Fq 'UWR-BACKEND ready' "$src"
+          grep -Fq 'UWR-BACKEND complete' "$src"
+          grep -Fq 'unity_nsurlsession_delegate' "$src"
+          grep -Fq 'gJCG57BackendMD5s' "$src"
+          grep -Fq 'backendAlreadyTraced' "$src"
+          grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' "$src"
+          ! grep -Fq 'tolua_variable' "$src"
+          ! grep -Fq 'lua_pushlstring-json' "$src"
+          ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
+          test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
+          compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
+            src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
+            | wc -l | tr -d ' ')
+          echo "compiled constructor count=$compiled_ctor_count"
+          test "$compiled_ctor_count" = '2'
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v057
+          out='dist-v057/JSONCapture_v0.5.7_UnityAllJSON_0.5.2Base.dylib'
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist-v057/SHA256.txt
+
+      - name: Enforce startup and target-safety invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          out='dist-v057/JSONCapture_v0.5.7_UnityAllJSON_0.5.2Base.dylib'
+          otool -l "$out" > dist-v057/load_commands.txt
+          otool -hv "$out" > dist-v057/header.txt
+          strings "$out" > dist-v057/strings.txt
+
+          modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v057/load_commands.txt)
+          echo "__mod_init_func size=$modinit"
+          test "$modinit" = '0x0000000000000010'
+          ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v057/load_commands.txt
+          ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v057/header.txt
+
+          grep -Fq 'UWR-BACKEND ready' dist-v057/strings.txt
+          grep -Fq 'UWR-BACKEND candidate' dist-v057/strings.txt
+          grep -Fq 'UWR-BACKEND complete' dist-v057/strings.txt
+          grep -Fq 'UnityWebRequestDelegate' dist-v057/strings.txt
+          grep -Fq 'unity_nsurlsession_delegate' dist-v057/strings.txt
+          grep -Fq 'json_scalar' dist-v057/strings.txt
+          grep -Fq 'RESPONSE-METADATA ready' dist-v057/strings.txt
+          grep -Fq 'RESPONSE-CAPTURE saved' dist-v057/strings.txt
+          grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' dist-v057/strings.txt
+          ! grep -Fq 'RUNTIME2-HOOK registration ready' dist-v057/strings.txt
+          ! grep -Fq 'xhr.responseText' dist-v057/strings.txt
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v057
+          cat > README.txt <<'TXT'
+          JSONCapture v0.5.7 Unity All JSON — v0.5.6 proven chain + Unity NSURLSession backend
+
+          Exact target gate:
+          - UnityFramework UUID: CEF4252D-DCA1-3442-AED5-E5751D7BF5CD
+
+          Proven v0.5.6 chain retained:
+          - DownloadHandlerBuffer.GetData RVA 0x0ECFC0C0
+          - SendWebRequest/url/method/responseCode correlation
+
+          New v0.5.7 backend coverage:
+          - UnityWebRequestDelegate URLSession:dataTask:didReceiveData: RVA 0x00013E88
+          - UnityWebRequestDelegate URLSession:task:didCompleteWithError: RVA 0x00014A1C
+          - Captures JSON before DownloadHandler-specific processing, covering UnityWebRequest handlers beyond Buffer.
+          - Non-JSON tasks are rejected after their first meaningful chunk and are not accumulated.
+          - Candidate JSON is capped at 64 MiB.
+          - MIME JSON also permits top-level JSON scalar fragments; dictionary/array prefix detection remains supported regardless of MIME.
+          - Full NSJSONSerialization validation still gates persistence.
+          - Existing MD5/SHA256 persistent dedupe and metadata/classification pipeline is reused.
+
+          Stability constraints:
+          - No extra constructor / +load.
+          - No TLS/TLV.
+          - No second hook-polling queue.
+          - All MSHookFunction installs remain serialized in JCG5InstallHooks().
+
+          Real-device validation:
+          - Look for UWR-BACKEND ready.
+          - Trigger normal JSON APIs and any UnityWebRequest downloads using non-Buffer handlers.
+          - Check UWR-BACKEND candidate/complete logs and runtime_response_requests.jsonl.
+          - If a crash occurs, provide the .ips plus ManualV05.log.
+          TXT
+          zip -9 JSONCapture_v0.5.7_UnityAllJSON_0.5.2Base.zip \
+            JSONCapture_v0.5.7_UnityAllJSON_0.5.2Base.dylib SHA256.txt README.txt load_commands.txt header.txt
+          shasum -a 256 JSONCapture_v0.5.7_UnityAllJSON_0.5.2Base.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.5.7-UnityAllJSON-0.5.2Base
+          path: |
+            jsoncapture/dist-v057/JSONCapture_v0.5.7_UnityAllJSON_0.5.2Base.dylib
+            jsoncapture/dist-v057/JSONCapture_v0.5.7_UnityAllJSON_0.5.2Base.zip
+            jsoncapture/dist-v057/SHA256.txt
+            jsoncapture/dist-v057/ZIP_SHA256.txt
+            jsoncapture/dist-v057/load_commands.txt
+            jsoncapture/dist-v057/header.txt
+          if-no-files-found: error
