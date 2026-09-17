@@ -34,5 +34,6 @@ before-all::
 	@python3 scripts/apply_v057_compile_compat.py
 	@python3 scripts/apply_v058_socket_http_json.py
 	@python3 scripts/apply_v059_network_coverage.py
+	@python3 scripts/apply_v059_compile_fix.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
