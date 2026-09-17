@@ -67,11 +67,14 @@ jobs:
           grep -Fq '@"socket_msg_id"' "$src"
           grep -Fq 'self.labels[@"socket"].text=JCG58SocketStatusText();' "$src"
 
-          # v0.5.8 must not add another native hook installer or polling queue.
-          test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '6'
+          # v0.5.7 already had six native hook call sites plus the JCG5Hook definition.
+          # v0.5.8 must leave that total unchanged: its SocketHTTP capture is Lua-level only.
+          native_hook_refs=$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')
+          echo "native JCG5Hook refs=$native_hook_refs"
+          test "$native_hook_refs" = '7'
           test "$(grep -c 'JCG58TryInstallSocketHTTP(L);' "$src" | tr -d ' ')" = '2'
-          ! grep -Fq 'socket.receive' "$src"
-          ! grep -Fq 'AesEncrypt.Decode' "$src"
+          ! grep -Fq 'JCG58HookSocketReceive' "$src"
+          ! grep -Fq 'JCG58HookAES' "$src"
           ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
           test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
           compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
