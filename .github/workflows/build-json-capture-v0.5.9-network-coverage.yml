@@ -1,0 +1,183 @@
+name: Build JSONCapture v0.5.9 Network Coverage
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.5.9-network-coverage
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.5.9-network-coverage.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify v0.5.8-derived contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'apply_v052_runtime_cache.py' jsoncapture/Makefile
+          grep -Fq 'apply_v054_response_observer.py' jsoncapture/Makefile
+          grep -Fq 'apply_v055_response_capture.py' jsoncapture/Makefile
+          grep -Fq 'apply_v056_response_metadata.py' jsoncapture/Makefile
+          grep -Fq 'apply_v056_response_metadata_hardening.py' jsoncapture/Makefile
+          grep -Fq 'apply_v057_unity_all_json.py' jsoncapture/Makefile
+          grep -Fq 'apply_v057_compile_compat.py' jsoncapture/Makefile
+          grep -Fq 'apply_v058_socket_http_json.py' jsoncapture/Makefile
+          grep -Fq 'apply_v059_network_coverage.py' jsoncapture/Makefile
+          grep -Fq 'apply_v059_compile_fix.py' jsoncapture/Makefile
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
+
+      - name: Apply patches and verify coverage architecture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v054_response_observer.py
+          python3 scripts/apply_v055_response_capture.py
+          python3 scripts/apply_v056_response_metadata.py
+          python3 scripts/apply_v056_response_metadata_hardening.py
+          python3 scripts/apply_v057_unity_all_json.py
+          python3 scripts/apply_v057_compile_compat.py
+          python3 scripts/apply_v058_socket_http_json.py
+          python3 scripts/apply_v059_network_coverage.py
+          python3 scripts/apply_v059_compile_fix.py
+          src=src/ManualTaskEngineV05.m
+
+          grep -Fq 'JCG5_NETWORK_COVERAGE_V059' "$src"
+          grep -Fq 'JCG5_NETWORK_COVERAGE_V059_COMPILE_FIX' "$src"
+          grep -Fq 'runtime_network_coverage.json' "$src"
+          grep -Fq 'COVERAGE session ready' "$src"
+          grep -Fq 'unique_urls' "$src"
+          grep -Fq 'unique_endpoints' "$src"
+          grep -Fq 'socket_decrypt_true_requests' "$src"
+          grep -Fq 'socket_decrypt_false_requests' "$src"
+          grep -Fq 'socket_decrypt_true_json' "$src"
+          grep -Fq 'socket_decrypt_false_json' "$src"
+          grep -Fq 'JCG59RecordRequest(coverageMeta);' "$src"
+          grep -Fq 'SocketTCP.g_requestHttpServer' "$src"
+          grep -Fq 'JCG59RecordResponse(metaSnapshot, 1, snapshot.length);' "$src"
+          grep -Fq 'JCG59RecordResponse(metaSnapshot, 0, snapshot.length);' "$src"
+          grep -Fq 'covBytes <= JCG57_BACKEND_JSON_MAX_BYTES' "$src"
+          grep -Fq 'dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), gJCG5CaptureQueue' "$src"
+
+          # v0.5.9 is statistics only: native hook surface stays identical to v0.5.8.
+          test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
+          test "$(grep -c 'JCG58TryInstallSocketHTTP(L);' "$src" | tr -d ' ')" = '2'
+          ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
+          test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
+          compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
+            src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
+            | wc -l | tr -d ' ')
+          echo "compiled constructor count=$compiled_ctor_count"
+          test "$compiled_ctor_count" = '2'
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v059
+          out='dist-v059/JSONCapture_v0.5.9_NetworkCoverage_0.5.2Base.dylib'
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist-v059/SHA256.txt
+
+      - name: Enforce startup and coverage-safety invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          out='dist-v059/JSONCapture_v0.5.9_NetworkCoverage_0.5.2Base.dylib'
+          otool -l "$out" > dist-v059/load_commands.txt
+          otool -hv "$out" > dist-v059/header.txt
+          strings "$out" > dist-v059/strings.txt
+
+          modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v059/load_commands.txt)
+          echo "__mod_init_func size=$modinit"
+          test "$modinit" = '0x0000000000000010'
+          ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v059/load_commands.txt
+          ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v059/header.txt
+
+          grep -Fq 'runtime_network_coverage.json' dist-v059/strings.txt
+          grep -Fq 'COVERAGE session ready' dist-v059/strings.txt
+          grep -Fq 'unique_endpoints' dist-v059/strings.txt
+          grep -Fq 'socket_decrypt_true_requests' dist-v059/strings.txt
+          grep -Fq 'SOCKET-HTTP wrapper ready' dist-v059/strings.txt
+          grep -Fq 'UWR-BACKEND ready' dist-v059/strings.txt
+          grep -Fq 'RESPONSE-CAPTURE saved' dist-v059/strings.txt
+          grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' dist-v059/strings.txt
+          ! grep -Fq 'RUNTIME2-HOOK registration ready' dist-v059/strings.txt
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v059
+          cat > README.txt <<'TXT'
+          JSONCapture v0.5.9 Network Coverage
+
+          Base:
+          - v0.5.8 UnityWebRequest + SocketTCP/protobuf JSON capture retained.
+          - No additional native hooks in v0.5.9.
+
+          New session coverage output:
+          - Documents/JSONCapture/ManualV05/runtime_network_coverage.json
+          - Fresh session_id is created on each process launch.
+          - Counts all observed UnityWebRequest SendWebRequest calls.
+          - Counts all wrapped SocketTCP g_requestHttpServer calls.
+          - Separates full JSON, non-JSON, and unknown/no-body responses.
+          - Tracks unique exact URLs and normalized method+scheme+host+path endpoints.
+          - Tracks Unity vs Socket request counts.
+          - Tracks Socket decrypt=true/false requests and JSON responses independently.
+          - Tracks per-endpoint request/response/json/non-json counts, bytes and HTTP status codes.
+          - Snapshot writes are throttled to 350 ms on the existing serial capture queue.
+
+          Stability constraints:
+          - Native hook count unchanged from v0.5.8.
+          - No new constructor / +load.
+          - No TLS/TLV.
+          - No new polling queue.
+          - JSON classification is based on full NSJSONSerialization validation.
+          - Unity responses rejected by the 64 MiB safety cap are classified unknown, not non-JSON.
+
+          Real-device validation:
+          - Start from a cold launch with capture enabled.
+          - Exercise as many game menus/features as possible.
+          - Send ManualV05.log, runtime_network_coverage.json,
+            runtime_response_requests.jsonl and runtime_response_json for analysis.
+          TXT
+          zip -9 JSONCapture_v0.5.9_NetworkCoverage_0.5.2Base.zip \
+            JSONCapture_v0.5.9_NetworkCoverage_0.5.2Base.dylib SHA256.txt README.txt load_commands.txt header.txt
+          shasum -a 256 JSONCapture_v0.5.9_NetworkCoverage_0.5.2Base.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.5.9-NetworkCoverage-0.5.2Base
+          path: |
+            jsoncapture/dist-v059/JSONCapture_v0.5.9_NetworkCoverage_0.5.2Base.dylib
+            jsoncapture/dist-v059/JSONCapture_v0.5.9_NetworkCoverage_0.5.2Base.zip
+            jsoncapture/dist-v059/SHA256.txt
+            jsoncapture/dist-v059/ZIP_SHA256.txt
+            jsoncapture/dist-v059/load_commands.txt
+            jsoncapture/dist-v059/header.txt
+          if-no-files-found: error
