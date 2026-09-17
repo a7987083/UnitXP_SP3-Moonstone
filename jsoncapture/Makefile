@@ -17,6 +17,7 @@ TWEAK_NAME = JSONCapture
 # - v0.5.5 persists only fully validated JSON bodies from the proven response observer path.
 # - v0.5.6 correlates saved JSON with URL/method/status and classifies hot-update/notice responses.
 # - v0.5.7 adds UnityWebRequestDelegate/NSURLSession backend JSON capture across DownloadHandler types.
+# - v0.5.8 wraps g_requestHttpServer on the Lua VM thread to capture SocketTCP/protobuf bodies after optional AES decrypt.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -30,5 +31,6 @@ before-all::
 	@python3 scripts/apply_v056_response_metadata_hardening.py
 	@python3 scripts/apply_v057_unity_all_json.py
 	@python3 scripts/apply_v057_compile_compat.py
+	@python3 scripts/apply_v058_socket_http_json.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
