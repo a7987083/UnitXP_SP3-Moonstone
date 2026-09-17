@@ -27,6 +27,7 @@ jobs:
           grep -Fq 'apply_v056_response_metadata.py' jsoncapture/Makefile
           grep -Fq 'apply_v056_response_metadata_hardening.py' jsoncapture/Makefile
           grep -Fq 'apply_v057_unity_all_json.py' jsoncapture/Makefile
+          grep -Fq 'apply_v057_compile_compat.py' jsoncapture/Makefile
           test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
           test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
 
@@ -41,8 +42,10 @@ jobs:
           python3 scripts/apply_v056_response_metadata.py
           python3 scripts/apply_v056_response_metadata_hardening.py
           python3 scripts/apply_v057_unity_all_json.py
+          python3 scripts/apply_v057_compile_compat.py
           src=src/ManualTaskEngineV05.m
           grep -Fq 'JCG5_UNITY_ALL_JSON_V057' "$src"
+          grep -Fq 'JCG5_UNITY_ALL_JSON_V057_COMPILE_COMPAT' "$src"
           grep -Fq 'JCG57_UWR_DELEGATE_DATA_RVA 0x00013E88ULL' "$src"
           grep -Fq 'JCG57_UWR_DELEGATE_COMPLETE_RVA 0x00014A1CULL' "$src"
           grep -Fq 'JCG57_BACKEND_JSON_MAX_BYTES (64ULL * 1024ULL * 1024ULL)' "$src"
@@ -57,6 +60,8 @@ jobs:
           grep -Fq 'unity_nsurlsession_delegate' "$src"
           grep -Fq 'gJCG57BackendMD5s' "$src"
           grep -Fq 'backendAlreadyTraced' "$src"
+          grep -Fq 'objectForKey:@"body"' "$src"
+          grep -Fq 'objectForKey:@"source"' "$src"
           grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' "$src"
           ! grep -Fq 'tolua_variable' "$src"
           ! grep -Fq 'lua_pushlstring-json' "$src"
