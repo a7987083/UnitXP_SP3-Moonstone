@@ -20,6 +20,7 @@ TWEAK_NAME = JSONCapture
 # - v0.5.8 wraps g_requestHttpServer on the Lua VM thread to capture SocketTCP/protobuf bodies after optional AES decrypt.
 # - v0.5.9 adds session-scoped request/response coverage statistics without expanding the hook surface.
 # - v0.6.0 adds Lua page context plus NetWorkManager sendMsg/parseMsg protobuf business capture.
+# - v0.7.0 adds descriptor-driven protobuf JSON plus request-correlated page snapshots.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -38,5 +39,6 @@ before-all::
 	@python3 scripts/apply_v059_compile_fix.py
 	@python3 scripts/apply_v060_page_protobuf.py
 	@python3 scripts/apply_v060_hardening.py
+	@python3 scripts/apply_v070_page_snapshot.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
