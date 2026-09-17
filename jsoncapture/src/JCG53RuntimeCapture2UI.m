@@ -10,9 +10,18 @@ static IMP gOrigToggleCapture;
 static BOOL gToggleHookReady=NO;
 static BOOL gUIAttached=NO;
 
+static void JCG53SyncFromMasterButton(UIView *panel) {
+    UIButton*b=(UIButton*)[panel viewWithTag:200];if(![b isKindOfClass:[UIButton class]])return;NSString*t=[b titleForState:UIControlStateNormal];
+    if(t.length&&[t rangeOfString:@"抓取：关"].location!=NSNotFound)JCG53Runtime2SetEnabled(NO);else if(t.length&&[t rangeOfString:@"抓取：开"].location!=NSNotFound)JCG53Runtime2SetEnabled(YES);
+}
+
+static void JCG53SyncFromController(id controller) {
+    UIView *panel=nil;@try{panel=[controller valueForKey:@"panel"];}@catch(__unused NSException*e){return;}if([panel isKindOfClass:[UIView class]])JCG53SyncFromMasterButton(panel);
+}
+
 static void JCG53ToggleCaptureHook(id self,SEL _cmd) {
     if(gOrigToggleCapture)((JCG53ObjcVoidFn)gOrigToggleCapture)(self,_cmd);
-    JCG53Runtime2SetEnabled(!JCG53Runtime2IsEnabled());
+    JCG53SyncFromController(self);
 }
 
 static BOOL JCG53InstallToggleHook(void) {
@@ -36,11 +45,6 @@ static BOOL JCG53AttachUI(id controller) {
     CGFloat x=CGRectGetMinX(capture.frame),w=CGRectGetWidth(capture.frame);UILabel*h=[[[UILabel alloc]initWithFrame:CGRectMake(x,insertY,w,18)]autorelease];h.text=@"运行时抓取二";h.textColor=[UIColor colorWithRed:0.45 green:0.9 blue:0.62 alpha:1];h.font=[UIFont boldSystemFontOfSize:12];h.numberOfLines=0;
     UILabel*l=[[[UILabel alloc]initWithFrame:CGRectMake(x,insertY+18,w,38)]autorelease];l.textColor=[UIColor colorWithWhite:0.95 alpha:1];l.font=[UIFont systemFontOfSize:11.5];l.numberOfLines=0;l.text=JCG53Runtime2StatusText();
     [scroll addSubview:h];[scroll addSubview:l];labels[@"capture2"]=l;CGSize size=scroll.contentSize;size.height+=delta;scroll.contentSize=size;gUIAttached=YES;return YES;
-}
-
-static void JCG53SyncFromMasterButton(UIView *panel) {
-    UIButton*b=(UIButton*)[panel viewWithTag:200];if(![b isKindOfClass:[UIButton class]])return;NSString*t=[b titleForState:UIControlStateNormal];
-    if(t.length&&[t rangeOfString:@"抓取：关"].location!=NSNotFound)JCG53Runtime2SetEnabled(NO);else if(t.length&&[t rangeOfString:@"抓取：开"].location!=NSNotFound)JCG53Runtime2SetEnabled(YES);
 }
 
 static void JCG53RefreshUI(void) {
