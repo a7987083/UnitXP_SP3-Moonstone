@@ -1,0 +1,148 @@
+name: Build JSONCapture v0.5.3-v3 Clean Runtime Capture 2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/json-capture-v0.5.3-runtime-capture2-v3-clean
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-json-capture-v0.5.3-v3-clean.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify clean v0.5.2 base contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m' jsoncapture/Makefile
+          grep -Fq 'apply_v052_runtime_cache.py' jsoncapture/Makefile
+          grep -Fq 'apply_v053_runtime2_clean.py' jsoncapture/Makefile
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
+          test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
+
+      - name: Apply source patches and verify one-lifecycle design
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v053_runtime2_clean.py
+          src=src/ManualTaskEngineV05.m
+          grep -Fq 'JCG5_RUNTIME_CACHE_V052' "$src"
+          grep -Fq 'JCG5_RUNTIME_CAPTURE2_V053_CLEAN' "$src"
+          grep -Fq '运行时抓取二' "$src"
+          grep -Fq 'JCG53Runtime2Start();' "$src"
+          grep -Fq 'tolua_variable' "$src"
+          grep -Fq 'lua_tolstring' "$src"
+          grep -Fq 'xhr.response' "$src"
+          grep -Fq 'xhr.responseText' "$src"
+          grep -Fq 'RuntimeCapture2.cache.jsonl' "$src"
+          grep -Fq 'runtime_json_manifest.jsonl' "$src"
+          # No second constructor / +load / TLS source state.
+          test "$(grep -R '__attribute__((constructor))' src/*.m | wc -l | tr -d ' ')" = '2'
+          test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
+          ! grep -Eq '__thread|thread_local|JCG53UIEntry|lua_pushlstring' "$src"
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v053-v3
+          out='dist-v053-v3/JSONCapture_v0.5.3-v3_0.5.2Base_RuntimeCapture2_ToLua535.dylib'
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist-v053-v3/SHA256.txt
+
+      - name: Enforce v0.5.2 Mach-O startup invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          out='dist-v053-v3/JSONCapture_v0.5.3-v3_0.5.2Base_RuntimeCapture2_ToLua535.dylib'
+          otool -l "$out" > dist-v053-v3/load_commands.txt
+          otool -hv "$out" > dist-v053-v3/header.txt
+          strings "$out" > dist-v053-v3/strings.txt
+
+          # Stable v0.5.2 artifact has __mod_init_func size 0x10 (2 entries).
+          modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v053-v3/load_commands.txt)
+          echo "__mod_init_func size=$modinit"
+          test "$modinit" = '0x0000000000000010'
+
+          # The failed r2 build introduced TLV sections / HAS_TLV_DESCRIPTORS.
+          ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v053-v3/load_commands.txt
+          ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v053-v3/header.txt
+
+          # This build must be the clean getter path, not either failed implementation.
+          grep -Fq 'JSONCapture v0.5.3 Runtime Capture 2 clean loaded inside v0.5.2 lifecycle' dist-v053-v3/strings.txt
+          grep -Fq 'tolua_variable' dist-v053-v3/strings.txt
+          grep -Fq 'lua_tolstring' dist-v053-v3/strings.txt
+          grep -Fq 'xhr.response' dist-v053-v3/strings.txt
+          grep -Fq 'RuntimeCapture2.cache.jsonl' dist-v053-v3/strings.txt
+          ! grep -Fq 'JCG53UIEntry' dist-v053-v3/strings.txt
+          ! grep -Fq 'lua_pushlstring-json' dist-v053-v3/strings.txt
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture/dist-v053-v3
+          cat > README.txt <<'TXT'
+          JSONCapture v0.5.3-v3 Runtime Capture 2 — clean v0.5.2 base
+
+          Baseline:
+          - Exact branch start: v0.5.2 commit 6e34d986e535ab548bcae28cdc3776bc8cf399bc.
+          - Original source module list preserved: ManualTaskEngineV05.m, JCG5ScrollFix.m, OnDeviceLuaRecovery.m.
+          - Original constructor model preserved: exactly two Mach-O initializer pointers total.
+          - No TLS/TLV sections.
+
+          Runtime Capture 2:
+          - Added inside the existing ManualTaskEngineV05 lifecycle.
+          - Uses the same master gJCG5CaptureEnabled switch as Runtime Capture 1.
+          - Observes Cocos cc.XMLHttpRequest response/responseText getters via the low-frequency tolua_variable registration boundary.
+          - Reads getter result bytes through lua_tolstring with explicit length.
+          - Saves only complete JSON object/array bodies after NSJSONSerialization validation.
+          - Persistent MD5/SHA256 duplicate skip.
+
+          Output:
+          - Documents/JSONCapture/ManualV05/runtime_json/
+          - Documents/JSONCapture/ManualV05/runtime_json_manifest.jsonl
+          - Documents/JSONCapture/ManualV05/state/RuntimeCapture2.cache.jsonl
+
+          Validation boundary:
+          - CI compile/Mach-O structural checks passed if this artifact exists.
+          - Real-device injection and getter readiness still require device testing.
+          TXT
+          zip -9 JSONCapture_v0.5.3-v3_0.5.2Base_RuntimeCapture2_ToLua535.zip \
+            JSONCapture_v0.5.3-v3_0.5.2Base_RuntimeCapture2_ToLua535.dylib SHA256.txt README.txt load_commands.txt header.txt
+          shasum -a 256 JSONCapture_v0.5.3-v3_0.5.2Base_RuntimeCapture2_ToLua535.zip | tee ZIP_SHA256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.5.3-v3-0.5.2Base-RuntimeCapture2-ToLua535
+          path: |
+            jsoncapture/dist-v053-v3/JSONCapture_v0.5.3-v3_0.5.2Base_RuntimeCapture2_ToLua535.dylib
+            jsoncapture/dist-v053-v3/JSONCapture_v0.5.3-v3_0.5.2Base_RuntimeCapture2_ToLua535.zip
+            jsoncapture/dist-v053-v3/SHA256.txt
+            jsoncapture/dist-v053-v3/ZIP_SHA256.txt
+            jsoncapture/dist-v053-v3/load_commands.txt
+            jsoncapture/dist-v053-v3/header.txt
+          if-no-files-found: error
