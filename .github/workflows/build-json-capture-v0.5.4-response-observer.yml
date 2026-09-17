@@ -45,8 +45,6 @@ jobs:
           ! grep -Fq 'tolua_variable' "$src"
           ! grep -Fq 'lua_pushlstring-json' "$src"
           ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
-          # Keep the exact v0.5.2 startup model: ManualTaskEngine has one ctor;
-          # the three compiled units still have two constructors total.
           test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
           compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
             src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
@@ -92,10 +90,11 @@ jobs:
           ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v054/load_commands.txt
           ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v054/header.txt
 
+          # UTF-8 UI text is validated in source above; macOS strings is not a reliable
+          # verifier for Objective-C Unicode constants. Binary checks stay ASCII-only.
           grep -Fq 'RESPONSE-OBSERVER ready' dist-v054/strings.txt
           grep -Fq 'RESPONSE-OBSERVER target UUID mismatch' dist-v054/strings.txt
           grep -Fq 'CEF4252D-DCA1-3442-AED5-E5751D7BF5CD' dist-v054/strings.txt
-          grep -Fq '响应观察' dist-v054/strings.txt
           ! grep -Fq 'RUNTIME2-HOOK registration ready' dist-v054/strings.txt
           ! grep -Fq 'xhr.responseText' dist-v054/strings.txt
 
