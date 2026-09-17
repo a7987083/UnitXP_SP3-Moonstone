@@ -29,5 +29,6 @@ before-all::
 	@python3 scripts/apply_v056_response_metadata.py
 	@python3 scripts/apply_v056_response_metadata_hardening.py
 	@python3 scripts/apply_v057_unity_all_json.py
+	@python3 scripts/apply_v057_compile_compat.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
