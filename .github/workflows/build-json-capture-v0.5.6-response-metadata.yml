@@ -25,6 +25,7 @@ jobs:
           grep -Fq 'apply_v054_response_observer.py' jsoncapture/Makefile
           grep -Fq 'apply_v055_response_capture.py' jsoncapture/Makefile
           grep -Fq 'apply_v056_response_metadata.py' jsoncapture/Makefile
+          grep -Fq 'apply_v056_response_metadata_hardening.py' jsoncapture/Makefile
           test ! -e jsoncapture/src/JCG53RuntimeCapture2.m
           test ! -e jsoncapture/src/JCG53RuntimeCapture2UI.m
 
@@ -37,9 +38,11 @@ jobs:
           python3 scripts/apply_v054_response_observer.py
           python3 scripts/apply_v055_response_capture.py
           python3 scripts/apply_v056_response_metadata.py
+          python3 scripts/apply_v056_response_metadata_hardening.py
           src=src/ManualTaskEngineV05.m
 
           grep -Fq 'JCG5_RESPONSE_METADATA_V056' "$src"
+          grep -Fq 'JCG5_RESPONSE_METADATA_V056_HARDENED' "$src"
           grep -Fq 'JCG56_SEND_WEB_REQUEST_RVA 0x0ECFD938ULL' "$src"
           grep -Fq 'JCG56_GET_METHOD_RVA 0x0ECFDD54ULL' "$src"
           grep -Fq 'JCG56_GET_URL_RVA 0x0ECFE328ULL' "$src"
@@ -65,6 +68,8 @@ jobs:
           grep -Fq 'packverurl' "$src"
           grep -Fq 'notice_config' "$src"
           grep -Fq 'RESPONSE-METADATA hit=' "$src"
+          grep -Fq 'record[@"saved"] = @YES;' "$src"
+          grep -Fq 'record[@"saved"] = @NO;' "$src"
 
           ! grep -Fq 'tolua_variable' "$src"
           ! grep -Fq 'lua_pushlstring-json' "$src"
