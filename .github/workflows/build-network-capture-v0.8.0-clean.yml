@@ -26,6 +26,7 @@ jobs:
           grep -Fq 'apply_v080_alpha6_recovered_json_hashcheck.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha6_compile_fix.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha7_skill_router_recovery.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha7_compile_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v083_' jsoncapture/Makefile
@@ -66,11 +67,11 @@ jobs:
           python3 scripts/apply_v080_alpha6_recovered_json_hashcheck.py
           python3 scripts/apply_v080_alpha6_compile_fix.py
           python3 scripts/apply_v080_alpha7_skill_router_recovery.py
+          python3 scripts/apply_v080_alpha7_compile_fix.py
 
           src=src/ManualTaskEngineV05.m
           rec=src/OnDeviceLuaRecovery.m
 
-          # Stable authority remains v0.7.1 runtime_page_snapshot.
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
 
@@ -79,21 +80,22 @@ jobs:
           ! grep -A3 -F 'static int JCG60SendMsgWrapper(void *L)' "$src" | grep -Fq 'JCG80Mode2Pump(L);'
           grep -Fq 'gJCG86Mode2PumpBusy' "$src"
 
-          # rev-router: semantic method rank must dominate module name; specialized guide router rejected.
+          # rev-router: semantic method rank dominates module name; specialized routers are excluded and runtime failures trigger rediscovery.
           grep -Fq 'JCG5_V080_ALPHA7_SKILL_ROUTER_RECOVERY' "$src"
+          grep -Fq 'JCG5_V080_ALPHA7_COMPILE_FIX' "$src"
+          grep -Fq 'static BOOL JCG87RejectCurrentRouter(NSString *reason);' "$src"
           grep -Fq 'JCG87SpecializedOpenName' "$src"
           grep -Fq 'gJCG87RejectedOpenNames' "$src"
           grep -Fq 'ro * 1000000 + rc * 1000 + nameRank' "$src"
           grep -Fq 'MODE2 router candidate source=' "$src"
           grep -Fq 'MODE2 router reject fn=' "$src"
           grep -Fq 'action=rediscover-same-ui' "$src"
-          grep -Fq 'openGuideDlg' "$src" || true
 
-          # rev-struct/static recovery: runtime capture must not cancel JCG5TaskRecover.
+          # rev-struct/static recovery: runtime capture does not cancel recovery; file work uses Utility QoS.
           grep -Fq 'gJCG5Task!=JCG5TaskIdle && gJCG5Task!=JCG5TaskRecover' "$src"
           grep -Fq 'dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,QOS_CLASS_UTILITY,0)' "$src"
 
-          # Actual recovered_json bytes remain SHA256 authority; verification only yields cooperatively.
+          # Actual recovered_json bytes remain SHA256 authority.
           grep -Fq 'ODLR_V080_ALPHA7_COOPERATIVE_VERIFY' "$rec"
           grep -Fq 'NSString *actual=ODLRFileSHA256(path);' "$rec"
           grep -Fq '![actual isEqualToString:expectedSHA]' "$rec"
@@ -108,7 +110,6 @@ jobs:
           grep -Fq 'MODE2ROUTER=alpha7-semantic-adaptive' "$src"
           grep -Fq 'RECOVERYSHA=journal-v1-continuous' "$src"
 
-          # No abandoned reducer/new hook surface.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
           ! grep -Fq 'JCG80CaptureProtobufData' "$src"
           test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
@@ -140,7 +141,6 @@ jobs:
           otool -L "$out"
           shasum -a 256 "$out" | tee dist-v080-clean/SHA256.txt
           strings "$out" > dist-v080-clean/strings.txt
-
           grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' dist-v080-clean/strings.txt
           grep -Fq 'JSONCapture v0.8.0-alpha7 RouterSemantic+RecoveryContinuous' dist-v080-clean/strings.txt
           grep -Fq 'MODE2ROUTER=alpha7-semantic-adaptive' dist-v080-clean/strings.txt
