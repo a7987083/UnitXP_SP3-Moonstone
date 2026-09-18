@@ -50,15 +50,22 @@ rep(
     "whitelist watcher status",
 )
 
-# The top "运行时抓取 -> 最新" row is driven by gJCG5LastCaptureChunk. Feed the
-# exact same runtime-latest event into Mode1 on the same serial capture queue.
-# This removes the previous reliance on a separate queued observation path.
-anchor = 'pthread_mutex_lock(&gJCG5StateLock);gJCG5CaptureCount++;unsigned long long seq=gJCG5CaptureCount;[gJCG5LastCaptureChunk release];gJCG5LastCaptureChunk=[chunk copy];pthread_mutex_unlock(&gJCG5StateLock);'
-replacement = anchor + '\n' + \
-    '        // JCG5_RUNTIME_LATEST_SYNC_V081: Mode1 follows the exact source used by the visible runtime Latest field.\n' + \
+# The top "运行时抓取 -> 最新" row is driven by gJCG5LastCaptureChunk.
+# Feed BOTH duplicate and genuinely-new runtime observations into Mode1 from
+# this exact source. The visible Latest field changes in both branches.
+dup_anchor = 'pthread_mutex_lock(&gJCG5StateLock);gJCG5CaptureSkipped++;gJCG5CaptureCacheLoaded=gJCG5CaptureMD5s.count;[gJCG5LastCaptureChunk release];gJCG5LastCaptureChunk=[chunk copy];[gJCG5LastCaptureStatus release];gJCG5LastCaptureStatus=[@"已抓过" copy];pthread_mutex_unlock(&gJCG5StateLock);'
+dup_replacement = dup_anchor + '\n' + \
+    '            // JCG5_RUNTIME_LATEST_SYNC_V081: exact visible Latest source, duplicate branch.\n' + \
+    '            NSDictionary *runtimeLatestCtx = JCG60PageContextSnapshot();\n' + \
+    '            JCG80ObserveLuaChunkOnQueue(chunk, runtimeLatestCtx);\n'
+rep(dup_anchor, dup_replacement, "runtime latest duplicate bridge")
+
+new_anchor = 'pthread_mutex_lock(&gJCG5StateLock);gJCG5CaptureCount++;unsigned long long seq=gJCG5CaptureCount;[gJCG5LastCaptureChunk release];gJCG5LastCaptureChunk=[chunk copy];[gJCG5LastCaptureStatus release];gJCG5LastCaptureStatus=[@"新抓取" copy];pthread_mutex_unlock(&gJCG5StateLock);'
+new_replacement = new_anchor + '\n' + \
+    '        // JCG5_RUNTIME_LATEST_SYNC_V081: exact visible Latest source, new-capture branch.\n' + \
     '        NSDictionary *runtimeLatestCtx = JCG60PageContextSnapshot();\n' + \
     '        JCG80ObserveLuaChunkOnQueue(chunk, runtimeLatestCtx);\n'
-rep(anchor, replacement, "runtime latest source bridge")
+rep(new_anchor, new_replacement, "runtime latest new-capture bridge")
 
 # Version page-data output so device exports can be attributed unambiguously.
 rep(
