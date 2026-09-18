@@ -1,4 +1,4 @@
-name: Build NetworkCapture v0.8.0 Clean Alpha5 Router SHA256 Resume
+name: Build NetworkCapture v0.8.0 Clean Alpha6 SkillDriven
 
 on:
   workflow_dispatch:
@@ -22,18 +22,15 @@ jobs:
           set -euxo pipefail
           grep -Fq 'apply_v070_page_snapshot.py' jsoncapture/Makefile
           grep -Fq 'apply_v071_snapshot_completeness.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_alpha4_mode1_mode2_fix.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_recovery_memsafe.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha5_router_discovery.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha5_recovery_sha256_resume.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_alpha5_identity.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_alpha5_compile_fix.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha6_nonblocking_runtime.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha6_recovered_json_hashcheck.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
-          ! grep -Fq 'apply_v080_runtime_auto_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
-          ! grep -Fq 'apply_v082_sha256_identity.py' jsoncapture/Makefile
+          ! grep -Fq 'apply_v083_' jsoncapture/Makefile
 
-      - name: Apply patches and validate alpha5 invariants
+      - name: Apply patches and validate alpha6 invariants
         shell: bash
         run: |
           set -euxo pipefail
@@ -65,43 +62,49 @@ jobs:
           python3 scripts/apply_v080_alpha5_recovery_sha256_resume.py
           python3 scripts/apply_v080_alpha5_identity.py
           python3 scripts/apply_v080_alpha5_compile_fix.py
+          python3 scripts/apply_v080_alpha6_nonblocking_runtime.py
+          python3 scripts/apply_v080_alpha6_recovered_json_hashcheck.py
 
           src=src/ManualTaskEngineV05.m
           rec=src/OnDeviceLuaRecovery.m
 
+          # Stable authority remains v0.7.1 runtime_page_snapshot.
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
-          grep -Fq 'JCG80Mode1SyncAllCanonical' "$src"
-          grep -Fq 'skip-policy=none' "$src"
 
-          grep -Fq 'TAB_ResourcesUI-live-rawgeti' "$src"
-          grep -Fq 'gJCG85LuaGetMetatable' "$src"
-          grep -Fq '"__index"' "$src"
-          grep -Fq 'sharedInstance' "$src"
-          grep -Fq 'gJCG58LuaGetGlobal(L,"_G")' "$src"
-          grep -Fq 'gJCG58LuaGetGlobal(L,"package")' "$src"
-          grep -Fq 'MODE2 router scan wait' "$src"
-          grep -Fq 'discovery=alpha5-metatable-index' "$src"
-          grep -Fq 'JCG85PushRouterFunction' "$src"
-          grep -Fq 'JCG85ResourcesString' "$src"
-          grep -Fq 'JCG5_V080_ALPHA5_COMPILE_FIX' "$src"
-          grep -Fq 'JCG80Mode2OnSnapshot(file, d, sessionKey, entry);' "$src"
+          # Skill: rev-lua/lang-lua — no long work before sendMsg; parseMsg pump only after original parse.
+          grep -Fq 'JCG80Mode2Pump(L); // alpha6: post-parse only; never blocks user sendMsg input' "$src"
+          ! grep -A3 -F 'static int JCG60SendMsgWrapper(void *L)' "$src" | grep -Fq 'JCG80Mode2Pump(L);'
+          grep -Fq 'gJCG86Mode2PumpBusy' "$src"
+          grep -Fq '@finally { gJCG86Mode2PumpBusy=NO; }' "$src"
 
-          grep -Fq 'ODLR_V080_ALPHA5_SHA256_RESUME' "$rec"
+          # Skill: rev-router — bounded exact candidates, raw lookup, no _G/package.loaded enumeration.
+          grep -Fq 'discovery=alpha6-bounded-raw-exact' "$src"
+          grep -Fq 'JCG86RawGetField' "$src"
+          grep -Fq 'lua_rawget' "$src"
+          ! grep -Fq 'visited++ < 4096' "$src"
+          ! grep -Fq 'visited++ < 8192' "$src"
+          ! grep -Fq 'gJCG58LuaGetGlobal(L,"_G")' "$src"
+          grep -Fq '@"src/utils/DlgManager.lua"' "$src"
+          grep -Fq '@"src/utils/UIBase.lua"' "$src"
+
+          # Recovery: actual recovered_json/recorded JSON bytes must match SHA256 journal before skip.
+          grep -Fq 'ODLR_V080_ALPHA6_RECOVERED_JSON_HASHCHECK' "$rec"
+          grep -Fq 'NSString *actual=ODLRFileSHA256(path);' "$rec"
+          grep -Fq '![actual isEqualToString:expectedSHA]' "$rec"
           grep -Fq 'Recovery.SHA256.txt' "$rec"
-          grep -Fq 'ODLRFileSHA256' "$rec"
-          grep -Fq 'ODLRValidateManifestEntry' "$rec"
-          grep -Fq 'ODLRAppendManifestCommit' "$rec"
-          grep -Fq 'skipped_verified_this_run' "$rec"
-          grep -Fq 'RECOVERY skip verified' "$src"
+          grep -Fq 'SHA256清单命中' "$src"
+          grep -Fq 'skipped%250==0' "$src"
           grep -Fq 'ODLRRecoverDecodedDirectory(input,gJCG5Root,retryOnly?YES:NO' "$src"
           ! grep -Fq 'JCG5ResetDirectory(gJCG5RecoveredDir)' "$src"
           ! grep -Fq 'JCG5ResetDirectory(gJCG5PartialDir)' "$src"
           ! grep -Fq 'ODLRResetRecoveryIndex(gJCG5Root)' "$src"
 
-          grep -Fq 'JSONCapture v0.8.0-alpha5 Router+SHA256Resume' "$src"
-          grep -Fq 'MODE2ROUTER=alpha5-metatable-index' "$src"
-          grep -Fq 'RECOVERYSHA=journal-v1-resume' "$src"
+          grep -Fq 'JSONCapture v0.8.0-alpha6 NonBlocking+FastResume' "$src"
+          grep -Fq 'MODE2ROUTER=alpha6-bounded-raw-exact' "$src"
+          grep -Fq 'MODE2PUMP=parseMsg-post-only' "$src"
+
+          # No abandoned second business-data reducer; native startup surface unchanged.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
           ! grep -Fq 'JCG80CaptureProtobufData' "$src"
           test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
@@ -127,7 +130,7 @@ jobs:
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-v080-clean
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha5_Router_SHA256Resume.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha6_SkillDriven.dylib'
           cp .theos/obj/JSONCapture.dylib "$out"
           file "$out"
           otool -L "$out"
@@ -135,21 +138,18 @@ jobs:
           strings "$out" > dist-v080-clean/strings.txt
 
           grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' dist-v080-clean/strings.txt
-          grep -Fq 'JSONCapture v0.8.0-alpha5 Router+SHA256Resume' dist-v080-clean/strings.txt
-          grep -Fq 'TAB_ResourcesUI-live-rawgeti' dist-v080-clean/strings.txt
-          grep -Fq 'getmetatable=1' dist-v080-clean/strings.txt
-          grep -Fq 'MODE2 router scan wait' dist-v080-clean/strings.txt
-          grep -Fq 'discovery=alpha5-metatable-index' dist-v080-clean/strings.txt
+          grep -Fq 'JSONCapture v0.8.0-alpha6 NonBlocking+FastResume' dist-v080-clean/strings.txt
+          grep -Fq 'MODE2ROUTER=alpha6-bounded-raw-exact' dist-v080-clean/strings.txt
+          grep -Fq 'MODE2PUMP=parseMsg-post-only' dist-v080-clean/strings.txt
           grep -Fq 'Recovery.SHA256.txt' dist-v080-clean/strings.txt
-          grep -Fq 'RECOVERY skip verified' dist-v080-clean/strings.txt
-          grep -Fq 'RECOVERYSHA=journal-v1-resume' dist-v080-clean/strings.txt
+          grep -Fq 'SHA256清单命中' dist-v080-clean/strings.txt
 
       - name: Verify Mach-O startup invariants
         shell: bash
         run: |
           set -euxo pipefail
           cd jsoncapture
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha5_Router_SHA256Resume.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha6_SkillDriven.dylib'
           otool -l "$out" > dist-v080-clean/load_commands.txt
           otool -hv "$out" > dist-v080-clean/header.txt
           modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v080-clean/load_commands.txt)
@@ -161,9 +161,9 @@ jobs:
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v7
         with:
-          name: JSONCapture-v0.8.0-clean-alpha5-Router-SHA256Resume
+          name: JSONCapture-v0.8.0-clean-alpha6-SkillDriven
           path: |
-            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha5_Router_SHA256Resume.dylib
+            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha6_SkillDriven.dylib
             jsoncapture/dist-v080-clean/SHA256.txt
             jsoncapture/dist-v080-clean/load_commands.txt
             jsoncapture/dist-v080-clean/header.txt
