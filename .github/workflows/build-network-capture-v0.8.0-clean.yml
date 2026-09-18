@@ -26,6 +26,7 @@ jobs:
           grep -Fq 'apply_v080_alpha5_recovery_sha256_resume.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha6_nonblocking_runtime.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha6_recovered_json_hashcheck.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha6_compile_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v083_' jsoncapture/Makefile
@@ -64,21 +65,21 @@ jobs:
           python3 scripts/apply_v080_alpha5_compile_fix.py
           python3 scripts/apply_v080_alpha6_nonblocking_runtime.py
           python3 scripts/apply_v080_alpha6_recovered_json_hashcheck.py
+          python3 scripts/apply_v080_alpha6_compile_fix.py
 
           src=src/ManualTaskEngineV05.m
           rec=src/OnDeviceLuaRecovery.m
 
-          # Stable authority remains v0.7.1 runtime_page_snapshot.
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
 
-          # Skill: rev-lua/lang-lua — no long work before sendMsg; parseMsg pump only after original parse.
+          # rev-lua/lang-lua: never block sendMsg; Pump only after original parseMsg and guard reentry.
           grep -Fq 'JCG80Mode2Pump(L); // alpha6: post-parse only; never blocks user sendMsg input' "$src"
           ! grep -A3 -F 'static int JCG60SendMsgWrapper(void *L)' "$src" | grep -Fq 'JCG80Mode2Pump(L);'
           grep -Fq 'gJCG86Mode2PumpBusy' "$src"
           grep -Fq '@finally { gJCG86Mode2PumpBusy=NO; }' "$src"
 
-          # Skill: rev-router — bounded exact candidates, raw lookup, no _G/package.loaded enumeration.
+          # rev-router: bounded exact candidates + raw access; no whole _G/package.loaded sweep.
           grep -Fq 'discovery=alpha6-bounded-raw-exact' "$src"
           grep -Fq 'JCG86RawGetField' "$src"
           grep -Fq 'lua_rawget' "$src"
@@ -87,13 +88,15 @@ jobs:
           ! grep -Fq 'gJCG58LuaGetGlobal(L,"_G")' "$src"
           grep -Fq '@"src/utils/DlgManager.lua"' "$src"
           grep -Fq '@"src/utils/UIBase.lua"' "$src"
+          grep -Fq 'JCG5_V080_ALPHA6_COMPILE_FIX' "$src"
+          grep -Fq 'static NSString *JCG85ResourcesString(id v)' "$src"
 
-          # Recovery: actual recovered_json/recorded JSON bytes must match SHA256 journal before skip.
+          # Recovery: actual recovered JSON bytes are re-hashed and compared with Recovery.SHA256.txt before skip.
           grep -Fq 'ODLR_V080_ALPHA6_RECOVERED_JSON_HASHCHECK' "$rec"
           grep -Fq 'NSString *actual=ODLRFileSHA256(path);' "$rec"
           grep -Fq '![actual isEqualToString:expectedSHA]' "$rec"
           grep -Fq 'Recovery.SHA256.txt' "$rec"
-          grep -Fq 'SHA256清单命中' "$src"
+          grep -Fq 'RECOVERY skip journal-hit' "$src"
           grep -Fq 'skipped%250==0' "$src"
           grep -Fq 'ODLRRecoverDecodedDirectory(input,gJCG5Root,retryOnly?YES:NO' "$src"
           ! grep -Fq 'JCG5ResetDirectory(gJCG5RecoveredDir)' "$src"
@@ -104,7 +107,6 @@ jobs:
           grep -Fq 'MODE2ROUTER=alpha6-bounded-raw-exact' "$src"
           grep -Fq 'MODE2PUMP=parseMsg-post-only' "$src"
 
-          # No abandoned second business-data reducer; native startup surface unchanged.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
           ! grep -Fq 'JCG80CaptureProtobufData' "$src"
           test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
@@ -142,7 +144,7 @@ jobs:
           grep -Fq 'MODE2ROUTER=alpha6-bounded-raw-exact' dist-v080-clean/strings.txt
           grep -Fq 'MODE2PUMP=parseMsg-post-only' dist-v080-clean/strings.txt
           grep -Fq 'Recovery.SHA256.txt' dist-v080-clean/strings.txt
-          grep -Fq 'SHA256清单命中' dist-v080-clean/strings.txt
+          grep -Fq 'RECOVERY skip journal-hit' dist-v080-clean/strings.txt
 
       - name: Verify Mach-O startup invariants
         shell: bash
