@@ -10,7 +10,8 @@ TWEAK_NAME = JSONCapture
 # - v0.6.0 page context + NetWorkManager protobuf capture remains unchanged.
 # - v0.7.0/v0.7.1 runtime_page_snapshot remains the only business-data reducer.
 # - v0.8.0-alpha1 adds Mode1 as an exact byte mirror of canonical snapshot writes.
-# - No second JSON/protobuf reducer is introduced for Mode1.
+# - v0.8.0-alpha2 adds Mode2 active UI navigation on the existing game Lua thread.
+# - Mode1/Mode2 are orchestration only; no second JSON/protobuf reducer is introduced.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -32,5 +33,6 @@ before-all::
 	@python3 scripts/apply_v070_page_snapshot.py
 	@python3 scripts/apply_v071_snapshot_completeness.py
 	@python3 scripts/apply_v080_mode1_exact_mirror.py
+	@python3 scripts/apply_v080_mode2_auto.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
