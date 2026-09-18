@@ -1,0 +1,133 @@
+name: Build NetworkCapture v0.8.0 Clean Alpha1 Mode1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - rebuild/network-capture-v0.8.0-clean
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/build-network-capture-v0.8.0-clean.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify clean v0.7.1 baseline chain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -Fq 'apply_v070_page_snapshot.py' jsoncapture/Makefile
+          grep -Fq 'apply_v071_snapshot_completeness.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_mode1_exact_mirror.py' jsoncapture/Makefile
+          ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
+          ! grep -Fq 'apply_v080_runtime_auto_fix.py' jsoncapture/Makefile
+          ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
+          ! grep -Fq 'apply_v082_sha256_identity.py' jsoncapture/Makefile
+          ! grep -Fq 'apply_v083_' jsoncapture/Makefile
+
+      - name: Apply patches and verify Mode1 architecture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v054_response_observer.py
+          python3 scripts/apply_v055_response_capture.py
+          python3 scripts/apply_v056_response_metadata.py
+          python3 scripts/apply_v056_response_metadata_hardening.py
+          python3 scripts/apply_v057_unity_all_json.py
+          python3 scripts/apply_v057_compile_compat.py
+          python3 scripts/apply_v058_socket_http_json.py
+          python3 scripts/apply_v059_network_coverage.py
+          python3 scripts/apply_v059_compile_fix.py
+          python3 scripts/apply_v060_page_protobuf.py
+          python3 scripts/apply_v060_hardening.py
+          python3 scripts/apply_v070_page_snapshot.py
+          python3 scripts/apply_v071_snapshot_completeness.py
+          python3 scripts/apply_v080_mode1_exact_mirror.py
+
+          src=src/ManualTaskEngineV05.m
+          grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
+          grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
+          grep -Fq 'JCG5_MODE1_EXACT_MIRROR_V080A1' "$src"
+          grep -Fq 'JCG80Mode1MirrorSnapshot(file, d, sessionKey);' "$src"
+          grep -Fq 'mode1_manual' "$src"
+          grep -Fq 'isEqualToData:canonicalData' "$src"
+          grep -Fq 'Mode1 手动 开/关' "$src"
+          grep -Fq 'JSONCapture v0.8.0-alpha1 Mode1 Exact Mirror' "$src"
+          grep -Fq 'authority=runtime_page_snapshot bytes=identical' "$src"
+
+          # Mode1 must not introduce its own reducer/session/dependency model.
+          ! grep -Fq 'JCG80CaptureJSONData' "$src"
+          ! grep -Fq 'JCG80CaptureProtobufData' "$src"
+          ! grep -Fq 'dependency_graph' "$src"
+          ! grep -Fq '__dependency.json' "$src"
+
+          # Native/runtime surface stays identical to proven v0.7.1.
+          test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
+          test "$(grep -o 'dispatch_queue_create' "$src" | wc -l | tr -d ' ')" = '2'
+          ! grep -Eq '__thread|thread_local|JCG53UIEntry' "$src"
+          test "$(grep -c '__attribute__((constructor))' src/ManualTaskEngineV05.m | tr -d ' ')" = '1'
+          compiled_ctor_count=$(grep -h '__attribute__((constructor))' \
+            src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m \
+            | wc -l | tr -d ' ')
+          test "$compiled_ctor_count" = '2'
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-v080-clean
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha1_Mode1.dylib'
+          cp .theos/obj/JSONCapture.dylib "$out"
+          file "$out"
+          otool -L "$out"
+          shasum -a 256 "$out" | tee dist-v080-clean/SHA256.txt
+          strings "$out" > dist-v080-clean/strings.txt
+
+          grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' dist-v080-clean/strings.txt
+          grep -Fq 'runtime_page_snapshot' dist-v080-clean/strings.txt
+          grep -Fq 'JSONCapture v0.8.0-alpha1 Mode1 Exact Mirror' dist-v080-clean/strings.txt
+          grep -Fq 'MODE1 exact-byte-mirror canonical=runtime_page_snapshot' dist-v080-clean/strings.txt
+          grep -Fq 'MODE1 exact-mirror' dist-v080-clean/strings.txt
+
+      - name: Verify Mach-O startup invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha1_Mode1.dylib'
+          otool -l "$out" > dist-v080-clean/load_commands.txt
+          otool -hv "$out" > dist-v080-clean/header.txt
+          modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v080-clean/load_commands.txt)
+          echo "__mod_init_func size=$modinit"
+          test "$modinit" = '0x0000000000000010'
+          ! grep -Eq 'sectname __thread_vars|sectname __thread_bss' dist-v080-clean/load_commands.txt
+          ! grep -Fq 'HAS_TLV_DESCRIPTORS' dist-v080-clean/header.txt
+
+      - name: Upload dylib artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JSONCapture-v0.8.0-clean-alpha1-Mode1
+          path: |
+            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha1_Mode1.dylib
+            jsoncapture/dist-v080-clean/SHA256.txt
+            jsoncapture/dist-v080-clean/load_commands.txt
+            jsoncapture/dist-v080-clean/header.txt
+          if-no-files-found: error
+          retention-days: 30
