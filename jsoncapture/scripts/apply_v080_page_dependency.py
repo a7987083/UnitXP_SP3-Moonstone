@@ -405,7 +405,8 @@ static void JCG80StartManualCaptureOnQueue(void) {
     uiAt = gJCG60UILuaAt;
     pthread_mutex_unlock(&gJCG5StateLock);
     NSString *config = nil, *tab = nil;
-    if (tabChunk.length && fabs(tabAt - uiAt) <= 5.0 &&
+    NSTimeInterval tabUIGap = tabAt >= uiAt ? (tabAt - uiAt) : (uiAt - tabAt);
+    if (tabChunk.length && tabUIGap <= 5.0 &&
         JCG80WhitelistAllowsChunk(tabChunk, &config, &tab)) {
         JCG80SessionAdd(gJCG80Mode1Session, @"configs", config, YES);
         JCG80SessionAdd(gJCG80Mode1Session, @"tabs", tab, NO);
