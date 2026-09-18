@@ -1,0 +1,78 @@
+name: Validate JSONCapture v0.8.2 WIP
+
+on:
+  push:
+    branches:
+      - fix/jsoncapture-v0.8.2-recovery-memory-bundles
+    paths:
+      - 'jsoncapture/**'
+      - '.github/workflows/validate-jsoncapture-v0.8.2-wip.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Apply patch chain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          python3 scripts/apply_v052_runtime_cache.py
+          python3 scripts/apply_v054_response_observer.py
+          python3 scripts/apply_v055_response_capture.py
+          python3 scripts/apply_v056_response_metadata.py
+          python3 scripts/apply_v056_response_metadata_hardening.py
+          python3 scripts/apply_v057_unity_all_json.py
+          python3 scripts/apply_v057_compile_compat.py
+          python3 scripts/apply_v058_socket_http_json.py
+          python3 scripts/apply_v059_network_coverage.py
+          python3 scripts/apply_v059_compile_fix.py
+          python3 scripts/apply_v060_page_protobuf.py
+          python3 scripts/apply_v060_hardening.py
+          python3 scripts/apply_v070_page_snapshot.py
+          python3 scripts/apply_v071_snapshot_completeness.py
+          python3 scripts/apply_v080_page_dependency.py
+          python3 scripts/apply_v080_runtime_auto_fix.py
+          python3 scripts/apply_v081_runtime_latest_sync.py
+          python3 scripts/apply_v082_sha256_identity.py
+
+      - name: Verify SHA-256 invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          src=src/ManualTaskEngineV05.m
+          grep -Fq 'JCG5_SHA256_IDENTITY_V082' "$src"
+          grep -Fq 'effective-identity=full-sha256' "$src"
+          grep -Fq 'semantic_sha256' "$src"
+          grep -Fq 'file_sha256' "$src"
+          grep -Fq '缓存SHA256' "$src"
+          grep -Fq 'JCG82SnapshotSemanticSHA256' "$src"
+          grep -Fq 'JCG82FileMatchesSHA256' "$src"
+          ! grep -Fq 'JCG5MD5(' "$src"
+          ! grep -Fq 'CC_MD5_DIGEST_LENGTH' "$src"
+          ! grep -Fq 'gJCG5CaptureMD5s' "$src"
+          ! grep -Fq 'gJCG55ResponseMD5s' "$src"
+          ! grep -Fq 'gJCG57BackendMD5s' "$src"
+
+      - name: Install build dependencies
+        run: brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Build arm64
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd jsoncapture
+          make clean
+          make FINALPACKAGE=1
+          file .theos/obj/JSONCapture.dylib
+          strings .theos/obj/JSONCapture.dylib | grep -F 'effective-identity=full-sha256'
