@@ -211,8 +211,7 @@ static void JCG5QueueLoaderCapture(NSData *data, NSString *source, NSString *chu
 '''
 s = s[:mstart] + loader_block + s[mend:]
 
-s = s.replace("gJCG5CaptureHashes=[[NSMutableSet alloc]init];gJCG5CaptureMD5s=[[NSMutableSet alloc]init];",
-              "gJCG5CaptureHashes=[[NSMutableSet alloc]init];")
+s = s.replace("gJCG5CaptureMD5s=[[NSMutableSet alloc]init];", "")
 s = s.replace("缓存MD5：", "缓存SHA256：")
 
 # ---------------------------------------------------------------------------
