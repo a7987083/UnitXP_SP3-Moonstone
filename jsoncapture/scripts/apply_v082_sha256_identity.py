@@ -515,7 +515,7 @@ for forbidden in ("JCG5MD5(", "CC_MD5_DIGEST_LENGTH", "gJCG5CaptureMD5s", "gJCG5
 # Runtime marker is deliberately an emitted string so CI can verify the compiled dylib.
 rep(
     'JCG5Log(@"PAGE-DEPENDENCY v0.8.1 runtime-latest-source exact-visible-latest");',
-    'JCG5Log(@"SHA256-IDENTITY v0.8.2 effective-identity=full-sha256 snapshot=same-name-atomic-overwrite");\\n'
+    'JCG5Log(@"SHA256-IDENTITY v0.8.2 effective-identity=full-sha256 snapshot=same-name-atomic-overwrite");\n'
     '        JCG5Log(@"PAGE-DEPENDENCY v0.8.1 runtime-latest-source exact-visible-latest");',
     "compiled SHA-256 identity marker",
 )
