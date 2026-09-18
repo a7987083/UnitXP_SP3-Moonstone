@@ -1,0 +1,125 @@
+name: Build zonoe v3.0.0-alphaone13
+
+on:
+  push:
+    branches: [feature/zonoe-v3.0.0-alphaone13]
+    paths:
+      - "HFASign/**"
+      - ".github/workflows/hfasign-alphaone13.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct alphaone13 source
+        run: |
+          set -euxo pipefail
+          bash HFASign/scripts/reconstruct_alphaone10.sh
+
+      - name: Validate alphaone13 source behavior
+        run: |
+          set -euxo pipefail
+          test -f HFASignBuild/Ksign/Views/Sources/SourcesView.swift
+          test -f HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+          test -f HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+          test -f HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+          test -f HFASignBuild/Ksign/FeatherApp.swift
+
+          ! grep -q '软件源公告' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+          ! grep -q 'repositoryNotice(for:' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
+
+          ! grep -q 'isShowingClipboardPrompt = true' HFASignBuild/Ksign/Backend/Sources/SourceRepositoryLoader.swift
+          ! grep -q 'action == "addsource"' HFASignBuild/Ksign/FeatherApp.swift
+          ! grep -q 'FR.handleSource(fullPath)' HFASignBuild/Ksign/FeatherApp.swift
+          ! grep -q 'zonoe://addsource' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
+          ! grep -q 'zonoe://source/' HFASignBuild/Ksign/Views/Settings/URLSchemeView.swift
+
+          grep -q 'UIAlertController' HFASignBuild/Ksign/Views/Sources/SourcesView.swift
+          grep -q 'title: "添加软件源"' HFASignBuild/Ksign/Views/Sources/SourcesView.swift
+          ! grep -q '\.sheet(isPresented: \$_isAddingPresenting)' HFASignBuild/Ksign/Views/Sources/SourcesView.swift
+
+          grep -q 'UIAlertController' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+          grep -q 'title: "解锁 \\(app.currentName)"' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+          ! grep -q '\.alert("解锁' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+
+          grep -q 'CURRENT_PROJECT_VERSION = 113;' HFASignBuild/Ksign.xcodeproj/project.pbxproj
+          grep -q '<string>v3.0.0-alphaone13</string>' HFASignBuild/Ksign/Resources/Info.plist
+          git -C HFASignBuild diff --check
+
+      - name: Install packaging tools
+        run: brew install ldid
+
+      - name: Prepare installer assets
+        working-directory: HFASignBuild
+        run: make deps
+
+      - name: Resolve Swift packages
+        run: |
+          set -euxo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project HFASignBuild/Ksign.xcodeproj \
+            -scheme Ksign \
+            -clonedSourcePackagesDirPath HFASignBuild/SourcePackages
+          git -C HFASignBuild/SourcePackages/checkouts/ZIPFoundation apply \
+            ../../../../HFASign/patches/0018-Fix-ZIPFoundation-filename-encoding.patch
+
+      - name: Build unsigned iOS app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project HFASignBuild/Ksign.xcodeproj \
+            -scheme Ksign \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath HFASignBuild/build \
+            -skipPackagePluginValidation \
+            -clonedSourcePackagesDirPath HFASignBuild/SourcePackages \
+            SWIFT_VERSION=5 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee HFASign/build-alphaone13.log
+
+      - name: Package TrollStore IPA
+        run: |
+          set -euxo pipefail
+          app="HFASignBuild/build/Build/Products/Release-iphoneos/Ksign.app"
+          test -d "$app"
+          cp HFASignBuild/deps/* "$app/" || true
+          while IFS= read -r file; do
+            if file "$file" | grep -q 'Mach-O'; then ldid -S "$file"; fi
+          done < <(find "$app/Frameworks" -type f 2>/dev/null || true)
+          ldid -S "$app/Ksign"
+          rm -rf HFASign/dist/alphaone13-stage
+          mkdir -p HFASign/dist/alphaone13-stage/Payload
+          cp -R "$app" HFASign/dist/alphaone13-stage/Payload/HFASign.app
+          cd HFASign/dist/alphaone13-stage
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone13_TrollStore.ipa
+          cd ..
+          shasum -a 256 zonoe_v3.0.0-alphaone13_TrollStore.ipa > SHA256SUMS-alphaone13.txt
+
+      - name: Verify product metadata
+        run: |
+          set -euxo pipefail
+          plist="HFASign/dist/alphaone13-stage/Payload/HFASign.app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 113
+          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone13
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zonoe-v3.0.0-alphaone13-TrollStore
+          path: |
+            HFASign/dist/zonoe_v3.0.0-alphaone13_TrollStore.ipa
+            HFASign/dist/SHA256SUMS-alphaone13.txt
+            HFASign/build-alphaone13.log
+          if-no-files-found: warn
