@@ -5,23 +5,12 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = JSONCapture
 
-# v0.5 Manual Task Engine
-# - Runtime Lua loader capture hooks are lightweight and user-toggleable.
-# - No loaded-bundle watcher, no disk watcher, no persistent log poll.
-# - Local scan only runs when the user presses Start and only scans Documents/Bundle.
-# - Decrypt and JSON recovery are manual, mutually exclusive tasks.
-# - Only genuinely NEW runtime Lua captures preempt manual work.
-# - v0.5.1 restores scroll + draggable compact menu.
-# - v0.5.2 adds cross-launch MD5/SHA256 runtime Lua cache and duplicate skip UI.
-# - v0.5.4 adds an exact-target, read-only response observer on the SAME serialized hook-install path.
-# - v0.5.5 persists only fully validated JSON bodies from the proven response observer path.
-# - v0.5.6 correlates saved JSON with URL/method/status and classifies hot-update/notice responses.
-# - v0.5.7 adds UnityWebRequestDelegate/NSURLSession backend JSON capture across DownloadHandler types.
-# - v0.5.8 wraps g_requestHttpServer on the Lua VM thread to capture SocketTCP/protobuf bodies after optional AES decrypt.
-# - v0.5.9 adds session-scoped request/response coverage statistics without expanding the hook surface.
-# - v0.6.0 adds Lua page context plus NetWorkManager sendMsg/parseMsg protobuf business capture.
-# - v0.7.0 adds descriptor-driven protobuf JSON plus request-correlated page snapshots.
-# - v0.7.1 deepens protobuf snapshots and merges transient child UIs into stable parent pages.
+# Stable v0.7.1 core + clean v0.8 Mode1/Mode2 rebuild.
+# - v0.5.x capture/network/recovery behavior remains unchanged.
+# - v0.6.0 page context + NetWorkManager protobuf capture remains unchanged.
+# - v0.7.0/v0.7.1 runtime_page_snapshot remains the only business-data reducer.
+# - v0.8.0-alpha1 adds Mode1 as an exact byte mirror of canonical snapshot writes.
+# - No second JSON/protobuf reducer is introduced for Mode1.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -42,5 +31,6 @@ before-all::
 	@python3 scripts/apply_v060_hardening.py
 	@python3 scripts/apply_v070_page_snapshot.py
 	@python3 scripts/apply_v071_snapshot_completeness.py
+	@python3 scripts/apply_v080_mode1_exact_mirror.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
