@@ -4,12 +4,14 @@
 
 Branch: `feature/network-capture-v0.8.0-page-dependency`  
 Baseline: `521431ace1adc0067d28d690355f15c818c9e25a` (`v0.7.1 Snapshot Completeness`)  
-Compiled source commit: `947c453dcf686cddd71fa2737ea12e3dd5b3b1f7`
+Final compiled source/workflow commit: `e36faaa1233f10c4272859601f7309fc565738e7`
 
 Added:
 - `jsoncapture/scripts/apply_v080_page_dependency.py`.
 - TXT whitelist import through `UIDocumentPickerViewController`.
 - Mode 1 manual/passive page dependency capture.
+- Mode 1 pre-navigation arming so initial page request traffic is not intentionally skipped.
+- First new `UI*.lua` after arming becomes the page anchor; the already-current UI is ignored as the initial anchor.
 - Mode 2 passive policy learning with independent storage and policy state.
 - Runtime Completion Detector using a 1.8 s dependency-stability quiet window.
 - New output root `runtime_page_dependency/` with `mode1_manual/` and `mode2_auto/`.
@@ -23,6 +25,7 @@ Architecture/safety:
 - No new constructor or `+load`.
 - No TLS/TLV.
 - No polling thread.
+- No active request invocation path added.
 - Mode 1 does not read Mode 2 policy.
 - Existing v0.7.1 page/protobuf snapshot output remains enabled for A/B comparison.
 
@@ -31,18 +34,22 @@ Commits:
 - `7e97c4277a930c6a895dc61fd8eed5a6233466a1` — wire v0.8.0 patch into Makefile.
 - `0a298ef851fb8f96842a7e72d0b8202afcb5ba1c` — remove implicit math dependency.
 - `947c453dcf686cddd71fa2737ea12e3dd5b3b1f7` — add dedicated v0.8.0 CI build/invariant workflow.
+- `4f625f735fff3d489eb94934b80d03c41f422268` — fix Mode 1 timing by arming before target-page navigation.
+- `e36faaa1233f10c4272859601f7309fc565738e7` — add CI/source contract checks and package guidance for pre-navigation arming.
 
 Validation:
-- Source patch chain/contract checks: passed.
-- Theos arm64 compile/link/sign: passed.
-- GitHub Actions run: `35294375167` — success.
-- GitHub Actions job: `105443774129` — success.
-- Artifact ID: `10526374837`.
-- Artifact digest: `sha256:7bcab43d960d923287b67c1429ba8935492104e0a6675140a206782703742965`.
-- Dylib SHA256: `7f242c041e8f42787244df11302c86a16c4e5c8a04fd63bb429f8d1108745bed`.
-- Release ZIP SHA256: `cac6d344584307b24f93d604dc7b9d45d5b1b94b1455a0b21f82bbb63468fea6`.
+- Initial build run `35294375167` passed but was superseded by the Mode 1 arming fix.
+- Final source patch chain/contract checks: passed.
+- Final Theos arm64 compile/link/sign: passed.
+- Final GitHub Actions run: `35294784256` — success.
+- Final GitHub Actions job: `105444977167` — success.
+- Final Artifact ID: `10527791132`.
+- Final Artifact digest: `sha256:da619c74950a80ea79f929a8bee8b41586c5153126ce3cb89dc84741f5b18fdf`.
+- Final Dylib SHA256: `25897607cd2cd23740e1db648d88ed7c6a0ef84557b883ad8857c8ef8789c9d9`.
+- Final Release ZIP SHA256: `0e1b9b6e2b4fd310dbbb0f490a9127cd07eb8c7083f7acef8fb6f823923b4a78`.
 - Downloaded Artifact digest independently reproduced locally.
-- Mach-O independently checked as 64-bit arm64 dylib; `__mod_init_func` remains `0x10`.
+- Mach-O independently checked as 64-bit arm64 dylib.
+- v0.8.0 arming/readiness strings independently confirmed in the built dylib.
 - Real-device v0.8.0 validation: pending.
 - Regression/device parity against v0.7.1: pending.
 
