@@ -38,6 +38,7 @@ jobs:
           python3 scripts/apply_v080_page_dependency.py
           python3 scripts/apply_v080_runtime_auto_fix.py
           python3 scripts/apply_v081_runtime_latest_sync.py
+          grep -nE 'AttachLocalTabConfig|CapturedTabConfigs|page_local_tab_config|JCG70TabGlobalName' src/ManualTaskEngineV05.m || true
           python3 scripts/apply_v082_sha256_identity.py
 
       - name: Verify SHA-256 invariants
