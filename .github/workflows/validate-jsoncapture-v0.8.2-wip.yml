@@ -41,6 +41,7 @@ jobs:
           python3 scripts/apply_v082_sha256_identity.py
           python3 scripts/apply_v083_foundation_fixes.py
           python3 scripts/apply_v083_recovery_memory.py
+          python3 scripts/apply_v083_recovery_summary_restore.py
           python3 scripts/apply_v083_snapshot_mode_unify.py
           python3 scripts/apply_v083_compile_cleanup.py
 
@@ -62,6 +63,7 @@ jobs:
           grep -Fq 'semantic_sha256' "$src"
           grep -Fq 'file_sha256' "$src"
           grep -Fq 'ODLR_RECOVERY_MEMORY_V083' "$rec"
+          grep -Fq 'ODLRBuildSummary' "$rec"
           grep -Fq 'incremental_exact_top_k' "$rec"
           ! grep -Fq 'gJCG81Mode2RunPages' "$src"
           ! grep -Fq 'JCG81CaptureJSONData(gJCG80Mode1Session' "$src"
