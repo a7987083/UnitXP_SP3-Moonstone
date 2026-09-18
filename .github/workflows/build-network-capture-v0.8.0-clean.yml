@@ -28,6 +28,7 @@ jobs:
           grep -Fq 'apply_v080_alpha4_mode1_mode2_fix.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_recovery_memsafe.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha4_stability.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha4_compile_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_runtime_auto_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
@@ -61,6 +62,7 @@ jobs:
           python3 scripts/apply_v080_alpha4_mode1_mode2_fix.py
           python3 scripts/apply_v080_recovery_memsafe.py
           python3 scripts/apply_v080_alpha4_stability.py
+          python3 scripts/apply_v080_alpha4_compile_fix.py
 
           src=src/ManualTaskEngineV05.m
           rec=src/OnDeviceLuaRecovery.m
@@ -82,7 +84,7 @@ jobs:
 
           # 3) Local scan must prefer Documents/Bundles, singular Bundle only fallback.
           grep -Fq 'stringByAppendingPathComponent:@"Bundles"' "$src"
-          grep -Fq 'legacyBundle' "$src"
+          grep -Fq 'chosenBundleDir' "$src"
           grep -Fq 'LOCAL-SCAN source=' "$src"
 
           # 4) Recovery memory lifetime fix + before/after-group observability.
@@ -94,6 +96,8 @@ jobs:
           grep -Fq '@"recover_end"' "$rec"
           grep -Fq 'RECOVERY begin group=' "$src"
           grep -Fq 'RECOVERY end group=' "$src"
+          grep -Fq 'JCG5_V080_ALPHA4_COMPILE_FIX' "$src"
+          ! grep -Fq 'NSString *session = [idx objectForKey:@"page_session_key"] ?: @"";' "$src"
 
           # No abandoned second reducer.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
