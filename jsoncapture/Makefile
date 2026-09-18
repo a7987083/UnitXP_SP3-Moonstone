@@ -15,7 +15,7 @@ TWEAK_NAME = JSONCapture
 # - v0.8.0-alpha4 fixes ResourcesUI row access, Documents/Bundles and recovery MRC lifetimes.
 # - v0.8.0-alpha5 adds Router discovery and crash-resumable SHA256 journaling.
 # - v0.8.0-alpha6 removes Mode2 from sendMsg, bounds/raw-accesses Router discovery,
-#   adds reentry protection, and makes SHA256 resume fast without re-hashing all outputs.
+#   adds reentry protection, throttles resume UI, and verifies actual recovered_json SHA256 before skip.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -50,5 +50,6 @@ before-all::
 	@python3 scripts/apply_v080_alpha5_identity.py
 	@python3 scripts/apply_v080_alpha5_compile_fix.py
 	@python3 scripts/apply_v080_alpha6_nonblocking_runtime.py
+	@python3 scripts/apply_v080_alpha6_recovered_json_hashcheck.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
