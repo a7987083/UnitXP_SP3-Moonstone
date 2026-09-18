@@ -172,6 +172,30 @@ static NSString *JCG2SHA256(NSData *data) {
     return s;
 }
 
+static NSString *JCG2FileSHA256(NSString *path) {
+    if (!path.length) return @"";
+    NSInputStream *stream = [NSInputStream inputStreamWithFileAtPath:path];
+    if (!stream) return @"";
+    [stream open];
+    CC_SHA256_CTX ctx;
+    CC_SHA256_Init(&ctx);
+    uint8_t buf[64 * 1024];
+    BOOL ok = YES;
+    while (YES) {
+        NSInteger n = [stream read:buf maxLength:sizeof(buf)];
+        if (n < 0) { ok = NO; break; }
+        if (n == 0) break;
+        CC_SHA256_Update(&ctx, buf, (CC_LONG)n);
+    }
+    [stream close];
+    if (!ok) return @"";
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(digest, &ctx);
+    NSMutableString *s = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (NSUInteger i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [s appendFormat:@"%02x", digest[i]];
+    return s;
+}
+
 static NSString *JCG2HexPrefix(NSData *data) {
     if (!data.length) return @"";
     const uint8_t *p = data.bytes; NSUInteger n = MIN((NSUInteger)24, data.length);
@@ -415,8 +439,16 @@ static void JCG2AppendManifest(NSString *jsonLine) {
 }
 
 static NSString *JCG2WriteData(NSData *data, NSString *dir, NSString *assetName, NSString *hash, NSString *ext) {
-    NSString *shortHash=hash.length>12?[hash substringToIndex:12]:hash; NSString *file=[NSString stringWithFormat:@"%@_%@.%@",JCG2SafeName(assetName),shortHash,ext];
-    NSString *path=[[gRootPath stringByAppendingPathComponent:dir] stringByAppendingPathComponent:file]; if(![[NSFileManager defaultManager] fileExistsAtPath:path]) [data writeToFile:path atomically:YES]; return file;
+    NSString *fullHash = hash.lowercaseString ?: @"";
+    NSString *file=[NSString stringWithFormat:@"%@_%@.%@",JCG2SafeName(assetName),fullHash,ext];
+    NSString *path=[[gRootPath stringByAppendingPathComponent:dir] stringByAppendingPathComponent:file];
+    BOOL same = NO;
+    if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        NSData *old = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+        same = old.length && [[JCG2SHA256(old) lowercaseString] isEqualToString:fullHash];
+    }
+    if (!same) [data writeToFile:path atomically:YES];
+    return file;
 }
 
 static int JCG2CompileOnly(NSData *decoded, NSString *assetName) {
@@ -491,7 +523,8 @@ static NSArray *JCG2DiskRoots(void) {
 }
 
 static NSString *JCG2FileVersion(NSString *path, NSDictionary *attrs) {
-    NSNumber *size=attrs[NSFileSize]?:@0; NSDate *date=attrs[NSFileModificationDate]?:[NSDate dateWithTimeIntervalSince1970:0]; return [NSString stringWithFormat:@"%@:%0.f",size,date.timeIntervalSince1970];
+    (void)attrs;
+    return JCG2FileSHA256(path);
 }
 
 static void JCG2ProcessDiskBundleOnMain(NSString *path, NSString *version) {
@@ -509,9 +542,10 @@ static void JCG2ScanDiskOnce(void) {
         for(NSString *root in JCG2DiskRoots()){@autoreleasepool{
             NSDirectoryEnumerator *en=[fm enumeratorAtURL:[NSURL fileURLWithPath:root] includingPropertiesForKeys:@[NSURLIsRegularFileKey,NSURLFileSizeKey,NSURLContentModificationDateKey] options:NSDirectoryEnumerationSkipsHiddenFiles errorHandler:^BOOL(NSURL *url,NSError *error){JCG2Log([NSString stringWithFormat:@"DISK-ENUM-ERR %@ %@",url.path,error]);return YES;}];
             for(NSURL *url in en){@autoreleasepool{NSNumber *isFile=nil;[url getResourceValue:&isFile forKey:NSURLIsRegularFileKey error:nil];if(!isFile.boolValue)continue;NSString *path=url.path;if(JCG2PathShouldSkip(path))continue;filesSeenThisPass++;
-                NSDictionary *attrs=[fm attributesOfItemAtPath:path error:nil];NSString *ver=JCG2FileVersion(path,attrs);BOOL changed=NO;
+                if(!JCG2FileHasUnityMagic(path))continue;
+                NSDictionary *attrs=[fm attributesOfItemAtPath:path error:nil];NSString *ver=JCG2FileVersion(path,attrs);if(!ver.length)continue;BOOL changed=NO;
                 pthread_mutex_lock(&gDiskLock);NSString *old=gDiskSeenVersions[path];if(!old||![old isEqualToString:ver]){gDiskSeenVersions[path]=ver;changed=YES;}pthread_mutex_unlock(&gDiskLock);
-                if(!changed)continue;if(!JCG2FileHasUnityMagic(path))continue;candidatesThisPass++;
+                if(!changed)continue;candidatesThisPass++;
                 NSString *pathCopy=[path copy];NSString *verCopy=[ver copy];dispatch_async(dispatch_get_main_queue(),^{JCG2ProcessDiskBundleOnMain(pathCopy,verCopy);[pathCopy release];[verCopy release];});
             }}
         }}
