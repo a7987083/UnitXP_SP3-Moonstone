@@ -46,5 +46,6 @@ before-all::
 	@python3 scripts/apply_v080_alpha5_router_discovery.py
 	@python3 scripts/apply_v080_alpha5_recovery_sha256_resume.py
 	@python3 scripts/apply_v080_alpha5_identity.py
+	@python3 scripts/apply_v080_alpha5_compile_fix.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
