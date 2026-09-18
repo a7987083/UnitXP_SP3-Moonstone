@@ -36,5 +36,6 @@ before-all::
 	@python3 scripts/apply_v080_mode1_exact_mirror.py
 	@python3 scripts/apply_v080_mode2_auto.py
 	@python3 scripts/apply_v080_alpha3_runtime_sync.py
+	@python3 scripts/apply_v080_alpha3_compile_fix.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
