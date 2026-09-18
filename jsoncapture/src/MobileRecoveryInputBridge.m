@@ -2,9 +2,9 @@
 #import <CommonCrypto/CommonDigest.h>
 #include <limits.h>
 
-#define JCG4_BRIDGE_SCHEMA 2
+#define JCG4_BRIDGE_SCHEMA 3
 
-static unsigned long long gJCG4BridgeLastManifestSize = ULLONG_MAX;
+static NSString *gJCG4BridgeLastManifestSHA256;
 static dispatch_queue_t gJCG4BridgeQueue;
 
 static NSString *JCG4BridgeSafe(NSString *text) {
@@ -18,17 +18,17 @@ static NSString *JCG4BridgeSafe(NSString *text) {
     return out.length?out:@"unnamed";
 }
 
-static NSString *JCG4BridgeSHA12(NSData *data) {
-    if(!data.length)return @"000000000000";
+static NSString *JCG4BridgeSHA256(NSData *data) {
+    if(!data.length)return @"";
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];
     CC_SHA256(data.bytes,(CC_LONG)data.length,digest);
-    NSMutableString *s=[NSMutableString stringWithCapacity:24];
-    for(NSUInteger i=0;i<6;i++)[s appendFormat:@"%02x",digest[i]];
+    NSMutableString *s=[NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH*2];
+    for(NSUInteger i=0;i<CC_SHA256_DIGEST_LENGTH;i++)[s appendFormat:@"%02x",digest[i]];
     return s;
 }
 
-static BOOL JCG4BridgeIsHex12(NSString *s) {
-    if(s.length!=12)return NO;
+static BOOL JCG4BridgeIsHexHash(NSString *s) {
+    if(!(s.length==12||s.length==64))return NO;
     NSCharacterSet *hex=[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"];
     return [[s stringByTrimmingCharactersInSet:hex] length]==0;
 }
@@ -39,7 +39,24 @@ static NSString *JCG4BridgeHashFromFileName(NSString *name) {
     NSRange r=[base rangeOfString:@"_" options:NSBackwardsSearch];
     if(r.location==NSNotFound||r.location+1>=base.length)return nil;
     NSString *tail=[base substringFromIndex:r.location+1];
-    return JCG4BridgeIsHex12(tail)?[tail lowercaseString]:nil;
+    return JCG4BridgeIsHexHash(tail)?[tail lowercaseString]:nil;
+}
+
+static NSString *JCG4BridgeResolveFullHash(NSDictionary *filesByHash, NSString *hint) {
+    if(!hint.length)return nil;
+    NSString *lower=hint.lowercaseString;
+    if(lower.length==64 && filesByHash[lower])return lower;
+    if(lower.length==12){
+        NSString *match=nil;
+        for(NSString *full in filesByHash){
+            if([full hasPrefix:lower]){
+                if(match)return nil;
+                match=full;
+            }
+        }
+        return match;
+    }
+    return nil;
 }
 
 static NSString *JCG4BridgeLeaf(NSString *asset) {
@@ -114,23 +131,23 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
     NSString *manifest=[rootPath stringByAppendingPathComponent:@"manifest.jsonl"];
     [fm createDirectoryAtPath:decoded withIntermediateDirectories:YES attributes:nil error:nil];
 
-    NSDictionary *attrs=[fm attributesOfItemAtPath:manifest error:nil];
-    unsigned long long manifestSize=[attrs[NSFileSize] unsignedLongLongValue];
-    if(manifestSize==gJCG4BridgeLastManifestSize){
-        return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"unchanged":@YES,@"schema_version":@(JCG4_BRIDGE_SCHEMA) };
-    }
-
     NSData *md=[NSData dataWithContentsOfFile:manifest options:NSDataReadingMappedIfSafe error:nil];
     if(!md.length)return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"schema_version":@(JCG4_BRIDGE_SCHEMA) };
+    NSString *manifestSHA256=JCG4BridgeSHA256(md);
+    if(manifestSHA256.length && [manifestSHA256 isEqualToString:gJCG4BridgeLastManifestSHA256]){
+        return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"unchanged":@YES,@"manifest_sha256":manifestSHA256,@"schema_version":@(JCG4_BRIDGE_SCHEMA) };
+    }
     NSString *text=[[[NSString alloc]initWithData:md encoding:NSUTF8StringEncoding]autorelease];
     if(!text.length)return @{ @"mapped":@0,@"missing":@0,@"invalid":@0,@"total":@0,@"schema_version":@(JCG4_BRIDGE_SCHEMA) };
 
-    /* Build a hash -> existing files map so r2 files already moved away from
-       manifest decoded_file names can still be migrated in-place. */
+    /* Build a FULL SHA-256 -> existing files map. Filename suffixes are not
+       trusted as identity; legacy 12-hex names are migrated by their bytes. */
     NSMutableDictionary *filesByHash=[NSMutableDictionary dictionary];
     for(NSString *name in [fm contentsOfDirectoryAtPath:decoded error:nil]){
-        NSString *h=JCG4BridgeHashFromFileName(name);
-        if(!h.length)continue;
+        NSString *path=[decoded stringByAppendingPathComponent:name];
+        NSData *bytes=[NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+        NSString *h=JCG4BridgeSHA256(bytes);
+        if(h.length!=64)continue;
         NSMutableArray *a=filesByHash[h];
         if(!a){a=[NSMutableArray array];filesByHash[h]=a;}
         [a addObject:name];
@@ -156,9 +173,10 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
         if(bytes.length>=5){
             const uint8_t *p=bytes.bytes;
             if(!(p[0]==0x1B&&p[1]=='L'&&p[2]=='u'&&p[3]=='a'&&p[4]==0x53)){invalid++;continue;}
-            hash=JCG4BridgeSHA12(bytes);
+            hash=JCG4BridgeSHA256(bytes);
         }
-        if(!hash.length){missing++;continue;}
+        if(hash.length!=64) hash=JCG4BridgeResolveFullHash(filesByHash,hash);
+        if(hash.length!=64){missing++;continue;}
 
         NSString *stem=JCG4BridgeCanonicalStem(asset);
         NSString *dstName=[NSString stringWithFormat:@"%@_%@.luac",stem,hash];
@@ -207,13 +225,13 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
 
     BOOL resetRecovery=NO;
     JCG4BridgeResetStaleRecoveryIfNeeded(rootPath,&resetRecovery);
-    gJCG4BridgeLastManifestSize=manifestSize;
+    [gJCG4BridgeLastManifestSHA256 release];\n    gJCG4BridgeLastManifestSHA256=[manifestSHA256 copy];
     NSDictionary *status=@{
         @"schema_version":@(JCG4_BRIDGE_SCHEMA),
         @"mapped":@(mapped),@"normalized_files":@(normalized),@"dedup_removed":@(dedupRemoved),@"missing":@(missing),@"invalid":@(invalid),@"total":@(total),
         @"canonical_groups_expected":@"TAB_xxx_N fragments now strip compound .lua.bytes suffixes before grouping",
         @"recovery_state_reset":@(resetRecovery),
-        @"input_dir":decoded,@"strategy":@"manifest asset leaf -> strip compound suffixes -> canonical decoded_lua filename; dedup by decoded hash",
+        @"input_dir":decoded,@"strategy":@"manifest SHA-256 change detection; canonical decoded_lua filename; dedup by full decoded SHA-256",\n        @"manifest_sha256":manifestSHA256?:@"",
         @"updated_at":@([[NSDate date] timeIntervalSince1970])
     };
     JCG4BridgeWriteDictionary(status,[rootPath stringByAppendingPathComponent:@"MobileRecoveryInput.status.json"]);
