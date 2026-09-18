@@ -33,7 +33,8 @@ rep(
     BOOL bundlesIsDir = NO, legacyIsDir = NO;
     BOOL hasBundles = [[NSFileManager defaultManager] fileExistsAtPath:bundles isDirectory:&bundlesIsDir] && bundlesIsDir;
     BOOL hasLegacy = [[NSFileManager defaultManager] fileExistsAtPath:legacyBundle isDirectory:&legacyIsDir] && legacyIsDir;
-    gJCG5BundleDir = [[hasBundles ? bundles : (hasLegacy ? legacyBundle : bundles)] retain];''',
+    NSString *chosenBundleDir = hasBundles ? bundles : (hasLegacy ? legacyBundle : bundles);
+    gJCG5BundleDir = [chosenBundleDir retain];''',
     "Documents/Bundles primary path",
 )
 
