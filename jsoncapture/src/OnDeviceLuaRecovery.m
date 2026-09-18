@@ -45,8 +45,8 @@ static BOOL ODLRFileMatchesSHA256(NSString *path, NSString *expected) {
     if (!path.length || expected.length != 64) return NO;
     NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
     if (!data.length) return NO;
-    return [[[ODLRSHA256(data) lowercaseString] copy] autorelease] &&
-           [[ODLRSHA256(data) lowercaseString] isEqualToString:[expected lowercaseString]];
+    NSString *actual = ODLRSHA256(data).lowercaseString;
+    return [actual isEqualToString:expected.lowercaseString];
 }
 
 static BOOL ODLRHasLua53Signature(NSData *data) {
