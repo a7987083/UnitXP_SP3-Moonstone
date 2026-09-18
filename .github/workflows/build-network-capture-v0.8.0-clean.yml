@@ -25,6 +25,7 @@ jobs:
           grep -Fq 'apply_v080_mode1_exact_mirror.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_mode2_auto.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha3_runtime_sync.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha3_compile_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_runtime_auto_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
@@ -53,6 +54,7 @@ jobs:
           python3 scripts/apply_v080_mode1_exact_mirror.py
           python3 scripts/apply_v080_mode2_auto.py
           python3 scripts/apply_v080_alpha3_runtime_sync.py
+          python3 scripts/apply_v080_alpha3_compile_fix.py
 
           src=src/ManualTaskEngineV05.m
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
@@ -60,6 +62,7 @@ jobs:
           grep -Fq 'JCG5_MODE1_EXACT_MIRROR_V080A1' "$src"
           grep -Fq 'JCG5_MODE2_AUTO_V080A2' "$src"
           grep -Fq 'JCG5_V080_ALPHA3_RUNTIME_SYNC' "$src"
+          grep -Fq 'JCG5_V080_ALPHA3_COMPILE_FIX' "$src"
           grep -Fq 'JCG80Mode1MirrorSnapshot(file, d, sessionKey);' "$src"
           grep -Fq 'JCG80Mode2OnSnapshot(file, d, sessionKey, entry);' "$src"
           grep -Fq 'JCG80CanonicalResyncCurrentContext();' "$src"
@@ -68,15 +71,16 @@ jobs:
           grep -Fq 'source=TAB_ResourcesUI-array' "$src"
           grep -Fq 'MODE2 canonical-resync' "$src"
           grep -Fq 'CANONICAL-RESYNC no-match' "$src"
-          grep -Fq 'gJCG80Mode2PumpBusy' "$src"
-          grep -Fq '@finally' "$src"
           grep -Fq 'Mode1 手动 开/关' "$src"
           grep -Fq 'Mode2 全自动 开/关' "$src"
           grep -Fq 'JSONCapture v0.8.0-alpha3 Mode1+Mode2 SyncFix' "$src"
-          grep -Fq 'resourcesui=header-array canonical-resync=1 pump-reentry=guarded' "$src"
+          grep -Fq 'resourcesui=header-array canonical-resync=1 pump-reentry=deferred' "$src"
+          grep -Fq 'malformed-pump-guard-removed=1' "$src"
 
-          # alpha2's broken object-row-only ResourcesUI access must be gone.
+          # alpha2's broken object-row-only ResourcesUI access and malformed guard must be gone.
           ! grep -Fq 'gJCG60LuaGetField(L, row, "UIName")' "$src"
+          ! grep -Fq 'gJCG80Mode2PumpBusy' "$src"
+          ! grep -Fq '@finally' "$src"
 
           # Mode1/Mode2 must never reintroduce the abandoned v0.8 dependency reducer.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
