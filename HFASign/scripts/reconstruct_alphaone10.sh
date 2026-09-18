@@ -30,7 +30,7 @@ python3 "${HFASIGN_DIR}/scripts/apply_alphaone10_udid_reliability.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone10_udid_fixed_port_hotfix.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone11_source_notice_urlscheme.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone12_features.py"
-python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_source_ui_cleanup.py"
+python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_source_ui_cleanup_v2.py"
 
 git -C "${BUILD_DIR}" diff --check
 git -C "${BUILD_DIR}" submodule update --init --recursive
