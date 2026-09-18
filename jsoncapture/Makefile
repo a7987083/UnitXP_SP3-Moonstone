@@ -42,5 +42,6 @@ before-all::
 	@python3 scripts/apply_v080_alpha4_mode1_mode2_fix.py
 	@python3 scripts/apply_v080_recovery_memsafe.py
 	@python3 scripts/apply_v080_alpha4_stability.py
+	@python3 scripts/apply_v080_alpha4_compile_fix.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
