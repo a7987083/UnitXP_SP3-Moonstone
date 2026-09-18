@@ -39,5 +39,6 @@ before-all::
 	@python3 scripts/apply_v083_foundation_fixes.py
 	@python3 scripts/apply_v083_recovery_memory.py
 	@python3 scripts/apply_v083_snapshot_mode_unify.py
+	@python3 scripts/apply_v083_compile_cleanup.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
