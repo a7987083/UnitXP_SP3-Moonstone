@@ -163,7 +163,7 @@ static void JCG5QueueLoaderCapture(NSData *data, NSString *source, NSString *chu
             [gJCG5LastCaptureStatus release]; gJCG5LastCaptureStatus = [@"已抓过" copy];
             pthread_mutex_unlock(&gJCG5StateLock);
 
-            // Same source as the visible “运行时抓取 -> 最新” field.
+            // JCG5_RUNTIME_LATEST_SYNC_V081 preserved: same source as the visible “运行时抓取 -> 最新” field.
             NSDictionary *runtimeLatestCtx = JCG60PageContextSnapshot();
             JCG80ObserveLuaChunkOnQueue(chunk, runtimeLatestCtx);
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -238,7 +238,8 @@ response_cache = r'''static void JCG55LoadResponseCacheIfNeeded(void) {
             @autoreleasepool {
                 if (line.length < 2) continue;
                 NSDictionary *o = [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
-                NSString *sha = [[o isKindOfClass:[NSDictionary class]] ? o[@"sha256"] : nil lowercaseString];
+                id shaObj = [o isKindOfClass:[NSDictionary class]] ? [o objectForKey:@"sha256"] : nil;
+                NSString *sha = [shaObj isKindOfClass:[NSString class]] ? [shaObj lowercaseString] : @"";
                 if (sha.length == 64) [gJCG55ResponseSHA256s addObject:sha];
             }
         }
@@ -323,7 +324,7 @@ s = s.replace("static NSMutableSet *gJCG70CapturedTabConfigs;\n",
               "static NSMutableDictionary *gJCG82TabConfigSHA256ByGlobal;\n")
 
 tstart = s.index("static void JCG70AttachLocalTabConfig(void *L, NSMutableDictionary *event) {")
-tend = s.index("\n}\n\n'''", tstart) + 2
+tend = s.index("\n}\n\nstatic void JCG60QueueProtobufEvent(", tstart) + 2
 tab_func = r'''static void JCG70AttachLocalTabConfig(void *L, NSMutableDictionary *event) {
     if (!L || !event || !gJCG58LuaGetGlobal || !gJCG58LuaGetTop || !gJCG58LuaSetTop) return;
     NSString *tab = [event objectForKey:@"page_tab_lua"];
@@ -367,6 +368,13 @@ s = s[:tstart] + tab_func + s[tend:]
 # 6) runtime_page_snapshot: same-name atomic overwrite remains mandatory.
 #    SHA-256 determines semantic change; exact serialized bytes get file_sha256.
 # ---------------------------------------------------------------------------
+rep(
+    "static void JCG70EnsureSnapshotPaths(void) {",
+    "static void JCG82LoadSnapshotIndexIfNeeded(void);\\n"
+    "static void JCG70EnsureSnapshotPaths(void) {",
+    "snapshot index loader forward declaration",
+)
+
 anchor = '''static void JCG70WriteIndex(void) {'''
 snapshot_hash_helpers = r'''
 static NSDictionary *JCG82SemanticJSONState(NSDictionary *state) {
