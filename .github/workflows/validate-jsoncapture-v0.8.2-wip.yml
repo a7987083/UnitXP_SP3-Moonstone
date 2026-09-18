@@ -1,4 +1,4 @@
-name: Validate JSONCapture v0.8.3 RouterDiscovery WIP
+name: Validate JSONCapture v0.8.3 RecoveryRollback WIP
 
 on:
   push:
@@ -40,8 +40,6 @@ jobs:
           python3 scripts/apply_v081_runtime_latest_sync.py
           python3 scripts/apply_v082_sha256_identity.py
           python3 scripts/apply_v083_foundation_fixes.py
-          python3 scripts/apply_v083_recovery_memory.py
-          python3 scripts/apply_v083_recovery_summary_restore.py
           python3 scripts/apply_v083_snapshot_mode_unify.py
           python3 scripts/apply_v083_compile_cleanup.py
           python3 scripts/apply_v083_router_discovery.py
@@ -71,9 +69,10 @@ jobs:
           grep -Fq 'TAB_ResourcesUI' "$src"
           grep -Fq 'key == -1' "$src"
           grep -Fq '等待ResourcesUI' "$src"
-          grep -Fq 'ODLR_RECOVERY_MEMORY_V083' "$rec"
+          grep -Fq 'static NSDictionary *ODLRRecoverGroup' "$rec"
           grep -Fq 'ODLRBuildSummary' "$rec"
-          grep -Fq 'incremental_exact_top_k' "$rec"
+          ! grep -Fq 'ODLR_RECOVERY_MEMORY_V083' "$rec"
+          ! grep -Fq 'incremental_exact_top_k' "$rec"
           ! grep -Fq 'gJCG81Mode2RunPages' "$src"
           ! grep -Fq 'JCG81CaptureJSONData(gJCG80Mode1Session' "$src"
           ! grep -Fq 'JCG81CaptureJSONData(session, meta' "$src"
@@ -104,15 +103,15 @@ jobs:
           strings .theos/obj/JSONCapture.dylib | grep -F 'JSONCapture v0.8.3 Snapshot Unified'
           strings .theos/obj/JSONCapture.dylib | grep -F 'Mode2.RouterDiscovery.json'
           strings .theos/obj/JSONCapture.dylib | grep -F 'runtime_page_snapshot'
-          cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib
-          shasum -a 256 ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib | tee ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.sha256
+          cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.3_RecoveryRollback_WIP.dylib
+          shasum -a 256 ../JSONCapture_v0.8.3_RecoveryRollback_WIP.dylib | tee ../JSONCapture_v0.8.3_RecoveryRollback_WIP.sha256
 
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JSONCapture-v0.8.3-RouterDiscoveryFix-WIP
+          name: JSONCapture-v0.8.3-RecoveryRollback-WIP
           path: |
-            JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib
-            JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.sha256
+            JSONCapture_v0.8.3_RecoveryRollback_WIP.dylib
+            JSONCapture_v0.8.3_RecoveryRollback_WIP.sha256
           if-no-files-found: error
           retention-days: 30
