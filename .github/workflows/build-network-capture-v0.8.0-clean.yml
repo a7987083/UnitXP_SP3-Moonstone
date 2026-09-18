@@ -24,6 +24,7 @@ jobs:
           grep -Fq 'apply_v071_snapshot_completeness.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_mode1_exact_mirror.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_mode2_auto.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha4_preflight.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha4_mode1_mode2_fix.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_recovery_memsafe.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha4_stability.py' jsoncapture/Makefile
@@ -56,6 +57,7 @@ jobs:
           python3 scripts/apply_v080_mode2_auto.py
           python3 scripts/apply_v080_alpha3_runtime_sync.py
           python3 scripts/apply_v080_alpha3_compile_fix.py
+          python3 scripts/apply_v080_alpha4_preflight.py
           python3 scripts/apply_v080_alpha4_mode1_mode2_fix.py
           python3 scripts/apply_v080_recovery_memsafe.py
           python3 scripts/apply_v080_alpha4_stability.py
@@ -63,7 +65,6 @@ jobs:
           src=src/ManualTaskEngineV05.m
           rec=src/OnDeviceLuaRecovery.m
 
-          # Stable canonical reducer remains authoritative.
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
 
