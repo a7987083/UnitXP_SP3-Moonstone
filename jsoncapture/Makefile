@@ -23,6 +23,7 @@ TWEAK_NAME = JSONCapture
 # - v0.7.0 adds descriptor-driven protobuf JSON plus request-correlated page snapshots.
 # - v0.7.1 deepens protobuf snapshots and merges transient child UIs into stable parent pages.
 # - v0.8.0 adds whitelist-driven page dependency capture, runtime-auto Mode1, explicit Mode2 lifecycle, and clean page-data export.
+# - v0.8.2 standardizes active content identity/change detection on full SHA-256.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -46,5 +47,6 @@ before-all::
 	@python3 scripts/apply_v080_page_dependency.py
 	@python3 scripts/apply_v080_runtime_auto_fix.py
 	@python3 scripts/apply_v081_runtime_latest_sync.py
+	@python3 scripts/apply_v082_sha256_identity.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
