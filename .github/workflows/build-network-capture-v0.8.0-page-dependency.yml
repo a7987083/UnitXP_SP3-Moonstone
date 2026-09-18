@@ -67,6 +67,9 @@ jobs:
           grep -Fq 'JCG80ObserveLuaChunk' "$src"
           grep -Fq 'JCG80ObserveProtobuf' "$src"
           grep -Fq 'JCG80StartManualCapture' "$src"
+          grep -Fq 'gJCG80Mode1Armed' "$src"
+          grep -Fq 'PAGE-DEPENDENCY mode1 armed' "$src"
+          grep -Fq 'Mode1 已预备' "$src"
           grep -Fq 'JCG71SnapshotProtobuf' "$src"
           grep -Fq 'JCG71FindStableParentSession' "$src"
           grep -Fq 'JCG71_CHILD_PARENT_MAX_GAP' "$src"
@@ -182,7 +185,8 @@ jobs:
           - Exact UnityFramework UUID gate remains unchanged.
 
           Page Dependency Capture:
-          - Mode 1 anchors attribution to a manual page session and never reads Mode 2 policy.
+          - Mode 1 is armed before navigation; the first new UI chunk becomes the page anchor so initial request traffic is not missed.
+          - Mode 1 never reads Mode 2 policy.
           - TXT whitelist accepts one .json name per line and gates runtime TAB/config dependencies.
           - Request and request-correlated response MSGIDs become primary page protocols; unmatched PUSH remains a candidate.
           - Runtime Cache/Model Lua names are preserved as observed candidates rather than claimed as proven semantic dependencies.
@@ -225,7 +229,15 @@ jobs:
           - No new dispatch queue; existing serial capture queue is reused.
           - Lua table snapshot recursion/node limits are stack-balanced.
 
-          Real-device validation:
+          v0.8.0 Mode 1 validation:
+          - Import the whitelist TXT first.
+          - Stay on the previous page, tap Mode1预备→打开页面, then manually open the target page.
+          - Confirm status changes from 已预备/等待新 UI 锚点 to the actual UI name and then to ✅ 已抓取完成.
+          - Do not press claim/refresh/purchase buttons during the first passive baseline capture.
+          - Inspect runtime_page_dependency/mode1_manual/*__dependency.json and dependency_graph.json.
+          - Primary protocols should be request/request-correlated response traffic; unmatched PUSH stays under protocol_candidates.
+
+          Existing v0.7.1 snapshot validation:
           - Look for PROTOBUF Lua API ready and PROTOBUF wrapper ready send=1 parse=1.
           - Open a page such as Daily Active, then wait for its requests/responses to settle.
           - Check runtime_page_snapshot/UIDaily__TAB_DailyActive_1.json (or the active page equivalent).
