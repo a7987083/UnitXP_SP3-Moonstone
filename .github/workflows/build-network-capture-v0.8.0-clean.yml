@@ -1,4 +1,4 @@
-name: Build NetworkCapture v0.8.0 Clean Alpha4 Mode1 Mode2
+name: Build NetworkCapture v0.8.0 Clean Alpha4 Full Fix
 
 on:
   workflow_dispatch:
@@ -24,16 +24,16 @@ jobs:
           grep -Fq 'apply_v071_snapshot_completeness.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_mode1_exact_mirror.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_mode2_auto.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_alpha3_runtime_sync.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_alpha3_compile_fix.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha4_mode1_mode2_fix.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_recovery_memsafe.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha4_stability.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_runtime_auto_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v082_sha256_identity.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v083_' jsoncapture/Makefile
 
-      - name: Apply patches and verify v0.8 clean architecture
+      - name: Apply patches and verify all four fixes
         shell: bash
         run: |
           set -euxo pipefail
@@ -57,25 +57,44 @@ jobs:
           python3 scripts/apply_v080_alpha3_runtime_sync.py
           python3 scripts/apply_v080_alpha3_compile_fix.py
           python3 scripts/apply_v080_alpha4_mode1_mode2_fix.py
+          python3 scripts/apply_v080_recovery_memsafe.py
+          python3 scripts/apply_v080_alpha4_stability.py
 
           src=src/ManualTaskEngineV05.m
+          rec=src/OnDeviceLuaRecovery.m
+
+          # Stable canonical reducer remains authoritative.
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
-          grep -Fq 'JCG5_MODE1_EXACT_MIRROR_V080A1' "$src"
-          grep -Fq 'JCG5_MODE2_AUTO_V080A2' "$src"
-          grep -Fq 'JCG5_V080_ALPHA3_RUNTIME_SYNC' "$src"
-          grep -Fq 'JCG5_V080_ALPHA4_MODE1_MODE2_FIX' "$src"
-          grep -Fq 'JCG80Mode1SyncAllCanonical' "$src"
-          grep -Fq 'skip-policy=none' "$src"
-          grep -Fq 'lua_rawgeti' "$src"
-          grep -Fq 'source=TAB_ResourcesUI-live-rawgeti' "$src"
-          grep -Fq 'JCG80Mode2OnSnapshot(file, d, sessionKey, entry);' "$src"
-          grep -Fq 'JSONCapture v0.8.0-alpha4 Mode1Follower+Mode2RawUI' "$src"
 
-          # Mode1 must not use current-context page matching anymore.
+          # 1) Mode1 = whole-directory byte follower; no page-match skip semantics.
+          grep -Fq 'JCG80Mode1SyncAllCanonical' "$src"
+          grep -Fq 'MODE1 directory-follow sync total=' "$src"
+          grep -Fq 'skip-policy=none' "$src"
           ! grep -Fq 'if (m1) JCG80Mode1MirrorSnapshot(file, canonical, session);' "$src"
 
-          # Mode1/Mode2 must never reintroduce the abandoned v0.8 dependency reducer.
+          # 2) Mode2 = live ResourcesUI numeric-row access, then real Router state machine.
+          grep -Fq 'lua_rawgeti' "$src"
+          grep -Fq 'TAB_ResourcesUI-live-rawgeti' "$src"
+          grep -Fq 'MODE2 router ready source=' "$src"
+          grep -Fq 'JCG80Mode2OnSnapshot(file, d, sessionKey, entry);' "$src"
+
+          # 3) Local scan must prefer Documents/Bundles, singular Bundle only fallback.
+          grep -Fq 'stringByAppendingPathComponent:@"Bundles"' "$src"
+          grep -Fq 'legacyBundle' "$src"
+          grep -Fq 'LOCAL-SCAN source=' "$src"
+
+          # 4) Recovery memory lifetime fix + before/after-group observability.
+          grep -Fq 'ODLR_V080_MEMSAFE_G5' "$rec"
+          grep -Fq 'OnDeviceLuaRecovery 0.4.3-g5-memsafe' "$rec"
+          grep -Fq 'ODLRInsertTopState' "$rec"
+          grep -Fq '[states release];' "$rec"
+          grep -Fq '@"recover_begin"' "$rec"
+          grep -Fq '@"recover_end"' "$rec"
+          grep -Fq 'RECOVERY begin group=' "$src"
+          grep -Fq 'RECOVERY end group=' "$src"
+
+          # No abandoned second reducer.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
           ! grep -Fq 'JCG80CaptureProtobufData' "$src"
           ! grep -Fq 'dependency_graph' "$src"
@@ -107,7 +126,7 @@ jobs:
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-v080-clean
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha4_Mode1_Mode2.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha4_FullFix.dylib'
           cp .theos/obj/JSONCapture.dylib "$out"
           file "$out"
           otool -L "$out"
@@ -115,22 +134,22 @@ jobs:
           strings "$out" > dist-v080-clean/strings.txt
 
           grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' dist-v080-clean/strings.txt
-          grep -Fq 'runtime_page_snapshot' dist-v080-clean/strings.txt
           grep -Fq 'JSONCapture v0.8.0-alpha4 Mode1Follower+Mode2RawUI' dist-v080-clean/strings.txt
           grep -Fq 'MODE1 canonical-directory-follower skip-policy=none' dist-v080-clean/strings.txt
           grep -Fq 'MODE1 directory-follow sync total=' dist-v080-clean/strings.txt
           grep -Fq 'MODE2 Lua API ready pcallk=1 pushlstring=1 rawgeti=1' dist-v080-clean/strings.txt
-          grep -Fq 'MODE2 queue ready safe=' dist-v080-clean/strings.txt
           grep -Fq 'TAB_ResourcesUI-live-rawgeti' dist-v080-clean/strings.txt
           grep -Fq 'MODE2 router ready source=' dist-v080-clean/strings.txt
-          grep -Fq 'MODE2 snapshot complete' dist-v080-clean/strings.txt
+          grep -Fq 'LOCALSCAN=Documents/Bundles' dist-v080-clean/strings.txt
+          grep -Fq 'RECOVERY=memsafe-g5' dist-v080-clean/strings.txt
+          grep -Fq 'RECOVERY begin group=' dist-v080-clean/strings.txt
 
       - name: Verify Mach-O startup invariants
         shell: bash
         run: |
           set -euxo pipefail
           cd jsoncapture
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha4_Mode1_Mode2.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha4_FullFix.dylib'
           otool -l "$out" > dist-v080-clean/load_commands.txt
           otool -hv "$out" > dist-v080-clean/header.txt
           modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v080-clean/load_commands.txt)
@@ -142,9 +161,9 @@ jobs:
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v7
         with:
-          name: JSONCapture-v0.8.0-clean-alpha4-Mode1-Mode2
+          name: JSONCapture-v0.8.0-clean-alpha4-FullFix
           path: |
-            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha4_Mode1_Mode2.dylib
+            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha4_FullFix.dylib
             jsoncapture/dist-v080-clean/SHA256.txt
             jsoncapture/dist-v080-clean/load_commands.txt
             jsoncapture/dist-v080-clean/header.txt
