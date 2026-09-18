@@ -368,7 +368,7 @@ s = s[:tstart] + tab_func + s[tend:]
 # ---------------------------------------------------------------------------
 rep(
     "static void JCG70EnsureSnapshotPaths(void) {",
-    "static void JCG82LoadSnapshotIndexIfNeeded(void);\\n"
+    "static void JCG82LoadSnapshotIndexIfNeeded(void);\n"
     "static void JCG70EnsureSnapshotPaths(void) {",
     "snapshot index loader forward declaration",
 )
