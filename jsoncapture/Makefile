@@ -49,5 +49,6 @@ before-all::
 	@python3 scripts/apply_v080_alpha6_recovered_json_hashcheck.py
 	@python3 scripts/apply_v080_alpha6_compile_fix.py
 	@python3 scripts/apply_v080_alpha7_skill_router_recovery.py
+	@python3 scripts/apply_v080_alpha7_compile_fix.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
