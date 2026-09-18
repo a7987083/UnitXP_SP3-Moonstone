@@ -148,7 +148,7 @@ static void JCG81MergeV071SnapshotData(NSMutableDictionary *session) {
             NSMutableDictionary *dst = [pageData objectForKey:@"http_json"];
             for (NSString *endpoint in jsonState) {
                 id value = [jsonState objectForKey:endpoint];
-                if (value) [dst setObject:value forKey:endpoint];
+                if (value && ![dst objectForKey:endpoint]) [dst setObject:value forKey:endpoint];
             }
         }
         NSDictionary *pbState = [snap objectForKey:@"protobuf_state"];
@@ -156,7 +156,7 @@ static void JCG81MergeV071SnapshotData(NSMutableDictionary *session) {
             NSMutableDictionary *dst = [pageData objectForKey:@"protobuf"];
             for (NSString *name in pbState) {
                 id value = [pbState objectForKey:name];
-                if (value) [dst setObject:value forKey:name];
+                if (value && ![dst objectForKey:name]) [dst setObject:value forKey:name];
             }
         }
         break;
