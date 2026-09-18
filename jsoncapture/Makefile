@@ -38,6 +38,7 @@ before-all::
 	@python3 scripts/apply_v080_mode2_auto.py
 	@python3 scripts/apply_v080_alpha3_runtime_sync.py
 	@python3 scripts/apply_v080_alpha3_compile_fix.py
+	@python3 scripts/apply_v080_alpha4_preflight.py
 	@python3 scripts/apply_v080_alpha4_mode1_mode2_fix.py
 	@python3 scripts/apply_v080_recovery_memsafe.py
 	@python3 scripts/apply_v080_alpha4_stability.py
