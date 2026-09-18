@@ -42,6 +42,7 @@ jobs:
           python3 scripts/apply_v083_foundation_fixes.py
           python3 scripts/apply_v083_recovery_memory.py
           python3 scripts/apply_v083_snapshot_mode_unify.py
+          python3 scripts/apply_v083_compile_cleanup.py
 
       - name: Verify v0.8.3 invariants
         shell: bash
@@ -53,6 +54,7 @@ jobs:
           grep -Fq 'JCG5_SHA256_IDENTITY_V082' "$src"
           grep -Fq 'JCG5_FOUNDATION_FIXES_V083' "$src"
           grep -Fq 'JCG5_SNAPSHOT_MODE_UNIFY_V083' "$src"
+          grep -Fq 'JCG5_V083_COMPILE_CLEANUP' "$src"
           grep -Fq 'JSONCapture v0.8.3 Snapshot Unified' "$src"
           grep -Fq 'stringByAppendingPathComponent:@"Bundles"' "$src"
           grep -Fq 'JCG83OnCanonicalSnapshotWrite' "$src"
@@ -61,6 +63,7 @@ jobs:
           grep -Fq 'file_sha256' "$src"
           grep -Fq 'ODLR_RECOVERY_MEMORY_V083' "$rec"
           grep -Fq 'incremental_exact_top_k' "$rec"
+          ! grep -Fq 'gJCG81Mode2RunPages' "$src"
           ! grep -Fq 'JCG81CaptureJSONData(gJCG80Mode1Session' "$src"
           ! grep -Fq 'JCG81CaptureJSONData(session, meta' "$src"
           ! grep -Fq 'JCG81CaptureProtobufData(gJCG80Mode1Session' "$src"
