@@ -11,6 +11,7 @@ TWEAK_NAME = JSONCapture
 # - v0.7.0/v0.7.1 runtime_page_snapshot remains the only business-data reducer.
 # - v0.8.0-alpha1 adds Mode1 as an exact byte mirror of canonical snapshot writes.
 # - v0.8.0-alpha2 adds Mode2 active UI navigation on the existing game Lua thread.
+# - v0.8.0-alpha3 fixes TAB_ResourcesUI header/array parsing and canonical resync.
 # - Mode1/Mode2 are orchestration only; no second JSON/protobuf reducer is introduced.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
@@ -34,5 +35,6 @@ before-all::
 	@python3 scripts/apply_v071_snapshot_completeness.py
 	@python3 scripts/apply_v080_mode1_exact_mirror.py
 	@python3 scripts/apply_v080_mode2_auto.py
+	@python3 scripts/apply_v080_alpha3_runtime_sync.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
