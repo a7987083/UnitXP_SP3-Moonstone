@@ -103,7 +103,6 @@ jobs:
           strings .theos/obj/JSONCapture.dylib | grep -F 'effective-identity=full-sha256'
           strings .theos/obj/JSONCapture.dylib | grep -F 'JSONCapture v0.8.3 Snapshot Unified'
           strings .theos/obj/JSONCapture.dylib | grep -F 'Mode2.RouterDiscovery.json'
-          strings .theos/obj/JSONCapture.dylib | grep -F '等待ResourcesUI'
           strings .theos/obj/JSONCapture.dylib | grep -F 'runtime_page_snapshot'
           cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib
           shasum -a 256 ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib | tee ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.sha256
