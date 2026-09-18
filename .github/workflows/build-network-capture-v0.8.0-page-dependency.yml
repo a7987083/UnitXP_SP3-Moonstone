@@ -163,7 +163,7 @@ jobs:
           grep -Fq 'PAGE-DEPENDENCY v0.8.0' dist-v080-runtime-auto/strings.txt
           grep -Fq 'mode1-policy-isolated' dist-v080-runtime-auto/strings.txt
           grep -Fq 'runtime-ui-watch' dist-v080-runtime-auto/strings.txt
-          grep -Fq 'Mode2 ✅ 启动成功' dist-v080-runtime-auto/strings.txt
+          grep -Fq 'PAGE-DEPENDENCY mode2 start success' dist-v080-runtime-auto/strings.txt
           grep -Fq 'runtime_page_data' dist-v080-runtime-auto/strings.txt
           grep -Fq 'unknown-never-active' dist-v080-runtime-auto/strings.txt
           grep -Fq 'runtime_page_dependency' dist-v080-runtime-auto/strings.txt
