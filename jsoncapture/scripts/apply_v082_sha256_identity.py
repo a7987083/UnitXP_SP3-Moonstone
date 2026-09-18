@@ -47,7 +47,8 @@ regex_rep(
 )
 
 start = s.index("static void JCG5AppendRuntimeCaptureCache(")
-end = s.index("#pragma mark - Dynamic symbols / loader hooks", start)
+last_cache_fn = s.index("static void JCG5LoadRuntimeCaptureCache(void) {", start)
+end = s.index("\n}\n", last_cache_fn) + 3
 runtime_cache_helpers = r'''// JCG5_SHA256_IDENTITY_V082: all content identity uses full SHA-256.
 static BOOL JCG82FileMatchesSHA256(NSString *path, NSString *expected) {
     if (!path.length || !expected.length) return NO;
