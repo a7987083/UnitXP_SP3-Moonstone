@@ -38,6 +38,7 @@ before-all::
 	@python3 scripts/apply_v082_sha256_identity.py
 	@python3 scripts/apply_v083_foundation_fixes.py
 	@python3 scripts/apply_v083_recovery_memory.py
+	@python3 scripts/apply_v083_recovery_summary_restore.py
 	@python3 scripts/apply_v083_snapshot_mode_unify.py
 	@python3 scripts/apply_v083_compile_cleanup.py
 
