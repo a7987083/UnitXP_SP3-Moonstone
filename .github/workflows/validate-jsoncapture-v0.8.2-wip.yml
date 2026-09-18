@@ -1,4 +1,4 @@
-name: Validate JSONCapture v0.8.2 WIP
+name: Validate JSONCapture v0.8.3 WIP
 
 on:
   push:
@@ -38,27 +38,37 @@ jobs:
           python3 scripts/apply_v080_page_dependency.py
           python3 scripts/apply_v080_runtime_auto_fix.py
           python3 scripts/apply_v081_runtime_latest_sync.py
-          grep -nE 'AttachLocalTabConfig|CapturedTabConfigs|page_local_tab_config|JCG70TabGlobalName' src/ManualTaskEngineV05.m || true
           python3 scripts/apply_v082_sha256_identity.py
+          python3 scripts/apply_v083_foundation_fixes.py
+          python3 scripts/apply_v083_recovery_memory.py
+          python3 scripts/apply_v083_snapshot_mode_unify.py
 
-      - name: Verify SHA-256 invariants
+      - name: Verify v0.8.3 invariants
         shell: bash
         run: |
           set -euxo pipefail
           cd jsoncapture
           src=src/ManualTaskEngineV05.m
+          rec=src/OnDeviceLuaRecovery.m
           grep -Fq 'JCG5_SHA256_IDENTITY_V082' "$src"
-          grep -Fq 'effective-identity=full-sha256' "$src"
+          grep -Fq 'JCG5_FOUNDATION_FIXES_V083' "$src"
+          grep -Fq 'JCG5_SNAPSHOT_MODE_UNIFY_V083' "$src"
+          grep -Fq 'JSONCapture v0.8.3 Snapshot Unified' "$src"
+          grep -Fq 'stringByAppendingPathComponent:@"Bundles"' "$src"
+          grep -Fq 'JCG83OnCanonicalSnapshotWrite' "$src"
+          grep -Fq 'authority=runtime_page_snapshot' "$src"
           grep -Fq 'semantic_sha256' "$src"
           grep -Fq 'file_sha256' "$src"
-          grep -Fq '缓存SHA256' "$src"
-          grep -Fq 'JCG82SnapshotSemanticSHA256' "$src"
-          grep -Fq 'JCG82FileMatchesSHA256' "$src"
+          grep -Fq 'ODLR_RECOVERY_MEMORY_V083' "$rec"
+          grep -Fq 'incremental_exact_top_k' "$rec"
+          ! grep -Fq 'JCG81CaptureJSONData(gJCG80Mode1Session' "$src"
+          ! grep -Fq 'JCG81CaptureJSONData(session, meta' "$src"
+          ! grep -Fq 'JCG81CaptureProtobufData(gJCG80Mode1Session' "$src"
+          ! grep -Fq 'JCG81CaptureProtobufData(session, event' "$src"
+          ! grep -Fq 'JCG81WriteCleanPageData(gJCG80Mode1Session' "$src"
+          ! grep -Fq 'JCG81WriteCleanPageData(session, gJCG81Mode2DataDir' "$src"
           ! grep -Fq 'JCG5MD5(' "$src"
           ! grep -Fq 'CC_MD5_DIGEST_LENGTH' "$src"
-          ! grep -Fq 'gJCG5CaptureMD5s' "$src"
-          ! grep -Fq 'gJCG55ResponseMD5s' "$src"
-          ! grep -Fq 'gJCG57BackendMD5s' "$src"
 
       - name: Install build dependencies
         run: brew install ldid
@@ -77,15 +87,17 @@ jobs:
           make FINALPACKAGE=1
           file .theos/obj/JSONCapture.dylib
           strings .theos/obj/JSONCapture.dylib | grep -F 'effective-identity=full-sha256'
-          cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.2_SHA256_WIP.dylib
-          shasum -a 256 ../JSONCapture_v0.8.2_SHA256_WIP.dylib | tee ../JSONCapture_v0.8.2_SHA256_WIP.sha256
+          strings .theos/obj/JSONCapture.dylib | grep -F 'JSONCapture v0.8.3 Snapshot Unified'
+          strings .theos/obj/JSONCapture.dylib | grep -F 'runtime_page_snapshot'
+          cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.3_SnapshotUnified_WIP.dylib
+          shasum -a 256 ../JSONCapture_v0.8.3_SnapshotUnified_WIP.dylib | tee ../JSONCapture_v0.8.3_SnapshotUnified_WIP.sha256
 
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JSONCapture-v0.8.2-SHA256-WIP
+          name: JSONCapture-v0.8.3-SnapshotUnified-WIP
           path: |
-            JSONCapture_v0.8.2_SHA256_WIP.dylib
-            JSONCapture_v0.8.2_SHA256_WIP.sha256
+            JSONCapture_v0.8.3_SnapshotUnified_WIP.dylib
+            JSONCapture_v0.8.3_SnapshotUnified_WIP.sha256
           if-no-files-found: error
           retention-days: 30
