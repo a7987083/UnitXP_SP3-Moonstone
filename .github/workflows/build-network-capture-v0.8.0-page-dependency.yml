@@ -67,7 +67,6 @@ jobs:
           grep -Fq 'Mode1 v0.8.1 ✅ 自动监听' "$src"
           grep -Fq 'JCG80ObserveLuaChunkOnQueue(chunk, runtimeLatestCtx);' "$src"
           grep -Fq 'PAGE-DEPENDENCY v0.8.1 runtime-latest-source exact-visible-latest' "$src"
-          grep -Fq 'Mode1 ✅ 自动监听' "$src"
           grep -Fq 'Mode2 开始全自动' "$src"
           grep -Fq 'Mode2 停止全自动' "$src"
           grep -Fq 'runtime_page_data' "$src"
