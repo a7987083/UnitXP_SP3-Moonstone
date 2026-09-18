@@ -298,17 +298,15 @@ s = s.replace("[gJCG57BackendSHA256s containsObject:md5]",
 # 4) Raw/decrypted local files: keep content-addressed names, but use the FULL
 #    SHA-256 rather than a 12-hex truncation/file-existence-only decision.
 # ---------------------------------------------------------------------------
-regex_rep(
-    r"static NSString \*JCG5WriteRaw\(NSData \*data, NSString \*asset\) \{.*?\n\}",
-    r'''static NSString *JCG5WriteRaw(NSData *data, NSString *asset) {
+raw_start = s.index("static NSString *JCG5WriteRaw(NSData *data, NSString *asset) {")
+raw_end = s.index("\n\nstatic void JCG5AppendRawManifest(", raw_start)
+s = s[:raw_start] + r'''static NSString *JCG5WriteRaw(NSData *data, NSString *asset) {
     NSString *hash = JCG5SHA256(data).lowercaseString;
     NSString *file = [NSString stringWithFormat:@"%@_%@.bin", JCG5Safe(asset,150), hash];
     NSString *path = [gJCG5RawDir stringByAppendingPathComponent:file];
     if (!JCG82FileMatchesSHA256(path, hash)) [data writeToFile:path atomically:YES];
     return file;
-}''',
-    "full SHA raw file identity",
-)
+}''' + s[raw_end:]
 s = s.replace(
     'NSString*file=[NSString stringWithFormat:@"%@_%@.luac",stem,[dh substringToIndex:MIN((NSUInteger)12,dh.length)]];',
     'NSString*file=[NSString stringWithFormat:@"%@_%@.luac",stem,dh.lowercaseString];'
