@@ -41,6 +41,14 @@ static NSString *ODLRSHA256(NSData *data) {
     return s;
 }
 
+static BOOL ODLRFileMatchesSHA256(NSString *path, NSString *expected) {
+    if (!path.length || expected.length != 64) return NO;
+    NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+    if (!data.length) return NO;
+    return [[[ODLRSHA256(data) lowercaseString] copy] autorelease] &&
+           [[ODLRSHA256(data) lowercaseString] isEqualToString:[expected lowercaseString]];
+}
+
 static BOOL ODLRHasLua53Signature(NSData *data) {
     if (data.length < 5) return NO;
     const uint8_t *p = data.bytes;
@@ -502,7 +510,7 @@ static NSDictionary *ODLRBuildSummary(NSDictionary *groups) {
 
 NSDictionary *ODLRDecryptRawDirectory(NSString *rawDirectory, NSString *decodedDirectory, NSString *stateRoot, BOOL forceAll, ODLRShouldYieldBlock shouldYield, ODLRProgressBlock progress) {
     NSFileManager *fm=[NSFileManager defaultManager];[fm createDirectoryAtPath:decodedDirectory withIntermediateDirectories:YES attributes:nil error:nil];[fm createDirectoryAtPath:stateRoot withIntermediateDirectories:YES attributes:nil error:nil];NSString *indexPath=[stateRoot stringByAppendingPathComponent:kODLRDecryptIndexName];NSDictionary *old=ODLRReadJSONDictionary(indexPath);NSMutableDictionary *processed=[NSMutableDictionary dictionaryWithDictionary:[old[@"processed"] isKindOfClass:[NSDictionary class]]?old[@"processed"]:@{}];NSArray *files=ODLRFilesInDirectory(rawDirectory);unsigned long long seen=0,queued=0,decoded=0,skipped=0,failed=0;BOOL yielded=NO;
-    for(NSString *path in files){@autoreleasepool{if(shouldYield&&shouldYield()){yielded=YES;break;}seen++;NSData *raw=[NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];if(!raw.length){failed++;continue;}NSString*sha=ODLRSHA256(raw);if(!forceAll&&processed[sha]){skipped++;continue;}queued++;NSString *kind=nil;NSData *out=ODLRDecodeRaw(raw,&kind);if(out.length&&ODLRHasLua53Signature(out)){NSString *asset=ODLRCanonicalAssetName(path);NSString *dh=ODLRSHA256(out);NSString *file=[NSString stringWithFormat:@"%@_%@.luac",ODLRSafeName(asset,120),[dh substringToIndex:MIN((NSUInteger)12,dh.length)]];NSString *dest=[decodedDirectory stringByAppendingPathComponent:file];if(![fm fileExistsAtPath:dest])[out writeToFile:dest atomically:YES];decoded++;processed[sha]=@{ @"decoded_sha":dh,@"kind":kind?:@"lua",@"source":path,@"updated_at":@([[NSDate date] timeIntervalSince1970]) };}else{failed++;processed[sha]=@{ @"kind":kind?:@"not-lua",@"source":path,@"updated_at":@([[NSDate date] timeIntervalSince1970]) };}if(progress)progress(@{ @"stage":@"decrypt",@"seen":@(seen),@"total":@(files.count),@"decoded":@(decoded),@"failed":@(failed) });}}
+    for(NSString *path in files){@autoreleasepool{if(shouldYield&&shouldYield()){yielded=YES;break;}seen++;NSData *raw=[NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];if(!raw.length){failed++;continue;}NSString*sha=ODLRSHA256(raw);if(!forceAll&&processed[sha]){skipped++;continue;}queued++;NSString *kind=nil;NSData *out=ODLRDecodeRaw(raw,&kind);if(out.length&&ODLRHasLua53Signature(out)){NSString *asset=ODLRCanonicalAssetName(path);NSString *dh=ODLRSHA256(out).lowercaseString;NSString *file=[NSString stringWithFormat:@"%@_%@.luac",ODLRSafeName(asset,120),dh];NSString *dest=[decodedDirectory stringByAppendingPathComponent:file];if(!ODLRFileMatchesSHA256(dest,dh))[out writeToFile:dest atomically:YES];decoded++;processed[sha]=@{ @"decoded_sha":dh,@"kind":kind?:@"lua",@"source":path,@"updated_at":@([[NSDate date] timeIntervalSince1970]) };}else{failed++;processed[sha]=@{ @"kind":kind?:@"not-lua",@"source":path,@"updated_at":@([[NSDate date] timeIntervalSince1970]) };}if(progress)progress(@{ @"stage":@"decrypt",@"seen":@(seen),@"total":@(files.count),@"decoded":@(decoded),@"failed":@(failed) });}}
     ODLRWriteJSON(@{ @"version":ODLR_VERSION,@"processed":processed,@"updated_at":@([[NSDate date] timeIntervalSince1970]) },indexPath);
     return @{ @"files_seen":@(seen),@"queued":@(queued),@"decoded":@(decoded),@"skipped":@(skipped),@"failed":@(failed),@"yielded_for_capture":@(yielded),@"index_entries":@(processed.count) };
 }
