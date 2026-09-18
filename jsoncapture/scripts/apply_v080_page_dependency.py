@@ -94,6 +94,9 @@ static NSMutableDictionary *gJCG80Mode2Policy;
 
 static JCG80CaptureMode gJCG80Mode = JCG80CaptureModeManual;
 static BOOL gJCG80Mode1Active = NO;
+static BOOL gJCG80Mode1Armed = NO;
+static NSTimeInterval gJCG80Mode1ArmAt = 0;
+static NSString *gJCG80Mode1ArmFromUI = nil;
 static unsigned long long gJCG80Generation = 0;
 static NSString *gJCG80Status = nil;
 
@@ -373,31 +376,26 @@ static BOOL JCG80SessionAdd(NSMutableDictionary *session, NSString *bucket, NSSt
     return changed;
 }
 
-static void JCG80StartManualCaptureOnQueue(void) {
-    JCG80EnsurePaths();
-    if (!gJCG80Whitelist) JCG80LoadWhitelist();
-    NSDictionary *ctx = JCG60PageContextSnapshot();
-    NSString *ui = [ctx objectForKey:@"page_ui_lua"];
-    if (!ui.length) {
-        NSString *page = [ctx objectForKey:@"page_context"];
-        if ([[page lowercaseString] hasPrefix:@"ui"]) ui = page;
-    }
-    if (!ui.length) {
-        JCG80SetStatus(@"Mode1 无法开始：当前未识别到 UI*.lua");
-        JCG5Log(@"PAGE-DEPENDENCY mode1 start rejected: no current UI");
-        return;
-    }
+static BOOL JCG80IsUIChunk(NSString *chunk) {
+    NSString *lower = chunk.lowercaseString;
+    return [lower hasPrefix:@"ui"] &&
+           ([lower hasSuffix:@".lua"] || [lower hasSuffix:@".luac"] || [lower containsString:@"_"]);
+}
 
-    gJCG80Mode = JCG80CaptureModeManual;
-    gJCG80Mode1Active = YES;
-    gJCG80Generation++;
+static void JCG80BindManualRootOnQueue(NSString *ui, NSDictionary *ctx) {
+    if (!gJCG80Mode1Active || !gJCG80Mode1Armed || gJCG80Mode1Session || !ui.length) return;
+
+    gJCG80Mode1Armed = NO;
     [gJCG80Mode1Session release];
     gJCG80Mode1Session = [JCG80NewSession(ui, @"mode1_manual") retain];
     [gJCG80Mode1Session setObject:(ctx ?: @{}) forKey:@"start_page_context"];
+    [gJCG80Mode1Session setObject:JCG80NowISO() forKey:@"anchored_at"];
+    if (gJCG80Mode1ArmFromUI.length) [gJCG80Mode1Session setObject:gJCG80Mode1ArmFromUI forKey:@"armed_from_ui"];
+    JCG80SessionAdd(gJCG80Mode1Session, @"lua_observed", ui, NO);
 
-    // Seed the current TAB only when it is both temporally close to this UI and
-    // explicitly allowed by the imported whitelist. This prevents a stale prior
-    // TAB from becoming a dependency merely because it was "latest".
+    // TAB/config may load immediately before the UI chunk. Seed only when the
+    // TAB was observed after arming, is close to the newly anchored UI, and is
+    // explicitly present in the imported whitelist.
     NSString *tabChunk = [ctx objectForKey:@"page_tab_lua"];
     NSTimeInterval tabAt = 0, uiAt = 0;
     pthread_mutex_lock(&gJCG5StateLock);
@@ -406,7 +404,7 @@ static void JCG80StartManualCaptureOnQueue(void) {
     pthread_mutex_unlock(&gJCG5StateLock);
     NSString *config = nil, *tab = nil;
     NSTimeInterval tabUIGap = tabAt >= uiAt ? (tabAt - uiAt) : (uiAt - tabAt);
-    if (tabChunk.length && tabUIGap <= 5.0 &&
+    if (tabChunk.length && tabAt >= gJCG80Mode1ArmAt && tabUIGap <= 5.0 &&
         JCG80WhitelistAllowsChunk(tabChunk, &config, &tab)) {
         JCG80SessionAdd(gJCG80Mode1Session, @"configs", config, YES);
         JCG80SessionAdd(gJCG80Mode1Session, @"tabs", tab, NO);
@@ -415,8 +413,32 @@ static void JCG80StartManualCaptureOnQueue(void) {
     JCG80RefreshMode1Status(@"采集中");
     JCG80WriteMode1Session();
     JCG80ScheduleCompletion();
-    JCG5Log([NSString stringWithFormat:@"PAGE-DEPENDENCY mode1 start ui=%@ whitelist=%lu",
-             ui, (unsigned long)gJCG80Whitelist.count]);
+    JCG5Log([NSString stringWithFormat:@"PAGE-DEPENDENCY mode1 anchored ui=%@ from=%@ whitelist=%lu",
+             ui, gJCG80Mode1ArmFromUI ?: @"", (unsigned long)gJCG80Whitelist.count]);
+}
+
+static void JCG80StartManualCaptureOnQueue(void) {
+    JCG80EnsurePaths();
+    if (!gJCG80Whitelist) JCG80LoadWhitelist();
+
+    NSDictionary *ctx = JCG60PageContextSnapshot();
+    NSString *currentUI = [ctx objectForKey:@"page_ui_lua"] ?: @"";
+
+    gJCG80Mode = JCG80CaptureModeManual;
+    gJCG80Mode1Active = YES;
+    gJCG80Mode1Armed = YES;
+    gJCG80Mode1ArmAt = [NSDate timeIntervalSinceReferenceDate];
+    gJCG80Generation++;
+
+    [gJCG80Mode1Session release];
+    gJCG80Mode1Session = nil;
+    [gJCG80Mode1ArmFromUI release];
+    gJCG80Mode1ArmFromUI = [currentUI copy];
+
+    JCG80SetStatus([NSString stringWithFormat:@"Mode1 已预备｜请现在打开目标页面\n白名单%lu｜等待新 UI 锚点",
+                    (unsigned long)gJCG80Whitelist.count]);
+    JCG5Log([NSString stringWithFormat:@"PAGE-DEPENDENCY mode1 armed from_ui=%@ whitelist=%lu",
+             currentUI, (unsigned long)gJCG80Whitelist.count]);
 }
 
 static void JCG80StartManualCapture(void) {
@@ -425,13 +447,16 @@ static void JCG80StartManualCapture(void) {
 }
 
 static void JCG80StopManualCaptureOnQueue(NSString *reason) {
+    gJCG80Mode1Active = NO;
+    gJCG80Mode1Armed = NO;
+    gJCG80Mode1ArmAt = 0;
+    gJCG80Generation++;
+    [gJCG80Mode1ArmFromUI release];
+    gJCG80Mode1ArmFromUI = nil;
     if (!gJCG80Mode1Session) {
-        gJCG80Mode1Active = NO;
         JCG80RefreshMode1Status(@"已停止");
         return;
     }
-    gJCG80Mode1Active = NO;
-    gJCG80Generation++;
     NSUInteger count = JCG80PrimaryDependencyCount(gJCG80Mode1Session);
     NSString *status = count > 0 ? @"stopped" : @"partial";
     [gJCG80Mode1Session setObject:status forKey:@"status"];
@@ -504,6 +529,18 @@ static void JCG80WriteMode2State(NSMutableDictionary *session) {
 
 static void JCG80ObserveLuaChunkOnQueue(NSString *chunk, NSDictionary *ctx) {
     if (!chunk.length) return;
+
+    if (gJCG80Mode == JCG80CaptureModeManual && gJCG80Mode1Active &&
+        gJCG80Mode1Armed && !gJCG80Mode1Session) {
+        if (JCG80IsUIChunk(chunk)) {
+            if (gJCG80Mode1ArmFromUI.length && [chunk isEqualToString:gJCG80Mode1ArmFromUI]) {
+                JCG5Log([NSString stringWithFormat:@"PAGE-DEPENDENCY mode1 arm ignore current-ui reload=%@", chunk]);
+            } else {
+                JCG80BindManualRootOnQueue(chunk, ctx);
+            }
+        }
+        return;
+    }
 
     if (gJCG80Mode == JCG80CaptureModeManual && gJCG80Mode1Active && gJCG80Mode1Session) {
         JCG80SessionAdd(gJCG80Mode1Session, @"lua_observed", chunk, NO);
@@ -746,7 +783,7 @@ rep(
 
 rep(
     'NSArray*buttons=@[@[@"抓取：开",NSStringFromSelector(@selector(toggleCapture))],@[@"停止当前任务",NSStringFromSelector(@selector(stopTask))],@[@"开始本地扫描",NSStringFromSelector(@selector(startScan))],@[@"重试扫描失败",NSStringFromSelector(@selector(retryScan))],@[@"开始解密",NSStringFromSelector(@selector(startDecrypt))],@[@"重试解密失败",NSStringFromSelector(@selector(retryDecrypt))],@[@"开始JSON恢复",NSStringFromSelector(@selector(startRecover))],@[@"重试恢复失败",NSStringFromSelector(@selector(retryRecover))]];',
-    'NSArray*buttons=@[@[@"抓取：开",NSStringFromSelector(@selector(toggleCapture))],@[@"停止当前任务",NSStringFromSelector(@selector(stopTask))],@[@"开始本地扫描",NSStringFromSelector(@selector(startScan))],@[@"重试扫描失败",NSStringFromSelector(@selector(retryScan))],@[@"开始解密",NSStringFromSelector(@selector(startDecrypt))],@[@"重试解密失败",NSStringFromSelector(@selector(retryDecrypt))],@[@"开始JSON恢复",NSStringFromSelector(@selector(startRecover))],@[@"重试恢复失败",NSStringFromSelector(@selector(retryRecover))],@[@"导入白名单TXT",NSStringFromSelector(@selector(importDependencyWhitelist))],@[@"Mode1开始页面采集",NSStringFromSelector(@selector(startDependencyCapture))],@[@"Mode1停止页面采集",NSStringFromSelector(@selector(stopDependencyCapture))],@[@"切换Mode1 / Mode2",NSStringFromSelector(@selector(toggleDependencyMode))]];',
+    'NSArray*buttons=@[@[@"抓取：开",NSStringFromSelector(@selector(toggleCapture))],@[@"停止当前任务",NSStringFromSelector(@selector(stopTask))],@[@"开始本地扫描",NSStringFromSelector(@selector(startScan))],@[@"重试扫描失败",NSStringFromSelector(@selector(retryScan))],@[@"开始解密",NSStringFromSelector(@selector(startDecrypt))],@[@"重试解密失败",NSStringFromSelector(@selector(retryDecrypt))],@[@"开始JSON恢复",NSStringFromSelector(@selector(startRecover))],@[@"重试恢复失败",NSStringFromSelector(@selector(retryRecover))],@[@"导入白名单TXT",NSStringFromSelector(@selector(importDependencyWhitelist))],@[@"Mode1预备→打开页面",NSStringFromSelector(@selector(startDependencyCapture))],@[@"Mode1停止页面采集",NSStringFromSelector(@selector(stopDependencyCapture))],@[@"切换Mode1 / Mode2",NSStringFromSelector(@selector(toggleDependencyMode))]];',
     "dependency UI controls",
 )
 
