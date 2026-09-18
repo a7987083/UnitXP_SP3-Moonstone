@@ -45,7 +45,8 @@ jobs:
           ! grep -q '\.sheet(isPresented: \$_isAddingPresenting)' HFASignBuild/Ksign/Views/Sources/SourcesView.swift
 
           grep -q 'UIAlertController' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
-          grep -q 'title: "解锁 \\(app.currentName)"' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+          grep -q 'title: "使用解锁码"' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
+          ! grep -q '\.sheet(isPresented: unlockPromptPresented)' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
           ! grep -q '\.alert("解锁' HFASignBuild/Ksign/Views/Sources/Apps/DownloadButtonView.swift
 
           grep -q 'CURRENT_PROJECT_VERSION = 113;' HFASignBuild/Ksign.xcodeproj/project.pbxproj
