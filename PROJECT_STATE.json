@@ -1,33 +1,51 @@
 {
   "project": "JSONCapture",
-  "version": "0.4.2-g4",
-  "branch": "feature/json-capture-v0.4.2-g4-chinese-ui-recovery",
-  "base_commit": "d0c10fc1d4df1ab0e8151f4a91ae3bca050242f3",
-  "artifact_source_commit": "e1ab528ad2eadfd22fef56be48eb5baa06988081",
+  "version": "0.8.0",
+  "branch": "feature/network-capture-v0.8.0-page-dependency",
+  "baseline": {
+    "version": "0.7.1",
+    "branch": "feature/network-capture-v0.7.1-snapshot-completeness",
+    "commit": "521431ace1adc0067d28d690355f15c818c9e25a"
+  },
+  "artifact_source_commit": "947c453dcf686cddd71fa2737ea12e3dd5b3b1f7",
   "target": "Unity 2019.4.33f1 / IL2CPP / ToLua / Lua 5.3.5",
   "features": {
-    "g3_persistent_incremental": true,
-    "chinese_ui": true,
-    "compact_floating_ui": true,
-    "background_redecrypt": true,
-    "on_device_static_json_recovery": true,
-    "capture_priority_yield": true,
-    "complete_partial_classification": true,
-    "lua_execution": false,
-    "game_specific_fixed_rvas": false
+    "whitelist_txt_import": true,
+    "mode1_manual_passive": true,
+    "mode1_policy_isolated": true,
+    "mode2_passive_policy_learning": true,
+    "completion_detector_quiet_seconds": 1.8,
+    "ui_tab_config_runtime_whitelist_evidence": true,
+    "ui_msgid_request_correlation": true,
+    "unmatched_push_candidate_only": true,
+    "model_cache_observed_candidate_only": true,
+    "unknown_active_invocation": false,
+    "new_native_hooks": 0,
+    "new_dispatch_queues": 0,
+    "new_polling_threads": 0,
+    "existing_v071_snapshot_retained": true
   },
   "build": {
-    "workflow_run": 35134708046,
-    "artifact_id": 10463042415,
-    "artifact_digest": "sha256:3aa00f467d013c1c11f21ee9301513dec8cb6cbcf8e2116dc736b37c946da890",
-    "dylib_sha256": "9a6c48526c0fbd8a2bb0333edc97f9e4b904f4e472b56af608eb23c76b76970c",
-    "zip_sha256": "c994666cca1cedfc22ee07e55a00b815117ec26cd5de9764d06f3c55aff019d0"
+    "workflow": ".github/workflows/build-network-capture-v0.8.0-page-dependency.yml",
+    "workflow_run": 35294375167,
+    "workflow_job": 105443774129,
+    "conclusion": "success",
+    "artifact_id": 10526374837,
+    "artifact_name": "NetworkCapture-v0.8.0-PageDependency-0.7.1Base",
+    "artifact_digest": "sha256:7bcab43d960d923287b67c1429ba8935492104e0a6675140a206782703742965",
+    "dylib_sha256": "7f242c041e8f42787244df11302c86a16c4e5c8a04fd63bb429f8d1108745bed",
+    "release_zip_sha256": "cac6d344584307b24f93d604dc7b9d45d5b1b94b1455a0b21f82bbb63468fea6",
+    "architecture": "Mach-O 64-bit arm64 dylib"
   },
   "validation": {
-    "source": "complete for initial g4",
-    "ci_compile": "passed",
-    "artifact": "downloaded and hashed",
-    "device_ui": "pending",
-    "device_json_recovery": "pending"
-  }
+    "source_contract": "passed",
+    "ci_compile_arm64": "passed",
+    "binary_invariants": "passed",
+    "artifact_hash": "independently verified",
+    "device_mode1": "pending",
+    "device_mode2": "pending",
+    "device_regression_v071": "pending"
+  },
+  "phase": "v0.8.0 built; awaiting Mode 1 real-device validation",
+  "next_task": "Install v0.8.0, import whitelist TXT, capture UIShopCentre/UIDaily in Mode 1 without action buttons, and compare dependency output against v0.7.1 pollution baseline."
 }
