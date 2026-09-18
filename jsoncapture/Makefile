@@ -6,16 +6,12 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = JSONCapture
 
 # Stable v0.7.1 core + clean v0.8 Mode1/Mode2 rebuild.
-# - v0.5.x capture/network/recovery data semantics remain unchanged.
-# - v0.6.0 page context + NetWorkManager protobuf capture remains unchanged.
 # - v0.7.0/v0.7.1 runtime_page_snapshot remains the only business-data reducer.
-# - v0.8.0-alpha1 adds Mode1 exact canonical snapshot mirroring.
-# - v0.8.0-alpha2 adds Mode2 active UI navigation on the existing game Lua thread.
-# - v0.8.0-alpha3 adds canonical resync diagnostics.
-# - v0.8.0-alpha4 fixes ResourcesUI row access, Documents/Bundles and recovery MRC lifetimes.
-# - v0.8.0-alpha5 adds Router discovery and crash-resumable SHA256 journaling.
-# - v0.8.0-alpha6 removes Mode2 from sendMsg, bounds/raw-accesses Router discovery,
-#   adds reentry protection, throttles resume UI, and verifies actual recovered_json SHA256 before skip.
+# - alpha1..alpha4: Mode1 exact follower, Mode2 active state machine, ResourcesUI/Bundles fixes.
+# - alpha5: crash-resumable SHA256 journal + expanded Router discovery.
+# - alpha6: nonblocking parseMsg-only Mode2 pump + actual recovered_json SHA256 validation.
+# - alpha7: semantic-first/adaptive Router selection; runtime capture no longer cancels static recovery;
+#   manual file tasks run at Utility QoS and SHA verification yields cooperatively.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -52,5 +48,6 @@ before-all::
 	@python3 scripts/apply_v080_alpha6_nonblocking_runtime.py
 	@python3 scripts/apply_v080_alpha6_recovered_json_hashcheck.py
 	@python3 scripts/apply_v080_alpha6_compile_fix.py
+	@python3 scripts/apply_v080_alpha7_skill_router_recovery.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
