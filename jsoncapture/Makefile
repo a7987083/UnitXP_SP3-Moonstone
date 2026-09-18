@@ -6,14 +6,14 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = JSONCapture
 
 # Stable v0.7.1 core + clean v0.8 Mode1/Mode2 rebuild.
-# - v0.5.x capture/network/recovery behavior remains unchanged.
+# - v0.5.x capture/network/recovery data semantics remain unchanged.
 # - v0.6.0 page context + NetWorkManager protobuf capture remains unchanged.
 # - v0.7.0/v0.7.1 runtime_page_snapshot remains the only business-data reducer.
-# - v0.8.0-alpha1 adds Mode1 as an exact byte mirror of canonical snapshot writes.
+# - v0.8.0-alpha1 adds Mode1 exact canonical snapshot mirroring.
 # - v0.8.0-alpha2 adds Mode2 active UI navigation on the existing game Lua thread.
-# - v0.8.0-alpha3 fixes TAB_ResourcesUI header/array parsing and canonical resync.
-# - v0.8.0-alpha4 makes Mode1 a whole-directory canonical follower and reads Mode2 UIName directly from live Lua rows.
-# - Mode1/Mode2 are orchestration only; no second JSON/protobuf reducer is introduced.
+# - v0.8.0-alpha3 adds canonical resync diagnostics.
+# - v0.8.0-alpha4 makes Mode1 a whole-directory canonical follower, reads Mode2 UIName directly from live Lua rows,
+#   uses Documents/Bundles as the primary local-scan path, and bounds recovery beam memory with explicit MRC lifetimes.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -39,5 +39,7 @@ before-all::
 	@python3 scripts/apply_v080_alpha3_runtime_sync.py
 	@python3 scripts/apply_v080_alpha3_compile_fix.py
 	@python3 scripts/apply_v080_alpha4_mode1_mode2_fix.py
+	@python3 scripts/apply_v080_recovery_memsafe.py
+	@python3 scripts/apply_v080_alpha4_stability.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
