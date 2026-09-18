@@ -512,7 +512,13 @@ for forbidden in ("JCG5MD5(", "CC_MD5_DIGEST_LENGTH", "gJCG5CaptureMD5s", "gJCG5
     if forbidden in s:
         raise SystemExit(f"v0.8.2 SHA-256 invariant failed, legacy identity remains: {forbidden}")
 
-# Marker is deliberately ASCII so CI can verify the compiled binary.
-s += '\n// JCG5_SHA256_IDENTITY_V082 effective-identity=full-sha256 snapshot=same-name-atomic-overwrite\n'
+# Runtime marker is deliberately an emitted string so CI can verify the compiled dylib.
+rep(
+    'JCG5Log(@"PAGE-DEPENDENCY v0.8.1 runtime-latest-source exact-visible-latest");',
+    'JCG5Log(@"SHA256-IDENTITY v0.8.2 effective-identity=full-sha256 snapshot=same-name-atomic-overwrite");\\n'
+    '        JCG5Log(@"PAGE-DEPENDENCY v0.8.1 runtime-latest-source exact-visible-latest");',
+    "compiled SHA-256 identity marker",
+)
+s += '\n// JCG5_SHA256_IDENTITY_V082\n'
 p.write_text(s, encoding="utf-8")
 print("applied v0.8.2 full SHA-256 identity + semantic snapshot hashing")
