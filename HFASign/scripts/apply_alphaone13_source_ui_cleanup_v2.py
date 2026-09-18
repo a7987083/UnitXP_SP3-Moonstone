@@ -19,15 +19,12 @@ def ensure_import(text: str, module: str) -> str:
     return line + text
 
 
-# 1. Remove alphaone11/12 source-announcement UI.
+# 1) Remove source announcement UI.
 source_path = ROOT / "Ksign/Views/Sources/Apps/SourceAppsView.swift"
 source = source_path.read_text()
 source, count = re.subn(
     r"\n\s*private func repositoryNotice\(for loaded: \[LoadedSource\]\) -> String\? \{.*?\n\s*\}\n\n(?=\s*var body: some View)",
-    "\n",
-    source,
-    count=1,
-    flags=re.S,
+    "\n", source, count=1, flags=re.S,
 )
 require(count == 1, f"alphaone13: repositoryNotice helper count={count}")
 source, count = re.subn(
@@ -39,65 +36,49 @@ source, count = re.subn(
     "                SourceAppsTableRepresentableView(sources: sources, searchText: $searchText, filter: filter) { selectedRoute = $0 }\n"
     "                    .ignoresSafeArea()\n"
     "            } else { ProgressView() }",
-    source,
-    count=1,
-    flags=re.S,
+    source, count=1, flags=re.S,
 )
 require(count == 1, f"alphaone13: announcement body count={count}")
 source_path.write_text(source)
 
 
-# 2. Remove automatic source recognition from external URL routes.
+# 2) Remove external automatic source recognition.
 app_path = ROOT / "Ksign/FeatherApp.swift"
 app = app_path.read_text()
 app, count = re.subn(
     r"\n\s*if action == \"addsource\", let value = queryValue\(\"url\", from: url\), isHTTPURL\(value\) \{\s*"
     r"FR\.handleSource\(value\) \{ \}\s*return\s*\}",
-    "",
-    app,
-    count=1,
-    flags=re.S,
+    "", app, count=1, flags=re.S,
 )
 require(count == 1, f"alphaone13: addsource route count={count}")
 app = re.sub(
     r"\n\s*if let fullPath = url\.validatedScheme\(after: \"/source/\"\) \{\s*FR\.handleSource\(fullPath\) \{ \}\s*\}",
-    "",
-    app,
-    count=1,
-    flags=re.S,
+    "", app, count=1, flags=re.S,
 )
 app = app.replace("FR.handleSource(fullPath) { }", "")
 app_path.write_text(app)
 
 
-# 3. Disable clipboard automatic source prompt/recognition.
+# 3) Disable clipboard source recognition/prompt.
 loader_path = ROOT / "Ksign/Backend/Sources/SourceRepositoryLoader.swift"
 loader = loader_path.read_text()
 require("isShowingClipboardPrompt" in loader, "alphaone13: clipboard source coordinator not found")
 loader = loader.replace("isShowingClipboardPrompt = true", "isShowingClipboardPrompt = false")
-# Do not leave stale candidates around when clipboard scanning runs.
-scan_assignments = [
-    "clipboardCandidates = candidates",
-    "self.clipboardCandidates = candidates",
-]
-for needle in scan_assignments:
+for needle in ("clipboardCandidates = candidates", "self.clipboardCandidates = candidates"):
     if needle in loader:
         loader = loader.replace(needle, needle + "\n\t\tclipboardCandidates.removeAll()", 1)
         break
 loader_path.write_text(loader)
 
 
-# 4. Manual Add Source: system UIAlertController, no SwiftUI sheet.
+# 4) Manual Add Source -> UIKit UIAlertController.
 sources_path = ROOT / "Ksign/Views/Sources/SourcesView.swift"
 sources = ensure_import(sources_path.read_text(), "UIKit")
 require("_isAddingPresenting = true" in sources, "alphaone13: manual add trigger not found")
 sources = sources.replace("_isAddingPresenting = true", "presentAddSourceAlert()")
 sources, count = re.subn(
     r"\n\s*\.sheet\(isPresented: \$_isAddingPresenting\) \{\s*SourcesAddView\(\)\s*\.presentationDetents\(\[\.medium\]\)\s*\}",
-    "",
-    sources,
-    count=1,
-    flags=re.S,
+    "", sources, count=1, flags=re.S,
 )
 require(count == 1, f"alphaone13: add-source sheet count={count}")
 helper = r'''
@@ -117,9 +98,7 @@ helper = r'''
 		alert.addAction(UIAlertAction(title: "添加", style: .default) { [weak alert] _ in
 			let value = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 			guard !value.isEmpty else { return }
-			FR.handleSource(value) {
-				UINotificationFeedbackGenerator().notificationOccurred(.success)
-			}
+			FR.handleSource(value) { UINotificationFeedbackGenerator().notificationOccurred(.success) }
 		})
 		presentSystemAlert(alert)
 	}
@@ -140,50 +119,55 @@ sources = sources[:insert_at] + helper + sources[insert_at:]
 sources_path.write_text(sources)
 
 
-# 5. Unlock code entry: alphaone12 currently uses confirmationDialog -> SwiftUI sheet.
-#    Keep the first action chooser, but make the actual card-key input a UIKit system Alert.
+# 5) Unlock card-key input -> UIKit UIAlertController.
+# Consolidated baseline uses unlockFlow + unlockPromptPresented, not showUnlockCode.
 unlock_path = ROOT / "Ksign/Views/Sources/Apps/DownloadButtonView.swift"
 unlock = ensure_import(unlock_path.read_text(), "UIKit")
-require("showUnlockCode" in unlock, "alphaone13: showUnlockCode state not found")
+require("unlockFlow" in unlock and "unlockPromptPresented" in unlock,
+        "alphaone13: consolidated unlock flow not found")
 
 sheet_pattern = re.compile(
-    r"\n\s*\.sheet\(isPresented: \$showUnlockCode\) \{\s*"
-    r"UnlockCodePrompt\(code: \$unlockCode, isValidating: isUnlocking\) \{.*?"
-    r"\.interactiveDismissDisabled\(isUnlocking\)\s*\}",
+    r"\n\s*\.sheet\(isPresented: unlockPromptPresented\) \{\s*"
+    r"UnlockCodePrompt\(code: \$unlockCode, isValidating: unlockFlow == \.validating, errorMessage: unlockError\) \{.*?"
+    r"\.interactiveDismissDisabled\(unlockFlow == \.validating\)\s*\}",
     re.S,
 )
 unlock, count = sheet_pattern.subn(
-    "\n\t\t.onChange(of: showUnlockCode) { value in\n"
-    "\t\t\tguard value else { return }\n"
-    "\t\t\tshowUnlockCode = false\n"
-    "\t\t\tpresentUnlockCodeAlert()\n"
+    "\n\t\t.onChange(of: unlockFlow) { state in\n"
+    "\t\t\tguard state == .showingPrompt else { return }\n"
+    "\t\t\tDispatchQueue.main.async {\n"
+    "\t\t\t\tguard unlockFlow == .showingPrompt else { return }\n"
+    "\t\t\t\tunlockFlow = .idle\n"
+    "\t\t\t\tpresentUnlockCodeAlert()\n"
+    "\t\t\t}\n"
     "\t\t}",
-    unlock,
-    count=1,
+    unlock, count=1,
 )
-require(count == 1, f"alphaone13: unlock-code sheet count={count}")
+require(count == 1, f"alphaone13: consolidated unlock sheet count={count}")
 
 unlock_helper = r'''
 	@MainActor
 	private func presentUnlockCodeAlert() {
-		let alert = UIAlertController(
-			title: "使用解锁码",
-			message: "输入卡密后将使用本机 UDID 向该软件源验证。",
-			preferredStyle: .alert
-		)
+		let errorText = unlockError?.trimmingCharacters(in: .whitespacesAndNewlines)
+		let message = (errorText?.isEmpty == false)
+			? "上次验证失败：\(errorText!)\n\n请输入卡密后重新验证。"
+			: "输入卡密后将使用本机 UDID 向该软件源验证。"
+		let alert = UIAlertController(title: "使用解锁码", message: message, preferredStyle: .alert)
 		alert.addTextField { field in
 			field.placeholder = "请输入卡密"
+			field.text = unlockCode
 			field.autocapitalizationType = .none
 			field.autocorrectionType = .no
 			field.clearButtonMode = .whileEditing
 		}
 		alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in
-			unlockCode = ""
+			resetUnlockFlow()
 		})
 		alert.addAction(UIAlertAction(title: "使用解锁码", style: .default) { [weak alert] _ in
 			let code = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 			guard !code.isEmpty else {
-				UIAlertController.showAlertWithOk(title: "提示", message: "请输入卡密")
+				unlockError = "请输入卡密"
+				unlockFlow = .showingPrompt
 				return
 			}
 			unlockCode = code
@@ -209,7 +193,7 @@ unlock = unlock.replace(marker, unlock_helper + marker, 1)
 unlock_path.write_text(unlock)
 
 
-# 6. URL Scheme docs: no source auto-add/source-recognition endpoints.
+# 6) URL Scheme docs: source auto-recognition endpoints removed.
 scheme_path = ROOT / "Ksign/Views/Settings/URLSchemeView.swift"
 scheme_path.write_text(r'''import SwiftUI
 import UIKit
@@ -258,7 +242,7 @@ struct URLSchemeView: View {
 ''')
 
 
-# 7. alphaone13 identity.
+# 7) alphaone13 identity.
 project_path = ROOT / "Ksign.xcodeproj/project.pbxproj"
 project = project_path.read_text()
 require(project.count("CURRENT_PROJECT_VERSION = 112;") == 2,
@@ -271,8 +255,7 @@ require(plist.count("<string>v3.0.0-alphaone12</string>") == 1,
         "alphaone13: alphaone12 release marker not unique")
 plist_path.write_text(plist.replace(
     "<string>v3.0.0-alphaone12</string>",
-    "<string>v3.0.0-alphaone13</string>",
-    1,
+    "<string>v3.0.0-alphaone13</string>", 1,
 ))
 
-print("alphaone13 v2 transform applied")
+print("alphaone13 consolidated cleanup transform applied")
