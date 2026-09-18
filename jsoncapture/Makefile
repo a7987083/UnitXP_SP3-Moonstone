@@ -45,5 +45,6 @@ before-all::
 	@python3 scripts/apply_v071_snapshot_completeness.py
 	@python3 scripts/apply_v080_page_dependency.py
 	@python3 scripts/apply_v080_runtime_auto_fix.py
+	@python3 scripts/apply_v081_runtime_latest_sync.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
