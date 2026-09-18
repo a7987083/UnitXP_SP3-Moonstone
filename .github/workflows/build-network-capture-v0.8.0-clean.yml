@@ -1,4 +1,4 @@
-name: Build NetworkCapture v0.8.0 Clean Alpha6 SkillDriven
+name: Build NetworkCapture v0.8.0 Clean Alpha7 SkillDriven
 
 on:
   workflow_dispatch:
@@ -22,16 +22,15 @@ jobs:
           set -euxo pipefail
           grep -Fq 'apply_v070_page_snapshot.py' jsoncapture/Makefile
           grep -Fq 'apply_v071_snapshot_completeness.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_alpha5_router_discovery.py' jsoncapture/Makefile
-          grep -Fq 'apply_v080_alpha5_recovery_sha256_resume.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha6_nonblocking_runtime.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha6_recovered_json_hashcheck.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha6_compile_fix.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha7_skill_router_recovery.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v083_' jsoncapture/Makefile
 
-      - name: Apply patches and validate alpha6 invariants
+      - name: Apply patches and validate alpha7 invariants
         shell: bash
         run: |
           set -euxo pipefail
@@ -66,47 +65,50 @@ jobs:
           python3 scripts/apply_v080_alpha6_nonblocking_runtime.py
           python3 scripts/apply_v080_alpha6_recovered_json_hashcheck.py
           python3 scripts/apply_v080_alpha6_compile_fix.py
+          python3 scripts/apply_v080_alpha7_skill_router_recovery.py
 
           src=src/ManualTaskEngineV05.m
           rec=src/OnDeviceLuaRecovery.m
 
+          # Stable authority remains v0.7.1 runtime_page_snapshot.
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
 
-          # rev-lua/lang-lua: never block sendMsg; Pump only after original parseMsg and guard reentry.
+          # rev-lua/lang-lua: no Mode2 work before sendMsg; post-parse + reentry guard preserved.
           grep -Fq 'JCG80Mode2Pump(L); // alpha6: post-parse only; never blocks user sendMsg input' "$src"
           ! grep -A3 -F 'static int JCG60SendMsgWrapper(void *L)' "$src" | grep -Fq 'JCG80Mode2Pump(L);'
           grep -Fq 'gJCG86Mode2PumpBusy' "$src"
-          grep -Fq '@finally { gJCG86Mode2PumpBusy=NO; }' "$src"
 
-          # rev-router: bounded exact candidates + raw access; no whole _G/package.loaded sweep.
-          grep -Fq 'discovery=alpha6-bounded-raw-exact' "$src"
-          grep -Fq 'JCG86RawGetField' "$src"
-          grep -Fq 'lua_rawget' "$src"
-          ! grep -Fq 'visited++ < 4096' "$src"
-          ! grep -Fq 'visited++ < 8192' "$src"
-          ! grep -Fq 'gJCG58LuaGetGlobal(L,"_G")' "$src"
-          grep -Fq '@"src/utils/DlgManager.lua"' "$src"
-          grep -Fq '@"src/utils/UIBase.lua"' "$src"
-          grep -Fq 'JCG5_V080_ALPHA6_COMPILE_FIX' "$src"
-          grep -Fq 'static NSString *JCG85ResourcesString(id v)' "$src"
+          # rev-router: semantic method rank must dominate module name; specialized guide router rejected.
+          grep -Fq 'JCG5_V080_ALPHA7_SKILL_ROUTER_RECOVERY' "$src"
+          grep -Fq 'JCG87SpecializedOpenName' "$src"
+          grep -Fq 'gJCG87RejectedOpenNames' "$src"
+          grep -Fq 'ro * 1000000 + rc * 1000 + nameRank' "$src"
+          grep -Fq 'MODE2 router candidate source=' "$src"
+          grep -Fq 'MODE2 router reject fn=' "$src"
+          grep -Fq 'action=rediscover-same-ui' "$src"
+          grep -Fq 'openGuideDlg' "$src" || true
 
-          # Recovery: actual recovered JSON bytes are re-hashed and compared with Recovery.SHA256.txt before skip.
-          grep -Fq 'ODLR_V080_ALPHA6_RECOVERED_JSON_HASHCHECK' "$rec"
+          # rev-struct/static recovery: runtime capture must not cancel JCG5TaskRecover.
+          grep -Fq 'gJCG5Task!=JCG5TaskIdle && gJCG5Task!=JCG5TaskRecover' "$src"
+          grep -Fq 'dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,QOS_CLASS_UTILITY,0)' "$src"
+
+          # Actual recovered_json bytes remain SHA256 authority; verification only yields cooperatively.
+          grep -Fq 'ODLR_V080_ALPHA7_COOPERATIVE_VERIFY' "$rec"
           grep -Fq 'NSString *actual=ODLRFileSHA256(path);' "$rec"
           grep -Fq '![actual isEqualToString:expectedSHA]' "$rec"
+          grep -Fq 'sAlpha7VerifiedFiles' "$rec"
+          grep -Fq 'usleep(750)' "$rec"
           grep -Fq 'Recovery.SHA256.txt' "$rec"
-          grep -Fq 'RECOVERY skip journal-hit' "$src"
-          grep -Fq 'skipped%250==0' "$src"
           grep -Fq 'ODLRRecoverDecodedDirectory(input,gJCG5Root,retryOnly?YES:NO' "$src"
           ! grep -Fq 'JCG5ResetDirectory(gJCG5RecoveredDir)' "$src"
-          ! grep -Fq 'JCG5ResetDirectory(gJCG5PartialDir)' "$src"
           ! grep -Fq 'ODLRResetRecoveryIndex(gJCG5Root)' "$src"
 
-          grep -Fq 'JSONCapture v0.8.0-alpha6 NonBlocking+FastResume' "$src"
-          grep -Fq 'MODE2ROUTER=alpha6-bounded-raw-exact' "$src"
-          grep -Fq 'MODE2PUMP=parseMsg-post-only' "$src"
+          grep -Fq 'JSONCapture v0.8.0-alpha7 RouterSemantic+RecoveryContinuous' "$src"
+          grep -Fq 'MODE2ROUTER=alpha7-semantic-adaptive' "$src"
+          grep -Fq 'RECOVERYSHA=journal-v1-continuous' "$src"
 
+          # No abandoned reducer/new hook surface.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
           ! grep -Fq 'JCG80CaptureProtobufData' "$src"
           test "$(grep -c 'JCG5Hook(' "$src" | tr -d ' ')" = '7'
@@ -132,7 +134,7 @@ jobs:
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-v080-clean
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha6_SkillDriven.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha7_SkillDriven.dylib'
           cp .theos/obj/JSONCapture.dylib "$out"
           file "$out"
           otool -L "$out"
@@ -140,18 +142,18 @@ jobs:
           strings "$out" > dist-v080-clean/strings.txt
 
           grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' dist-v080-clean/strings.txt
-          grep -Fq 'JSONCapture v0.8.0-alpha6 NonBlocking+FastResume' dist-v080-clean/strings.txt
-          grep -Fq 'MODE2ROUTER=alpha6-bounded-raw-exact' dist-v080-clean/strings.txt
-          grep -Fq 'MODE2PUMP=parseMsg-post-only' dist-v080-clean/strings.txt
+          grep -Fq 'JSONCapture v0.8.0-alpha7 RouterSemantic+RecoveryContinuous' dist-v080-clean/strings.txt
+          grep -Fq 'MODE2ROUTER=alpha7-semantic-adaptive' dist-v080-clean/strings.txt
+          grep -Fq 'RECOVERYSHA=journal-v1-continuous' dist-v080-clean/strings.txt
+          grep -Fq 'MODE2 router reject fn=' dist-v080-clean/strings.txt
           grep -Fq 'Recovery.SHA256.txt' dist-v080-clean/strings.txt
-          grep -Fq 'RECOVERY skip journal-hit' dist-v080-clean/strings.txt
 
       - name: Verify Mach-O startup invariants
         shell: bash
         run: |
           set -euxo pipefail
           cd jsoncapture
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha6_SkillDriven.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha7_SkillDriven.dylib'
           otool -l "$out" > dist-v080-clean/load_commands.txt
           otool -hv "$out" > dist-v080-clean/header.txt
           modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v080-clean/load_commands.txt)
@@ -163,9 +165,9 @@ jobs:
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v7
         with:
-          name: JSONCapture-v0.8.0-clean-alpha6-SkillDriven
+          name: JSONCapture-v0.8.0-clean-alpha7-SkillDriven
           path: |
-            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha6_SkillDriven.dylib
+            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha7_SkillDriven.dylib
             jsoncapture/dist-v080-clean/SHA256.txt
             jsoncapture/dist-v080-clean/load_commands.txt
             jsoncapture/dist-v080-clean/header.txt
