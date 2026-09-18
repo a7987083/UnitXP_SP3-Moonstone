@@ -5,25 +5,13 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = JSONCapture
 
-# v0.5 Manual Task Engine
-# - Runtime Lua loader capture hooks are lightweight and user-toggleable.
-# - No loaded-bundle watcher, no disk watcher, no persistent log poll.
-# - Local scan only runs when the user presses Start and only scans Documents/Bundle.
-# - Decrypt and JSON recovery are manual, mutually exclusive tasks.
-# - Only genuinely NEW runtime Lua captures preempt manual work.
-# - v0.5.1 restores scroll + draggable compact menu.
-# - v0.5.2 adds cross-launch MD5/SHA256 runtime Lua cache and duplicate skip UI.
-# - v0.5.4 adds an exact-target, read-only response observer on the SAME serialized hook-install path.
-# - v0.5.5 persists only fully validated JSON bodies from the proven response observer path.
-# - v0.5.6 correlates saved JSON with URL/method/status and classifies hot-update/notice responses.
-# - v0.5.7 adds UnityWebRequestDelegate/NSURLSession backend JSON capture across DownloadHandler types.
-# - v0.5.8 wraps g_requestHttpServer on the Lua VM thread to capture SocketTCP/protobuf bodies after optional AES decrypt.
-# - v0.5.9 adds session-scoped request/response coverage statistics without expanding the hook surface.
-# - v0.6.0 adds Lua page context plus NetWorkManager sendMsg/parseMsg protobuf business capture.
-# - v0.7.0 adds descriptor-driven protobuf JSON plus request-correlated page snapshots.
-# - v0.7.1 deepens protobuf snapshots and merges transient child UIs into stable parent pages.
-# - v0.8.0 adds whitelist-driven page dependency capture, runtime-auto Mode1, explicit Mode2 lifecycle, and clean page-data export.
-# - v0.8.2 standardizes active content identity/change detection on full SHA-256.
+# JSONCapture patch chain
+# - v0.7.0: descriptor-driven protobuf + request-correlated page snapshots.
+# - v0.7.1: deeper protobuf snapshot + stable-parent child-UI merge.
+# - v0.8.0/0.8.1: Mode lifecycle and runtime-latest observation.
+# - v0.8.2: full SHA-256 content identity + semantic/file snapshot hashes.
+# - v0.8.3: Documents/Bundles path, recovery-memory bounding, and Mode1/Mode2
+#   control-plane unification onto the canonical runtime_page_snapshot reducer.
 JSONCapture_FILES = src/ManualTaskEngineV05.m src/JCG5ScrollFix.m src/OnDeviceLuaRecovery.m
 JSONCapture_CFLAGS = -Oz -fno-stack-protector -fno-builtin -fblocks -Wno-deprecated-declarations -Wno-unguarded-availability-new -Wno-nullability-completeness -Wno-unused-function
 src/ManualTaskEngineV05.m_CFLAGS = -include src/JCG5CompileCompat.h
@@ -48,5 +36,8 @@ before-all::
 	@python3 scripts/apply_v080_runtime_auto_fix.py
 	@python3 scripts/apply_v081_runtime_latest_sync.py
 	@python3 scripts/apply_v082_sha256_identity.py
+	@python3 scripts/apply_v083_foundation_fixes.py
+	@python3 scripts/apply_v083_recovery_memory.py
+	@python3 scripts/apply_v083_snapshot_mode_unify.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
