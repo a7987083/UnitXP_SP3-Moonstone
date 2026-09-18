@@ -186,11 +186,16 @@ NSDictionary *JCG4SyncRecoveryInput(NSString *rootPath) {
         mapped++;
 
         if([fm fileExistsAtPath:dst]){
-            for(NSString *other in [NSArray arrayWithArray:(filesByHash[hash]?:@[])]){
-                if([other isEqualToString:dstName])continue;
-                if([fm removeItemAtPath:[decoded stringByAppendingPathComponent:other] error:nil])dedupRemoved++;
+            NSData *existing=[NSData dataWithContentsOfFile:dst options:NSDataReadingMappedIfSafe error:nil];
+            NSString *existingSHA=JCG4BridgeSHA256(existing);
+            if([existingSHA isEqualToString:hash]){
+                for(NSString *other in [NSArray arrayWithArray:(filesByHash[hash]?:@[])]){
+                    if([other isEqualToString:dstName])continue;
+                    if([fm removeItemAtPath:[decoded stringByAppendingPathComponent:other] error:nil])dedupRemoved++;
+                }
+                continue;
             }
-            continue;
+            [fm removeItemAtPath:dst error:nil];
         }
 
         NSString *candidate=nil;
