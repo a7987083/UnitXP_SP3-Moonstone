@@ -42,5 +42,6 @@ before-all::
 	@python3 scripts/apply_v083_snapshot_mode_unify.py
 	@python3 scripts/apply_v083_compile_cleanup.py
 	@python3 scripts/apply_v083_router_discovery.py
+	@python3 scripts/apply_v083_router_discovery_fix.py
 
 include $(THEOS_MAKE_PATH)/tweak.mk
