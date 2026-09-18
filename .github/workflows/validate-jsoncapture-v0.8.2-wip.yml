@@ -45,6 +45,7 @@ jobs:
           python3 scripts/apply_v083_snapshot_mode_unify.py
           python3 scripts/apply_v083_compile_cleanup.py
           python3 scripts/apply_v083_router_discovery.py
+          python3 scripts/apply_v083_router_discovery_fix.py
 
       - name: Verify v0.8.3 invariants
         shell: bash
@@ -58,6 +59,7 @@ jobs:
           grep -Fq 'JCG5_SNAPSHOT_MODE_UNIFY_V083' "$src"
           grep -Fq 'JCG5_V083_COMPILE_CLEANUP' "$src"
           grep -Fq 'JCG5_ROUTER_DISCOVERY_V083' "$src"
+          grep -Fq 'JCG5_ROUTER_DISCOVERY_FIX_V083' "$src"
           grep -Fq 'JSONCapture v0.8.3 Snapshot Unified' "$src"
           grep -Fq 'stringByAppendingPathComponent:@"Bundles"' "$src"
           grep -Fq 'JCG83OnCanonicalSnapshotWrite' "$src"
@@ -65,9 +67,10 @@ jobs:
           grep -Fq 'semantic_sha256' "$src"
           grep -Fq 'file_sha256' "$src"
           grep -Fq 'Mode2.RouterDiscovery.json' "$src"
-          grep -Fq 'unknown_functions_invoked' "$src"
           grep -Fq '@"unknown_functions_invoked":@NO' "$src"
           grep -Fq 'TAB_ResourcesUI' "$src"
+          grep -Fq 'key == -1' "$src"
+          grep -Fq '等待ResourcesUI' "$src"
           grep -Fq 'ODLR_RECOVERY_MEMORY_V083' "$rec"
           grep -Fq 'ODLRBuildSummary' "$rec"
           grep -Fq 'incremental_exact_top_k' "$rec"
@@ -100,16 +103,17 @@ jobs:
           strings .theos/obj/JSONCapture.dylib | grep -F 'effective-identity=full-sha256'
           strings .theos/obj/JSONCapture.dylib | grep -F 'JSONCapture v0.8.3 Snapshot Unified'
           strings .theos/obj/JSONCapture.dylib | grep -F 'Mode2.RouterDiscovery.json'
+          strings .theos/obj/JSONCapture.dylib | grep -F '等待ResourcesUI'
           strings .theos/obj/JSONCapture.dylib | grep -F 'runtime_page_snapshot'
-          cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.3_RouterDiscovery_WIP.dylib
-          shasum -a 256 ../JSONCapture_v0.8.3_RouterDiscovery_WIP.dylib | tee ../JSONCapture_v0.8.3_RouterDiscovery_WIP.sha256
+          cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib
+          shasum -a 256 ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib | tee ../JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.sha256
 
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JSONCapture-v0.8.3-RouterDiscovery-WIP
+          name: JSONCapture-v0.8.3-RouterDiscoveryFix-WIP
           path: |
-            JSONCapture_v0.8.3_RouterDiscovery_WIP.dylib
-            JSONCapture_v0.8.3_RouterDiscovery_WIP.sha256
+            JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.dylib
+            JSONCapture_v0.8.3_RouterDiscoveryFix_WIP.sha256
           if-no-files-found: error
           retention-days: 30
