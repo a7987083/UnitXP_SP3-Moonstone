@@ -27,6 +27,7 @@ jobs:
           grep -Fq 'apply_v080_alpha5_router_discovery.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha5_recovery_sha256_resume.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_alpha5_identity.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha5_compile_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_runtime_auto_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
@@ -63,17 +64,16 @@ jobs:
           python3 scripts/apply_v080_alpha5_router_discovery.py
           python3 scripts/apply_v080_alpha5_recovery_sha256_resume.py
           python3 scripts/apply_v080_alpha5_identity.py
+          python3 scripts/apply_v080_alpha5_compile_fix.py
 
           src=src/ManualTaskEngineV05.m
           rec=src/OnDeviceLuaRecovery.m
 
-          # Canonical v0.7.1 reducer and Mode1 must remain intact.
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
           grep -Fq 'JCG80Mode1SyncAllCanonical' "$src"
           grep -Fq 'skip-policy=none' "$src"
 
-          # Mode2 queue + alpha5 router discovery.
           grep -Fq 'TAB_ResourcesUI-live-rawgeti' "$src"
           grep -Fq 'gJCG85LuaGetMetatable' "$src"
           grep -Fq '"__index"' "$src"
@@ -83,9 +83,10 @@ jobs:
           grep -Fq 'MODE2 router scan wait' "$src"
           grep -Fq 'discovery=alpha5-metatable-index' "$src"
           grep -Fq 'JCG85PushRouterFunction' "$src"
+          grep -Fq 'JCG85ResourcesString' "$src"
+          grep -Fq 'JCG5_V080_ALPHA5_COMPILE_FIX' "$src"
           grep -Fq 'JCG80Mode2OnSnapshot(file, d, sessionKey, entry);' "$src"
 
-          # Recovery = persistent full-SHA256 journal + output verification.
           grep -Fq 'ODLR_V080_ALPHA5_SHA256_RESUME' "$rec"
           grep -Fq 'Recovery.SHA256.txt' "$rec"
           grep -Fq 'ODLRFileSHA256' "$rec"
@@ -98,7 +99,6 @@ jobs:
           ! grep -Fq 'JCG5ResetDirectory(gJCG5PartialDir)' "$src"
           ! grep -Fq 'ODLRResetRecoveryIndex(gJCG5Root)' "$src"
 
-          # Identity and architecture safety.
           grep -Fq 'JSONCapture v0.8.0-alpha5 Router+SHA256Resume' "$src"
           grep -Fq 'MODE2ROUTER=alpha5-metatable-index' "$src"
           grep -Fq 'RECOVERYSHA=journal-v1-resume' "$src"
