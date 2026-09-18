@@ -77,3 +77,15 @@ jobs:
           make FINALPACKAGE=1
           file .theos/obj/JSONCapture.dylib
           strings .theos/obj/JSONCapture.dylib | grep -F 'effective-identity=full-sha256'
+          cp .theos/obj/JSONCapture.dylib ../JSONCapture_v0.8.2_SHA256_WIP.dylib
+          shasum -a 256 ../JSONCapture_v0.8.2_SHA256_WIP.dylib | tee ../JSONCapture_v0.8.2_SHA256_WIP.sha256
+
+      - name: Upload dylib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JSONCapture-v0.8.2-SHA256-WIP
+          path: |
+            JSONCapture_v0.8.2_SHA256_WIP.dylib
+            JSONCapture_v0.8.2_SHA256_WIP.sha256
+          if-no-files-found: error
+          retention-days: 30
