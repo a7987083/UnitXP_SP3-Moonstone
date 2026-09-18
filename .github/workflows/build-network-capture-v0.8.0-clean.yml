@@ -1,4 +1,4 @@
-name: Build NetworkCapture v0.8.0 Clean Alpha2 Mode1 Mode2
+name: Build NetworkCapture v0.8.0 Clean Alpha3 Mode1 Mode2
 
 on:
   workflow_dispatch:
@@ -24,6 +24,7 @@ jobs:
           grep -Fq 'apply_v071_snapshot_completeness.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_mode1_exact_mirror.py' jsoncapture/Makefile
           grep -Fq 'apply_v080_mode2_auto.py' jsoncapture/Makefile
+          grep -Fq 'apply_v080_alpha3_runtime_sync.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_page_dependency.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v080_runtime_auto_fix.py' jsoncapture/Makefile
           ! grep -Fq 'apply_v081_runtime_latest_sync.py' jsoncapture/Makefile
@@ -51,23 +52,31 @@ jobs:
           python3 scripts/apply_v071_snapshot_completeness.py
           python3 scripts/apply_v080_mode1_exact_mirror.py
           python3 scripts/apply_v080_mode2_auto.py
+          python3 scripts/apply_v080_alpha3_runtime_sync.py
 
           src=src/ManualTaskEngineV05.m
           grep -Fq 'JCG5_PAGE_SNAPSHOT_V070' "$src"
           grep -Fq 'JCG5_SNAPSHOT_COMPLETENESS_V071' "$src"
           grep -Fq 'JCG5_MODE1_EXACT_MIRROR_V080A1' "$src"
           grep -Fq 'JCG5_MODE2_AUTO_V080A2' "$src"
+          grep -Fq 'JCG5_V080_ALPHA3_RUNTIME_SYNC' "$src"
           grep -Fq 'JCG80Mode1MirrorSnapshot(file, d, sessionKey);' "$src"
           grep -Fq 'JCG80Mode2OnSnapshot(file, d, sessionKey, entry);' "$src"
-          grep -Fq 'JCG80Mode2Pump(L);' "$src"
-          grep -Fq 'TAB_ResourcesUI' "$src"
-          grep -Fq 'DlgManager' "$src"
-          grep -Fq 'UIBase' "$src"
-          grep -Fq 'lua_pcallk' "$src"
+          grep -Fq 'JCG80CanonicalResyncCurrentContext();' "$src"
+          grep -Fq 'JCG80ResourcesValueFromRow' "$src"
+          grep -Fq 'MODE2 queue ready safe=' "$src"
+          grep -Fq 'source=TAB_ResourcesUI-array' "$src"
+          grep -Fq 'MODE2 canonical-resync' "$src"
+          grep -Fq 'CANONICAL-RESYNC no-match' "$src"
+          grep -Fq 'gJCG80Mode2PumpBusy' "$src"
+          grep -Fq '@finally' "$src"
           grep -Fq 'Mode1 手动 开/关' "$src"
           grep -Fq 'Mode2 全自动 开/关' "$src"
-          grep -Fq 'JSONCapture v0.8.0-alpha2 Mode1+Mode2 Auto' "$src"
-          grep -Fq 'active-router=1 canonical-snapshot=1 no-second-reducer=1' "$src"
+          grep -Fq 'JSONCapture v0.8.0-alpha3 Mode1+Mode2 SyncFix' "$src"
+          grep -Fq 'resourcesui=header-array canonical-resync=1 pump-reentry=guarded' "$src"
+
+          # alpha2's broken object-row-only ResourcesUI access must be gone.
+          ! grep -Fq 'gJCG60LuaGetField(L, row, "UIName")' "$src"
 
           # Mode1/Mode2 must never reintroduce the abandoned v0.8 dependency reducer.
           ! grep -Fq 'JCG80CaptureJSONData' "$src"
@@ -101,7 +110,7 @@ jobs:
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-v080-clean
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha2_Mode1_Mode2.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha3_Mode1_Mode2.dylib'
           cp .theos/obj/JSONCapture.dylib "$out"
           file "$out"
           otool -L "$out"
@@ -110,12 +119,14 @@ jobs:
 
           grep -Fq 'PAGE-SNAPSHOT v0.7.1 ready' dist-v080-clean/strings.txt
           grep -Fq 'runtime_page_snapshot' dist-v080-clean/strings.txt
-          grep -Fq 'JSONCapture v0.8.0-alpha2 Mode1+Mode2 Auto' dist-v080-clean/strings.txt
+          grep -Fq 'JSONCapture v0.8.0-alpha3 Mode1+Mode2 SyncFix' dist-v080-clean/strings.txt
           grep -Fq 'MODE1 exact-byte-mirror canonical=runtime_page_snapshot' dist-v080-clean/strings.txt
           grep -Fq 'MODE2 active-navigation router=DlgManager/UIBase snapshot=canonical' dist-v080-clean/strings.txt
-          grep -Fq 'MODE2 v0.8.0-alpha2 armed active-navigation=1 authority=runtime_page_snapshot' dist-v080-clean/strings.txt
-          grep -Fq 'MODE2 router ready source=' dist-v080-clean/strings.txt
           grep -Fq 'MODE2 queue ready safe=' dist-v080-clean/strings.txt
+          grep -Fq 'TAB_ResourcesUI-array' dist-v080-clean/strings.txt
+          grep -Fq 'MODE2 canonical-resync' dist-v080-clean/strings.txt
+          grep -Fq 'CANONICAL-RESYNC no-match' dist-v080-clean/strings.txt
+          grep -Fq 'MODE2 router ready source=' dist-v080-clean/strings.txt
           grep -Fq 'MODE2 snapshot complete' dist-v080-clean/strings.txt
 
       - name: Verify Mach-O startup invariants
@@ -123,7 +134,7 @@ jobs:
         run: |
           set -euxo pipefail
           cd jsoncapture
-          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha2_Mode1_Mode2.dylib'
+          out='dist-v080-clean/JSONCapture_v0.8.0_clean_alpha3_Mode1_Mode2.dylib'
           otool -l "$out" > dist-v080-clean/load_commands.txt
           otool -hv "$out" > dist-v080-clean/header.txt
           modinit=$(awk '/sectname __mod_init_func/{seen=1;next} seen && $1=="size"{print $2; exit}' dist-v080-clean/load_commands.txt)
@@ -135,9 +146,9 @@ jobs:
       - name: Upload dylib artifact
         uses: actions/upload-artifact@v7
         with:
-          name: JSONCapture-v0.8.0-clean-alpha2-Mode1-Mode2
+          name: JSONCapture-v0.8.0-clean-alpha3-Mode1-Mode2
           path: |
-            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha2_Mode1_Mode2.dylib
+            jsoncapture/dist-v080-clean/JSONCapture_v0.8.0_clean_alpha3_Mode1_Mode2.dylib
             jsoncapture/dist-v080-clean/SHA256.txt
             jsoncapture/dist-v080-clean/load_commands.txt
             jsoncapture/dist-v080-clean/header.txt
