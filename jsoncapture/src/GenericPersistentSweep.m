@@ -3,11 +3,11 @@
 // Reuse the device-validated g2 Full Sweep core in the same translation unit.
 // The g3 layer below persists only disk Bundle versions that reached a terminal
 // processing event. This keeps runtime-only discovery intact while preventing
-// unchanged on-disk Bundles from being LoadFromFile-scanned again after relaunch.
+// unchanged on-disk Bundles from being LoadFromFile-scanned again after relaunch.\n// v0.8.2 identity is full SHA-256, not size/mtime.
 #include "GenericFullSweep.m"
 
 #define JCG3_VERSION @"JSONCapture Persistent Incremental v0.4.2-g3"
-#define JCG3_SCHEMA_VERSION 1
+#define JCG3_SCHEMA_VERSION 2
 #define JCG3_LOG_POLL_SECONDS 0.50
 
 static dispatch_queue_t gJCG3PersistQueue;
@@ -49,7 +49,7 @@ static void JCG3WriteStatus(void) {
         @"version": JCG3_VERSION,
         @"schema_version": @(JCG3_SCHEMA_VERSION),
         @"persistent_incremental": @YES,
-        @"disk_policy": @"same path+size+mtime version => skip across launches; new/changed => process",
+        @"disk_policy": @"same path+full SHA-256 => skip across launches; new/changed => process",
         @"runtime_loaded_policy": @"still observed every process to catch memory-only/newly loaded bundles",
         @"bundle_index": gJCG3IndexPath ?: @"",
         @"index_entries": @(gJCG3Bundles.count),
@@ -72,7 +72,7 @@ static void JCG3SaveIndex(void) {
         @"schema_version": @(JCG3_SCHEMA_VERSION),
         @"version": JCG3_VERSION,
         @"target": @"Unity2019.4.33f1 / IL2CPP / ToLua / Lua5.3",
-        @"identity": @"path + file size + modification time",
+        @"identity": @"path + full SHA-256",
         @"note": @"Delete bundle_index.json to force a complete disk rescan.",
         @"bundles": gJCG3Bundles,
         @"updated_at": JCG2Now()
@@ -132,7 +132,7 @@ static BOOL JCG3ProcessLogLine(NSString *line) {
     }
 
     // A stable Unity-magic file that LoadFromFile rejects is terminal for that
-    // exact version. If the downloader later changes size/mtime it is retried.
+    // exact SHA-256 version. Any content change is retried even when size/mtime stay unchanged.
     if ([line containsString:@"DISK-BUNDLE-LOAD-FAIL path="]) {
         NSString *path = JCG3StringBetween(line, @"DISK-BUNDLE-LOAD-FAIL path=", @" version=");
         NSString *version = JCG3StringBetween(line, @" version=", @"");
