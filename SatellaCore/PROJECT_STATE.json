@@ -1,10 +1,28 @@
 {
   "version": "1.0.0-dev",
   "branch": "kkkkbuy",
+  "commit": "efe15c8722013479af9e02acc33158d0be95b0d7",
   "baseline": "64e378033e1dcc1a4b01aa4b723462356c2d1fcb",
-  "build": "pending-ci",
-  "ci": "pending",
-  "runtime": "pending-ci-tests",
-  "phase": "initial-objective-c-api",
-  "next_task": "run-ci-and-fix-first-real-error"
+  "build": {
+    "macos_werror": "passed",
+    "iphoneos_arm64_werror": "passed",
+    "static_library": "passed",
+    "minimum_ios": "12.0",
+    "xcode": "16.4",
+    "iphoneos_sdk": "18.5"
+  },
+  "ci": {
+    "status": "passed",
+    "run_id": 35469833912,
+    "source_zip_sha256": "3cfad67b47b8694013462f49f76b499d46f9a396fab4ae2b56cd860ad4157ffb",
+    "static_library_sha256": "90b88474d4d1dd0ed681f2a070c8e3880eb146f1b042b5addd087bfba098fb9b",
+    "artifact_digest": "sha256:427ac74339c4bee10810874a6bdf966cbb15070743809810901bb23c72ed7af1"
+  },
+  "runtime": {
+    "macos_api_tests": "passed",
+    "physical_device": "not_tested",
+    "consumer_project": "not_tested"
+  },
+  "phase": "objective-c-api-ci-validated",
+  "next_task": "integrate-into-consumer-objective-c-project-and-device-test"
 }
