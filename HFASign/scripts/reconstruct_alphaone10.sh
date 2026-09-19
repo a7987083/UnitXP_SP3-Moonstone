@@ -30,9 +30,10 @@ python3 "${HFASIGN_DIR}/scripts/apply_alphaone10_udid_reliability.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone10_udid_fixed_port_hotfix.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone11_source_notice_urlscheme.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone12_features.py"
+python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_source_ui_cleanup.py"
 
 git -C "${BUILD_DIR}" diff --check
 git -C "${BUILD_DIR}" submodule update --init --recursive
 git -C "${BUILD_DIR}/Zsign" apply "${HFASIGN_DIR}/patches/0017-Fix-Zsign-removeProvision-semantics.patch"
 
-echo "Reconstructed zonoe v3.0.0-alphaone12 from frozen alphaone10 baseline + additive alphaone11/alphaone12 transforms"
+echo "Reconstructed zonoe v3.0.0-alphaone13 from frozen alphaone10 baseline + additive alphaone11/alphaone12/alphaone13 transforms"
