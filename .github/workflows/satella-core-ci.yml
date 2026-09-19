@@ -1,0 +1,82 @@
+name: SatellaCore Objective-C CI
+
+on:
+  push:
+    branches:
+      - kkkkbuy
+    paths:
+      - 'SatellaCore/**'
+      - '.github/workflows/satella-core-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Source policy and API audit
+        run: |
+          set -euxo pipefail
+          python3 SatellaCore/Tests/source_audit.py
+
+      - name: Compile with warnings as errors and run API tests on macOS
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/satella-core
+          xcrun clang \
+            -fobjc-arc -fblocks -fmodules \
+            -Wall -Wextra -Werror \
+            -framework Foundation \
+            -ISatellaCore/Sources/Public \
+            -ISatellaCore/Sources/Internal \
+            SatellaCore/Tests/SatellaCoreTests.m \
+            SatellaCore/Sources/Internal/SatellaCore.m \
+            SatellaCore/Sources/Internal/SJConfiguration.m \
+            SatellaCore/Sources/Internal/SJDiagnostics.m \
+            SatellaCore/Sources/Internal/SJStoreKitMock.m \
+            -o /tmp/satella-core/SatellaCoreTests
+          /tmp/satella-core/SatellaCoreTests
+
+      - name: Compile all Objective-C sources for iPhoneOS arm64
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/satella-core-ios
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          for src in SatellaCore/Sources/Internal/*.m; do
+            obj="/tmp/satella-core-ios/$(basename "${src%.m}").o"
+            xcrun --sdk iphoneos clang \
+              -arch arm64 \
+              -isysroot "$SDK" \
+              -miphoneos-version-min=12.0 \
+              -fobjc-arc -fblocks -fmodules \
+              -Wall -Wextra -Werror \
+              -ISatellaCore/Sources/Public \
+              -ISatellaCore/Sources/Internal \
+              -c "$src" -o "$obj"
+          done
+          xcrun libtool -static -o /tmp/satella-core-ios/libSatellaCore.a /tmp/satella-core-ios/*.o
+          file /tmp/satella-core-ios/libSatellaCore.a
+          nm -gU /tmp/satellla-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SatellaCore'
+
+      - name: Build source delivery archive
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          ditto -c -k --keepParent SatellaCore dist/SatellaCore-ObjectiveC-Source.zip
+          cp /tmp/satella-core-ios/libSatellaCore.a dist/libSatellaCore-arm64.a
+          shasum -a 256 dist/SatellaCore-ObjectiveC-Source.zip dist/libSatellaCore-arm64.a | tee dist/SHA256.txt
+
+      - name: Upload source and validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SatellaCore-ObjectiveC-Source
+          path: |
+            dist/SatellaCore-ObjectiveC-Source.zip
+            dist/libSatellaCore-arm64.a
+            dist/SHA256.txt
+          if-no-files-found: error

@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0-dev",
+  "branch": "kkkkbuy",
+  "baseline": "64e378033e1dcc1a4b01aa4b723462356c2d1fcb",
+  "build": "pending-ci",
+  "ci": "pending",
+  "runtime": "pending-ci-tests",
+  "phase": "initial-objective-c-api",
+  "next_task": "run-ci-and-fix-first-real-error"
+}
