@@ -61,7 +61,7 @@ jobs:
           done
           xcrun libtool -static -o /tmp/satella-core-ios/libSatellaCore.a /tmp/satella-core-ios/*.o
           file /tmp/satella-core-ios/libSatellaCore.a
-          nm -gU /tmp/satellla-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SatellaCore'
+          nm -gU /tmp/satella-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SatellaCore'
 
       - name: Build source delivery archive
         run: |
