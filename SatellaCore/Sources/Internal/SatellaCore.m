@@ -168,7 +168,7 @@ static void SJPostConfigurationChanged(void) {
     [self applyConfiguration:defaults error:nil];
     [SJStoreKitMock reset];
     [SJDiagnostics reset];
-    [SJDiagostics appendModule:@"Core" message:@"Configuration reset." code:0];
+    [SJDiagnostics appendModule:@"Core" message:@"Configuration reset." code:0];
 }
 
 @end
