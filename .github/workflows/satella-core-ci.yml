@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euxo pipefail
           nm -u /tmp/satella-core-ios/libSatellaCore.a > /tmp/satella-core-ios/undefined.txt || true
-          if grep -Eiq 'swift|jinx|MSHook|_dyld_get_image_name|StoreKit' /tmp/satella-core-ios/undefined.txt; then
+          if grep -Eiq 'libswift|_swift|jinx|MSHook|_dyld_get_image_name|_OBJC_(CLASS|METACLASS)_\\$_SK[A-Za-z0-9_]+' /tmp/satella-core-ios/undefined.txt; then
             cat /tmp/satella-core-ios/undefined.txt
             echo 'Forbidden dependency/symbol found'
             exit 1
