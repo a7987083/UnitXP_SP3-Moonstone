@@ -22,18 +22,24 @@ static void SJPostStateChanged(NSDictionary<NSString *, id> *configurationSnapsh
     [[NSNotificationCenter defaultCenter] postNotificationName:SJCoreStateDidChangeNotification object:nil];
 }
 
-+ (NSString *)version { return @"1.1.0-testport"; }
++ (NSString *)version { return @"1.3.0-result-parity"; }
 
 + (NSDictionary<NSString *,id> *)capabilities {
     return @{
         @"productsDelegateParity": @YES,
+        @"invalidProductIdentifierParity": @YES,
+        @"productIdentityParity": @YES,
+        @"upstreamParityMode": @YES,
         @"transactionObserverParity": @YES,
         @"canMakePaymentsSimulation": @YES,
         @"priceOverrideSimulation": @YES,
         @"transactionPropertySimulation": @YES,
+        @"transactionDynamicGetterParity": @YES,
         @"oldReceiptModel": @YES,
         @"receiptResponseModel": @YES,
+        @"upstreamReceiptPayloadParity": @YES,
         @"verifyReceiptDecisionLogic": @YES,
+        @"disabledMeansPassThrough": @YES,
         @"preferencesCompatibility": @YES,
         @"liveStoreKitInterception": @NO,
         @"dyldConcealmentSimulation": @YES,
@@ -49,9 +55,9 @@ static void SJPostStateChanged(NSDictionary<NSString *, id> *configurationSnapsh
 
 + (BOOL)validateConfiguration:(SJConfiguration *)configuration error:(NSError **)error {
     if(![configuration isKindOfClass:SJConfiguration.class]){ if(error)*error=SJCoreMakeError(SJCoreErrorInvalidConfiguration,@"Configuration must be an SJConfiguration instance."); return NO; }
+    if(configuration.behaviorMode < SJBehaviorModeUpstreamParity || configuration.behaviorMode > SJBehaviorModeExtendedTesting){ if(error)*error=SJCoreMakeError(SJCoreErrorInvalidConfiguration,@"Unknown behavior mode."); return NO; }
     if(!configuration.testPrice || [configuration.testPrice isEqualToNumber:NSDecimalNumber.notANumber] || [configuration.testPrice compare:NSDecimalNumber.zero]==NSOrderedAscending){ if(error)*error=SJCoreMakeError(SJCoreErrorInvalidConfiguration,@"Test price must be a non-negative decimal number."); return NO; }
     if(configuration.testEnvironment.length==0){ if(error)*error=SJCoreMakeError(SJCoreErrorInvalidConfiguration,@"Test environment must not be empty."); return NO; }
-    if(configuration.transactionSimulationEnabled && !configuration.productCatalogFallbackEnabled){ if(error)*error=SJCoreMakeError(SJCoreErrorMissingDependency,@"Transaction simulation requires product catalog fallback."); return NO; }
     return YES;
 }
 
@@ -75,10 +81,9 @@ static void SJPostStateChanged(NSDictionary<NSString *, id> *configurationSnapsh
     SJStateCoordinator *state=[SJStateCoordinator shared];
     NSDictionary *snapshot;
     @synchronized(state){
-        if(feature==SJFeatureProductCatalogFallback && !enabled && state.configuration.transactionSimulationEnabled){ if(error)*error=SJCoreMakeError(SJCoreErrorMissingDependency,@"Disable transaction simulation before disabling product catalog fallback."); return NO; }
         switch(feature){
             case SJFeatureProductCatalogFallback: state.configuration.productCatalogFallbackEnabled=enabled; break;
-            case SJFeatureTransactionSimulation: if(enabled && !state.configuration.productCatalogFallbackEnabled){ if(error)*error=SJCoreMakeError(SJCoreErrorMissingDependency,@"Transaction simulation requires product catalog fallback."); return NO; } state.configuration.transactionSimulationEnabled=enabled; break;
+            case SJFeatureTransactionSimulation: state.configuration.transactionSimulationEnabled=enabled; break;
             case SJFeatureReceiptSimulation: state.configuration.receiptSimulationEnabled=enabled; break;
             case SJFeatureCanMakePaymentsOverride: state.configuration.canMakePaymentsOverrideEnabled=enabled; break;
             case SJFeaturePriceOverride: state.configuration.priceOverrideEnabled=enabled; break;

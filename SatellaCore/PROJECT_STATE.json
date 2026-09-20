@@ -1,25 +1,24 @@
 {
-  "version": "1.1.0-testport",
+  "version": "1.3.0-result-parity",
   "branch": "kkkkbuy",
+  "repository_head_before_local_fix": "6e7101679da001d1886cf949d0148f0137c9fb65",
   "upstream_baseline": "Paisseon/SatellaJailed@469e6eb7806ce19eb44e80cf03a9e61a100ba86e",
-  "implementation_validation": {
+  "historical_validation": {
     "commit": "2f68b48907887bad20d4e9935c99ae039369beb6",
     "run_id": 35480212352,
-    "status": "passed",
-    "source_audit": "passed",
-    "macos_werror": "passed",
-    "macos_runtime_tests": "passed",
-    "thread_sanitizer": "passed",
-    "iphoneos_arm64_werror": "passed",
-    "binary_dependency_audit": "passed",
-    "minimum_ios": "12.0",
-    "xcode": "16.4",
-    "iphoneos_sdk": "18.5"
+    "status": "passed_for_old_1.1.0_implementation_only"
   },
-  "delivery": {
-    "branch_head": "resolve from git at delivery time",
-    "ci_run": "resolve from final successful workflow run",
-    "hashes": "use SHA256.txt from the same final CI artifact"
+  "current_working_validation": {
+    "source_audit": "passed",
+    "upstream_parity_audit": "passed",
+    "macos_werror_compile": "not_run",
+    "macos_runtime_tests": "not_run",
+    "thread_sanitizer": "not_run",
+    "iphoneos_arm64_werror": "not_run",
+    "binary_dependency_audit": "not_run",
+    "github_actions": "not_run",
+    "consumer_project": "not_tested",
+    "physical_device": "not_tested"
   },
   "migration": {
     "objective_c_api_only": true,
@@ -28,12 +27,23 @@
     "internal_ui": false,
     "constructor_or_load": false,
     "live_global_storekit_interception": false,
-    "localtest_receipt_signature": true
+    "upstream_receipt_signature": true,
+    "transaction_dynamic_getter_parity": true,
+    "observer_object_identity_parity": true,
+    "verify_receipt_pass_through_semantics": true,
+    "behavior_mode_split": true,
+    "invalid_product_identifiers_parity": true,
+    "product_identity_parity_model_path": true,
+    "disabled_conditional_hook_pass_through_model_semantics": true,
+    "strict_price_literal_parity": true,
+    "strict_environment_parity": true,
+    "receipt_two_date_evaluation_parity": true,
+    "upstream_shared_state_locking_parity_model_path": true,
+    "runtime_sensitive_source_audit_allowlisted_review": true,
+    "real_urlsession_task_parity": false,
+    "live_dyld_parity": false,
+    "real_storekit_object_parity": false
   },
-  "external_validation": {
-    "consumer_project": "not_tested",
-    "physical_device": "not_tested"
-  },
-  "phase": "full-objective-c-security-test-port-ci-validated",
-  "next_task": "consumer-project-integration-and-device-validation"
+  "phase": "result-parity-model-fixes-awaiting-ci",
+  "next_task": "run CI; then validate remaining real StoreKit/URLSession/device gaps without treating model parity as runtime parity"
 }

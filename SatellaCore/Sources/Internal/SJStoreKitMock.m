@@ -67,13 +67,13 @@ static NSError *SJMockError(NSInteger code, NSString *message) {
             if (error) *error = SJMockError(SJCoreErrorInvalidArgument, @"Duplicate product identifiers are not allowed.");
             return NO;
         }
-        validated[product.productIdentifier] = [product copy];
+        validated[product.productIdentifier] = product;
     }
 
     @synchronized (state) {
-        if (!state.configuration.productCatalogFallbackEnabled) {
-            if (error) *error = SJMockError(SJCoreErrorFeatureDisabled, @"Product catalog fallback is disabled.");
-            return NO;
+        if (state.configuration.behaviorMode == SJBehaviorModeExtendedTesting &&
+            !state.configuration.productCatalogFallbackEnabled) {
+            return YES;
         }
         [state.products removeAllObjects];
         [state.productOrder removeAllObjects];
@@ -87,10 +87,10 @@ static NSError *SJMockError(NSInteger code, NSString *message) {
 + (NSArray<SJMockProduct *> *)products {
     SJStateCoordinator *state = [SJStateCoordinator shared];
     @synchronized (state) {
-        if (!state.configuration.productCatalogFallbackEnabled) return @[];
+        if (state.configuration.behaviorMode == SJBehaviorModeExtendedTesting && !state.configuration.productCatalogFallbackEnabled) return @[];
         NSArray<NSString *> *keys = [state.productOrder copy];
         NSMutableArray<SJMockProduct *> *result = [NSMutableArray arrayWithCapacity:keys.count];
-        for (NSString *key in keys) if (state.products[key]) [result addObject:[state.products[key] copy]];
+        for (NSString *key in keys) if (state.products[key]) [result addObject:state.products[key]];
         return result;
     }
 }
@@ -99,8 +99,8 @@ static NSError *SJMockError(NSInteger code, NSString *message) {
     if (productIdentifier.length == 0) return nil;
     SJStateCoordinator *state = [SJStateCoordinator shared];
     @synchronized (state) {
-        if (!state.configuration.productCatalogFallbackEnabled) return nil;
-        return [state.products[productIdentifier] copy];
+        if (state.configuration.behaviorMode == SJBehaviorModeExtendedTesting && !state.configuration.productCatalogFallbackEnabled) return nil;
+        return state.products[productIdentifier];
     }
 }
 
@@ -112,7 +112,6 @@ static NSError *SJMockError(NSInteger code, NSString *message) {
 + (NSDictionary<NSString *, id> * _Nullable)makeReceiptFixtureForProductIdentifier:(NSString *)productIdentifier error:(NSError **)error {
     if (error) *error = nil;
     if (![SatellaCore isFeatureEnabled:SJFeatureReceiptSimulation]) {
-        if (error) *error = SJMockError(SJCoreErrorFeatureDisabled, @"Receipt simulation is disabled.");
         return nil;
     }
     return [[SJReceiptGenerator receiptForProductIdentifier:productIdentifier] dictionaryRepresentation];

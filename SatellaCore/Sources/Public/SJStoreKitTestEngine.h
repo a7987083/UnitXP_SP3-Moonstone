@@ -51,8 +51,20 @@ typedef NS_ENUM(NSInteger, SJMockTransactionState) {
 + (SJProductsResponse * _Nullable)responseForProductIdentifiers:(NSSet<NSString *> *)productIdentifiers
                                                 originalProducts:(NSArray<SJMockProduct *> *)originalProducts
                                                            error:(NSError * _Nullable * _Nullable)error;
+// Full response seam. When originalProducts is non-empty, upstream forwards
+// the response unchanged, including invalidProductIdentifiers. When products
+// are empty, the upstream fake response contains fallback products and no
+// invalid identifiers.
++ (SJProductsResponse * _Nullable)responseForProductIdentifiers:(NSSet<NSString *> *)productIdentifiers
+                                                originalProducts:(NSArray<SJMockProduct *> *)originalProducts
+                                       invalidProductIdentifiers:(NSArray<NSString *> *)invalidProductIdentifiers
+                                                           error:(NSError * _Nullable * _Nullable)error;
 + (BOOL)deliverProductsForIdentifiers:(NSSet<NSString *> *)productIdentifiers
                       originalProducts:(NSArray<SJMockProduct *> *)originalProducts
+                                 error:(NSError * _Nullable * _Nullable)error;
++ (BOOL)deliverProductsForIdentifiers:(NSSet<NSString *> *)productIdentifiers
+                      originalProducts:(NSArray<SJMockProduct *> *)originalProducts
+             invalidProductIdentifiers:(NSArray<NSString *> *)invalidProductIdentifiers
                                  error:(NSError * _Nullable * _Nullable)error;
 
 + (void)addTransactionObserver:(id<SJTransactionTestObserver>)observer;
@@ -61,9 +73,10 @@ typedef NS_ENUM(NSInteger, SJMockTransactionState) {
                                                                         error:(NSError * _Nullable * _Nullable)error;
 + (BOOL)publishTransactions:(NSArray<SJMockTransaction *> *)transactions error:(NSError * _Nullable * _Nullable)error;
 
-+ (NSData * _Nullable)oldReceiptDataForProductIdentifier:(NSString *)productIdentifier error:(NSError * _Nullable * _Nullable)error;
++ (NSData * _Nullable)oldReceiptDataForProductIdentifier:(NSString * _Nullable)productIdentifier error:(NSError * _Nullable * _Nullable)error;
++ (BOOL)shouldReplaceVerificationResponseForURL:(NSURL * _Nullable)URL;
 + (NSData * _Nullable)verificationResponseDataForURL:(NSURL *)URL
-                                   productIdentifier:(NSString *)productIdentifier
+                                   productIdentifier:(NSString * _Nullable)productIdentifier
                                                error:(NSError * _Nullable * _Nullable)error;
 + (NSData * _Nullable)verificationResponseDataForURL:(NSURL *)URL error:(NSError * _Nullable * _Nullable)error;
 

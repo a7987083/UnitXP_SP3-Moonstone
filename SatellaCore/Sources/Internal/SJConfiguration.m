@@ -4,6 +4,7 @@
 
 + (instancetype)defaultConfiguration {
     SJConfiguration *config = [[self alloc] init];
+    config.behaviorMode = SJBehaviorModeUpstreamParity;
     // These three behaviours were installed unconditionally by the upstream
     // Swift entry point. They remain opt-in at API integration time because
     // SatellaCore itself has no constructor/+load entry point.
@@ -14,7 +15,7 @@
     config.priceOverrideEnabled = NO;
     config.observerBridgeEnabled = NO;
     config.testPrice = [NSDecimalNumber decimalNumberWithString:@"0.01"];
-    config.testEnvironment = @"LocalTest";
+    config.testEnvironment = @"Production";
 
     config.enabledPreference = YES;
     config.gesturePreferenceEnabled = YES;
@@ -25,6 +26,7 @@
 
 - (id)copyWithZone:(NSZone *)zone {
     SJConfiguration *copy = [[[self class] allocWithZone:zone] init];
+    copy.behaviorMode = self.behaviorMode;
     copy.productCatalogFallbackEnabled = self.productCatalogFallbackEnabled;
     copy.transactionSimulationEnabled = self.transactionSimulationEnabled;
     copy.receiptSimulationEnabled = self.receiptSimulationEnabled;
@@ -42,6 +44,7 @@
 
 - (NSDictionary<NSString *, id> *)dictionaryRepresentation {
     return @{
+        @"behaviorMode": @(self.behaviorMode),
         @"productCatalogFallback": @(self.productCatalogFallbackEnabled),
         @"transactionSimulation": @(self.transactionSimulationEnabled),
         @"receiptSimulation": @(self.receiptSimulationEnabled),
@@ -49,7 +52,7 @@
         @"priceOverride": @(self.priceOverrideEnabled),
         @"observerBridge": @(self.observerBridgeEnabled),
         @"testPrice": self.testPrice.stringValue ?: @"0.01",
-        @"testEnvironment": self.testEnvironment ?: @"LocalTest",
+        @"testEnvironment": self.testEnvironment ?: @"Production",
         @"enabledPreference": @(self.enabledPreference),
         @"gesturePreference": @(self.gesturePreferenceEnabled),
         @"hiddenPreference": @(self.hiddenPreferenceEnabled),

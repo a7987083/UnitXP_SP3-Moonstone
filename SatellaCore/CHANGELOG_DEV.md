@@ -1,48 +1,39 @@
 # CHANGELOG_DEV
 
+## 1.3.0-result-parity
+
+- Added UpstreamParity vs ExtendedTesting behaviour isolation.
+- Preserved invalid product identifiers on non-empty responses.
+- Preserved cached product object identity.
+- Changed disabled conditional model paths to pass-through/no synthetic result.
+- Fixed strict price/environment results to upstream literals while retaining OC-only overrides in ExtendedTesting.
+- Matched separate Swift Date() evaluation order.
+- Removed extra synchronization from the strict migrated product/delegate/observer result path while retaining synchronization in ExtendedTesting.
+- Reworked source audit: StoreKit/native runtime/dyld usage is review-gated rather than globally forbidden.
+- Real StoreKit/URLSession/dyld runtime parity remains explicitly pending.
+
+## 1.2.0-upstream-parity
+
+### Root-cause repair against `Paisseon/SatellaJailed@469e6eb`
+
+- Removed the OC-only dependency that required a cached mock product before creating a purchased transaction. `TransactionHook.swift` is independent from product fallback.
+- Changed `SJMockTransaction` hooked-equivalent getters to upstream read-time semantics: purchased state, fresh matching/transaction UUIDs, nil error, current date.
+- Stopped deep-copying transactions before observer callbacks; original object identity is now preserved.
+- Product delegates receive the same response object within one delivery, matching `SatellaDelegate` fan-out semantics.
+- Fallback product price is restored to the upstream literal `0.01`; the default `testPrice` is also `0.01`, while an explicitly changed `testPrice` remains a test-only extension.
+- Restored the upstream old-receipt signature byte payload (1667 bytes), default `Production` environment, fallback bundle/product identifiers, vendor-ID behaviour, inclusive receipt-ID range, and timestamp conversion order. An explicitly changed `testEnvironment` remains a test-only extension.
+- Preserved the upstream modern-receipt `original_purchase_date_ms = nowDate` behaviour even though the key name suggests milliseconds.
+- Added explicit `shouldReplaceVerificationResponseForURL:`. Non-`/verifyReceipt` URLs now mean pass-through (`nil` replacement, no error) rather than invalid input.
+- Expanded Objective-C regression tests for dynamic transaction getters, object identity, receipt payload shape, signature length, Production environment, empty-product URLHook edge case, and pass-through URLs.
+- Added `Tests/upstream_parity_audit.py` and chained it into `source_audit.py` so existing CI invokes the parity gate without workflow changes.
+
+### Validation performed locally
+
+- Source policy audit: PASS.
+- Upstream parity audit: PASS.
+- Upstream receipt signature decode: 1667 bytes, SHA-256 `5140ee9463d2f8ac278ff300f0b149bc3bb2d6fa02a74722d1d44a2de6e69a95`.
+- Compile/runtime/TSAN/iPhoneOS/CI/device: **not run yet for this revision**.
+
 ## 1.1.0-testport
 
-### Objective-C security-test migration
-- Migrated the non-UI Swift behaviour into explicit Objective-C app-owned test seams.
-- Added compatible `tella_*` preferences and defaults.
-- Added product delegate fallback behaviour with one-time fallback product caching.
-- Added transaction observer forwarding with pointer-identity duplicate suppression.
-- Added canMakePayments, product-price and purchased-transaction property simulations.
-- Added old receipt, modern receipt, receipt info, renewal info and verification-response Objective-C models.
-- Added LocalTest receipt/verification generation. Production Apple signature material is intentionally not reproduced.
-- Added URL decision behaviour for the `/verifyReceipt` test seam.
-- Added dyld concealment-decision simulation for testing an app's own detection logic without installing a live dyld hook.
-- Preserved the API-only integration model: no internal UI, constructor, `+load`, standalone `start`, Swift runtime or Jinx.
-
-### Audit fixes
-- Unified mutable runtime state under one synchronization domain.
-- Made reset state transitions atomic before notifications are posted.
-- Made `status` a coherent snapshot.
-- Rejected nil product arrays rather than treating nil as an implicit clear.
-- Added product-catalog/transaction dependency validation.
-- Separated disabled-feature errors from unavailable-feature errors.
-- Copied diagnostics input strings.
-- Expanded source policy auditing and binary forbidden-dependency auditing.
-
-### Verified implementation baseline
-Implementation commit `2f68b48907887bad20d4e9935c99ae039369beb6` passed GitHub Actions Run `35480212352`:
-
-- Source policy/API audit: PASS.
-- macOS Objective-C compile with `-Wall -Wextra -Werror`: PASS.
-- Full API/runtime tests: PASS; log reported `SatellaCore full security-test port tests passed`.
-- Thread Sanitizer stress run: PASS.
-- iPhoneOS arm64 compile with `-Wall -Wextra -Werror`: PASS.
-- Xcode 16.4 / iPhoneOS 18.5 SDK / minimum iOS 12.0.
-- Static library generation: PASS.
-- Binary dependency audit for Swift/Jinx/Substrate/live dyld/StoreKit classes: PASS.
-- Exported `SatellaCore`, `SJStoreKitTestEngine`, `SJReceiptGenerator`, and `SJRuntimeTestAdapter` classes: verified.
-
-Run-8 artifact values, retained only as the implementation validation baseline:
-- Source ZIP SHA256: `88d17f3741dcc0d320e15086954fa69cb610e06fb74d024f9397718f7cd483d0`.
-- arm64 static library SHA256: `51e4daf149ff0c7ad4d3a71df49e3a20bd65b94d53a402f822c52fcb7afac706`.
-- Uploaded artifact digest: `sha256:c1eb11e40c148e4339346176ede93d87f0d673990cd615cd28b73dacbcd68b05`.
-
-The final delivery workflow is re-run after documentation-only changes. The authoritative hashes for any delivered archive are the `SHA256.txt` file generated inside that same final CI artifact.
-
-### Validation boundary
-Consumer-project integration and physical-device testing have not yet been performed. The component uses explicit app-owned security-test seams rather than silently intercepting live third-party StoreKit/URLSession traffic.
+The prior implementation established the API-only Objective-C architecture and previously passed CI at commit `2f68b48907887bad20d4e9935c99ae039369beb6`. Its LocalTest receipt substitution and several behavioural approximations were superseded by the 1.2.0 parity repair above.
