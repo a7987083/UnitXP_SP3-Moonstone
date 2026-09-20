@@ -48,7 +48,7 @@
 @end
 
 @implementation SJReceiptResponse
-- (instancetype)init { self = [super init]; if (self) { _environment=@"LocalTest"; _receipt=[SJReceipt new]; _latestReceiptInfo=@[]; _latestReceipt=@""; _pendingRenewalInfo=@[]; } return self; }
+- (instancetype)init { self = [super init]; if (self) { _environment=@"Production"; _receipt=[SJReceipt new]; _latestReceiptInfo=@[]; _latestReceipt=@""; _pendingRenewalInfo=@[]; } return self; }
 - (NSDictionary<NSString *, id> *)dictionaryRepresentation {
     NSMutableArray *latest = [NSMutableArray arrayWithCapacity:self.latestReceiptInfo.count];
     for (SJReceiptInfo *info in self.latestReceiptInfo) [latest addObject:[info dictionaryRepresentation]];
@@ -56,7 +56,7 @@
     for (SJRenewalInfo *info in self.pendingRenewalInfo) [renewal addObject:[info dictionaryRepresentation]];
     return @{
         @"status": @(self.status),
-        @"environment": self.environment ?: @"LocalTest",
+        @"environment": self.environment ?: @"Production",
         @"receipt": [self.receipt dictionaryRepresentation],
         @"latest_receipt_info": latest,
         @"latest_receipt": self.latestReceipt ?: @"",
