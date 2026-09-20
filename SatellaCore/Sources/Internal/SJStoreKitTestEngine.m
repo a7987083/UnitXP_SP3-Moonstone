@@ -342,6 +342,7 @@ static NSError *SJEngineError(NSInteger code, NSString *message) {
     __block NSArray *observers = nil;
     __block NSMutableArray<SJMockTransaction *> *current = [NSMutableArray array];
     __block BOOL shouldDeliver = YES;
+    __block NSError *validationError = nil;
     void (^prepare)(void) = ^{
         if (!state.configuration.observerBridgeEnabled) {
             shouldDeliver = NO;
@@ -349,7 +350,7 @@ static NSError *SJEngineError(NSInteger code, NSString *message) {
         }
         for (id object in transactions) {
             if (![object isKindOfClass:SJMockTransaction.class]) {
-                if (error) *error = SJEngineError(SJCoreErrorInvalidArgument, @"Transactions must contain SJMockTransaction instances.");
+                validationError = SJEngineError(SJCoreErrorInvalidArgument, @"Transactions must contain SJMockTransaction instances.");
                 shouldDeliver = NO;
                 return;
             }
@@ -369,7 +370,10 @@ static NSError *SJEngineError(NSInteger code, NSString *message) {
     } else {
         @synchronized (state) { prepare(); }
     }
-    if (error && *error) return NO;
+    if (validationError) {
+        if (error) *error = validationError;
+        return NO;
+    }
     if (!shouldDeliver) return YES;
 
     NSArray<SJMockTransaction *> *delivery = [current copy];
