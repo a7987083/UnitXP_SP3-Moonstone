@@ -75,13 +75,25 @@ jobs:
               -c "$src" -o "$obj"
           done
           xcrun libtool -static -o /tmp/satella-core-ios/libSatellaCore.a /tmp/satella-core-ios/*.o
+          xcrun --sdk iphoneos clang \
+            -arch arm64 \
+            -isysroot "$SDK" \
+            -miphoneos-version-min=12.0 \
+            -dynamiclib \
+            -framework Foundation \
+            -Wl,-install_name,@rpath/libSatellaCore.dylib \
+            /tmp/satella-core-ios/*.o \
+            -o /tmp/satella-core-ios/libSatellaCore.dylib
           file /tmp/satella-core-ios/libSatellaCore.a
+          file /tmp/satella-core-ios/libSatellaCore.dylib
           nm -gU /tmp/satella-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SatellaCore'
+          nm -gU /tmp/satella-core-ios/libSatellaCore.dylib | grep '_OBJC_CLASS_$_SatellaCore'
 
       - name: Binary dependency and forbidden-symbol audit
         run: |
           set -euxo pipefail
           nm -u /tmp/satella-core-ios/libSatellaCore.a > /tmp/satella-core-ios/undefined.txt || true
+          nm -u /tmp/satella-core-ios/libSatellaCore.dylib >> /tmp/satella-core-ios/undefined.txt || true
           if grep -Eiq 'libswift|_swift|jinx|MSHook|_dyld_get_image_name|_OBJC_(CLASS|METACLASS)_\\$_SK[A-Za-z0-9_]+' /tmp/satella-core-ios/undefined.txt; then
             cat /tmp/satella-core-ios/undefined.txt
             echo 'Forbidden dependency/symbol found'
@@ -97,7 +109,8 @@ jobs:
           mkdir -p dist
           ditto -c -k --keepParent SatellaCore dist/SatellaCore-ObjectiveC-Source.zip
           cp /tmp/satella-core-ios/libSatellaCore.a dist/libSatellaCore-arm64.a
-          shasum -a 256 dist/SatellaCore-ObjectiveC-Source.zip dist/libSatellaCore-arm64.a | tee dist/SHA256.txt
+          cp /tmp/satella-core-ios/libSatellaCore.dylib dist/libSatellaCore-arm64.dylib
+          shasum -a 256 dist/SatellaCore-ObjectiveC-Source.zip dist/libSatellaCore-arm64.a dist/libSatellaCore-arm64.dylib | tee dist/SHA256.txt
 
       - name: Upload source and validation artifact
         uses: actions/upload-artifact@v4
@@ -106,5 +119,6 @@ jobs:
           path: |
             dist/SatellaCore-ObjectiveC-Source.zip
             dist/libSatellaCore-arm64.a
+            dist/libSatellaCore-arm64.dylib
             dist/SHA256.txt
           if-no-files-found: error
