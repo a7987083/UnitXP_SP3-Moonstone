@@ -1,10 +1,17 @@
 # KNOWN_ISSUES
 
-## Open
-- Physical-device validation has not been performed.
-- The source has not yet been compiled inside the real consumer Objective-C project, so consumer-target build settings/header-search-path integration remain to be verified there.
-- The current StoreKit component is intentionally a local test/mock harness; live StoreKit interception is not implemented.
+## Open validation items
+- Consumer-project integration and physical-device validation are still pending.
+- The test engine intentionally uses explicit app-owned API seams instead of globally intercepting live StoreKit or URLSession.
+- `DyldHook.swift` decision semantics are available through `SJRuntimeTestAdapter`, but no live dyld interception/concealment is installed.
+- Test receipt signatures are LocalTest markers, not Apple production signatures.
 
-## Resolved during CI
-- Fixed `SJDiagostics` class-name typo found by the first real `-Werror` compiler run.
-- Fixed the CI `/tmp/satellla-core-ios` verification-path typo after iPhoneOS source compilation and static-library creation had already succeeded.
+## Fixed from v1.0.0-dev audit
+- `resetConfiguration` now performs configuration/session clearing as one state transition before notifications are posted.
+- Configuration, product catalog, delegate/observer registries, seen transactions and diagnostics share one synchronization domain.
+- `status` collects one coherent snapshot under that synchronization domain.
+- `setProducts:nil` is rejected instead of silently clearing the catalog.
+- Product-catalog / transaction dependency is validated.
+- Disabled feature errors are distinct from unavailable feature errors.
+- Diagnostics copy caller strings.
+- Source audit recognizes `@import`, constructor variants and common Objective-C runtime mutation APIs.

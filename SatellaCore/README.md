@@ -1,25 +1,31 @@
-# SatellaCore Objective-C API
+# SatellaCore Objective-C security-test port
 
-Pure Objective-C, UI-free, constructor-free API component intended to be copied directly into an Objective-C project.
+Pure Objective-C, API-driven source component for app-owned StoreKit security testing. It contains no internal UI, constructor, `+load`, Swift runtime, SwiftUI, Combine, or Jinx dependency.
 
-This implementation is a local StoreKit test/mock harness. It does not intercept live StoreKit, modify App Store transactions, or forge production receipts.
+## What is migrated
 
-## Integration
+The non-UI Swift behaviour is represented through explicit test seams: original `tella_*` preferences, product-delegate fallback/caching, observer forwarding and pointer-identity duplicate suppression, `canMakePayments` override semantics, product-price override semantics, purchased transaction properties, old/new receipt models, renewal/verification response models, `/verifyReceipt` decision logic, and dyld-concealment decision simulation.
 
-Add the files under `Sources/` to the target and expose the headers under `Sources/Public/`.
+It intentionally does **not** globally swizzle StoreKit/URLSession or install dyld concealment. Your own app/test target calls the test APIs at the seam you want to exercise.
+
+See `MIGRATION_MATRIX.md` for the file-by-file upstream mapping.
+
+## Minimal use
 
 ```objc
 #import "SatellaCore.h"
-#import "SJStoreKitMock.h"
 
 NSError *error = nil;
-[SatellaCore setFeature:SJFeatureProductCatalogMock enabled:YES error:&error];
+[SatellaCore resetConfiguration];
 
-SJMockProduct *product = [[SJMockProduct alloc]
-    initWithProductIdentifier:@"com.example.test.coin100"
-    price:[NSDecimalNumber decimalNumberWithString:@"0.99"]];
+SJProductsResponse *response =
+    [SJStoreKitTestEngine responseForProductIdentifiers:[NSSet setWithObject:@"com.example.pro"]
+                                        originalProducts:@[]
+                                                   error:&error];
 
-[SJStoreKitMock setProducts:@[product] error:&error];
+SJMockTransaction *transaction =
+    [SJStoreKitTestEngine makePurchasedTransactionForProductIdentifier:@"com.example.pro"
+                                                                  error:&error];
 ```
 
-No `start`, constructor, `+load`, Swift runtime, SwiftUI, Combine, Jinx, or internal UI is required.
+All runtime state is lazy; importing the source has no startup side effect.

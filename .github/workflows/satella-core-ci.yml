@@ -28,6 +28,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p /tmp/satella-core
+          SOURCES=(SatellaCore/Sources/Internal/*.m)
           xcrun clang \
             -fobjc-arc -fblocks -fmodules \
             -Wall -Wextra -Werror \
@@ -35,12 +36,26 @@ jobs:
             -ISatellaCore/Sources/Public \
             -ISatellaCore/Sources/Internal \
             SatellaCore/Tests/SatellaCoreTests.m \
-            SatellaCore/Sources/Internal/SatellaCore.m \
-            SatellaCore/Sources/Internal/SJConfiguration.m \
-            SatellaCore/Sources/Internal/SJDiagnostics.m \
-            SatellaCore/Sources/Internal/SJStoreKitMock.m \
+            "${SOURCES[@]}" \
             -o /tmp/satella-core/SatellaCoreTests
           /tmp/satella-core/SatellaCoreTests
+
+      - name: Thread Sanitizer stress run on macOS
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/satella-core-tsan
+          SOURCES=(SatellaCore/Sources/Internal/*.m)
+          xcrun clang \
+            -fobjc-arc -fblocks -fmodules \
+            -Wall -Wextra -Werror \
+            -fsanitize=thread -g \
+            -framework Foundation \
+            -ISatellaCore/Sources/Public \
+            -ISatellaCore/Sources/Internal \
+            SatellaCore/Tests/SatellaCoreTests.m \
+            "${SOURCES[@]}" \
+            -o /tmp/satella-core-tsan/SatellaCoreTests
+          TSAN_OPTIONS='halt_on_error=1:abort_on_error=1' /tmp/satella-core-tsan/SatellaCoreTests
 
       - name: Compile all Objective-C sources for iPhoneOS arm64
         run: |
@@ -62,6 +77,19 @@ jobs:
           xcrun libtool -static -o /tmp/satella-core-ios/libSatellaCore.a /tmp/satella-core-ios/*.o
           file /tmp/satella-core-ios/libSatellaCore.a
           nm -gU /tmp/satella-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SatellaCore'
+
+      - name: Binary dependency and forbidden-symbol audit
+        run: |
+          set -euxo pipefail
+          nm -u /tmp/satella-core-ios/libSatellaCore.a > /tmp/satella-core-ios/undefined.txt || true
+          if grep -Eiq 'swift|jinx|MSHook|_dyld_get_image_name|StoreKit' /tmp/satella-core-ios/undefined.txt; then
+            cat /tmp/satella-core-ios/undefined.txt
+            echo 'Forbidden dependency/symbol found'
+            exit 1
+          fi
+          nm -gU /tmp/satella-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SJStoreKitTestEngine'
+          nm -gU /tmp/satella-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SJReceiptGenerator'
+          nm -gU /tmp/satella-core-ios/libSatellaCore.a | grep '_OBJC_CLASS_$_SJRuntimeTestAdapter'
 
       - name: Build source delivery archive
         run: |
