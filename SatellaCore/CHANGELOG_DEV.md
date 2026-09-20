@@ -1,32 +1,48 @@
 # CHANGELOG_DEV
 
-## 1.0.0-dev
+## 1.1.0-testport
 
-### Implemented
-- Added a pure Objective-C public API with no constructor, +load, start/bootstrap API, internal UI, Swift runtime, SwiftUI, Combine, or Jinx dependency.
-- Added thread-safe lazy configuration state and feature status queries.
-- Added local StoreKit test/mock helpers for product catalog data, transaction fixtures, and LocalTest receipt fixtures.
-- Added diagnostics and JSON status APIs.
-- Added source policy auditing, Objective-C runtime tests, iPhoneOS arm64 compile verification, static-library symbol verification, and delivery artifact generation.
+### Objective-C security-test migration
+- Migrated the non-UI Swift behaviour into explicit Objective-C app-owned test seams.
+- Added compatible `tella_*` preferences and defaults.
+- Added product delegate fallback behaviour with one-time fallback product caching.
+- Added transaction observer forwarding with pointer-identity duplicate suppression.
+- Added canMakePayments, product-price and purchased-transaction property simulations.
+- Added old receipt, modern receipt, receipt info, renewal info and verification-response Objective-C models.
+- Added LocalTest receipt/verification generation. Production Apple signature material is intentionally not reproduced.
+- Added URL decision behaviour for the `/verifyReceipt` test seam.
+- Added dyld concealment-decision simulation for testing an app's own detection logic without installing a live dyld hook.
+- Preserved the API-only integration model: no internal UI, constructor, `+load`, standalone `start`, Swift runtime or Jinx.
 
-### Commits
-- `7b85da4f7571abbfac2f21020e2231d0f3f1c6d2` — initial Objective-C SatellaCore API.
-- `7538d43bbba0f306ee2bfb0855be4fc6d6c22705` — fixed the first real compiler error: `SJDiagostics` -> `SJDiagnostics`.
-- `efe15c8722013479af9e02acc33158d0be95b0d7` — fixed CI archive-verification path typo.
+### Audit fixes
+- Unified mutable runtime state under one synchronization domain.
+- Made reset state transitions atomic before notifications are posted.
+- Made `status` a coherent snapshot.
+- Rejected nil product arrays rather than treating nil as an implicit clear.
+- Added product-catalog/transaction dependency validation.
+- Separated disabled-feature errors from unavailable-feature errors.
+- Copied diagnostics input strings.
+- Expanded source policy auditing and binary forbidden-dependency auditing.
 
-### Verified CI
-GitHub Actions Run `35469833912` on source commit `efe15c8722013479af9e02acc33158d0be95b0d7` passed all validation gates.
+### Verified implementation baseline
+Implementation commit `2f68b48907887bad20d4e9935c99ae039369beb6` passed GitHub Actions Run `35480212352`:
 
 - Source policy/API audit: PASS.
 - macOS Objective-C compile with `-Wall -Wextra -Werror`: PASS.
-- macOS API executable runtime test: PASS; log reported `SatellaCore tests passed`.
-- iPhoneOS arm64 compile: PASS using Xcode 16.4 / iPhoneOS 18.5 SDK / minimum iOS 12.0.
-- `libSatellaCore.a` creation: PASS.
-- Exported Objective-C class symbol `_OBJC_CLASS_$_SatellaCore`: verified.
-- Source/static-library artifact upload: PASS.
-- Source ZIP SHA256: `3cfad67b47b8694013462f49f76b499d46f9a396fab4ae2b56cd860ad4157ffb`.
-- arm64 static library SHA256: `90b88474d4d1dd0ed681f2a070c8e3880eb146f1b042b5addd087bfba098fb9b`.
-- Uploaded GitHub artifact digest: `sha256:427ac74339c4bee10810874a6bdf966cbb15070743809810901bb23c72ed7af1`.
+- Full API/runtime tests: PASS; log reported `SatellaCore full security-test port tests passed`.
+- Thread Sanitizer stress run: PASS.
+- iPhoneOS arm64 compile with `-Wall -Wextra -Werror`: PASS.
+- Xcode 16.4 / iPhoneOS 18.5 SDK / minimum iOS 12.0.
+- Static library generation: PASS.
+- Binary dependency audit for Swift/Jinx/Substrate/live dyld/StoreKit classes: PASS.
+- Exported `SatellaCore`, `SJStoreKitTestEngine`, `SJReceiptGenerator`, and `SJRuntimeTestAdapter` classes: verified.
+
+Run-8 artifact values, retained only as the implementation validation baseline:
+- Source ZIP SHA256: `88d17f3741dcc0d320e15086954fa69cb610e06fb74d024f9397718f7cd483d0`.
+- arm64 static library SHA256: `51e4daf149ff0c7ad4d3a71df49e3a20bd65b94d53a402f822c52fcb7afac706`.
+- Uploaded artifact digest: `sha256:c1eb11e40c148e4339346176ede93d87f0d673990cd615cd28b73dacbcd68b05`.
+
+The final delivery workflow is re-run after documentation-only changes. The authoritative hashes for any delivered archive are the `SHA256.txt` file generated inside that same final CI artifact.
 
 ### Validation boundary
-No physical-device or consumer-project integration test has been performed yet.
+Consumer-project integration and physical-device testing have not yet been performed. The component uses explicit app-owned security-test seams rather than silently intercepting live third-party StoreKit/URLSession traffic.

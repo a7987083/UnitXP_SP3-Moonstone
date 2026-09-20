@@ -1,29 +1,38 @@
 # HANDOFF
 
 ## Architecture
-`SatellaCore` is a source component intended to be compiled directly into an Objective-C target. It has no constructor, `+load`, standalone start routine, Swift dependency, or built-in UI. Callers use class methods on `SatellaCore` and the local mock helpers in `SJStoreKitMock`.
+`SatellaCore` is a pure Objective-C source component intended to be compiled directly into an app-owned Objective-C target. It has no constructor, `+load`, standalone start routine, Swift dependency, Jinx dependency, or built-in UI.
 
 ## Public surface
-- `SatellaCore.h`
-- `SJConfiguration.h`
-- `SJStoreKitMock.h`
+- `SatellaCore.h` — configuration, feature state, status, diagnostics, preference reload/persist.
+- `SJConfiguration.h` — complete test configuration.
+- `SJPreferences.h` — original `tella_*` preference-key compatibility.
+- `SJStoreKitMock.h` — mock product compatibility helpers.
+- `SJStoreKitTestEngine.h` — product delegate, transaction observer, canMakePayments, price, transaction and verification test seams.
+- `SJReceiptModels.h` — old/new receipt, renewal and response Objective-C models.
+- `SJReceiptGenerator.h` — LocalTest receipt/verification data generation.
+- `SJRuntimeTestAdapter.h` — dyld-concealment decision simulation for testing app-owned detection code.
 
-Primary APIs cover feature enable/disable state, configuration snapshots/application, capability/status queries, diagnostics, mock product catalogs, transaction fixtures, and LocalTest receipt fixtures.
+See `MIGRATION_MATRIX.md` for the upstream Swift-to-Objective-C mapping.
 
-## Boundary
-The StoreKit layer is local test/mock data only. It does not hook or intercept live StoreKit, modify App Store transactions, or forge production receipts.
+## Behaviour boundary
+The goal is behavioural coverage for an app the tester owns. StoreKit/URL/dyld-sensitive behaviour is exposed as explicit test APIs so the app can exercise the same trust boundaries without installing global production hooks. Receipt signatures are unmistakable LocalTest markers rather than Apple production signatures.
 
-## Stable validation baseline
+## Validated implementation baseline
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
 - Branch: `kkkkbuy`
-- Validated source commit: `efe15c8722013479af9e02acc33158d0be95b0d7`
-- CI Run: `35469833912`
-- macOS compile/runtime tests: PASS
-- iPhoneOS arm64 compile: PASS
-- Minimum iOS compile target: 12.0
-- Xcode in CI: 16.4
-- iPhoneOS SDK in CI: 18.5
-- Static library class symbol: verified
+- Implementation commit: `2f68b48907887bad20d4e9935c99ae039369beb6`
+- Implementation CI Run: `35480212352`
+- Source/API audit: PASS
+- macOS `-Werror` compile + runtime tests: PASS
+- Thread Sanitizer: PASS
+- iPhoneOS arm64 `-Werror` compile: PASS
+- Binary dependency/symbol audit: PASS
+- Xcode: 16.4
+- iPhoneOS SDK: 18.5
+- Minimum iOS target: 12.0
 
-## Remaining validation
-The next engineer should add the `.m` files to the real consumer Objective-C target, expose `Sources/Public` in the header search path, compile that target, and then perform device-level integration testing. Do not treat the existing CI as physical-device validation.
+The delivery commit may be newer only because validation metadata was updated. CI is re-run on that delivery commit before an artifact is handed off.
+
+## Remaining external validation
+Add all Internal `.m` files to the real consumer Objective-C target, expose `Sources/Public`, compile the actual target, and perform device-level integration testing. Do not label CI validation as physical-device validation.

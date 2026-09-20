@@ -1,28 +1,39 @@
 {
-  "version": "1.0.0-dev",
+  "version": "1.1.0-testport",
   "branch": "kkkkbuy",
-  "commit": "efe15c8722013479af9e02acc33158d0be95b0d7",
-  "baseline": "64e378033e1dcc1a4b01aa4b723462356c2d1fcb",
-  "build": {
+  "upstream_baseline": "Paisseon/SatellaJailed@469e6eb7806ce19eb44e80cf03a9e61a100ba86e",
+  "implementation_validation": {
+    "commit": "2f68b48907887bad20d4e9935c99ae039369beb6",
+    "run_id": 35480212352,
+    "status": "passed",
+    "source_audit": "passed",
     "macos_werror": "passed",
+    "macos_runtime_tests": "passed",
+    "thread_sanitizer": "passed",
     "iphoneos_arm64_werror": "passed",
-    "static_library": "passed",
+    "binary_dependency_audit": "passed",
     "minimum_ios": "12.0",
     "xcode": "16.4",
     "iphoneos_sdk": "18.5"
   },
-  "ci": {
-    "status": "passed",
-    "run_id": 35469833912,
-    "source_zip_sha256": "3cfad67b47b8694013462f49f76b499d46f9a396fab4ae2b56cd860ad4157ffb",
-    "static_library_sha256": "90b88474d4d1dd0ed681f2a070c8e3880eb146f1b042b5addd087bfba098fb9b",
-    "artifact_digest": "sha256:427ac74339c4bee10810874a6bdf966cbb15070743809810901bb23c72ed7af1"
+  "delivery": {
+    "branch_head": "resolve from git at delivery time",
+    "ci_run": "resolve from final successful workflow run",
+    "hashes": "use SHA256.txt from the same final CI artifact"
   },
-  "runtime": {
-    "macos_api_tests": "passed",
-    "physical_device": "not_tested",
-    "consumer_project": "not_tested"
+  "migration": {
+    "objective_c_api_only": true,
+    "swift_runtime": false,
+    "jinx": false,
+    "internal_ui": false,
+    "constructor_or_load": false,
+    "live_global_storekit_interception": false,
+    "localtest_receipt_signature": true
   },
-  "phase": "objective-c-api-ci-validated",
-  "next_task": "integrate-into-consumer-objective-c-project-and-device-test"
+  "external_validation": {
+    "consumer_project": "not_tested",
+    "physical_device": "not_tested"
+  },
+  "phase": "full-objective-c-security-test-port-ci-validated",
+  "next_task": "consumer-project-integration-and-device-validation"
 }
