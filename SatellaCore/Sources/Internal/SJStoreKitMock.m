@@ -45,7 +45,7 @@ static NSError *SJMockError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:SJCoreErrorDomain code:code userInfo:@{NSLocalizedDescriptionKey: message ?: @"Unknown error"}];
 }
 
-+ (BOOL)setProducts:(NSArray<SJMockProduct *> *)products error:(NSError **)error {
++ (BOOL)setProducts:(NSArray<SJMockProduct *> * _Nullable)products error:(NSError **)error {
     if (error) *error = nil;
     if (!products) {
         if (error) *error = SJMockError(SJCoreErrorInvalidArgument, @"Products array must not be nil.");

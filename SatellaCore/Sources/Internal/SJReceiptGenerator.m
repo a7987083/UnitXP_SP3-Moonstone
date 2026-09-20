@@ -8,7 +8,7 @@
     return NSBundle.mainBundle.bundleIdentifier ?: @"local.test.satella";
 }
 
-+ (NSString *)version {
++ (NSString *)appVersionString {
     id value = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
     return [value isKindOfClass:[NSString class]] && [value length] > 0 ? value : @"1.0";
 }
@@ -32,7 +32,7 @@
     NSDate *now = [NSDate date];
     NSString *receiptID = [self receiptIdentifier];
     NSString *bundleID = [self bundleIdentifier];
-    NSString *version = [self version];
+    NSString *version = [self appVersionString];
     NSString *nowText = [self nowText:now];
     NSString *nowMs = [self milliseconds:now];
 
@@ -72,7 +72,7 @@
     NSDate *expiry = [NSDate dateWithTimeIntervalSince1970:0xf2a52380];
     NSString *receiptID = [self receiptIdentifier];
     NSString *bundleID = [self bundleIdentifier];
-    NSString *version = [self version];
+    NSString *version = [self appVersionString];
     NSString *nowText = [self nowText:now];
     NSString *nowMs = [self milliseconds:now];
     NSString *expiryText = [self nowText:expiry];

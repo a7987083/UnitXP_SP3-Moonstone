@@ -15,7 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 @interface SJStoreKitMock : NSObject
-+ (BOOL)setProducts:(NSArray<SJMockProduct *> *)products error:(NSError * _Nullable * _Nullable)error;
++ (BOOL)setProducts:(NSArray<SJMockProduct *> * _Nullable)products error:(NSError * _Nullable * _Nullable)error;
 + (NSArray<SJMockProduct *> *)products;
 + (SJMockProduct * _Nullable)productForIdentifier:(NSString *)productIdentifier;
 + (NSDictionary<NSString *, id> * _Nullable)makeTransactionFixtureForProductIdentifier:(NSString *)productIdentifier error:(NSError * _Nullable * _Nullable)error;

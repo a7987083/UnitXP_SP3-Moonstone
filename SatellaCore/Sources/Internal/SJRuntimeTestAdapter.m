@@ -1,5 +1,5 @@
 #import "../Public/SJRuntimeTestAdapter.h"
-#import "SJStateCoordinator.h"
+#import "SJStateCoordinator.h"\n#import "../Public/SJConfiguration.h"
 
 @implementation SJRuntimeTestAdapter
 
