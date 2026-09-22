@@ -25,6 +25,8 @@ extern "C" void ZNInstallInstanceSelectionV2UIDeferred(void);
 extern "C" void ZNInstallM441HotfixDeferred(void);
 extern "C" void ZNInstallM442SearchRestoreDeferred(void);
 extern "C" void ZNInstallM45AddressOwningMethodDeferred(void);
+extern "C" void ZNInstallM46SignatureExecutionDeferred(void);
+extern "C" void ZNInstallM46FullSignatureUIDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -99,8 +101,8 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallMethodFinderM43UIDeferred();
         ZNInstallMethodFinderM43PolishDeferred();
 
-        // M4.4 is outermost: multi-instance selection wraps both Finder test
-        // execution and Runtime Action execution without changing M4.3 ABI.
+        // M4.4 is outermost for the legacy chain: multi-instance selection wraps
+        // Finder test and public Runtime Action execution.
         ZNInstallInstanceSelectionV2UIDeferred();
 
         // M4.4.1 keeps address/offset normalization and common Unity /1 structs.
@@ -109,9 +111,15 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         // M4.4.2 restores the device-proven V3 named-search execution path.
         ZNInstallM442SearchRestoreDeferred();
 
-        // M4.5 stays outside the proven named-search route and intercepts only
-        // address queries. It resolves both exact method entries and interior
-        // ARM64 instruction RVAs to a bounded owning MethodInfo.
+        // M4.5 intercepts address queries only and maps interior instruction RVA
+        // to an owning IL2CPP method interval.
         ZNInstallM45AddressOwningMethodDeferred();
+
+        // M4.6 is the final execution/identity layer. Runtime Actions carrying
+        // a full managed parameter signature are resolved exactly and fail
+        // closed; Finder test/Static Patch use the selected candidate rather
+        // than re-guessing a same-name/same-arity overload.
+        ZNInstallM46SignatureExecutionDeferred();
+        ZNInstallM46FullSignatureUIDeferred();
     });
 }
