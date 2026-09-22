@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "ZNIL2CPPInstanceResolver.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
