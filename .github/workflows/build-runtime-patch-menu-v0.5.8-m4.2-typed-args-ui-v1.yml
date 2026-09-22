@@ -29,6 +29,8 @@ jobs:
           grep -q 'znm42_filterTapped' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
           grep -q 'znm42_testCandidate' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
           grep -q 'znm42_createCandidate' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
+          grep -q '测试执行' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
+          grep -q '创建方法' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
           grep -q 'App Libraries' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
@@ -69,8 +71,8 @@ jobs:
           grep -q '\[ux-v2\]' /tmp/zono_m42_strings.txt
           grep -q '\[m4.2-ui\]' /tmp/zono_m42_strings.txt
           grep -q 'typedArg1Static' /tmp/zono_m42_strings.txt
-          grep -q '测试执行' /tmp/zono_m42_strings.txt
-          grep -q '创建方法' /tmp/zono_m42_strings.txt
+          grep -q 'znm42_testCandidate:' /tmp/zono_m42_strings.txt
+          grep -q 'znm42_createCandidate:' /tmp/zono_m42_strings.txt
           grep -q 'App Libraries' /tmp/zono_m42_strings.txt
           grep -q 'il2cpp_runtime_invoke' /tmp/zono_m42_strings.txt
           grep -q 'il2cpp_string_new' /tmp/zono_m42_strings.txt
