@@ -21,6 +21,7 @@ static uint64_t ZNRARAlign8(uint64_t value) {
 @property(nonatomic,copy,readwrite) NSString *className;
 @property(nonatomic,copy,readwrite) NSString *methodName;
 @property(nonatomic,assign,readwrite) NSUInteger argumentCount;
+@property(nonatomic,copy,readwrite) NSArray<NSString *> *argumentValues;
 @property(nonatomic,copy,readwrite) NSString *sourceImage;
 @end
 
@@ -29,7 +30,7 @@ static uint64_t ZNRARAlign8(uint64_t value) {
     self = [super init];
     if (!self) return nil;
     _title = @""; _group = @"Runtime Methods"; _assembly = @"";
-    _namespaceName = @""; _className = @""; _methodName = @""; _sourceImage = @"";
+    _namespaceName = @""; _className = @""; _methodName = @""; _argumentValues = @[]; _sourceImage = @"";
     return self;
 }
 - (NSString *)canonicalIdentity {
@@ -123,6 +124,8 @@ static void ZNRARParseImage(uint32_t imageIndex,
     for (uint32_t i = 0; i < header->count; i++) {
         const ZNRuntimeMethodCallEntry *entry = &entries[i];
         if (entry->kind != ZNRuntimeActionKindIL2CPPMethodCall) continue;
+        if (entry->argumentCount > 1) continue;
+
         NSString *title = ZNRARReadString(table, header, entry->titleOffset);
         NSString *group = ZNRARReadString(table, header, entry->groupOffset);
         NSString *assembly = ZNRARReadString(table, header, entry->assemblyOffset);
@@ -131,6 +134,14 @@ static void ZNRARParseImage(uint32_t imageIndex,
         NSString *methodName = ZNRARReadString(table, header, entry->methodOffset);
         if (!title || !group || !assembly || !namespaceName || !className || !methodName ||
             !assembly.length || !className.length || !methodName.length) continue;
+
+        NSArray<NSString *> *argumentValues = @[];
+        if (entry->argumentCount == 1) {
+            if ((entry->flags & ZNRuntimeActionFlagArgument0Text) == 0) continue;
+            NSString *argument0 = ZNRARReadString(table, header, entry->reserved[0]);
+            if (!argument0) continue;
+            argumentValues = @[argument0];
+        }
 
         ZNRuntimeMethodActionRecord *record = [ZNRuntimeMethodActionRecord new];
         record.actionID = entry->actionID;
@@ -141,8 +152,9 @@ static void ZNRARParseImage(uint32_t imageIndex,
         record.className = className;
         record.methodName = methodName;
         record.argumentCount = entry->argumentCount;
+        record.argumentValues = argumentValues;
         record.sourceImage = path ?: @"";
-        NSString *key = [NSString stringWithFormat:@"%u|%@", record.actionID, record.canonicalIdentity];
+        NSString *key = [NSString stringWithFormat:@"%u|%@|%@", record.actionID, record.canonicalIdentity, record.argumentValues];
         if ([dedupe containsObject:key]) continue;
         [dedupe addObject:key];
         [out addObject:record];
@@ -203,6 +215,7 @@ static void ZNRARParseImage(uint32_t imageIndex,
     action.className = record.className;
     action.methodName = record.methodName;
     action.argumentCount = record.argumentCount;
+    action.argumentValues = record.argumentValues ?: @[];
 
     NSString *invokeError = nil;
     NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&invokeError];
@@ -220,16 +233,19 @@ static void ZNRARParseImage(uint32_t imageIndex,
     [lines addObject:self.lastStatus ?: @""];
     [lines addObjectsFromArray:self.lastDiagnostics ?: @[]];
     NSDictionary *cap = [[ZNIL2CPPInvokeEngine sharedEngine] capabilities];
-    [lines addObject:[NSString stringWithFormat:@"Invoke resolver=%@ runtimeInvoke=%@ methodFlags=%@ zeroArgStatic=%@",
+    [lines addObject:[NSString stringWithFormat:@"Invoke resolver=%@ runtimeInvoke=%@ methodFlags=%@ /0=%@ /1=%@ string=%@",
                       [cap[@"resolver"] boolValue] ? @"YES" : @"NO",
                       [cap[@"runtimeInvoke"] boolValue] ? @"YES" : @"NO",
                       [cap[@"methodGetFlags"] boolValue] ? @"YES" : @"NO",
-                      [cap[@"zeroArgStatic"] boolValue] ? @"YES" : @"NO"]];
+                      [cap[@"zeroArgStatic"] boolValue] ? @"YES" : @"NO",
+                      [cap[@"typedArg1Static"] boolValue] ? @"YES" : @"NO",
+                      [cap[@"stringNew"] boolValue] ? @"YES" : @"NO"]];
     for (ZNRuntimeMethodActionRecord *record in self.records) {
-        [lines addObject:[NSString stringWithFormat:@"[%u] %@ · %@ · source=%@",
+        [lines addObject:[NSString stringWithFormat:@"[%u] %@ · %@ · args=%@ · source=%@",
                           record.actionID,
                           record.title ?: @"",
                           record.canonicalIdentity,
+                          record.argumentValues ?: @[],
                           record.sourceImage.lastPathComponent ?: @""]];
     }
     return lines;
