@@ -23,6 +23,7 @@ extern "C" void ZNInstallMethodFinderM43UIDeferred(void);
 extern "C" void ZNInstallMethodFinderM43PolishDeferred(void);
 extern "C" void ZNInstallInstanceSelectionV2UIDeferred(void);
 extern "C" void ZNInstallM441HotfixDeferred(void);
+extern "C" void ZNInstallM442SearchRestoreDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -101,8 +102,12 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         // execution and Runtime Action execution without changing M4.3 ABI.
         ZNInstallInstanceSelectionV2UIDeferred();
 
-        // M4.4.1 is the final outer layer: unify keyboard/button search routes,
-        // normalize address/offset input, and extend common Unity /1 structs.
+        // M4.4.1 keeps address/offset normalization and common Unity /1 structs.
         ZNInstallM441HotfixDeferred();
+
+        // M4.4.2 is the final search-route layer. It restores the proven V3
+        // execution path for both keyboard and button while retaining explicit
+        // Assembly filtering only after a user picker selection.
+        ZNInstallM442SearchRestoreDeferred();
     });
 }
