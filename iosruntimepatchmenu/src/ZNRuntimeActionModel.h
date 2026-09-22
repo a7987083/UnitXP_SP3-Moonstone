@@ -21,6 +21,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable ZNRuntimeMethodAction *)addMethodCandidate:(NSDictionary<NSString *, id> *)candidate
                                                  title:(nullable NSString *)title
                                                  error:(NSString * _Nullable * _Nullable)error;
+- (BOOL)updateTitle:(nullable NSString *)title
+            atIndex:(NSUInteger)index
+              error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)removeActionAtIndex:(NSUInteger)index;
 - (void)clear;
 - (NSArray<ZNRuntimeMethodAction *> *)actionsSnapshot;
