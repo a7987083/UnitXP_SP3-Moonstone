@@ -77,7 +77,7 @@ Status: `OPEN / PRE-SEAL CLEANUP`
 Severity: `LOW`  
 Status: `WORKAROUND / MONITOR`
 
-M4–M4.4.1 专用 workflow 已能正常创建 runner 并实际编译；若再出现 startup failure，应与产品编译错误分开判断。
+M4–M4.4.2 专用 workflow 已能正常创建 runner 并实际编译；若再出现 startup failure，应与产品编译错误分开判断。
 
 ## KI-012 — M2 Cancel UX 缺少单独视觉验收
 
@@ -210,23 +210,27 @@ Status: `DEVICE VERIFICATION PENDING`
 
 仍需确认 Assembly picker、全部 Assembly、自定义 max result、result card Assembly 去重、`/1` 布局、Details cleanup、instance picker 等真机行为。
 
-## KI-028 — 键盘 Search / 页面 Search 路由差异已修复但待真机确认
+## KI-028 — 键盘 Search / 页面 Search 路由差异与 M4.4.1 回归
 
 Severity: `HIGH`  
-Status: `FIX IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
+Status: `M4.4.2 FIX IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
 
-用户实机发现：页面 `搜索` 按钮可正常搜索，但键盘右下角 Search 会提示找不到 IL2CPP 方法。
+最初用户实机发现：页面 `搜索` 按钮可正常搜索，但键盘右下角 Search 会提示找不到 IL2CPP 方法。
 
-根因是 M4.3 的 `method_exchangeImplementations` 使两个 selector 最终对应不同 implementation；搜索框的旧 target 和页面按钮的 target 因此走了不同链路。
+根因第一层：M4.3 的 `method_exchangeImplementations` 让 `zn60v3_startSearch:` 与 `znm43_startSearch:` 的 selector 名称和真实 implementation 发生交换；页面按钮和键盘因此走不同实现。
 
-M4.4.1 在 render 后把两者都重新绑定到 `znm441_submitSearch:`。CI run `35789261862` 已通过，但必须在同一 Assembly/query/limit 下真机对比两种触发方式结果完全一致后才能关闭。
+M4.4.1 将两边都绑到 `znm441_submitSearch:` 后，用户再次实机确认：两边确实一致，但**两边都提示找不到 IL2CPP 方法**，而 M4.4.1 之前页面按钮可正常搜索。说明 M4.4.1 统一到了错误的新路径。
+
+M4.4.2 新增 `ZNM442SearchRestore.mm`，两种触发方式现在只做输入规范化，然后把实际搜索重新委托给 post-swap `znm43_startSearch:`，即此前页面按钮使用、已有真机成功证据的原始 V3 implementation。
+
+M4.4.2 CI run `35791561620` 已通过。必须使用**同一个此前成功、随后回归的方法名**真机复测两种触发方式都成功后才能关闭。
 
 ## KI-029 — Finder 裸 HEX / RVA / Runtime VA 反查规范化待真机验证
 
 Severity: `MEDIUM`  
 Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
 
-M4.4.1 接受：
+M4.4.1/M4.4.2 接受：
 
 ```text
 38064A8
@@ -255,3 +259,14 @@ Status: `LIMITED SUPPORT / DEVICE VERIFICATION PENDING`
 M4.4.1 仅把 exact `Vector2`、`Vector3`、`Quaternion`、`Color` 作为连续 float component struct 处理。不要把这个支持泛化为“所有 complex value type 都可执行”。
 
 自定义 struct、Matrix、Bounds、Ray、Nullable、自定义泛型值类型等仍必须独立分析 ABI/layout 后再开放。
+
+## KI-032 — Assembly-CSharp 视觉默认不能等同严格过滤
+
+Severity: `HIGH`  
+Status: `M4.4.2 FIX IMPLEMENTED / DEVICE VERIFICATION PENDING`
+
+原始 V3 在未指定 Assembly 时的语义是：扫描全部 loaded Assembly，但把 `Assembly-CSharp` 放在第一优先级。M4.3/M4.4.1 UI 把视觉默认 `Assembly-CSharp` 直接用于 `Assembly-CSharp!Method`，把“优先”错误变成“只搜这个 Assembly”。如果目标方法实际位于其他游戏 Assembly，会出现旧 V3 能搜到、新路径搜不到。
+
+M4.4.2 为 Assembly picker 增加 explicit-selection 状态：用户没有实际点选 Assembly 前，视觉显示 `Assembly-CSharp · 优先`，实际保持全局 V3 搜索；只有用户明确选择某个非空 Assembly 时才执行严格 scoped search。选择 `全部 Assembly` 继续全局搜索。
+
+该行为已通过源码契约/arm64 CI/Binary Verify，但仍需真机验证默认全局行为与手工严格过滤都符合预期。
