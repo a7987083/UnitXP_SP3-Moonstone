@@ -2,14 +2,13 @@
 #import "ZNRuntimeActionModel.h"
 #import "ZNIL2CPPResolver.h"
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNIL2CPPInstanceResolver.h"
 #import "ZNPatchCore.h"
 #import <dlfcn.h>
 #import <errno.h>
 #import <limits.h>
 #import <ctype.h>
 
-// ECMA-335 MethodAttributes.Static. IL2CPP exposes the same bit through
-// il2cpp_method_get_flags. We fail closed if the API cannot be resolved.
 static const uint32_t kZNMethodAttributeStatic = 0x0010u;
 
 typedef void *(*ZNRuntimeInvokeFn)(const void *method, void *object, void **params, void **exception);
@@ -137,14 +136,18 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
     ZNRuntimeInvokeFn runtimeInvoke = (ZNRuntimeInvokeFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
     ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
     ZNStringNewFn stringNew = (ZNStringNewFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_string_new");
+    NSDictionary *instanceCap = [[ZNIL2CPPInstanceResolver sharedResolver] capabilities];
     BOOL base = resolver.isAvailable && runtimeInvoke != NULL && methodGetFlags != NULL;
     return @{
         @"resolver": @(resolver.isAvailable),
         @"runtimeInvoke": @(runtimeInvoke != NULL),
         @"methodGetFlags": @(methodGetFlags != NULL),
         @"stringNew": @(stringNew != NULL),
+        @"instanceResolver": @([instanceCap[@"available"] boolValue]),
         @"zeroArgStatic": @(base),
         @"typedArg1Static": @(base),
+        @"zeroArgInstance": @(base && [instanceCap[@"available"] boolValue]),
+        @"typedArg1Instance": @(base && [instanceCap[@"available"] boolValue]),
     };
 }
 
@@ -185,7 +188,7 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
                                   argumentValues:(NSArray<NSString *> *)argumentValues
                                            error:(NSString **)error {
     if (argumentCount > 1) {
-        if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT：M4.2 首版支持 /0 与 /1；当前=%lu", (unsigned long)argumentCount];
+        if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT：M4.3 V1 支持 /0 与 /1；当前=%lu", (unsigned long)argumentCount];
         return nil;
     }
     if (argumentCount == 1 && argumentValues.count != 1) {
@@ -224,16 +227,26 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
 
     ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
     if (!methodGetFlags) {
-        if (error) *error = @"FAILED_STATIC_STATE_UNAVAILABLE：无法确认方法是否 static；拒绝以 NULL instance 猜测调用";
+        if (error) *error = @"FAILED_STATIC_STATE_UNAVAILABLE：无法确认方法 static/instance 属性";
         return nil;
     }
 
     uint32_t implFlags = 0;
     uint32_t methodFlags = methodGetFlags((const void *)methodInfo, &implFlags);
     BOOL isStatic = (methodFlags & kZNMethodAttributeStatic) != 0;
+    void *targetObject = NULL;
+    NSString *instanceDiagnostics = @"";
     if (!isStatic) {
-        if (error) *error = @"FAILED_INSTANCE_REQUIRED：目标是实例方法；M4.2 尚未实现对象实例解析";
-        return nil;
+        NSString *instanceError = nil;
+        targetObject = [[ZNIL2CPPInstanceResolver sharedResolver] resolveUniqueInstanceForAssembly:assembly
+                                                                                        namespace:namespaceName ?: @""
+                                                                                        className:className
+                                                                                      diagnostics:&instanceDiagnostics
+                                                                                            error:&instanceError];
+        if (!targetObject) {
+            if (error) *error = instanceError ?: @"FAILED_INSTANCE_REQUIRED：无法解析对象实例";
+            return nil;
+        }
     }
 
     void *params[1] = { NULL };
@@ -371,12 +384,13 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
     }
 
     void *exception = NULL;
-    void *result = runtimeInvoke((const void *)methodInfo, NULL, paramsPtr, &exception);
+    void *result = runtimeInvoke((const void *)methodInfo, targetObject, paramsPtr, &exception);
     if (exception) {
         if (error) *error = [NSString stringWithFormat:@"FAILED_EXCEPTION：IL2CPP exception=0x%llX",
                              (unsigned long long)(uintptr_t)exception];
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] exception methodInfo=0x%llX exception=0x%llX",
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] exception methodInfo=0x%llX object=0x%llX exception=0x%llX",
                                              (unsigned long long)methodInfo,
+                                             (unsigned long long)(uintptr_t)targetObject,
                                              (unsigned long long)(uintptr_t)exception]];
         return nil;
     }
@@ -388,19 +402,23 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
         @"pointerSource": resolved[@"pointerSource"] ?: @"unavailable",
         @"methodFlags": @(methodFlags),
         @"implFlags": @(implFlags),
-        @"static": @YES,
+        @"static": @(isStatic),
+        @"instance": @((uintptr_t)targetObject),
+        @"instanceDiagnostics": instanceDiagnostics ?: @"",
         @"argumentCount": @(argumentCount),
         @"argumentValues": argumentValues ?: @[],
         @"parameterType": parameterType ?: @"",
         @"result": @((uintptr_t)result),
     };
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] SUCCESS %@!%@.%@::%@/%lu args=%@ methodInfo=0x%llX",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] SUCCESS %@!%@.%@::%@/%lu args=%@ static=%@ object=0x%llX methodInfo=0x%llX",
                                          assembly ?: @"",
                                          namespaceName ?: @"",
                                          className ?: @"",
                                          methodName ?: @"",
                                          (unsigned long)argumentCount,
                                          argumentValues ?: @[],
+                                         isStatic ? @"YES" : @"NO",
+                                         (unsigned long long)(uintptr_t)targetObject,
                                          (unsigned long long)methodInfo]];
     return output;
 }

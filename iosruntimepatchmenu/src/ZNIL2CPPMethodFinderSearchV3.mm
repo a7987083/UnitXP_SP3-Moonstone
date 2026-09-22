@@ -21,7 +21,7 @@
 
 static const NSUInteger kZN60ShardClasses = 12000;
 static const NSUInteger kZN60DefaultLimit = 32;
-static const NSUInteger kZN60HardLimit = 64;
+static const NSUInteger kZN60HardLimit = 1024;
 static const NSUInteger kZN60MaxExecRanges = 16;
 static const CFTimeInterval kZN60WallBudgetSeconds = 6.0;
 
@@ -160,8 +160,6 @@ static BOOL ZN60LoadRuntime(ZN60Runtime *runtime, NSString **error) {
         return NO;
     }
 
-    // __TEXT.vmaddr == 0 is valid on the real device baseline. Never use
-    // numeric zero as a sentinel for "segment not found".
     cursor = (const uint8_t *)(unityHeader + 1);
     for (uint32_t i = 0; i < unityHeader->ncmds; i++) {
         if (cursor + sizeof(struct load_command) > commandsEnd) break;
@@ -442,8 +440,6 @@ static BOOL ZN60MethodMatches(ZN60Runtime *runtime,
         return nil;
     }
 
-    // Fully-qualified class: direct class lookup preserves the fast V2 path but
-    // enumerates overloads instead of converting ambiguity into an error.
     if (!reverse && classWanted.length && namespaceSpecified && runtime.classFromName) {
         mode = @"v3-qualified-candidates";
         NSUInteger passes = assemblyWanted.length ? 1 : 2;

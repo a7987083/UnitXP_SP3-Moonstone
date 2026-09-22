@@ -19,6 +19,7 @@ extern "C" void ZNInstallBinaryPatchWorkspaceAddressV2Deferred(void);
 extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
 extern "C" void ZNInstallUXFixesV2Deferred(void);
+extern "C" void ZNInstallMethodFinderM43UIDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -85,16 +86,14 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallFeatureBuilderControlsV2Deferred();
         ZNInstallFeatureRuntimeControlsV2Deferred();
 
-        // Exact dyld image identity + Offset Resolver V2 stay unchanged.
         ZNInstallOffsetResolverV2Deferred();
         ZNInstallBinaryPatchWorkspaceAddressV2Deferred();
         ZNInstallRuntimeMenuModalShellDeferred();
-
-        // Runtime Method Call is layered after Method Finder V3 / Offset V2.
         ZNInstallRuntimeMethodCallDeferred();
-
-        // M4.1 UX fixes are intentionally outermost so they preserve the full
-        // existing renderer/runtime chain while changing only interaction UX.
         ZNInstallUXFixesV2Deferred();
+
+        // M4.3 is outermost: it intentionally replaces only finder/search UX
+        // while preserving the M4.2 runtime action and M4.1 menu layers.
+        ZNInstallMethodFinderM43UIDeferred();
     });
 }
