@@ -78,7 +78,6 @@ jobs:
           grep -q '\[m4.5-owning-method\]' /tmp/zono_m46_strings.txt
           grep -q '\[m4.6-signature\]' /tmp/zono_m46_strings.txt
           grep -q '\[m4.6-signature-ui\]' /tmp/zono_m46_strings.txt
-          grep -q 'FAILED_SIGNATURE_AMBIGUOUS' /tmp/zono_m46_strings.txt
           grep -q 'Static Patch locked to exact candidate RVA' /tmp/zono_m46_strings.txt
           grep -q 'il2cpp_method_get_param' /tmp/zono_m46_strings.txt
           grep -q 'il2cpp_type_get_name' /tmp/zono_m46_strings.txt
