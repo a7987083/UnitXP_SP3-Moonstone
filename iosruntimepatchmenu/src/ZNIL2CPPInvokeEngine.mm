@@ -1,8 +1,12 @@
 #import "ZNIL2CPPInvokeEngine.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNIL2CPPResolver.h"
+#import "ZNIL2CPPABIMetadata.h"
 #import "ZNPatchCore.h"
 #import <dlfcn.h>
+#import <errno.h>
+#import <limits.h>
+#import <ctype.h>
 
 // ECMA-335 MethodAttributes.Static. IL2CPP exposes the same bit through
 // il2cpp_method_get_flags. We fail closed if the API cannot be resolved.
@@ -10,6 +14,7 @@ static const uint32_t kZNMethodAttributeStatic = 0x0010u;
 
 typedef void *(*ZNRuntimeInvokeFn)(const void *method, void *object, void **params, void **exception);
 typedef uint32_t (*ZNMethodGetFlagsFn)(const void *method, uint32_t *iflags);
+typedef void *(*ZNStringNewFn)(const char *utf8);
 
 static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
     if (!name) return NULL;
@@ -22,6 +27,99 @@ static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
     void *handle = dlopen(unityPath.fileSystemRepresentation, RTLD_LAZY);
 #endif
     return handle ? dlsym(handle, name) : NULL;
+}
+
+static NSString *ZNInvokeTrim(NSString *value) {
+    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static BOOL ZNInvokeCStringFinished(char *end) {
+    if (!end) return NO;
+    while (*end && isspace((unsigned char)*end)) end++;
+    return *end == '\0';
+}
+
+static BOOL ZNInvokeParseSigned(NSString *text, int64_t *outValue) {
+    NSString *trimmed = ZNInvokeTrim(text);
+    if (!trimmed.length) return NO;
+    const char *raw = trimmed.UTF8String;
+    if (!raw) return NO;
+    errno = 0;
+    char *end = NULL;
+    long long value = strtoll(raw, &end, 0);
+    if (errno || end == raw || !ZNInvokeCStringFinished(end)) return NO;
+    if (outValue) *outValue = (int64_t)value;
+    return YES;
+}
+
+static BOOL ZNInvokeParseUnsigned(NSString *text, uint64_t *outValue) {
+    NSString *trimmed = ZNInvokeTrim(text);
+    if (!trimmed.length || [trimmed hasPrefix:@"-"]) return NO;
+    const char *raw = trimmed.UTF8String;
+    if (!raw) return NO;
+    errno = 0;
+    char *end = NULL;
+    unsigned long long value = strtoull(raw, &end, 0);
+    if (errno || end == raw || !ZNInvokeCStringFinished(end)) return NO;
+    if (outValue) *outValue = (uint64_t)value;
+    return YES;
+}
+
+static BOOL ZNInvokeParseDouble(NSString *text, double *outValue) {
+    NSString *trimmed = ZNInvokeTrim(text);
+    if (!trimmed.length) return NO;
+    const char *raw = trimmed.UTF8String;
+    if (!raw) return NO;
+    errno = 0;
+    char *end = NULL;
+    double value = strtod(raw, &end);
+    if (errno || end == raw || !ZNInvokeCStringFinished(end)) return NO;
+    if (outValue) *outValue = value;
+    return YES;
+}
+
+static BOOL ZNInvokeParseBool(NSString *text, uint8_t *outValue) {
+    NSString *value = ZNInvokeTrim(text).lowercaseString;
+    if ([value isEqualToString:@"1"] || [value isEqualToString:@"true"] ||
+        [value isEqualToString:@"yes"] || [value isEqualToString:@"on"]) {
+        if (outValue) *outValue = 1;
+        return YES;
+    }
+    if ([value isEqualToString:@"0"] || [value isEqualToString:@"false"] ||
+        [value isEqualToString:@"no"] || [value isEqualToString:@"off"]) {
+        if (outValue) *outValue = 0;
+        return YES;
+    }
+    return NO;
+}
+
+static BOOL ZNInvokeIsStringType(NSString *typeName) {
+    NSString *n = ZNInvokeTrim(typeName).lowercaseString;
+    return [n isEqualToString:@"system.string"] || [n isEqualToString:@"string"];
+}
+
+static NSString *ZNInvokeParameterReason(NSDictionary *param) {
+    if ([param[@"byRef"] boolValue]) return @"ref/out 参数暂不支持";
+    if ([param[@"pointer"] boolValue]) return @"pointer 参数暂不支持";
+    NSString *typeName = param[@"name"] ?: @"?";
+    if (ZNInvokeIsStringType(typeName)) return nil;
+    ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    switch (kind) {
+        case ZNIL2CPPABIValueKindBool:
+        case ZNIL2CPPABIValueKindSigned32:
+        case ZNIL2CPPABIValueKindUnsigned32:
+        case ZNIL2CPPABIValueKindSigned64:
+        case ZNIL2CPPABIValueKindUnsigned64:
+        case ZNIL2CPPABIValueKindFloat32:
+        case ZNIL2CPPABIValueKindFloat64:
+            return nil;
+        case ZNIL2CPPABIValueKindObjectReference:
+            return [NSString stringWithFormat:@"对象参数 %@ 暂不支持（System.String 除外）", typeName];
+        case ZNIL2CPPABIValueKindComplexValueType:
+            return [NSString stringWithFormat:@"复杂值类型 %@ 暂不支持", typeName];
+        default:
+            return [NSString stringWithFormat:@"参数类型 %@ 尚未识别", typeName];
+    }
 }
 
 @implementation ZNIL2CPPInvokeEngine
@@ -38,11 +136,15 @@ static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
     [resolver refresh];
     ZNRuntimeInvokeFn runtimeInvoke = (ZNRuntimeInvokeFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
     ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
+    ZNStringNewFn stringNew = (ZNStringNewFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_string_new");
+    BOOL base = resolver.isAvailable && runtimeInvoke != NULL && methodGetFlags != NULL;
     return @{
         @"resolver": @(resolver.isAvailable),
         @"runtimeInvoke": @(runtimeInvoke != NULL),
         @"methodGetFlags": @(methodGetFlags != NULL),
-        @"zeroArgStatic": @(resolver.isAvailable && runtimeInvoke != NULL && methodGetFlags != NULL),
+        @"stringNew": @(stringNew != NULL),
+        @"zeroArgStatic": @(base),
+        @"typedArg1Static": @(base),
     };
 }
 
@@ -56,6 +158,7 @@ static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
                        className:action.className
                           method:action.methodName
                    argumentCount:action.argumentCount
+                  argumentValues:action.argumentValues ?: @[]
                            error:error];
 }
 
@@ -65,8 +168,28 @@ static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
                                           method:(NSString *)methodName
                                    argumentCount:(NSUInteger)argumentCount
                                            error:(NSString **)error {
-    if (argumentCount != 0) {
-        if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT：M4.1 仅支持 0 参数；当前=%lu", (unsigned long)argumentCount];
+    return [self executeAssembly:assembly
+                       namespace:namespaceName
+                       className:className
+                          method:methodName
+                   argumentCount:argumentCount
+                  argumentValues:@[]
+                           error:error];
+}
+
+- (NSDictionary<NSString *,id> *)executeAssembly:(NSString *)assembly
+                                       namespace:(NSString *)namespaceName
+                                       className:(NSString *)className
+                                          method:(NSString *)methodName
+                                   argumentCount:(NSUInteger)argumentCount
+                                  argumentValues:(NSArray<NSString *> *)argumentValues
+                                           error:(NSString **)error {
+    if (argumentCount > 1) {
+        if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT：M4.2 首版支持 /0 与 /1；当前=%lu", (unsigned long)argumentCount];
+        return nil;
+    }
+    if (argumentCount == 1 && argumentValues.count != 1) {
+        if (error) *error = @"FAILED_ARGUMENT_VALUE：/1 方法需要 1 个输入值";
         return nil;
     }
 
@@ -109,12 +232,146 @@ static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
     uint32_t methodFlags = methodGetFlags((const void *)methodInfo, &implFlags);
     BOOL isStatic = (methodFlags & kZNMethodAttributeStatic) != 0;
     if (!isStatic) {
-        if (error) *error = @"FAILED_INSTANCE_REQUIRED：目标是实例方法；M4.1 尚未实现对象实例解析";
+        if (error) *error = @"FAILED_INSTANCE_REQUIRED：目标是实例方法；M4.2 尚未实现对象实例解析";
         return nil;
     }
 
+    void *params[1] = { NULL };
+    void **paramsPtr = NULL;
+    NSString *parameterType = @"";
+
+    uint8_t boolValue = 0;
+    int32_t signed32Value = 0;
+    uint32_t unsigned32Value = 0;
+    int64_t signed64Value = 0;
+    uint64_t unsigned64Value = 0;
+    float float32Value = 0;
+    double float64Value = 0;
+    void *managedString = NULL;
+
+    if (argumentCount == 1) {
+        NSMutableDictionary *candidate = [NSMutableDictionary dictionaryWithDictionary:resolved ?: @{}];
+        candidate[@"methodInfo"] = @(methodInfo);
+        candidate[@"assembly"] = assembly ?: @"";
+        candidate[@"namespace"] = namespaceName ?: @"";
+        candidate[@"class"] = className ?: @"";
+        candidate[@"method"] = methodName ?: @"";
+        candidate[@"argumentCount"] = @1;
+        candidate[@"canonical"] = [NSString stringWithFormat:@"%@!%@.%@::%@/1",
+                                    assembly ?: @"",
+                                    namespaceName ?: @"",
+                                    className ?: @"",
+                                    methodName ?: @""];
+        NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
+        if (![abi[@"available"] boolValue] || [abi[@"parameterCount"] unsignedIntegerValue] != 1) {
+            if (error) *error = [NSString stringWithFormat:@"FAILED_ARGUMENT_ABI：%@", abi[@"reason"] ?: @"无法读取 /1 参数类型"];
+            return nil;
+        }
+        if ([abi[@"genericStatusKnown"] boolValue] && [abi[@"generic"] boolValue]) {
+            if (error) *error = @"FAILED_ARGUMENT_ABI：generic definition 暂不执行 typed argument";
+            return nil;
+        }
+        NSArray *parameters = abi[@"parameters"];
+        NSDictionary *param = parameters.count ? parameters[0] : nil;
+        if (!param) {
+            if (error) *error = @"FAILED_ARGUMENT_ABI：参数元数据为空";
+            return nil;
+        }
+        NSString *reason = ZNInvokeParameterReason(param);
+        if (reason.length) {
+            if (error) *error = [@"FAILED_UNSUPPORTED_ARGUMENT_TYPE：" stringByAppendingString:reason];
+            return nil;
+        }
+
+        NSString *text = argumentValues.firstObject ?: @"";
+        parameterType = param[@"name"] ?: @"?";
+        ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+        if (ZNInvokeIsStringType(parameterType)) {
+            ZNStringNewFn stringNew = (ZNStringNewFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_string_new");
+            if (!stringNew) {
+                if (error) *error = @"FAILED_STRING_API：il2cpp_string_new 未导出";
+                return nil;
+            }
+            managedString = stringNew((text ?: @"").UTF8String ?: "");
+            if (!managedString) {
+                if (error) *error = @"FAILED_ARGUMENT_VALUE：System.String 创建失败";
+                return nil;
+            }
+            params[0] = managedString;
+        } else {
+            switch (kind) {
+                case ZNIL2CPPABIValueKindBool: {
+                    if (!ZNInvokeParseBool(text, &boolValue)) {
+                        if (error) *error = @"FAILED_ARGUMENT_VALUE：bool 请输入 0/1 或 true/false";
+                        return nil;
+                    }
+                    params[0] = &boolValue;
+                    break;
+                }
+                case ZNIL2CPPABIValueKindSigned32: {
+                    int64_t value = 0;
+                    if (!ZNInvokeParseSigned(text, &value) || value < INT32_MIN || value > INT32_MAX) {
+                        if (error) *error = @"FAILED_ARGUMENT_VALUE：整数超出 signed32 范围";
+                        return nil;
+                    }
+                    signed32Value = (int32_t)value;
+                    params[0] = &signed32Value;
+                    break;
+                }
+                case ZNIL2CPPABIValueKindUnsigned32: {
+                    uint64_t value = 0;
+                    if (!ZNInvokeParseUnsigned(text, &value) || value > UINT32_MAX) {
+                        if (error) *error = @"FAILED_ARGUMENT_VALUE：整数超出 unsigned32 范围";
+                        return nil;
+                    }
+                    unsigned32Value = (uint32_t)value;
+                    params[0] = &unsigned32Value;
+                    break;
+                }
+                case ZNIL2CPPABIValueKindSigned64: {
+                    if (!ZNInvokeParseSigned(text, &signed64Value)) {
+                        if (error) *error = @"FAILED_ARGUMENT_VALUE：请输入 signed64 整数";
+                        return nil;
+                    }
+                    params[0] = &signed64Value;
+                    break;
+                }
+                case ZNIL2CPPABIValueKindUnsigned64: {
+                    if (!ZNInvokeParseUnsigned(text, &unsigned64Value)) {
+                        if (error) *error = @"FAILED_ARGUMENT_VALUE：请输入 unsigned64 整数";
+                        return nil;
+                    }
+                    params[0] = &unsigned64Value;
+                    break;
+                }
+                case ZNIL2CPPABIValueKindFloat32: {
+                    double value = 0;
+                    if (!ZNInvokeParseDouble(text, &value)) {
+                        if (error) *error = @"FAILED_ARGUMENT_VALUE：请输入 float 数值";
+                        return nil;
+                    }
+                    float32Value = (float)value;
+                    params[0] = &float32Value;
+                    break;
+                }
+                case ZNIL2CPPABIValueKindFloat64: {
+                    if (!ZNInvokeParseDouble(text, &float64Value)) {
+                        if (error) *error = @"FAILED_ARGUMENT_VALUE：请输入 double 数值";
+                        return nil;
+                    }
+                    params[0] = &float64Value;
+                    break;
+                }
+                default:
+                    if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT_TYPE：%@", parameterType ?: @"?"];
+                    return nil;
+            }
+        }
+        paramsPtr = params;
+    }
+
     void *exception = NULL;
-    void *result = runtimeInvoke((const void *)methodInfo, NULL, NULL, &exception);
+    void *result = runtimeInvoke((const void *)methodInfo, NULL, paramsPtr, &exception);
     if (exception) {
         if (error) *error = [NSString stringWithFormat:@"FAILED_EXCEPTION：IL2CPP exception=0x%llX",
                              (unsigned long long)(uintptr_t)exception];
@@ -132,13 +389,18 @@ static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
         @"methodFlags": @(methodFlags),
         @"implFlags": @(implFlags),
         @"static": @YES,
+        @"argumentCount": @(argumentCount),
+        @"argumentValues": argumentValues ?: @[],
+        @"parameterType": parameterType ?: @"",
         @"result": @((uintptr_t)result),
     };
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] SUCCESS %@!%@.%@::%@/0 methodInfo=0x%llX",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] SUCCESS %@!%@.%@::%@/%lu args=%@ methodInfo=0x%llX",
                                          assembly ?: @"",
                                          namespaceName ?: @"",
                                          className ?: @"",
                                          methodName ?: @"",
+                                         (unsigned long)argumentCount,
+                                         argumentValues ?: @[],
                                          (unsigned long long)methodInfo]];
     return output;
 }
