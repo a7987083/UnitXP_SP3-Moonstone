@@ -70,9 +70,7 @@ Severity: `LOW`
 
 Status: `MEASURED / OPTIMIZATION OPTIONAL`
 
-真实设备对宽泛查询 `cash` 的观测：第一次 `423.1 ms`，第二次 `147 ms`，之后约 `150 ms`。这说明当前目标的首次扫描/建索引成本已经很低，重复查询也明显降低。
-
-重复搜索不是纯字符串索引查找：索引命中后仍会为候选恢复当前 launch 的 MethodInfo / Method Pointer / Runtime VA，因此约 150 ms 不应直接视为索引低效。只有后续 UX 证据表明 150 ms 仍影响使用时，才考虑进一步缓存/批量解析。
+真实设备对宽泛查询 `cash` 的观测：第一次 `423.1 ms`，第二次 `147 ms`，之后约 `150 ms`。重复搜索不是纯字符串索引查找；索引命中后仍会恢复当前 launch 的 MethodInfo / Method Pointer / Runtime VA。
 
 `index=hit` UI 文本尚未被用户单独报告，因此该具体状态标记仍待确认。
 
@@ -84,34 +82,88 @@ Status: `OPEN / CLEANUP`
 
 索引绑定 UnityFramework UUID + file size，因此游戏更新后旧索引不会被错误复用；但旧 fingerprint 的 binary plist 暂时不会被 ZonoPatch 主动删除，只能等待系统清理 Cache。
 
-下一步：M2 实机稳定后增加按 fingerprint/版本保留策略和大小上限。
-
 ## KI-010 — M2 Objective-C dependency declarations 暂时依赖 warning suppression
 
 Severity: `LOW`
 
 Status: `OPEN / PRE-SEAL CLEANUP`
 
-M2 bridge 需要声明由主类/M1 category 实现的方法。当前 clang/Theos 会把这些 category dependency declarations 报为 `-Wincomplete-implementation` 并在项目 `-Werror` 策略下终止编译，因此 Makefile 临时加入 `-Wno-incomplete-implementation`。
+M2 bridge 的 category dependency declarations 仍依赖 `-Wno-incomplete-implementation`。这不是当前运行时错误，但封板前应整理到专用接口/协议并移除 suppression。
 
-这不是运行时错误，M2/M2.1 已真实编译/链接/二进制验证通过，但在封板前应把 dependency declarations 整理到专用接口/协议并移除 suppression。
-
-## KI-011 — Feature-branch GitHub Actions registration 异常
+## KI-011 — Feature-branch GitHub Actions registration 历史异常
 
 Severity: `LOW`
 
-Status: `OPEN / INFRASTRUCTURE WORKAROUND ACTIVE`
+Status: `WORKAROUND / MONITOR`
 
-部分 feature branch push 被 GitHub Actions 记录为 synthetic `BuildFailed / startup_failure / 0 jobs`，没有创建 runner。已经通过在默认分支 `main` 注册 workflow、再 checkout 固定 feature source SHA 的方式恢复真实构建。
-
-当前 workaround 已能稳定编译 M1/M2/M2.1；该问题不得被解释为产品源码编译失败。
+历史上部分 feature branch push 出现 synthetic `BuildFailed / startup_failure / 0 jobs`。当前 M4/M4.1 专用 workflow 已能够在对应分支正常创建 runner 并成功构建，因此不要把历史基础设施问题误判为当前源码编译失败。
 
 ## KI-012 — M2 原 Cancel 控件在快速搜索上不可见/不可操作
+
+Severity: `LOW`
+
+Status: `LEGACY VALIDATION GAP`
+
+M2.1 已把顶部 `搜索` 主按钮在 active token 时切换为 `取消`。后续版本继承该逻辑，但用户没有单独报告这一具体视觉状态，因此仍不要把它标成独立 device-verified 项。
+
+## KI-013 — M4.1 菜单触摸穿透尚未真机验证
+
+Severity: `HIGH`
+
+Status: `FIX IMPLEMENTED / DEVICE VERIFICATION PENDING`
+
+用户报告旧菜单打开后会拦截游戏操作。M4.1 新增 child-controller passthrough shell，使菜单控件区域继续接收触摸、面板外区域尝试交回游戏。
+
+风险：此前 Translate/system text 稳定性依赖真实 UIViewController presentation ownership。新的穿透层必须同时验证：
+
+- 面板外可继续操作游戏；
+- 面板内按钮/输入框正常；
+- Translate 第二次打开不闪退；
+- 不破坏悬浮球显示/隐藏流程。
+
+## KI-014 — M4.1 自动二进制选择 / App Libraries 尚未真机验证
 
 Severity: `MEDIUM`
 
 Status: `FIX IMPLEMENTED / DEVICE VERIFICATION PENDING`
 
-M2 把 Cancel 作为 search page 底部的临时卡片，只在 active token 存在时出现。真实目标第一次搜索仅约 423 ms、重复约 150 ms，用户未观察到该按钮，而且即使短暂出现也几乎没有人工点击窗口。
+目标行为：
 
-M2.1 已改为 active token 期间把顶部原 `搜索` 主按钮原位切换为 `取消`，并移除底部临时 Cancel 卡片；搜索 engine/cancel token 语义不变。CI run `34885020233` 已通过，待真机确认顶部按钮状态切换。生产搜索不会为了测试 Cancel 人为降速。
+- Unity 游戏优先 `UnityFramework`；
+- 没有 UnityFramework 时回退主程序；
+- 点击“二进制”弹出 `App Libraries`，不再要求手工输入；
+- 只保存模块 identity，不保存带安装 UUID 的绝对路径。
+
+需要在 Unity 与至少一个非 Unity 目标上分别验证默认选择和手动切换。
+
+## KI-015 — M4.1 直接生成的自动 preflight 尚未真机验证
+
+Severity: `MEDIUM`
+
+Status: `FIX IMPLEMENTED / DEVICE VERIFICATION PENDING`
+
+旧 UI 要求 `validatedCount == filledCount` 才允许点击生成；M4.1 取消这个人工前置条件，并在生成时自动执行必要 preflight。
+
+注意：这不是移除 Builder 安全检查。Original、长度、RVA/file mapping、Mach-O、relocation 等必需条件仍必须成立。
+
+需要真机验证：未手动点 `读取验证` 的有效 Patch 可以直接生成；无效输入仍应 fail closed 并给出明确错误。
+
+## KI-016 — Runtime Method Call 自定义显示名称尚未真机验证
+
+Severity: `MEDIUM`
+
+Status: `FIX IMPLEMENTED / DEVICE VERIFICATION PENDING`
+
+M4 Runtime Method Call V1 的创建/测试执行/生成后二进制已由用户确认可用；M4.1 新增独立 `title` 编辑入口。
+
+需验证：改名后生成的新二进制显示自定义 title，但 canonical identity / methodName / 实际调用目标保持不变。
+
+## KI-017 — M4.1 同页操作滚动位置保持尚未真机验证
+
+Severity: `LOW`
+
+Status: `FIX IMPLEMENTED / DEVICE VERIFICATION PENDING`
+
+用户报告按钮操作后页面会跳回顶部。M4.1 在同页 `renderPage` 重建前后保存/恢复 `contentOffset`；侧栏分类切换仍允许主动回顶部。
+
+需要在增加/删除 Patch、Feature 类型切换、Runtime Action 删除/改名等操作中确认没有异常跳动或 offset clamp。
