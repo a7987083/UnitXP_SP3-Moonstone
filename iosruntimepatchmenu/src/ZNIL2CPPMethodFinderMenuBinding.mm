@@ -21,6 +21,7 @@ extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
 extern "C" void ZNInstallUXFixesV2Deferred(void);
 extern "C" void ZNInstallMethodFinderM43UIDeferred(void);
 extern "C" void ZNInstallMethodFinderM43PolishDeferred(void);
+extern "C" void ZNInstallInstanceSelectionV2UIDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -92,8 +93,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallRuntimeMenuModalShellDeferred();
         ZNInstallRuntimeMethodCallDeferred();
         ZNInstallUXFixesV2Deferred();
-
         ZNInstallMethodFinderM43UIDeferred();
         ZNInstallMethodFinderM43PolishDeferred();
+
+        // M4.4 is outermost: multi-instance selection wraps both Finder test
+        // execution and Runtime Action execution without changing M4.3 ABI.
+        ZNInstallInstanceSelectionV2UIDeferred();
     });
 }
