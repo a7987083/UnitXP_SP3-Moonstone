@@ -5,8 +5,8 @@
 #include <stdlib.h>
 
 // M4.3 Instance Resolver V1
-// - Prefer Unity liveness API for class-filtered live object enumeration.
-// - Support both legacy begin/end and newer allocate/finalize/free variants.
+// - Prefer the legacy begin/end liveness path when Unity exports it.
+// - Fall back to allocate/finalize/free with GC world stop/start sequencing.
 // - Never guess when zero or multiple instances are returned.
 
 typedef void *(*ZNIRDomainGetFn)(void);
@@ -17,13 +17,15 @@ typedef void *(*ZNIRClassFromNameFn)(const void *, const char *, const char *);
 typedef void *(*ZNIRObjectGetClassFn)(void *);
 typedef bool (*ZNIRClassIsAssignableFromFn)(void *, void *);
 typedef void (*ZNIRRegisterObjectCallback)(void **objects, int count, void *userdata);
-typedef void *(*ZNIRLivenessBeginFn)(void *filter, int maxObjectCount, ZNIRRegisterObjectCallback callback, void *userdata, void *onWorldStarted, void *onWorldStopped);
+typedef void (*ZNIRWorldChangedCallback)(void);
+typedef void *(*ZNIRLivenessBeginFn)(void *filter, int maxObjectCount, ZNIRRegisterObjectCallback callback, void *userdata, ZNIRWorldChangedCallback onWorldStarted, ZNIRWorldChangedCallback onWorldStopped);
 typedef void (*ZNIRLivenessEndFn)(void *state);
 typedef void (*ZNIRLivenessFromStaticsFn)(void *state);
 typedef void *(*ZNIRLivenessReallocateCallback)(void *ptr, size_t size, void *userdata);
 typedef void *(*ZNIRLivenessAllocateStructFn)(void *filter, int maxObjectCount, ZNIRRegisterObjectCallback callback, void *userdata, ZNIRLivenessReallocateCallback reallocCallback);
 typedef void (*ZNIRLivenessFinalizeFn)(void *state);
 typedef void (*ZNIRLivenessFreeStructFn)(void *state);
+typedef void (*ZNIRGCWorldFn)(void);
 
 typedef struct {
     __unsafe_unretained NSMutableArray<NSNumber *> *items;
@@ -69,6 +71,9 @@ static void ZNIRCollectObjects(void **objects, int count, void *userdata) {
     }
 }
 
+static void ZNIRWorldChanged(void) {
+}
+
 static void *ZNIRReallocate(void *ptr, size_t size, void *userdata) {
     (void)userdata;
     if (size == 0) {
@@ -94,14 +99,18 @@ static void *ZNIRReallocate(void *ptr, size_t size, void *userdata) {
     BOOL legacy = ZNIRResolveSymbol(path, "il2cpp_unity_liveness_calculation_begin") &&
                   ZNIRResolveSymbol(path, "il2cpp_unity_liveness_calculation_from_statics") &&
                   ZNIRResolveSymbol(path, "il2cpp_unity_liveness_calculation_end");
-    BOOL modern = ZNIRResolveSymbol(path, "il2cpp_unity_liveness_allocate_struct") &&
-                  ZNIRResolveSymbol(path, "il2cpp_unity_liveness_calculation_from_statics") &&
-                  ZNIRResolveSymbol(path, "il2cpp_unity_liveness_finalize") &&
-                  ZNIRResolveSymbol(path, "il2cpp_unity_liveness_free_struct");
+    BOOL modernCore = ZNIRResolveSymbol(path, "il2cpp_unity_liveness_allocate_struct") &&
+                      ZNIRResolveSymbol(path, "il2cpp_unity_liveness_calculation_from_statics") &&
+                      ZNIRResolveSymbol(path, "il2cpp_unity_liveness_finalize") &&
+                      ZNIRResolveSymbol(path, "il2cpp_unity_liveness_free_struct");
+    BOOL worldControl = ZNIRResolveSymbol(path, "il2cpp_stop_gc_world") &&
+                        ZNIRResolveSymbol(path, "il2cpp_start_gc_world");
+    BOOL modern = modernCore && worldControl;
     return @{
         @"resolver": @(resolver.isAvailable),
         @"legacyLiveness": @(legacy),
         @"modernLiveness": @(modern),
+        @"gcWorldControl": @(worldControl),
         @"available": @(resolver.isAvailable && (legacy || modern)),
     };
 }
@@ -171,36 +180,43 @@ static void *ZNIRReallocate(void *ptr, size_t size, void *userdata) {
     ZNIRLivenessFreeStructFn freeStruct = (ZNIRLivenessFreeStructFn)ZNIRResolveSymbol(unityPath, "il2cpp_unity_liveness_free_struct");
     ZNIRLivenessBeginFn begin = (ZNIRLivenessBeginFn)ZNIRResolveSymbol(unityPath, "il2cpp_unity_liveness_calculation_begin");
     ZNIRLivenessEndFn end = (ZNIRLivenessEndFn)ZNIRResolveSymbol(unityPath, "il2cpp_unity_liveness_calculation_end");
-    if (!fromStatics || ((!allocateStruct || !finalize || !freeStruct) && (!begin || !end))) {
-        if (error) *error = @"FAILED_INSTANCE_LIVENESS：当前 Unity 没有可用 liveness API";
+    ZNIRGCWorldFn stopWorld = (ZNIRGCWorldFn)ZNIRResolveSymbol(unityPath, "il2cpp_stop_gc_world");
+    ZNIRGCWorldFn startWorld = (ZNIRGCWorldFn)ZNIRResolveSymbol(unityPath, "il2cpp_start_gc_world");
+
+    BOOL legacy = fromStatics && begin && end;
+    BOOL modern = fromStatics && allocateStruct && finalize && freeStruct && stopWorld && startWorld;
+    if (!legacy && !modern) {
+        if (error) *error = @"FAILED_INSTANCE_LIVENESS：当前 Unity 没有可安全使用的 liveness API";
         return @[];
     }
 
     NSMutableArray<NSNumber *> *items = [NSMutableArray array];
     ZNIRCallbackContext context = { items, limit };
     NSString *mode = @"legacy";
-    if (allocateStruct && finalize && freeStruct) {
-        mode = @"modern";
-        void *state = allocateStruct(targetClass, 0, ZNIRCollectObjects, &context, ZNIRReallocate);
-        if (!state) {
-            if (error) *error = @"FAILED_INSTANCE_LIVENESS：allocate_struct 返回 NULL";
-            return @[];
-        }
-        fromStatics(state);
-        finalize(state);
-        freeStruct(state);
-    } else {
-        void *state = begin(targetClass, 0, ZNIRCollectObjects, &context, NULL, NULL);
+
+    if (legacy) {
+        void *state = begin(targetClass, 0, ZNIRCollectObjects, &context, ZNIRWorldChanged, ZNIRWorldChanged);
         if (!state) {
             if (error) *error = @"FAILED_INSTANCE_LIVENESS：calculation_begin 返回 NULL";
             return @[];
         }
         fromStatics(state);
         end(state);
+    } else {
+        mode = @"modern";
+        stopWorld();
+        void *state = allocateStruct(targetClass, 0, ZNIRCollectObjects, &context, ZNIRReallocate);
+        if (!state) {
+            startWorld();
+            if (error) *error = @"FAILED_INSTANCE_LIVENESS：allocate_struct 返回 NULL";
+            return @[];
+        }
+        fromStatics(state);
+        finalize(state);
+        startWorld();
+        freeStruct(state);
     }
 
-    // The liveness filter should already constrain the class. If class APIs are
-    // available, perform a second validation before exposing the address.
     ZNIRObjectGetClassFn objectGetClass = (ZNIRObjectGetClassFn)ZNIRResolveSymbol(unityPath, "il2cpp_object_get_class");
     ZNIRClassIsAssignableFromFn assignable = (ZNIRClassIsAssignableFromFn)ZNIRResolveSymbol(unityPath, "il2cpp_class_is_assignable_from");
     if (objectGetClass && assignable && items.count) {
@@ -213,7 +229,12 @@ static void *ZNIRReallocate(void *ptr, size_t size, void *userdata) {
         items = verified;
     }
 
-    NSString *diag = [NSString stringWithFormat:@"%@ liveness · %@!%@.%@ · %lu instance(s)", mode, resolvedAssembly.length ? resolvedAssembly : assembly ?: @"", wantedNamespace, wantedClass, (unsigned long)items.count];
+    NSString *diag = [NSString stringWithFormat:@"%@ liveness · %@!%@.%@ · %lu instance(s)",
+                      mode,
+                      resolvedAssembly.length ? resolvedAssembly : assembly ?: @"",
+                      wantedNamespace,
+                      wantedClass,
+                      (unsigned long)items.count];
     if (diagnostics) *diagnostics = diag;
     [[ZNRuntimeLogger sharedLogger] log:[@"[instance-resolver] " stringByAppendingString:diag]];
     if (error) *error = nil;
