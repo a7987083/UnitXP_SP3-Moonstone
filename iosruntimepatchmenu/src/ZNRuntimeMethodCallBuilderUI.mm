@@ -8,6 +8,7 @@
 
 static const NSInteger kZNRMCBuilderDeleteTagBase = 671000;
 static const NSInteger kZNRMCBuilderTitleTagBase = 672000;
+static const NSInteger kZNRMCBuilderArgumentTagBase = 674000;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -27,11 +28,30 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
     return y;
 }
 
+static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
+    UITextField *field = [[UITextField alloc] initWithFrame:frame];
+    field.textColor = theme.primaryTextColor;
+    field.backgroundColor = theme.controlColor;
+    field.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightSemibold];
+    field.autocorrectionType = UITextAutocorrectionTypeNo;
+    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    field.returnKeyType = UIReturnKeyDone;
+    field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    field.layer.cornerRadius = 7.0;
+    field.layer.borderWidth = 1.0;
+    field.layer.borderColor = theme.borderColor.CGColor;
+    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 7, 1)];
+    field.leftView = pad;
+    field.leftViewMode = UITextFieldViewModeAlways;
+    return field;
+}
+
 @interface ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallBuilderUI)
 - (void)znrmc_renderOther;
 - (void)znrmc_clearAuthoringActions:(id)sender;
 - (void)znrmc_deleteAuthoringAction:(UIButton *)sender;
 - (void)znrmc_titleEditingEnded:(UITextField *)field;
+- (void)znrmc_argumentEditingEnded:(UITextField *)field;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallBuilderUI)
@@ -61,7 +81,7 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
 
     if (!actions.count) {
         UIView *empty = [self cardAtY:y height:54 width:width compact:NO];
-        UILabel *label = [self label:@"在“方法查找”选择 0 参数方法 → 创建方法按钮。它不会修改 Static Patch ABI。"
+        UILabel *label = [self label:@"在“方法查找”选择 /0 或受支持的 /1 方法 → 创建方法。Static Patch ABI 保持不变。"
                                     size:8.4
                                   weight:UIFontWeightRegular
                                    color:self.theme.secondaryTextColor];
@@ -73,25 +93,14 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
     } else {
         for (NSUInteger i = 0; i < actions.count; i++) {
             ZNRuntimeMethodAction *action = actions[i];
-            UIView *card = [self cardAtY:y height:72 width:width compact:NO];
+            BOOL hasArgument = action.argumentCount == 1;
+            CGFloat cardH = hasArgument ? 108.0 : 72.0;
+            UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
 
-            UITextField *name = [[UITextField alloc] initWithFrame:CGRectMake(13, 7, card.bounds.size.width - 78, 27)];
+            UITextField *name = ZNRMCBuilderTextField(CGRectMake(13, 7, card.bounds.size.width - 78, 27), self.theme);
             name.tag = kZNRMCBuilderTitleTagBase + (NSInteger)i;
             name.text = action.title.length ? action.title : action.methodName;
             name.placeholder = action.methodName;
-            name.textColor = self.theme.primaryTextColor;
-            name.backgroundColor = self.theme.controlColor;
-            name.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightSemibold];
-            name.autocorrectionType = UITextAutocorrectionTypeNo;
-            name.autocapitalizationType = UITextAutocapitalizationTypeNone;
-            name.returnKeyType = UIReturnKeyDone;
-            name.clearButtonMode = UITextFieldViewModeWhileEditing;
-            name.layer.cornerRadius = 7.0;
-            name.layer.borderWidth = 1.0;
-            name.layer.borderColor = self.theme.borderColor.CGColor;
-            UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 7, 1)];
-            name.leftView = pad;
-            name.leftViewMode = UITextFieldViewModeAlways;
             [name addTarget:self action:@selector(znrmc_titleEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
             [card addSubview:name];
 
@@ -106,11 +115,26 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
 
             UIButton *deleteButton = [self zn40_button:@"删除"
                                                selector:@selector(znrmc_deleteAuthoringAction:)
-                                                  frame:CGRectMake(card.bounds.size.width - 65, 19, 52, 31)];
+                                                  frame:CGRectMake(card.bounds.size.width - 65, hasArgument ? 37 : 19, 52, 31)];
             deleteButton.tag = kZNRMCBuilderDeleteTagBase + (NSInteger)i;
             [card addSubview:deleteButton];
+
+            if (hasArgument) {
+                UILabel *argLabel = [self label:@"参数 1" size:8.2 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+                argLabel.frame = CGRectMake(13, 72, 44, 25);
+                [card addSubview:argLabel];
+
+                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(59, 69, card.bounds.size.width - 72, 29), self.theme);
+                argument.tag = kZNRMCBuilderArgumentTagBase + (NSInteger)i;
+                argument.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
+                argument.placeholder = @"/1 参数值";
+                argument.font = [UIFont monospacedDigitSystemFontOfSize:9.6 weight:UIFontWeightMedium];
+                [argument addTarget:self action:@selector(znrmc_argumentEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+                [card addSubview:argument];
+            }
+
             [self.contentView addSubview:card];
-            y += 80.0;
+            y += cardH + 8.0;
         }
     }
     [self zn40_updateContentHeight:y];
@@ -140,6 +164,21 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
     [field resignFirstResponder];
 }
 
+- (void)znrmc_argumentEditingEnded:(UITextField *)field {
+    NSInteger index = field.tag - kZNRMCBuilderArgumentTagBase;
+    if (index < 0) return;
+    NSString *error = nil;
+    if (![[ZNRuntimeActionStore sharedStore] updateArgumentValues:@[field.text ?: @""] atIndex:(NSUInteger)index error:&error]) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] argument update failed: %@", error ?: @"unknown"]];
+    }
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if ((NSUInteger)index < actions.count) {
+        ZNRuntimeMethodAction *action = actions[(NSUInteger)index];
+        field.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
+    }
+    [field resignFirstResponder];
+}
+
 @end
 
 extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void) {
@@ -151,7 +190,7 @@ extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void) {
         Method replacement = class_getInstanceMethod(cls, @selector(znrmc_renderOther));
         if (original && replacement) {
             method_exchangeImplementations(original, replacement);
-            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed"];
+            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (/0 + /1)"];
         }
     });
 }
