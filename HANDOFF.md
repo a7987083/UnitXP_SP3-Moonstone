@@ -2,165 +2,180 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M2.2 Builder / Feature Controls / Stable Cancel UX**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M4.1 UI/UX V2 on top of Offset Resolver V2 + Runtime Method Call V1**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-m2.2-builder-feature-controls`
-- Sealed predecessor: `86edac4d70ef467e9a58912768b6c6c72077842a` — do not modify
-- Device-verified V2 baseline: `4377d4a4c6e325e54299e3055346240f4963940f`
-- M1 product source: `ef98a090e1df5b69df3fbb86adb905008285d82c` — device verified
-- M2 product source: `69b546edd0ed83a5699805951304aa3371a0bc30`
-- M2.1 product source: `47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5`
-- M2.2 product source / CI validated / device-accepted runtime: `19b912c840e7223adbc2c26ef80185c32b8eb77a`
-- M2.2 CI run: `34893082122` — success
-- M2.2 artifact: `ZonoPatch-v0.5.8-MethodFinder-V3-M2.2`
-- Artifact ID: `10367337459`
-- Artifact ZIP SHA256: `4d632a38efb92a53ce492d07b6c6160f06193adffe37cdc3ca4c7d9e00bacaf5`
-- Dylib SHA256: `4a42a698af2bcc0926a28413b8f6099215db2a8899747139f1018b284ba40bae`
-- Dylib size: `784656` bytes
-- Validation: source assertions + parser/protection tests + Theos compile/link/sign + binary verification passed. User then tested the M2.2 build on the real device and reported: `目前没问题了。`
+- Active branch: `fix/runtime-patch-menu-v0.5.8-m4.1-ui-ux-v2`
+- Runtime product source head: `4d3f62bd5ae645493e3af10e179402d9cc47e889`
+- CI validated branch head: `911dec0c56234387820fbec5daf996e396f86294`
+- Offset Resolver V2 baseline: `a3b8db8651eaea23ec0ae7e5fca497e8f67bcf6c`
+- M4 Runtime Method Call V1 CI head: `d53c75dfbb7510e31a60e49f202532ad2f5e099e`
+- M4.1 CI run: `35704458522` — success
+- M4.1 artifact: `ZonoPatch-v0.5.8-M4.1-UIUX-V2`
+- Artifact ID: `10683409230`
+- Artifact ZIP SHA256: `f9d88f62a923a4adc9797d686ad601198761af14d4f27d4919906ba97dc83450`
+- Dylib: `ZonoPatch_v0.5.8_M4.1_UIUX_V2.dylib`
+- Dylib SHA256: `4ad03fdd759cb7218cb3aeb22a12f1bca75ff6ccf12a10532f47e5bf516574ae`
+- Dylib format: thin arm64 Mach-O dylib
 
-Interpret that report as **M2.2 device accepted for the currently exercised build**, but do not overstate it as a separately itemized full regression pass: the user did not enumerate every acceptance step individually.
+## Validation boundary
 
-Docs-only commits after product source do not change the built dylib. Always distinguish runtime product SHA `19b912c...` from later documentation branch HEADs.
+Do not conflate build/CI/device state.
 
-## Device-verified search baseline
+### Device-verified predecessor paths
 
-Known target:
+For `feature/runtime-patch-menu-v0.5.8-m4-runtime-method-call-v1`, the user explicitly reported:
 
-`Assembly-CSharp.dll!com.notdoppler.ETDR.Cash::get_TotalCashReward/0`
+- `创建方法按钮` works on device;
+- `测试执行` works on device;
+- generated binary is usable on device.
 
-Known RVA: `0x2DA9E10`.
+Therefore those M4 Runtime Method Call V1 paths are device-verified. This is not a full regression pass for every old feature.
 
-M1 device-verified paths:
+### M4.1 current state
 
-- candidate-list search;
-- method detail/address display;
-- `0xRVA` reverse lookup;
-- full qualified lookup;
-- address/detail copy;
-- selected candidate -> Builder canonical expression.
+M4.1 is:
 
-M2 broad query `cash` real-device timings:
+- source implemented: YES;
+- committed to GitHub: YES;
+- CI compiled: YES;
+- binary verified: YES;
+- artifact produced: YES;
+- physical-device validation of the new UX changes: PENDING.
 
-- first: `423.1 ms`
-- second: `147 ms`
-- later: approximately `150 ms`
+## Architecture that must remain stable
 
-Broad matching remains `exact > prefix > suffix > contains`; structured queries and RVA remain exact.
+### Offset Resolver V2
 
-## Why M2.2 exists
+Do not rewrite it while validating M4.1.
 
-M2.2 addressed three authoring/device issues:
+Core baseline behavior:
 
-1. Builder had `增加 Patch` but no per-Patch delete and no whole-Feature delete.
-2. Feature model needed generic controls, not hardcoded game functions.
-3. M2.1 Search/Cancel UX could flash because progress updates rebuilt the Method Finder page repeatedly.
+- exact dyld image identity;
+- Unslid/Preferred VA first where appropriate, historical RVA fallback;
+- canonical RVA internally;
+- author input preserved for UI/diagnostics.
 
-## M2.2 deletion support
+M4.1 CI explicitly checks that these files are unchanged relative to `a3b8db8...`:
 
-Files:
+- `iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm`
+- `iosruntimepatchmenu/src/ZNOffsetResolverV2.mm`
+- `iosruntimepatchmenu/src/ZNStaticPatchFormat.h`
 
-- `src/ZNFeatureControlModel.h/.mm`
-- `src/ZNFeatureBuilderControlsV2.mm`
+### Static Patch ABI
 
-Workspace provides guarded authoring operations:
+- `ZN44StaticEntry == 128` bytes.
+- Do not place Runtime Method Call fields into the old Static Entry.
+- Existing generated-binary Static Dispatch compatibility is a hard regression gate.
 
-- `removeFeatureNamed:error:` — removes every Patch row in the logical Feature;
-- `removePatchAtGlobalIndex:error:` — removes only the selected Patch and renumbers ordinary `Patch #N` titles;
-- operations refuse while Runtime Patch is applied or a build is active.
+### Runtime Action ABI
 
-Expanded Feature authoring row:
+Runtime Method Call is stored separately:
 
-`＋ Patch | 类型 · <...> | 删除功能`
+- `ZNRuntimeActionHeader == 64` bytes;
+- `ZNRuntimeMethodCallEntry == 64` bytes;
+- independent string offsets for display title and method identity;
+- zero-argument static invoke is the currently device-verified scope.
 
-Every visible Patch card gets its own `删除` button.
+## M4.1 actual changes
 
-The implementation decorates the existing Builder rather than replacing Offset/Enabled/validation/build behavior.
+### 1. Automatic binary target + App Libraries picker
 
-## Generic Feature Control V2
+File: `iosruntimepatchmenu/src/ZNUXFixesV2.mm`.
 
-Do not hardcode `Damage Multiplier`, `Defence Multiplier`, `God Mode`, or `Debug Menu` into the framework.
+Policy:
 
-M2.2 extends the project's existing `ZNFeatureControlType` while preserving historical numeric values:
+1. prefer loaded `UnityFramework`;
+2. otherwise use main executable;
+3. clicking the binary selector opens an `App Libraries` list;
+4. list is based on loaded app-bundle images and supports main executable, app frameworks and app dylibs;
+5. do not persist `/var/containers/Bundle/Application/<UUID>/...` absolute paths.
 
-- Switch / Toggle = 0
-- Slider = 1
-- Button / Action = 2
-- Number = 3
+The user specifically wants Unity games to default to `Frameworks/UnityFramework.framework/UnityFramework`, while non-Unity games default to the executable in the `.app` root.
 
-The authoring selector exposes four semantic types:
+### 2. Touch passthrough
 
-- 开关 / Toggle
-- 数值 / Number
-- 按钮 / Action
-- 滑杆 / Slider
+Problem reported by user: when the menu is open, gameplay cannot be operated.
 
-Static ABI remains unchanged: `ZN44StaticEntry` stays 128 bytes. Control type is encoded in previously unused `entry.flags` bits 8..10. Legacy outputs have those bits zero and remain Toggle.
+M4.1 adds an outer interaction shell so menu controls remain interactive while touches outside the panel can pass to the game.
 
-Runtime generic surfaces:
+Important risk: previous Translate stability depended on real UIViewController presentation ownership. Therefore this change is not device-accepted until both touch passthrough and Translate/system text presentation are tested together.
 
-- Toggle: existing Static Dispatch behavior.
-- Number: numeric text field, persistent value, emits `ZNFeatureNumberValueDidChangeNotification`.
-- Action: one-shot `执行` button, emits `ZNFeatureActionRequestedNotification` once per tap.
-- Slider: runtime slider, persistent value, emits `ZNFeatureSliderValueDidChangeNotification`.
+### 3. Scroll preservation
 
-Important boundary: Number/Action/Slider are generic model + UI + event surfaces only in M2.2. They are **not yet bound to arbitrary IL2CPP Hook/Invoke semantics**. Later runtime backends should subscribe/bind to these generic events rather than special-casing game feature names.
+Problem reported by user: pressing Builder buttons causes the page to jump to the top.
 
-## Stable Search -> Cancel fix
+M4.1 preserves `contentScroll.contentOffset` for same-page render cycles. Explicit category changes may still reset to top.
 
-File: `src/ZNIL2CPPMethodFinderM22StableCancelUX.mm`.
+### 4. Direct build preflight
 
-M2.2 behavior:
+Problem reported by user: `生成新二进制` was disabled unless every patch had first gone through manual `读取验证`.
 
-- initial search gets one full render, allowing the primary action to enter Cancel state;
-- while the M2 token remains active and Method Finder is visible, progress updates modify the existing status label only;
-- the complete Method Finder page is not rebuilt on every shard/progress event;
-- completion/cancel/navigation performs a normal full render.
+New behavior:
 
-Goal: remove visible flashing without intentionally slowing search.
+- user may press build directly;
+- required validation/preflight is performed automatically before Builder work;
+- safety checks needed for Original bytes, patch length, RVA/file mapping, Mach-O and relocation are retained;
+- manual `读取验证` remains available but is no longer a required human step.
 
-## M2.2 CI evidence
+### 5. Editable Runtime Method Call display title
 
-Run `34893082122` passed all steps:
+Problem reported by user: Runtime-created buttons defaulted to `methodName` and could not be renamed.
 
-- source assertions;
-- Named Offset parser test;
-- Static Payload Protection V2 test;
-- Static RVA Protection test;
-- Theos arm64 build/link/sign;
-- binary marker verification;
-- one-constructor check (`__TEXT,__init_offsets == 4`);
-- artifact upload.
+New behavior:
 
-First M2.2 build attempt `34892550447` failed at real clang compile because a new file accidentally redeclared the already-existing `ZNFeatureControlType` with a different underlying type. The error was fixed by extending/reusing the project's original enum instead of redefining it. Successful runtime product source: `19b912c...`.
+- `ZNRuntimeMethodAction.title` is editable in Builder UI;
+- rename updates only display title;
+- canonical identity / `methodName` does not change;
+- Runtime Action entry ABI does not change because `titleOffset` and `methodOffset` were already separate.
 
-Independent artifact verification:
+## CI evidence
 
-- ZIP SHA256: `4d632a38efb92a53ce492d07b6c6160f06193adffe37cdc3ca4c7d9e00bacaf5`
-- Dylib SHA256: `4a42a698af2bcc0926a28413b8f6099215db2a8899747139f1018b284ba40bae`
-- Dylib size: `784656`
-- thin arm64 Mach-O dylib
-- `__TEXT,__init_offsets` size `4`
-- markers present: `v3-candidate-list`, `m2-wide-index`, `ZNMethodFinderPrimaryCancel`, `ZNFeatureActionRequestedNotification`, `ZNFeatureNumberValueDidChangeNotification`.
+Workflow: `Build Runtime Patch Menu v0.5.8 M4.1 UI UX V2`
 
-## M2.2 device acceptance
+Run: `35704458522`
 
-After installing/testing the delivered M2.2 build, the user reported on 2026-09-15: `目前没问题了。`
+Result: `success`.
 
-State to carry forward:
+Passed steps:
 
-- mark M2.2 runtime source `19b912c...` as the current **device-accepted baseline**;
-- do not claim every subtest was independently itemized, because the user gave an aggregate acceptance report rather than a per-step checklist;
-- `full_regression_verified` remains false until a future explicit full regression is performed;
-- do not modify or rewrite the M2.2 product history when starting the next milestone.
+- Checkout
+- Source contract assertions
+- Install dependencies
+- Install Theos
+- Build M4.1 UI UX V2
+- Verify binary
+- Upload artifact
 
-## CI routing
+Binary markers checked by CI include:
 
-Feature-branch Actions registration previously produced synthetic `BuildFailed / startup_failure / 0 jobs` records. Working route is the workflow registered on `main` with checkout pinned to the exact feature source SHA. Do not confuse the `main` workflow commit with product source.
+- `[offset-v2]`
+- `[runtime-method-call]`
+- `[ux-v2]`
+- `App Libraries`
+- Runtime Action `authoring rename`
+- `direct build: manual validate skipped`
+- `child-controller passthrough shell shown`
+- `il2cpp_runtime_invoke`
+- `Unslid VA`
+- one constructor: `__init_offsets == 4`
 
-## Next milestone
+Independent post-download verification also confirmed ZIP SHA256 and dylib SHA256 above.
 
-M2.2 is accepted. Start the next milestone from runtime product `19b912c...` on a new branch rather than piling new runtime behavior onto the accepted branch.
+## Immediate device acceptance checklist
 
-Recommended next scope: bind the generic Number / Action / Slider controls to validated runtime backends, then continue toward the jailbreak IL2CPP debugger roadmap (Return Override / Inline Hook / Trace), while preserving the existing M2.2 Builder and Method Finder behavior.
+1. Open the menu and operate the game outside the menu panel; touches must reach the game.
+2. Interact with menu controls; controls must still respond normally.
+3. Re-test Translate/system text presentation; no second-use crash/regression.
+4. Open `其他`; Unity game should default to `UnityFramework`.
+5. Tap the binary target; `App Libraries` picker should open and allow selecting main executable / UnityFramework / app dylibs/frameworks without typing.
+6. Scroll down in Builder, press add/delete/type/runtime action operations, and confirm the page stays near the same scroll position.
+7. Rename a Runtime Method Call title, generate the binary, reload it, and confirm the custom title remains while the same IL2CPP method is called.
+8. Fill a valid Static Patch and press `生成新二进制` without first pressing `读取验证`; automatic preflight should run and generation should succeed.
+9. Regress the already device-verified M4 paths: create method button, test execution, generated binary usable.
+
+## Next action after user feedback
+
+- If all M4.1 checks pass: record device acceptance in all five long-term state files and use M4.1 as the next baseline.
+- If one M4.1 UX item fails: fix only the responsible UX layer; do not rewrite Offset Resolver V2, Static ABI, or the already working Runtime Method Call core.
+- Do not label M4.1 `device_verified` until the user explicitly reports the new M4.1 behaviors working.
