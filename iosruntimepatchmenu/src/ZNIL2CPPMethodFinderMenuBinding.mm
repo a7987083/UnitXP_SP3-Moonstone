@@ -22,6 +22,7 @@ extern "C" void ZNInstallUXFixesV2Deferred(void);
 extern "C" void ZNInstallMethodFinderM43UIDeferred(void);
 extern "C" void ZNInstallMethodFinderM43PolishDeferred(void);
 extern "C" void ZNInstallInstanceSelectionV2UIDeferred(void);
+extern "C" void ZNInstallM441HotfixDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -99,5 +100,9 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         // M4.4 is outermost: multi-instance selection wraps both Finder test
         // execution and Runtime Action execution without changing M4.3 ABI.
         ZNInstallInstanceSelectionV2UIDeferred();
+
+        // M4.4.1 is the final outer layer: unify keyboard/button search routes,
+        // normalize address/offset input, and extend common Unity /1 structs.
+        ZNInstallM441HotfixDeferred();
     });
 }
