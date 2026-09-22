@@ -27,6 +27,7 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     _namespaceName = @"";
     _className = @"";
     _methodName = @"";
+    _argumentValues = @[];
     return self;
 }
 
@@ -51,6 +52,7 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     copy.className = self.className;
     copy.methodName = self.methodName;
     copy.argumentCount = self.argumentCount;
+    copy.argumentValues = self.argumentValues ?: @[];
     return copy;
 }
 
@@ -83,6 +85,13 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
 - (ZNRuntimeMethodAction *)addMethodCandidate:(NSDictionary<NSString *,id> *)candidate
                                          title:(NSString *)title
                                          error:(NSString **)error {
+    return [self addMethodCandidate:candidate title:title argumentValues:@[] error:error];
+}
+
+- (ZNRuntimeMethodAction *)addMethodCandidate:(NSDictionary<NSString *,id> *)candidate
+                                         title:(NSString *)title
+                                argumentValues:(NSArray<NSString *> *)argumentValues
+                                         error:(NSString **)error {
     NSString *assembly = ZNRMATrim([candidate[@"assembly"] isKindOfClass:NSString.class] ? candidate[@"assembly"] : @"");
     NSString *namespaceName = ZNRMATrim([candidate[@"namespace"] isKindOfClass:NSString.class] ? candidate[@"namespace"] : @"");
     NSString *className = ZNRMATrim([candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"");
@@ -94,8 +103,14 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
         if (error) *error = @"方法身份不完整，无法创建 Runtime Method Call";
         return nil;
     }
-    if (argc != 0) {
-        if (error) *error = [NSString stringWithFormat:@"M4.1 首版仅允许 0 参数方法；当前 argumentCount=%ld", (long)argc];
+    if (argc > 1) {
+        if (error) *error = [NSString stringWithFormat:@"M4.2 首版支持 /0 与 /1；当前 argumentCount=%ld", (long)argc];
+        return nil;
+    }
+    NSArray<NSString *> *values = argumentValues ?: @[];
+    if (argc == 0) values = @[];
+    if (argc == 1 && values.count != 1) {
+        if (error) *error = @"/1 方法必须提供 1 个参数值";
         return nil;
     }
 
@@ -105,6 +120,7 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     action.className = className;
     action.methodName = methodName;
     action.argumentCount = (NSUInteger)argc;
+    action.argumentValues = [values copy];
     action.title = ZNRMATrim(title).length ? ZNRMATrim(title) : methodName;
     action.group = @"Runtime Methods";
     action.actionID = ZNRMAFNV1a32(action.canonicalIdentity);
@@ -112,16 +128,17 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     @synchronized (self) {
         for (ZNRuntimeMethodAction *existing in self.mutableActions) {
             if ([existing.canonicalIdentity isEqualToString:action.canonicalIdentity]) {
-                if (error) *error = @"该方法按钮已存在";
+                if (error) *error = @"该方法按钮已存在；可在 Builder 中修改名称/参数";
                 return [existing copy];
             }
         }
         [self.mutableActions addObject:action];
     }
 
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring add id=%u %@",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring add id=%u %@ args=%@",
                                          action.actionID,
-                                         action.canonicalIdentity]];
+                                         action.canonicalIdentity,
+                                         action.argumentValues]];
     return [action copy];
 }
 
@@ -137,6 +154,31 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring rename id=%u title=%@",
                                              action.actionID,
                                              action.title]];
+        return YES;
+    }
+}
+
+- (BOOL)updateArgumentValues:(NSArray<NSString *> *)argumentValues atIndex:(NSUInteger)index error:(NSString **)error {
+    @synchronized (self) {
+        if (index >= self.mutableActions.count) {
+            if (error) *error = @"Runtime Method Call 索引已失效";
+            return NO;
+        }
+        ZNRuntimeMethodAction *action = self.mutableActions[index];
+        NSArray<NSString *> *values = argumentValues ?: @[];
+        if (action.argumentCount == 0) values = @[];
+        if (action.argumentCount == 1 && values.count != 1) {
+            if (error) *error = @"/1 方法必须保存 1 个参数值";
+            return NO;
+        }
+        if (action.argumentCount > 1) {
+            if (error) *error = @"M4.2 首版仅允许编辑 /0 与 /1 参数";
+            return NO;
+        }
+        action.argumentValues = [values copy];
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring args id=%u values=%@",
+                                             action.actionID,
+                                             action.argumentValues]];
         return YES;
     }
 }
