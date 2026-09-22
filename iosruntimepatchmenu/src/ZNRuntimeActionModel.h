@@ -11,6 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy) NSString *className;
 @property(nonatomic,copy) NSString *methodName;
 @property(nonatomic,assign) NSUInteger argumentCount;
+@property(nonatomic,copy) NSArray<NSString *> *argumentValues;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @end
 
@@ -21,9 +22,16 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable ZNRuntimeMethodAction *)addMethodCandidate:(NSDictionary<NSString *, id> *)candidate
                                                  title:(nullable NSString *)title
                                                  error:(NSString * _Nullable * _Nullable)error;
+- (nullable ZNRuntimeMethodAction *)addMethodCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                 title:(nullable NSString *)title
+                                        argumentValues:(NSArray<NSString *> *)argumentValues
+                                                 error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)updateTitle:(nullable NSString *)title
             atIndex:(NSUInteger)index
               error:(NSString * _Nullable * _Nullable)error;
+- (BOOL)updateArgumentValues:(NSArray<NSString *> *)argumentValues
+                     atIndex:(NSUInteger)index
+                       error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)removeActionAtIndex:(NSUInteger)index;
 - (void)clear;
 - (NSArray<ZNRuntimeMethodAction *> *)actionsSnapshot;
