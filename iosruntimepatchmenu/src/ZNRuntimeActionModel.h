@@ -12,7 +12,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy) NSString *methodName;
 @property(nonatomic,assign) NSUInteger argumentCount;
 @property(nonatomic,copy) NSArray<NSString *> *argumentValues;
+// M4.6: full managed parameter-type identity. Empty + signatureAvailable=YES
+// represents an exact zero-parameter signature; signatureAvailable=NO keeps
+// legacy Method/N compatibility for records authored by older versions.
+@property(nonatomic,copy) NSArray<NSString *> *parameterTypeNames;
+@property(nonatomic,assign) BOOL signatureAvailable;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
+@property(nonatomic,copy,readonly) NSString *legacyCanonicalIdentity;
 @end
 
 @interface ZNRuntimeActionStore : NSObject
