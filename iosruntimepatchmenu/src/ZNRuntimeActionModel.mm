@@ -125,6 +125,22 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     return [action copy];
 }
 
+- (BOOL)updateTitle:(NSString *)title atIndex:(NSUInteger)index error:(NSString **)error {
+    NSString *trimmed = ZNRMATrim(title);
+    @synchronized (self) {
+        if (index >= self.mutableActions.count) {
+            if (error) *error = @"Runtime Method Call 索引已失效";
+            return NO;
+        }
+        ZNRuntimeMethodAction *action = self.mutableActions[index];
+        action.title = trimmed.length ? trimmed : action.methodName;
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring rename id=%u title=%@",
+                                             action.actionID,
+                                             action.title]];
+        return YES;
+    }
+}
+
 - (BOOL)removeActionAtIndex:(NSUInteger)index {
     @synchronized (self) {
         if (index >= self.mutableActions.count) return NO;
