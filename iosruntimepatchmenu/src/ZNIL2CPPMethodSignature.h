@@ -4,8 +4,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *ZNIL2CPPEncodeParameterTypeNames(NSArray<NSString *> *types);
 FOUNDATION_EXPORT NSArray<NSString *> *ZNIL2CPPDecodeParameterTypeNames(NSString *encoded);
-FOUNDATION_EXPORT nullable NSArray<NSString *> *ZNIL2CPPParameterTypeNamesForCandidate(NSDictionary<NSString *, id> *candidate,
-                                                                                       NSString * _Nullable * _Nullable error);
+FOUNDATION_EXPORT NSArray<NSString *> * _Nullable ZNIL2CPPParameterTypeNamesForCandidate(NSDictionary<NSString *, id> *candidate,
+                                                                                         NSString * _Nullable * _Nullable error);
 FOUNDATION_EXPORT NSString *ZNIL2CPPFullMethodIdentity(NSString *assembly,
                                                        NSString *namespaceName,
                                                        NSString *className,
