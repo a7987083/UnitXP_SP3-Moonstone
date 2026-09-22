@@ -2,6 +2,51 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-23 — v0.5.8-dev M4.4.2 Search Restore
+
+分支：`fix/runtime-patch-menu-v0.5.8-m4.4.2-search-restore`
+
+CI validated product head：`fe8655444420bc9445ee741e2d3c4cffbaead066`
+
+实际修改：
+
+- 新增 `ZNM442SearchRestore.mm`，作为 M4.4.1 之后的最终搜索路由层。
+- 根据真机反馈修复 M4.4.1 回归：M4.4.1 后页面 `搜索` 与键盘 Search 虽然一致，但两者都可能提示 `找不到 IL2CPP 方法`；而 M4.4.1 之前页面按钮可正常搜索。
+- 根因确认：M4.3 对 `zn60v3_startSearch:` 与 `znm43_startSearch:` 做了 `method_exchangeImplementations`。因此 M4.3 页面按钮虽然绑定 `znm43_startSearch:`，运行时实际执行的是旧 V3 implementation；键盘 Search 绑定 `zn60v3_startSearch:`，运行时执行的是 M4.3 新 implementation。
+- M4.4.1 将两边都重新绑定到第三套 `znm441_submitSearch:`，导致原本真机可用的 V3 搜索路径也被绕开。
+- M4.4.2 不再重写搜索算法：键盘 Search 与页面按钮统一经过输入规范化后，重新委托给 post-swap `znm43_startSearch:`，也就是原来真机已证明可用的 V3 search implementation。
+- 恢复旧 V3 默认作用域语义：在用户没有手动选择 Assembly 前，继续全局扫描并保持 `Assembly-CSharp-first` 优先级，而不是把视觉默认 `Assembly-CSharp` 当成严格过滤条件。
+- 新增 explicit Assembly selection state：只有用户在 Assembly picker 中明确选中某个非空 Assembly 后，才临时使用 `Assembly!query` 做严格过滤；选择 `全部 Assembly` 继续全局扫描。
+- 默认 Assembly 按钮视觉标记为 `Assembly-CSharp · 优先`，避免把“优先”误解成“严格只搜 Assembly-CSharp”。
+- 严格 Assembly 查询仅用于执行，临时 `Assembly!query` 不回写到用户可见的方法名输入框。
+- M4.4.1 的裸 HEX / `0x` / `rva:` / `va:` 规范化、Patch Offset 自动 `0x`、Vector2/Vector3/Quaternion/Color `/1` marshaling 全部保留。
+- Static Patch ABI、Runtime Action ABI、M4.4 Instance Resolver/selection 逻辑均未改变。
+
+CI / Build：
+
+- Workflow: `Build Runtime Patch Menu v0.5.8 M4.4.2 Search Restore`
+- Run: `35791561620` — success
+- Source contract: PASS
+- arm64 compile/link/sign: PASS
+- Binary Verify: PASS
+- Artifact Upload: PASS
+- Artifact: `ZonoPatch-v0.5.8-M4.4.2-SearchRestore`
+- Artifact ID: `10722211742`
+- Artifact ZIP size: `463326`
+- Artifact ZIP SHA256: `c420ab0af09943be5bf05f10cf358514071b9b00982fb242f4573a1a5b94578c`
+- Dylib: `ZonoPatch_v0.5.8_M4.4.2_SearchRestore.dylib`
+- Dylib size: `1018880`
+- Dylib SHA256: `4497d04f3583a4bc447e3cdd692c2bf99479d87440221c2b85554210b251b84b`
+- Mach-O: thin arm64 dynamically linked shared library
+- Binary verify confirmed `[m4.4.2-search-restore]`, `znm442_submitSearch:`, `proven-v3` and inherited runtime markers.
+
+验证边界：
+
+- M4.4.2 当前状态：源码完成 / GitHub 已提交 / arm64 CI 编译通过 / Binary Verify 通过 / Artifact 已生成。
+- 真机首先必须复测“同一条此前 M4.4 可搜到、M4.4.1 搜不到的方法名”。
+- 页面按钮与键盘 Search 都成功后，再验证默认 Assembly-CSharp 优先模式与显式 Assembly 严格过滤。
+- 其余 M4.4.1 typed struct / address / Patch Offset 与 M4.4 instance selection 仍待继续真机验证。
+
 ## 2026-09-23 — v0.5.8-dev M4.4.1 Finder/Input Hotfix
 
 分支：`fix/runtime-patch-menu-v0.5.8-m4.4.1-keyboard-search-route`
