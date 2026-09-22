@@ -12,11 +12,12 @@
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
-// M4.3 UI layer
+// M4.3.1 UI polish layer
 // - Assembly picker using the same action-sheet interaction as App Libraries.
 // - User-editable result limit.
 // - /1 input moved below the method/class rows so the method name gets full width.
 // - Return key becomes Done and dismisses the keyboard.
+// - Result cards hide Assembly because the selected Assembly is already visible on the search page.
 // - Detail page keeps information only; Runtime test/create remains on results cards.
 
 static const void *kZNM43AssemblyKey = &kZNM43AssemblyKey;
@@ -94,7 +95,7 @@ static BOOL ZNM43IsStringType(NSString *typeName) {
 static NSDictionary *ZNM43ArgumentInfo(NSDictionary *candidate) {
     NSInteger argc = [candidate[@"argumentCount"] integerValue];
     if (argc == 0) return @{@"supported": @YES, @"type": @"", @"name": @""};
-    if (argc != 1) return @{@"supported": @NO, @"reason": [NSString stringWithFormat:@"M4.3 V1 暂不执行 /%ld", (long)argc], @"type": @"", @"name": @""};
+    if (argc != 1) return @{@"supported": @NO, @"reason": [NSString stringWithFormat:@"M4.3.1 暂不执行 /%ld", (long)argc], @"type": @"", @"name": @""};
     NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
     if (![abi[@"available"] boolValue] || [abi[@"parameterCount"] unsignedIntegerValue] != 1) {
         return @{@"supported": @NO, @"reason": abi[@"reason"] ?: @"参数 ABI 不可用", @"type": @"?", @"name": @""};
@@ -190,7 +191,7 @@ static NSArray<NSString *> *ZNM43Assemblies(void) {
 - (void)znm43_renderSearchAtWidth:(CGFloat)width {
     CGFloat y = 9.0;
     UIView *card = [self cardAtY:y height:170 width:width compact:NO];
-    UILabel *title = [self label:@"IL2CPP 方法查找 · M4.3" size:12.6 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    UILabel *title = [self label:@"IL2CPP 方法查找 · M4.3.1" size:12.6 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
     title.frame = CGRectMake(13, 8, card.bounds.size.width - 26, 20);
     [card addSubview:title];
 
@@ -225,7 +226,7 @@ static NSArray<NSString *> *ZNM43Assemblies(void) {
     limit.backgroundColor = self.theme.controlColor;
     limit.tintColor = self.theme.accentColor;
     limit.font = [UIFont monospacedDigitSystemFontOfSize:10.0 weight:UIFontWeightMedium];
-    limit.keyboardType = UIKeyboardTypeNumberPad;
+    limit.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     limit.returnKeyType = UIReturnKeyDone;
     limit.layer.cornerRadius = 7.0;
     limit.layer.borderWidth = 1.0;
@@ -326,7 +327,7 @@ static NSArray<NSString *> *ZNM43Assemblies(void) {
     NSDictionary *stats = items.firstObject[@"searchStats"] ?: @{};
     NSString *scope = assembly.length ? ZNM43AssemblyDisplay(assembly) : @"全部 Assembly";
     [self zn60v3_setStatus:[NSString stringWithFormat:@"%@ · %@：%lu 个候选 · %@ classes · %.1fms", scope, query, (unsigned long)items.count, stats[@"classesScanned"] ?: @0, [stats[@"elapsedMs"] doubleValue]]];
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.3-search] assembly=%@ query=%@ limit=%lu -> %lu", scope, query, (unsigned long)[self zn60v3_limit], (unsigned long)items.count]];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.3.1-search] assembly=%@ query=%@ limit=%lu -> %lu", scope, query, (unsigned long)[self zn60v3_limit], (unsigned long)items.count]];
     [self zn60v3_setPage:1];
     [self renderPage];
 }
@@ -375,7 +376,7 @@ static NSArray<NSString *> *ZNM43Assemblies(void) {
         NSInteger argc = [candidate[@"argumentCount"] integerValue];
         NSDictionary *argInfo = ZNM43ArgumentInfo(candidate);
         BOOL callable = [argInfo[@"supported"] boolValue] && argc <= 1;
-        CGFloat cardH = argc == 1 ? 108.0 : 82.0;
+        CGFloat cardH = argc == 1 ? 88.0 : 76.0;
         UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
         CGFloat rightW = 78.0; CGFloat leftW = card.bounds.size.width - rightW - 22.0;
 
@@ -404,10 +405,6 @@ static NSArray<NSString *> *ZNM43Assemblies(void) {
             [input addTarget:self action:@selector(znm43_doneEditing:) forControlEvents:UIControlEventEditingDidEndOnExit];
             [card addSubview:input];
         }
-
-        CGFloat assemblyY = argc == 1 ? 84.0 : 55.0;
-        UILabel *assembly = [self label:ZNM43AssemblyDisplay(candidate[@"assembly"] ?: @"?") size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
-        assembly.frame = CGRectMake(13, assemblyY, leftW - 8.0, 16); assembly.lineBreakMode = NSLineBreakByTruncatingTail; [card addSubview:assembly];
 
         UIButton *test = [self zn40_button:@"测试执行" selector:@selector(znm43_testCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 7, rightW, 28)];
         objc_setAssociatedObject(test, kZNM43CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC); test.enabled = callable; test.alpha = callable ? 1.0 : 0.48; test.titleLabel.font = [self menuFont:8.3 weight:UIFontWeightSemibold]; test.backgroundColor = [self.theme.accentColor colorWithAlphaComponent:0.17]; test.layer.borderColor = self.theme.accentColor.CGColor; [card addSubview:test];
@@ -471,6 +468,6 @@ extern "C" void ZNInstallMethodFinderM43UIDeferred(void) {
         ZNM43Swap(cls, @selector(zn60v3_startSearch:), @selector(znm43_startSearch:));
         ZNM43Swap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm43_renderResultsAtWidth:));
         ZNM43Swap(cls, @selector(zn60v3_renderDetailAtWidth:), @selector(znm43_renderDetailAtWidth:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m4.3-ui] assembly picker + custom result limit + lower /1 input + Done key + detail cleanup installed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.3.1-ui] assembly picker + custom limit + hidden result Assembly + lower /1 input + Done key + detail cleanup installed"];
     });
 }
