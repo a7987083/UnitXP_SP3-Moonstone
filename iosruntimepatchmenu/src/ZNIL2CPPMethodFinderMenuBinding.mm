@@ -20,6 +20,7 @@ extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
 extern "C" void ZNInstallUXFixesV2Deferred(void);
 extern "C" void ZNInstallMethodFinderM43UIDeferred(void);
+extern "C" void ZNInstallMethodFinderM43PolishDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -92,8 +93,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallRuntimeMethodCallDeferred();
         ZNInstallUXFixesV2Deferred();
 
-        // M4.3 is outermost: it intentionally replaces only finder/search UX
-        // while preserving the M4.2 runtime action and M4.1 menu layers.
         ZNInstallMethodFinderM43UIDeferred();
+        ZNInstallMethodFinderM43PolishDeferred();
     });
 }
