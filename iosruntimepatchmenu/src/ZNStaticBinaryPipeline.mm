@@ -3,6 +3,7 @@
 #import "ZNGeneratedBinaryPostprocess.h"
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNRuntimeActionBuilder.h"
+#import "ZNRuntimeActionSignaturePostprocess.h"
 
 // ZonoPatch v0.5.4 Builder Consolidation.
 //
@@ -36,11 +37,29 @@
         return NO;
     }
 
+    // M4.6 extends the existing Runtime Action string pool in-place. This runs
+    // after the M4 table is embedded, while the generated output is still an
+    // unsigned Builder artifact, so final postprocess/signing covers the exact
+    // signature metadata too. Entry/header sizes and version remain unchanged.
+    NSString *signatureReport = nil;
+    NSString *signatureError = nil;
+    if (!ZNRuntimeActionAugmentGeneratedOutputsM46(builderOutputs ?: @[],
+                                                   &signatureReport,
+                                                   &signatureError)) {
+        if (error) *error = signatureError ?: @"M4.6 Full Method Signature 写入失败";
+        return NO;
+    }
+
     NSString *combinedReport = builderReport ?: @"";
     if (actionReport.length) {
         combinedReport = combinedReport.length
             ? [combinedReport stringByAppendingFormat:@"\n%@", actionReport]
             : actionReport;
+    }
+    if (signatureReport.length) {
+        combinedReport = combinedReport.length
+            ? [combinedReport stringByAppendingFormat:@"\n%@", signatureReport]
+            : signatureReport;
     }
 
     NSString *postprocessError = nil;
