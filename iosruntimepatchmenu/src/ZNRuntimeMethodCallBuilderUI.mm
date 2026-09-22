@@ -7,6 +7,7 @@
 #import "ZNPatchCore.h"
 
 static const NSInteger kZNRMCBuilderDeleteTagBase = 671000;
+static const NSInteger kZNRMCBuilderTitleTagBase = 672000;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -30,6 +31,7 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
 - (void)znrmc_renderOther;
 - (void)znrmc_clearAuthoringActions:(id)sender;
 - (void)znrmc_deleteAuthoringAction:(UIButton *)sender;
+- (void)znrmc_titleEditingEnded:(UITextField *)field;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallBuilderUI)
@@ -71,28 +73,44 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
     } else {
         for (NSUInteger i = 0; i < actions.count; i++) {
             ZNRuntimeMethodAction *action = actions[i];
-            UIView *card = [self cardAtY:y height:62 width:width compact:NO];
-            UILabel *name = [self label:(action.title.length ? action.title : action.methodName)
-                                    size:10.0
-                                  weight:UIFontWeightSemibold
-                                   color:self.theme.primaryTextColor];
-            name.frame = CGRectMake(13, 7, card.bounds.size.width - 78, 19);
+            UIView *card = [self cardAtY:y height:72 width:width compact:NO];
+
+            UITextField *name = [[UITextField alloc] initWithFrame:CGRectMake(13, 7, card.bounds.size.width - 78, 27)];
+            name.tag = kZNRMCBuilderTitleTagBase + (NSInteger)i;
+            name.text = action.title.length ? action.title : action.methodName;
+            name.placeholder = action.methodName;
+            name.textColor = self.theme.primaryTextColor;
+            name.backgroundColor = self.theme.controlColor;
+            name.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightSemibold];
+            name.autocorrectionType = UITextAutocorrectionTypeNo;
+            name.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            name.returnKeyType = UIReturnKeyDone;
+            name.clearButtonMode = UITextFieldViewModeWhileEditing;
+            name.layer.cornerRadius = 7.0;
+            name.layer.borderWidth = 1.0;
+            name.layer.borderColor = self.theme.borderColor.CGColor;
+            UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 7, 1)];
+            name.leftView = pad;
+            name.leftViewMode = UITextFieldViewModeAlways;
+            [name addTarget:self action:@selector(znrmc_titleEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
             [card addSubview:name];
+
             UILabel *identity = [self label:action.canonicalIdentity
                                         size:7.8
                                       weight:UIFontWeightRegular
                                        color:self.theme.secondaryTextColor];
-            identity.frame = CGRectMake(13, 29, card.bounds.size.width - 78, 24);
+            identity.frame = CGRectMake(13, 39, card.bounds.size.width - 78, 24);
             identity.numberOfLines = 2;
             identity.lineBreakMode = NSLineBreakByTruncatingMiddle;
             [card addSubview:identity];
+
             UIButton *deleteButton = [self zn40_button:@"删除"
                                                selector:@selector(znrmc_deleteAuthoringAction:)
-                                                  frame:CGRectMake(card.bounds.size.width - 65, 15, 52, 31)];
+                                                  frame:CGRectMake(card.bounds.size.width - 65, 19, 52, 31)];
             deleteButton.tag = kZNRMCBuilderDeleteTagBase + (NSInteger)i;
             [card addSubview:deleteButton];
             [self.contentView addSubview:card];
-            y += 70.0;
+            y += 80.0;
         }
     }
     [self zn40_updateContentHeight:y];
@@ -108,6 +126,18 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
     NSInteger index = sender.tag - kZNRMCBuilderDeleteTagBase;
     if (index >= 0) [[ZNRuntimeActionStore sharedStore] removeActionAtIndex:(NSUInteger)index];
     [self renderPage];
+}
+
+- (void)znrmc_titleEditingEnded:(UITextField *)field {
+    NSInteger index = field.tag - kZNRMCBuilderTitleTagBase;
+    if (index < 0) return;
+    NSString *error = nil;
+    if (![[ZNRuntimeActionStore sharedStore] updateTitle:field.text atIndex:(NSUInteger)index error:&error]) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] rename failed: %@", error ?: @"unknown"]];
+    }
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if ((NSUInteger)index < actions.count) field.text = actions[(NSUInteger)index].title;
+    [field resignFirstResponder];
 }
 
 @end
