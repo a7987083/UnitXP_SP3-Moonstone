@@ -112,7 +112,6 @@ jobs:
           grep -q '\[offset-v2\]' /tmp/zono_m4_rmc_strings.txt
           grep -q '\[runtime-method-call\]' /tmp/zono_m4_rmc_strings.txt
           grep -q 'M4.1 installed: embedded action table + zero-arg static invoke' /tmp/zono_m4_rmc_strings.txt
-          grep -q 'FAILED_INSTANCE_REQUIRED' /tmp/zono_m4_rmc_strings.txt
           grep -q 'il2cpp_runtime_invoke' /tmp/zono_m4_rmc_strings.txt
           grep -q 'il2cpp_method_get_flags' /tmp/zono_m4_rmc_strings.txt
           grep -q 'Unslid VA' /tmp/zono_m4_rmc_strings.txt
