@@ -1,4 +1,5 @@
 #import "ZNRuntimeActionModel.h"
+#import "ZNIL2CPPMethodSignature.h"
 #import "ZNPatchCore.h"
 
 static NSString *ZNRMATrim(NSString *value) {
@@ -28,10 +29,12 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     _className = @"";
     _methodName = @"";
     _argumentValues = @[];
+    _parameterTypeNames = @[];
+    _signatureAvailable = NO;
     return self;
 }
 
-- (NSString *)canonicalIdentity {
+- (NSString *)legacyCanonicalIdentity {
     NSString *owner = self.namespaceName.length
         ? [NSString stringWithFormat:@"%@.%@", self.namespaceName, self.className]
         : self.className;
@@ -40,6 +43,17 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
             owner ?: @"",
             self.methodName ?: @"",
             (unsigned long)self.argumentCount];
+}
+
+- (NSString *)canonicalIdentity {
+    if (self.signatureAvailable && self.parameterTypeNames.count == self.argumentCount) {
+        return ZNIL2CPPFullMethodIdentity(self.assembly ?: @"",
+                                          self.namespaceName ?: @"",
+                                          self.className ?: @"",
+                                          self.methodName ?: @"",
+                                          self.parameterTypeNames ?: @[]);
+    }
+    return self.legacyCanonicalIdentity;
 }
 
 - (id)copyWithZone:(NSZone *)zone {
@@ -53,6 +67,8 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     copy.methodName = self.methodName;
     copy.argumentCount = self.argumentCount;
     copy.argumentValues = self.argumentValues ?: @[];
+    copy.parameterTypeNames = self.parameterTypeNames ?: @[];
+    copy.signatureAvailable = self.signatureAvailable;
     return copy;
 }
 
@@ -114,6 +130,25 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
         return nil;
     }
 
+    NSArray<NSString *> *parameterTypes = nil;
+    BOOL signatureAvailable = NO;
+    id candidateTypes = candidate[@"parameterTypeNames"];
+    if ([candidateTypes isKindOfClass:NSArray.class] && [(NSArray *)candidateTypes count] == (NSUInteger)argc) {
+        parameterTypes = [candidateTypes copy];
+        signatureAvailable = ![candidate[@"signatureAvailable"] respondsToSelector:@selector(boolValue)] || [candidate[@"signatureAvailable"] boolValue];
+    }
+    if (!signatureAvailable) {
+        NSString *signatureError = nil;
+        NSArray<NSString *> *derived = ZNIL2CPPParameterTypeNamesForCandidate(candidate, &signatureError);
+        if (derived && derived.count == (NSUInteger)argc) {
+            parameterTypes = derived;
+            signatureAvailable = YES;
+        } else {
+            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.6-signature] authoring legacy fallback %@::%@/%ld reason=%@",
+                                                 className, methodName, (long)argc, signatureError ?: @"signature unavailable"]];
+        }
+    }
+
     ZNRuntimeMethodAction *action = [ZNRuntimeMethodAction new];
     action.assembly = assembly;
     action.namespaceName = namespaceName;
@@ -121,6 +156,8 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     action.methodName = methodName;
     action.argumentCount = (NSUInteger)argc;
     action.argumentValues = [values copy];
+    action.parameterTypeNames = parameterTypes ?: @[];
+    action.signatureAvailable = signatureAvailable;
     action.title = ZNRMATrim(title).length ? ZNRMATrim(title) : methodName;
     action.group = @"Runtime Methods";
     action.actionID = ZNRMAFNV1a32(action.canonicalIdentity);
@@ -135,10 +172,11 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
         [self.mutableActions addObject:action];
     }
 
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring add id=%u %@ args=%@",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring add id=%u %@ args=%@ signature=%@",
                                          action.actionID,
                                          action.canonicalIdentity,
-                                         action.argumentValues]];
+                                         action.argumentValues,
+                                         action.signatureAvailable ? @"full" : @"legacy"]];
     return [action copy];
 }
 
