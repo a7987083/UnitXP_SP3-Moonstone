@@ -14,6 +14,13 @@ NS_ASSUME_NONNULL_BEGIN
                                                     method:(NSString *)methodName
                                              argumentCount:(NSUInteger)argumentCount
                                                      error:(NSString * _Nullable * _Nullable)error;
+- (nullable NSDictionary<NSString *, id> *)executeAssembly:(NSString *)assembly
+                                                 namespace:(NSString *)namespaceName
+                                                 className:(NSString *)className
+                                                    method:(NSString *)methodName
+                                             argumentCount:(NSUInteger)argumentCount
+                                            argumentValues:(NSArray<NSString *> *)argumentValues
+                                                     error:(NSString * _Nullable * _Nullable)error;
 @end
 
 NS_ASSUME_NONNULL_END
