@@ -1,108 +1,98 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "method-finder-v3-m2.2-builder-feature-controls",
-  "phase_status": "m2.2-device-accepted-user-reported-no-current-issues",
-  "branch": "feature/runtime-patch-menu-v0.5.8-m2.2-builder-feature-controls",
-  "runtime_code_head": "19b912c840e7223adbc2c26ef80185c32b8eb77a",
-  "ci_validated_head": "19b912c840e7223adbc2c26ef80185c32b8eb77a",
+  "phase": "m4.1-ui-ux-v2",
+  "phase_status": "source-ci-binary-verified-device-validation-pending",
+  "branch": "fix/runtime-patch-menu-v0.5.8-m4.1-ui-ux-v2",
+  "runtime_product_head": "4d3f62bd5ae645493e3af10e179402d9cc47e889",
+  "ci_validated_head": "911dec0c56234387820fbec5daf996e396f86294",
   "baseline": {
     "sealed_v0_5_6_2": "86edac4d70ef467e9a58912768b6c6c72077842a",
-    "method_finder_v2_device_verified": "4377d4a4c6e325e54299e3055346240f4963940f",
-    "method_finder_v3_m1_product": "ef98a090e1df5b69df3fbb86adb905008285d82c",
-    "method_finder_v3_m2_product": "69b546edd0ed83a5699805951304aa3371a0bc30",
-    "method_finder_v3_m2_1_product": "47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5",
-    "method_finder_v3_m2_2_device_accepted": "19b912c840e7223adbc2c26ef80185c32b8eb77a"
+    "method_finder_v3_m2_2_device_accepted": "19b912c840e7223adbc2c26ef80185c32b8eb77a",
+    "offset_resolver_v2": "a3b8db8651eaea23ec0ae7e5fca497e8f67bcf6c",
+    "m4_runtime_method_call_v1_ci_head": "d53c75dfbb7510e31a60e49f202532ad2f5e099e"
   },
-  "m1_validation": {
+  "m4_runtime_method_call_v1": {
+    "ci_run": 35689545606,
+    "ci_result": "success",
+    "artifact_id": 10678476991,
+    "dylib_sha256": "53bc795e7c9fbefb7443da12d5ea9598b5eba9f0a2b51a453ad9445d93f50651",
     "device_verified": true,
-    "known_target": "Assembly-CSharp.dll!com.notdoppler.ETDR.Cash::get_TotalCashReward/0",
-    "known_rva": "0x2DA9E10",
-    "verified_paths": [
-      "candidate-list bare exact search",
-      "method detail/address display",
-      "RVA reverse lookup",
-      "qualified exact lookup",
-      "candidate-to-Builder canonical expression"
-    ]
+    "device_verified_paths": [
+      "创建方法按钮",
+      "测试执行",
+      "generated binary usable"
+    ],
+    "full_regression_verified": false,
+    "runtime_scope": "zero-argument static IL2CPP method invoke"
   },
-  "m2_device_observation": {
-    "wide_query": "cash",
-    "first_search_ms": 423.1,
-    "second_search_ms": 147.0,
-    "steady_repeat_ms_approx": 150.0,
-    "broad_search_working": true,
-    "m2_1_primary_cancel_visible": false,
-    "m2_1_search_button_flashing": true
+  "m4_1_scope": {
+    "automatic_binary_target": {
+      "unity_priority": true,
+      "fallback_to_main_executable": true,
+      "persist_absolute_bundle_uuid_path": false
+    },
+    "app_libraries_picker": true,
+    "menu_touch_passthrough": true,
+    "same_page_scroll_preservation": true,
+    "direct_build_auto_preflight": true,
+    "manual_validate_required_before_build": false,
+    "runtime_method_call_title_editing": true,
+    "runtime_method_identity_unchanged_on_title_rename": true,
+    "offset_resolver_v2_core_changed": false,
+    "static_patch_entry_size_changed": false,
+    "runtime_method_call_entry_size_changed": false
   },
-  "m2_2_scope": {
-    "delete_feature": true,
-    "delete_individual_patch": true,
-    "generic_feature_controls": ["Toggle", "Number", "Action", "Slider"],
-    "legacy_control_enum_values_preserved": true,
-    "static_entry_size_changed": false,
-    "control_type_storage": "ZN44StaticEntry.flags bits 8..10",
-    "legacy_output_default": "Toggle",
-    "number_runtime_surface": "UITextField + typed notification",
-    "action_runtime_surface": "one-shot button + typed notification",
-    "slider_runtime_surface": "UISlider + typed notification",
-    "game_specific_hook_binding": "not implemented in M2.2",
-    "stable_cancel_fix": "first full render only; active progress updates status label without whole-page render"
-  },
-  "m2_2_device_acceptance": {
-    "device_verified": true,
-    "user_report": "目前没问题了。",
-    "interpretation": "M2.2 was installed/tested on the real device and the user reported no current problem after the requested acceptance checks.",
-    "itemized_subtest_results_separately_reported": false,
-    "full_regression_verified": false
+  "abi": {
+    "static_patch_entry_bytes": 128,
+    "runtime_action_header_bytes": 64,
+    "runtime_method_call_entry_bytes": 64
   },
   "build": {
     "system": "Theos",
-    "workflow": "Build Method Finder V3 via Main",
-    "workflow_file": ".github/workflows/build-method-finder-v3-from-main.yml",
-    "run_id": 34893082122,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M4.1 UI UX V2",
+    "workflow_file": ".github/workflows/build-runtime-patch-menu-v0.5.8-m4.1-ui-ux-v2.yml",
+    "run_id": 35704458522,
     "result": "success",
     "compiled": true,
-    "source_assertions": true,
-    "named_offset_parser_tests": true,
-    "static_protection_tests": true,
+    "source_contract_assertions": true,
     "binary_verified": true,
-    "device_verified": true,
+    "artifact_uploaded": true,
+    "device_verified": false,
     "full_regression_verified": false,
     "constructor_count": 1
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-MethodFinder-V3-M2.2",
-    "id": 10367337459,
-    "archive_size": 343778,
-    "archive_digest": "sha256:4d632a38efb92a53ce492d07b6c6160f06193adffe37cdc3ca4c7d9e00bacaf5",
-    "dylib_name": "ZonoPatch_v0.5.8_MethodFinderV3_M2_2.dylib",
-    "dylib_size": 784656,
-    "dylib_sha256": "4a42a698af2bcc0926a28413b8f6099215db2a8899747139f1018b284ba40bae"
+    "name": "ZonoPatch-v0.5.8-M4.1-UIUX-V2",
+    "id": 10683409230,
+    "archive_size": 405177,
+    "archive_sha256": "f9d88f62a923a4adc9797d686ad601198761af14d4f27d4919906ba97dc83450",
+    "dylib_name": "ZonoPatch_v0.5.8_M4.1_UIUX_V2.dylib",
+    "dylib_sha256": "4ad03fdd759cb7218cb3aeb22a12f1bca75ff6ccf12a10532f47e5bf516574ae",
+    "mach_o": "thin arm64 dylib"
   },
-  "runtime": {
-    "method_finder_m2": {
-      "bare_method_matching": "case-insensitive exact > prefix > suffix > contains",
-      "structured_matching": "exact",
-      "rva_matching": "exact",
-      "shard_classes": 12000,
-      "async": true,
-      "cancelable": true,
-      "persistent_index": true
-    },
-    "full_deferred_bootstrap": true,
-    "compiled_constructor_count": 1,
-    "final_ipa_resign_required": true
-  },
-  "known_technical_debt": [
-    "Number/Action/Slider are generic control/event surfaces only; IL2CPP hook/invoke binding is a later phase",
-    "generic/inflated/shared native pointer classification remains incomplete",
-    "repeat indexed search still re-resolves current-launch MethodInfo/Method Pointer",
-    "feature-branch GitHub Actions registration still uses the main-registered exact-SHA workflow workaround"
+  "device_acceptance_pending": [
+    "menu outside-panel touch passthrough to game",
+    "menu controls remain interactive",
+    "Translate/system text presentation regression",
+    "UnityFramework automatic selection",
+    "main executable fallback on non-Unity targets",
+    "App Libraries picker selection",
+    "same-page scroll offset preservation",
+    "Runtime Method Call custom title persists through generated binary",
+    "direct build succeeds without manual read/validate",
+    "M4 V1 create/test/generated-binary regression"
   ],
-  "next_phase": "ready-for-next-milestone",
-  "next_task": "Keep M2.2 runtime source 19b912c as the device-accepted baseline. The next milestone may bind the generic Number/Action/Slider controls to validated runtime Hook/Invoke backends without changing M2.2 history.",
-  "captured_at": "2026-09-15"
+  "known_boundaries": [
+    "M4.1 is not device-verified yet",
+    "M4 V1 device report covers only explicitly reported paths, not a full regression suite",
+    "Runtime Method Call currently supports zero-argument static invoke scope",
+    "final IPA still requires normal signing/install validation",
+    "absolute /var/containers/Bundle/Application/<UUID> paths must not be persisted"
+  ],
+  "next_phase": "m4.1-device-acceptance",
+  "next_task": "Run the M4.1 physical-device checklist. If accepted, record device acceptance and promote M4.1 as the next baseline without rewriting historical commits.",
+  "captured_at": "2026-09-22"
 }
