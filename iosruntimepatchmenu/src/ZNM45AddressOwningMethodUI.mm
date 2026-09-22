@@ -12,6 +12,8 @@
 // Named method searches remain on M4.4.2's device-proven V3 route. Address
 // queries are intercepted and resolved by an interval-aware owning-method
 // resolver so an instruction inside a method can map back to MethodInfo.
+// Unsupported /1 arguments are rendered as explanatory labels instead of
+// disabled gray text fields; only actually marshalable parameters stay inputs.
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -31,6 +33,7 @@
 - (UILabel *)label:(NSString *)text size:(CGFloat)size weight:(UIFontWeight)weight color:(UIColor *)color;
 - (void)zn40_updateContentHeight:(CGFloat)y;
 - (void)znm442_submitSearch:(id)sender;
+- (void)zn60v3_renderResultsAtWidth:(CGFloat)width;
 - (void)zn60v3_renderDetailAtWidth:(CGFloat)width;
 @end
 
@@ -119,8 +122,44 @@ static CGFloat ZNM45BottomY(UIView *content) {
     return bottom;
 }
 
+static BOOL ZNM45UnsupportedReasonText(NSString *text) {
+    NSString *value = text ?: @"";
+    if (!value.length) return NO;
+    return [value containsString:@"暂不支持"] ||
+           [value containsString:@"ABI 类型不可用"] ||
+           [value containsString:@"尚未识别"];
+}
+
+static void ZNM45ReplaceUnsupportedInputs(UIView *root, ZNTheme *theme) {
+    if (!root) return;
+    NSArray<UIView *> *children = [root.subviews copy];
+    for (UIView *view in children) {
+        if ([view isKindOfClass:UITextField.class]) {
+            UITextField *field = (UITextField *)view;
+            NSString *reason = field.placeholder ?: @"";
+            if (!field.enabled && ZNM45UnsupportedReasonText(reason) && field.superview) {
+                UILabel *label = [[UILabel alloc] initWithFrame:field.frame];
+                label.text = reason;
+                label.textColor = theme.secondaryTextColor;
+                label.font = [UIFont systemFontOfSize:8.4 weight:UIFontWeightRegular];
+                label.numberOfLines = 2;
+                label.lineBreakMode = NSLineBreakByTruncatingTail;
+                label.adjustsFontSizeToFitWidth = YES;
+                label.minimumScaleFactor = 0.72;
+                label.backgroundColor = UIColor.clearColor;
+                label.alpha = 1.0;
+                [field.superview insertSubview:label aboveSubview:field];
+                [field removeFromSuperview];
+                continue;
+            }
+        }
+        ZNM45ReplaceUnsupportedInputs(view, theme);
+    }
+}
+
 @interface ZNRuntimeMenuControllerV040 (ZNM45AddressOwningMethod)
 - (void)znm45_submitSearch:(id)sender;
+- (void)znm45_renderResultsAtWidth:(CGFloat)width;
 - (void)znm45_renderDetailAtWidth:(CGFloat)width;
 @end
 
@@ -186,6 +225,12 @@ static CGFloat ZNM45BottomY(UIView *content) {
     [self renderPage];
 }
 
+- (void)znm45_renderResultsAtWidth:(CGFloat)width {
+    // Previous chain renders normal supported inputs and M4.4.1 reason text.
+    [self znm45_renderResultsAtWidth:width];
+    ZNM45ReplaceUnsupportedInputs(self.contentView, self.theme);
+}
+
 - (void)znm45_renderDetailAtWidth:(CGFloat)width {
     // Alias reaches the previous detail renderer chain (M4.3 cleanup + V3 info).
     [self znm45_renderDetailAtWidth:width];
@@ -236,7 +281,8 @@ extern "C" void ZNInstallM45AddressOwningMethodDeferred(void) {
         Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!menu) return;
         ZNM45Swap(menu, @selector(znm442_submitSearch:), @selector(znm45_submitSearch:));
+        ZNM45Swap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(znm45_renderResultsAtWidth:));
         ZNM45Swap(menu, @selector(zn60v3_renderDetailAtWidth:), @selector(znm45_renderDetailAtWidth:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m4.5-owning-method] address queries now resolve exact entry or bounded owning method; named search remains proven-v3"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.5-owning-method] address owning-method resolver + unsupported-argument-label UI installed; named search remains proven-v3"];
     });
 }
