@@ -17,6 +17,7 @@ extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void);
 extern "C" void ZNInstallOffsetResolverV2Deferred(void);
 extern "C" void ZNInstallBinaryPatchWorkspaceAddressV2Deferred(void);
 extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
+extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -89,5 +90,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallOffsetResolverV2Deferred();
         ZNInstallBinaryPatchWorkspaceAddressV2Deferred();
         ZNInstallRuntimeMenuModalShellDeferred();
+
+        // Runtime Method Call is layered after Method Finder V3 / Offset V2.
+        // Its Builder wrapper intentionally installs before FeatureBuilderUI;
+        // the later zn44_renderOther <-> zn50b_renderOther exchange preserves
+        // the wrapper chain without changing the stable Builder implementation.
+        ZNInstallRuntimeMethodCallDeferred();
     });
 }

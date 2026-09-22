@@ -2,6 +2,7 @@
 #import "ZNStaticBinaryBuilderV3Internal.h"
 #import "ZNGeneratedBinaryPostprocess.h"
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNRuntimeActionBuilder.h"
 
 // ZonoPatch v0.5.4 Builder Consolidation.
 //
@@ -26,9 +27,25 @@
         return NO;
     }
 
+    NSString *actionReport = nil;
+    NSString *actionError = nil;
+    if (!ZNRuntimeActionEmbedIntoGeneratedOutputs(builderOutputs ?: @[],
+                                                  &actionReport,
+                                                  &actionError)) {
+        if (error) *error = actionError ?: @"Runtime Method Call 写入失败";
+        return NO;
+    }
+
+    NSString *combinedReport = builderReport ?: @"";
+    if (actionReport.length) {
+        combinedReport = combinedReport.length
+            ? [combinedReport stringByAppendingFormat:@"\n%@", actionReport]
+            : actionReport;
+    }
+
     NSString *postprocessError = nil;
     if (!ZNPostProcessGeneratedBinaryOutputs(builderOutputs ?: @[],
-                                             builderReport,
+                                             combinedReport,
                                              outputs,
                                              report,
                                              &postprocessError)) {

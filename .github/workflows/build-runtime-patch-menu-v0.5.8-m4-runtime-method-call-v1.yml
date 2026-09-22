@@ -1,0 +1,130 @@
+name: Build Runtime Patch Menu v0.5.8 M4 Runtime Method Call V1
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m4-runtime-method-call-v1
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          for f in \
+            ZNRuntimeActionFormat.h \
+            ZNRuntimeActionModel.mm \
+            ZNIL2CPPInvokeEngine.mm \
+            ZNRuntimeActionBuilder.mm \
+            ZNRuntimeActionRuntime.mm \
+            ZNRuntimeMethodCallFinderUI.mm \
+            ZNRuntimeMethodCallBuilderUI.mm \
+            ZNRuntimeMethodCallFeatureUI.mm \
+            ZNRuntimeMethodCallBootstrap.mm; do
+            test -f "iosruntimepatchmenu/src/$f"
+            grep -q "src/${f%.h}" iosruntimepatchmenu/Makefile || true
+          done
+          grep -q 'src/ZNRuntimeActionModel.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNIL2CPPInvokeEngine.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNRuntimeActionBuilder.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNRuntimeActionRuntime.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZNRuntimeActionEmbedIntoGeneratedOutputs' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'ZNInstallRuntimeMethodCallDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'sizeof(ZNRuntimeActionHeader) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'FAILED_INSTANCE_REQUIRED' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm
+          grep -q 'il2cpp_runtime_invoke' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm
+          grep -q 'il2cpp_method_get_flags' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm
+          grep -q '创建方法按钮' iosruntimepatchmenu/src/ZNRuntimeMethodCallFinderUI.mm
+          grep -q '__ZNDATA' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          git diff --exit-code a3b8db8651eaea23ec0ae7e5fca497e8f67bcf6c -- \
+            iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm \
+            iosruntimepatchmenu/src/ZNOffsetResolverV2.mm \
+            iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+
+      - name: Runtime Action format contract test
+        run: |
+          python3 - <<'PY'
+          import struct
+          header = '<Q8I3Q'
+          entry = '<16I'
+          assert struct.calcsize(header) == 64, struct.calcsize(header)
+          assert struct.calcsize(entry) == 64, struct.calcsize(entry)
+          magic = 0x00314E5443414E5A
+          count = 2
+          fixed = 64 + count * 64
+          strings = b'A\0Runtime Methods\0Assembly-CSharp.dll\0Game\0Player\0Foo\0'
+          total = (fixed + len(strings) + 7) & ~7
+          blob = bytearray(total)
+          struct.pack_into(header, blob, 0, magic, 1, count, 64, total, fixed, total-fixed, 0, 0, 0, 0, 0)
+          assert struct.unpack_from('<Q', blob, 0)[0] == magic
+          assert fixed == 192
+          print('runtime-action format PASS', {'header':64,'entry':64,'fixed':fixed,'total':total})
+          PY
+
+      - name: Static ABI regression contract
+        run: |
+          python3 - <<'PY'
+          text = open('iosruntimepatchmenu/src/ZNStaticPatchFormat.h', encoding='utf-8').read()
+          assert 'static_assert(sizeof(ZN44StaticEntry) == 128' in text
+          assert '#define ZN44_STATIC_VERSION_V3 ZN44_STATIC_VERSION_V2' in text
+          print('Static Patch ABI contract PASS: ZN44StaticEntry=128 and V3 ABI unchanged')
+          PY
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build M4 Runtime Method Call V1
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m4-runtime-method-call-v1
+          cp .theos/obj/ZonoePatchV03.dylib dist-m4-runtime-method-call-v1/ZonoPatch_v0.5.8_M4_RuntimeMethodCallV1.dylib
+          shasum -a 256 dist-m4-runtime-method-call-v1/ZonoPatch_v0.5.8_M4_RuntimeMethodCallV1.dylib | tee dist-m4-runtime-method-call-v1/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m4-runtime-method-call-v1/ZonoPatch_v0.5.8_M4_RuntimeMethodCallV1.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out"
+          strings "$out" > /tmp/zono_m4_rmc_strings.txt
+          grep -q '\[menu-modal\]' /tmp/zono_m4_rmc_strings.txt
+          grep -q '\[offset-v2\]' /tmp/zono_m4_rmc_strings.txt
+          grep -q '\[runtime-method-call\]' /tmp/zono_m4_rmc_strings.txt
+          grep -q 'Runtime Method Call' /tmp/zono_m4_rmc_strings.txt
+          grep -q 'FAILED_INSTANCE_REQUIRED' /tmp/zono_m4_rmc_strings.txt
+          grep -q '创建方法按钮' /tmp/zono_m4_rmc_strings.txt
+          grep -q 'Unslid VA' /tmp/zono_m4_rmc_strings.txt
+          init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
+          echo "__init_offsets size=$init_size"
+          test "$init_size" = '0x0000000000000004' -o "$init_size" = '0x4'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M4-RuntimeMethodCallV1
+          path: |
+            iosruntimepatchmenu/dist-m4-runtime-method-call-v1/ZonoPatch_v0.5.8_M4_RuntimeMethodCallV1.dylib
+            iosruntimepatchmenu/dist-m4-runtime-method-call-v1/SHA256.txt
+          if-no-files-found: error
