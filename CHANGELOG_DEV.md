@@ -2,6 +2,57 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-22 — v0.5.8-dev M4.3.1 Instance Resolver Polish V1
+
+Runtime product source head: `7e34d4edd905ea8de1328323ae39143b98601fba`
+
+CI validated branch head: `f702e27bb0f138b6f54f4f6460c3307807c215b9`
+
+分支：`feature/runtime-patch-menu-v0.5.8-m4.3.1-instance-resolver-polish-v1`
+
+实际修改：
+
+- 在 M4.3 Instance Resolver V1 基础上收紧 IL2CPP liveness 时序，参考当前 `frida-il2cpp-bridge gc.choose()`：优先 legacy `calculation_begin -> from_statics -> end`。
+- 仅当 legacy liveness 不可用时回退 modern `allocate_struct -> from_statics -> finalize -> free_struct`。
+- modern 路径增加 `il2cpp_stop_gc_world` / `il2cpp_start_gc_world` 包围，避免在 GC world 运行时直接执行 modern liveness。
+- modern capability 现在要求 `allocate_struct/from_statics/finalize/free_struct/stop_gc_world/start_gc_world` 全部存在，否则不宣称可用。
+- Instance Resolver 继续保持 fail closed：0 个实例不执行；多个实例返回 `FAILED_INSTANCE_AMBIGUOUS`，绝不自动选第一个。
+- 当 `il2cpp_object_get_class` 和 `il2cpp_class_is_assignable_from` 可用时继续做 Class 二次验证。
+- Method Finder 搜索结果卡片不再显示 Assembly；Assembly 仍完整保留在 candidate identity / Runtime Action / Details / 实际解析链中。
+- `/0` 结果卡压缩为 Method/arity + Class + `测试执行/创建方法`。
+- `/1` 结果卡显示 Method/arity + Class，参数输入框单独占下一行，避免方法名被输入框挤窄。
+- 最大结果输入从 `UIKeyboardTypeNumberPad` 改为 `UIKeyboardTypeNumbersAndPunctuation`，保留 `UIReturnKeyDone`，确保右下角能真正出现“完成”并收起键盘。
+- 最大结果范围继续为 `1–1024`，搜索后端 hard limit 同样为 1024，不是只改 UI。
+- Assembly 选择器仍位于搜索页，使用与 App Libraries 相同的 action-sheet 选择交互；默认 `Assembly-CSharp`，支持 `全部 Assembly`。
+- 详情页仍保留 Assembly / Namespace / RVA / VA / MethodInfo 等完整信息，不再重复 Runtime test/create 操作区。
+- Offset Resolver V2、`ZN44StaticEntry == 128`、`ZNRuntimeMethodCallEntry == 64` 和 consolidated `ZonoeRuntimeMenu.mm` 核心未修改。
+
+CI / Build：
+
+- Workflow: `Build Runtime Patch Menu v0.5.8 M4.3.1 Instance Resolver Polish V1`
+- Run: `35751054253`
+- Result: `success`
+- Source contract assertions: PASS
+- arm64 compile/link/sign: PASS
+- Verify binary: PASS
+- Artifact upload: PASS
+- Artifact: `ZonoPatch-v0.5.8-M4.3.1-InstanceResolverPolish-V1`
+- Artifact ID: `10705387042`
+- Artifact ZIP size: `443364`
+- Artifact ZIP SHA256: `698923e8cd03228fa86a3fc9920c4c6fae6363cbd5668bf82e42488c16459a84`
+- Dylib: `ZonoPatch_v0.5.8_M4.3.1_InstanceResolverPolish_V1.dylib`
+- Dylib size: `985472`
+- Dylib SHA256: `04384aaadeb9a21ba8b494bfb9d2adf4ac201e5125f2d79a7ae5acefd66574dd`
+- Mach-O: thin arm64 dylib
+- Independent post-download ZIP/dylib hash recheck: PASS
+- Binary strings independently confirmed: `[m4.3.1-ui]`, `[instance-resolver]`, `il2cpp_stop_gc_world`, `il2cpp_start_gc_world`, `znm43_testCandidate:`, `znm43_createCandidate:`.
+
+验证边界：
+
+- M4.3.1 当前只能标为：源码完成 / GitHub 已提交 / arm64 编译通过 / 二进制验证通过 / Artifact 已生成。
+- Assembly 选择器、>64 最大结果、结果卡隐藏 Assembly、`Done` 键、unique-instance invoke 尚未真机验证。
+- 只有 M4 V1 用户明确反馈过的 `/0` 创建/测试/生成后二进制路径可继续标记 device-verified。
+
 ## 2026-09-22 — v0.5.8-dev M4.2 Typed Arguments UI V1
 
 Runtime product source head: `d775db7015a2290e508ab8de8aeeae7ce0723c7a`
