@@ -32,7 +32,6 @@ jobs:
             ZNRuntimeMethodCallFeatureUI.mm \
             ZNRuntimeMethodCallBootstrap.mm; do
             test -f "iosruntimepatchmenu/src/$f"
-            grep -q "src/${f%.h}" iosruntimepatchmenu/Makefile || true
           done
           grep -q 'src/ZNRuntimeActionModel.mm' iosruntimepatchmenu/Makefile
           grep -q 'src/ZNIL2CPPInvokeEngine.mm' iosruntimepatchmenu/Makefile
@@ -108,13 +107,14 @@ jobs:
           out=iosruntimepatchmenu/dist-m4-runtime-method-call-v1/ZonoPatch_v0.5.8_M4_RuntimeMethodCallV1.dylib
           file "$out" | grep -q 'arm64'
           otool -L "$out"
-          strings "$out" > /tmp/zono_m4_rmc_strings.txt
+          strings -a "$out" > /tmp/zono_m4_rmc_strings.txt
           grep -q '\[menu-modal\]' /tmp/zono_m4_rmc_strings.txt
           grep -q '\[offset-v2\]' /tmp/zono_m4_rmc_strings.txt
           grep -q '\[runtime-method-call\]' /tmp/zono_m4_rmc_strings.txt
-          grep -q 'Runtime Method Call' /tmp/zono_m4_rmc_strings.txt
+          grep -q 'M4.1 installed: embedded action table + zero-arg static invoke' /tmp/zono_m4_rmc_strings.txt
           grep -q 'FAILED_INSTANCE_REQUIRED' /tmp/zono_m4_rmc_strings.txt
-          grep -q '创建方法按钮' /tmp/zono_m4_rmc_strings.txt
+          grep -q 'il2cpp_runtime_invoke' /tmp/zono_m4_rmc_strings.txt
+          grep -q 'il2cpp_method_get_flags' /tmp/zono_m4_rmc_strings.txt
           grep -q 'Unslid VA' /tmp/zono_m4_rmc_strings.txt
           init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
           echo "__init_offsets size=$init_size"
