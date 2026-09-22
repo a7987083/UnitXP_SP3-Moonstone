@@ -2,6 +2,50 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-23 — v0.5.8-dev M4.5 Address → Owning Method Resolver V1
+
+分支：`feature/runtime-patch-menu-v0.5.8-m4.5-address-owning-method-v1`
+
+CI validated product head：`fa2f9db21b507da64feb6ffe0acc6a29d71aff2e`
+
+实际修改：
+
+- 根据 H5GG Enhanced Menu 1.9.6 的 instruction offset -> method 功能思路，新增 `ZNIL2CPPOwningMethodResolver.h/.mm`。H5GG 文档描述 partial exact matching；本项目采用更严格的 method interval ownership。
+- exact entry 仍支持；方法内部地址采用 `methodStart <= targetRVA < nextKnownMethodStart` 判定所属 IL2CPP method。
+- live scan 达到 6 秒预算或缺少 next-method 安全上界时，interior lookup fail closed，不按“最近前一方法”猜测。
+- generic/shared code 出现多个 MethodInfo 共用 native pointer 时保留多个候选，不自动选一个。
+- 新候选记录 `queryRVA / methodRVA / nextMethodRVA / intraMethodOffset / ownershipKind`。
+- interior candidate canonical 形如 `Assembly!Namespace.Class::Method/N+0xDELTA`，继续复用既有 Named Offset Parser、V3 Patch Bridge、Builder/Validator；创建 Patch 时保留用户原始 instruction RVA。
+- 新增 `ZNM45AddressOwningMethodUI.mm`。只有地址查询进入 M4.5；普通方法名立即委托 M4.4.2 proven-V3，避免再次改坏真机搜索路径。
+- Details 增加 `地址归属（M4.5）` 卡片，显示查询 RVA、方法入口、下一方法入口、方法内偏移、判定类型。
+- 修复 `/1` unsupported UI：M4.4.1 的 disabled 灰色 UITextField 改为正常颜色的参数类型/原因 label；Test/Create 仍禁用。
+- 没有修改 `ZonoeRuntimeMenu.mm`、`ZNOffsetResolverV2.mm`、`ZNStaticPatchFormat.h` 的稳定行为；Static Patch ABI 和 Runtime Action ABI 均未升级。
+
+CI / Build：
+
+- Workflow: `Build Runtime Patch Menu v0.5.8 M4.5 Owning Method`
+- Final Run: `35795001139` — success
+- Source Contract: PASS
+- arm64 compile/link/sign: PASS
+- Binary Verify: PASS
+- Artifact Upload: PASS
+- Artifact: `ZonoPatch-v0.5.8-M4.5-OwningMethod-V1`
+- Artifact ID: `10723682927`
+- Artifact ZIP size: `473938`
+- Artifact ZIP SHA256: `7d3070974665d4cf2962f7e4bb5283bff0c03b938bc05ce57b8f1f943545c250`
+- Dylib: `ZonoPatch_v0.5.8_M4.5_OwningMethod_V1.dylib`
+- Dylib size: `1052128`
+- Dylib SHA256: `faa43520ac6e7086a0d6f6719a0c7076578a12d8ba493088cc114b0748ff7fa1`
+- Mach-O: thin arm64 dynamically linked shared library
+- Downloaded artifact hash independently matched GitHub/CI.
+
+验证边界：
+
+- M4.5 当前为源码完成 / CI 编译通过 / Binary Verify 通过 / Artifact 已生成。
+- 尚未真机证明 interior instruction RVA 一定映射到预期 MethodInfo。
+- 尚未真机证明 interior result -> Create Patch 能保留原 instruction offset。
+- M4.4.2 named-search 路径必须一起回归，避免地址层 swizzle 引入搜索回归。
+
 ## 2026-09-23 — v0.5.8-dev M4.4.2 Search Restore
 
 分支：`fix/runtime-patch-menu-v0.5.8-m4.4.2-search-restore`
@@ -11,41 +55,19 @@ CI validated product head：`fe8655444420bc9445ee741e2d3c4cffbaead066`
 实际修改：
 
 - 新增 `ZNM442SearchRestore.mm`，作为 M4.4.1 之后的最终搜索路由层。
-- 根据真机反馈修复 M4.4.1 回归：M4.4.1 后页面 `搜索` 与键盘 Search 虽然一致，但两者都可能提示 `找不到 IL2CPP 方法`；而 M4.4.1 之前页面按钮可正常搜索。
-- 根因确认：M4.3 对 `zn60v3_startSearch:` 与 `znm43_startSearch:` 做了 `method_exchangeImplementations`。因此 M4.3 页面按钮虽然绑定 `znm43_startSearch:`，运行时实际执行的是旧 V3 implementation；键盘 Search 绑定 `zn60v3_startSearch:`，运行时执行的是 M4.3 新 implementation。
-- M4.4.1 将两边都重新绑定到第三套 `znm441_submitSearch:`，导致原本真机可用的 V3 搜索路径也被绕开。
-- M4.4.2 不再重写搜索算法：键盘 Search 与页面按钮统一经过输入规范化后，重新委托给 post-swap `znm43_startSearch:`，也就是原来真机已证明可用的 V3 search implementation。
-- 恢复旧 V3 默认作用域语义：在用户没有手动选择 Assembly 前，继续全局扫描并保持 `Assembly-CSharp-first` 优先级，而不是把视觉默认 `Assembly-CSharp` 当成严格过滤条件。
-- 新增 explicit Assembly selection state：只有用户在 Assembly picker 中明确选中某个非空 Assembly 后，才临时使用 `Assembly!query` 做严格过滤；选择 `全部 Assembly` 继续全局扫描。
-- 默认 Assembly 按钮视觉标记为 `Assembly-CSharp · 优先`，避免把“优先”误解成“严格只搜 Assembly-CSharp”。
-- 严格 Assembly 查询仅用于执行，临时 `Assembly!query` 不回写到用户可见的方法名输入框。
-- M4.4.1 的裸 HEX / `0x` / `rva:` / `va:` 规范化、Patch Offset 自动 `0x`、Vector2/Vector3/Quaternion/Color `/1` marshaling 全部保留。
-- Static Patch ABI、Runtime Action ABI、M4.4 Instance Resolver/selection 逻辑均未改变。
+- 根据真机反馈修复 M4.4.1 回归：页面 `搜索` 与键盘 Search 虽一致但两者都可能提示 `找不到 IL2CPP 方法`；而此前页面按钮正常。
+- 根因：M4.3 对 `zn60v3_startSearch:` 与 `znm43_startSearch:` 做 `method_exchangeImplementations`，页面按钮运行时实际执行旧 V3。
+- M4.4.2 不再重写搜索算法，两种触发经过规范化后委托给 post-swap `znm43_startSearch:`，即原真机可用 V3。
+- 恢复默认全局 + Assembly-CSharp-first 语义；只有用户明确选择 Assembly 才严格过滤。
+- 默认视觉标签为 `Assembly-CSharp · 优先`。
+- M4.4.1 地址/Patch Offset 规范化和 Unity struct `/1` 均保留。
 
 CI / Build：
 
-- Workflow: `Build Runtime Patch Menu v0.5.8 M4.4.2 Search Restore`
-- Run: `35791561620` — success
-- Source contract: PASS
-- arm64 compile/link/sign: PASS
-- Binary Verify: PASS
-- Artifact Upload: PASS
-- Artifact: `ZonoPatch-v0.5.8-M4.4.2-SearchRestore`
-- Artifact ID: `10722211742`
-- Artifact ZIP size: `463326`
-- Artifact ZIP SHA256: `c420ab0af09943be5bf05f10cf358514071b9b00982fb242f4573a1a5b94578c`
-- Dylib: `ZonoPatch_v0.5.8_M4.4.2_SearchRestore.dylib`
-- Dylib size: `1018880`
-- Dylib SHA256: `4497d04f3583a4bc447e3cdd692c2bf99479d87440221c2b85554210b251b84b`
-- Mach-O: thin arm64 dynamically linked shared library
-- Binary verify confirmed `[m4.4.2-search-restore]`, `znm442_submitSearch:`, `proven-v3` and inherited runtime markers.
-
-验证边界：
-
-- M4.4.2 当前状态：源码完成 / GitHub 已提交 / arm64 CI 编译通过 / Binary Verify 通过 / Artifact 已生成。
-- 真机首先必须复测“同一条此前 M4.4 可搜到、M4.4.1 搜不到的方法名”。
-- 页面按钮与键盘 Search 都成功后，再验证默认 Assembly-CSharp 优先模式与显式 Assembly 严格过滤。
-- 其余 M4.4.1 typed struct / address / Patch Offset 与 M4.4 instance selection 仍待继续真机验证。
+- Run `35791561620`: success
+- Artifact ID `10722211742`
+- ZIP SHA256 `c420ab0af09943be5bf05f10cf358514071b9b00982fb242f4573a1a5b94578c`
+- Dylib SHA256 `4497d04f3583a4bc447e3cdd692c2bf99479d87440221c2b85554210b251b84b`
 
 ## 2026-09-23 — v0.5.8-dev M4.4.1 Finder/Input Hotfix
 
@@ -53,141 +75,57 @@ CI / Build：
 
 CI validated product head：`0025556b8f3a2a20466b7344120ca82f9db7f921`
 
-实际修改：
-
-- 新增 `ZNM441Hotfix.mm`，作为 M4.4 之后的最外层兼容修复，不修改已锁定的 `ZonoeRuntimeMenu.mm`、`ZNOffsetResolverV2.mm`、`ZNStaticPatchFormat.h`。
-- 修复 Method Finder 页面按钮与键盘右下角 Search 因 selector swizzle 最终落到不同 implementation 的问题：两者现在都重新绑定到 `znm441_submitSearch:`。
-- 统一搜索入口继续保留当前 Assembly 选择、可输入最大结果数量和 V3 candidate-list backend。
-- Method Finder 地址反查输入新增统一规范化：`38064A8`、`0x38064A8`、`rva:38064A8`、`rva:0x38064A8` 均归一化为 RVA 查询。
-- 新增 `va:...` Runtime VA 输入：按当前加载的 UnityFramework runtime base 换算为 RVA，再进入现有 V3 reverse-RVA 搜索。
-- Patch Offset 继续兼容底层原有裸 HEX / `0x` 解析，并在输入结束时把有效值统一显示/保存为 `0x...`。
-- `/1` 不支持输入时不再只显示灰色控件；placeholder 会补充参数类型/不支持原因。
-- 新增四种常见 Unity `/1` complex value type 的显式 marshaling：`Vector2`、`Vector3`、`Quaternion`、`Color`。
-- 输入格式分别为 `x,y`、`x,y,z`、`x,y,z,w`、`r,g,b,a`；同时接受空格/中英文逗号/分号分隔。
-- common struct 值仍以单个 `/1` 文本参数保存到 Runtime Action，调用时才转换为 typed float struct；Runtime Action ABI 没有升级。
-- instance common-struct 方法继续复用 M4.3/M4.4 Instance Resolver/selected-session instance；static 方法直接调用。
-- custom struct、普通 object reference、ref/out、pointer、generic definition 和 `/2+` 继续 fail closed。
-
-CI / Build：
-
-- Workflow: `Build Runtime Patch Menu v0.5.8 M4.4.1 Hotfix`
-- 首次 Run: `35789012451` — failure
-  - Source contract: PASS
-  - Build: FAIL
-  - 根因：`ZNM441Hotfix.mm` 能调用 V3 search implementation，但编译单元没有可见的 `ZNIL2CPPMethodFinderSearchV3` category 声明。
-- 修复 head: `0025556b8f3a2a20466b7344120ca82f9db7f921`
-- 最终 Run: `35789261862` — success
-- Source contract: PASS
-- arm64 compile/link/sign: PASS
-- Binary Verify: PASS
-- Artifact Upload: PASS
-- Artifact: `ZonoPatch-v0.5.8-M4.4.1-Hotfix`
-- Artifact ID: `10721074579`
-- Artifact ZIP size: `459829`
-- Artifact ZIP SHA256: `5008897e16957231938f03a7a663d72395c500ef00801ce23ccf306ed70d14ee`
-- Dylib: `ZonoPatch_v0.5.8_M4.4.1_Hotfix.dylib`
-- Dylib size: `1018832`
-- Dylib SHA256: `2f41f35a1bce9e07af766d2026ca8a76a6e6bf3f1919940bcdad77b80cc51549`
-- Mach-O: thin arm64 dynamically linked shared library
-- Binary verify confirmed `[m4.4.1-hotfix]`, `[m4.4.1-search]`, `[m4.4.1-struct]`, `znm441_submitSearch:` and `il2cpp_runtime_invoke`.
-
-验证边界：
-
-- M4.4.1 当前状态：源码完成 / GitHub 已提交 / arm64 CI 编译通过 / Binary Verify 通过 / Artifact 已生成。
-- 键盘 Search、裸 HEX/RVA/VA 反查、Patch Offset 规范化和四种 Unity struct `/1` 仍待真机验证。
-- receiver capture / inline-hook fallback 仍未实现。
+- Method Finder 地址输入规范化：bare HEX / `0x` / `rva:` / `va:`。
+- Patch Offset bare HEX 自动显示/保存 `0x...`。
+- `/1` unsupported reason 加入 placeholder。
+- 新增 exact Vector2/Vector3/Quaternion/Color `/1` marshaling。
+- custom struct/object/ref/out/pointer/`/2+` 继续 fail closed。
+- 首轮 CI `35789012451` 因 V3 category declaration 不可见失败；修复后 `35789261862` success。
+- Artifact ID `10721074579`; dylib SHA256 `2f41f35a1bce9e07af766d2026ca8a76a6e6bf3f1919940bcdad77b80cc51549`。
 
 ## 2026-09-22 — v0.5.8-dev M4.4 Instance Resolver V2
 
 分支：`feature/runtime-patch-menu-v0.5.8-m4.4-instance-resolver-v2`
 
-CI validated head：`21775c3e0320399784a5a5b87131ab96cb9a80d5`
-
-实际修改：
-
-- 在 M4.3 IL2CPP liveness 实例枚举之上新增 process-session instance selection store。
-- selection key 为 `assembly|namespace|class`；同一 Class 的 Finder 测试与 Runtime Action 执行可复用当前进程内选择。
-- 新增 `ZNIL2CPPInstanceSelectionV2.h/.mm`：支持读取、选择、清除、验证当前 session instance。
-- 选择地址在使用前通过 `il2cpp_object_get_class` + `il2cpp_class_is_assignable_from` 验证；验证失败会清除 stale selection，不继续调用旧指针。
-- `resolveUniqueInstance...` 外层现在先使用已验证的 session selection；没有 selection 时继续使用 M4.3 原 unique-instance resolver。
-- 新增 `ZNInstanceSelectionV2UI.mm`，包裹 Finder `测试执行` 与 public Runtime Action `执行`。
-- instance 方法执行前：1 个活实例自动选择；多个活实例弹出 `选择实例 · Class` action sheet，明确让用户选择；0 个实例继续 fail closed。
-- 多实例选择仅在当前进程有效；没有把 `Il2CppObject *` 原始地址写入生成二进制或 Runtime Action ABI。
-- M4.4 没有修改 Static Patch ABI、Runtime Action Entry 大小、Offset Resolver V2 或 consolidated `ZonoeRuntimeMenu.mm` 核心。
-- receiver/`this` inline-hook capture **没有在本版伪装为已完成**；当前仓库仍没有任意 native 地址 hook backend。
-
-CI / Build：
-
-- Workflow: `Build Runtime Patch Menu v0.5.8 M4.4 Instance Resolver V2`
-- 首次 Run: `35751621067` — failure
-- 修复 commit: `21775c3e0320399784a5a5b87131ab96cb9a80d5`
-- 最终 Run: `35751669688` — success
-- Artifact ID: `10704773628`
-- Dylib SHA256: `30fc5f2c584931dcfced0b2e321e821a4b2c3f9d7476f014143d9b6fa31adeea`
-- M4.4 多实例 action sheet、session reuse、stale-instance rejection 尚未真机验证。
+- 在 M4.3 liveness 上新增 process-session instance selection store，key=`assembly|namespace|class`。
+- 使用前 `il2cpp_object_get_class` + assignability 验证；stale selection 自动清除。
+- 1 个实例自动选；多个实例 action sheet 显式选择。
+- raw object pointer 不写入 generated Runtime Action。
+- receiver capture 未实现。
+- Final CI `35751669688`: success；Artifact ID `10704773628`; dylib SHA256 `30fc5f2c584931dcfced0b2e321e821a4b2c3f9d7476f014143d9b6fa31adeea`。
 
 ## 2026-09-22 — v0.5.8-dev M4.3 Instance Resolver V1 + Finder UX
 
-最终 CI head：`a5688b3f42f53aa50366f349813be069ef0e5418`
-
-分支：`feature/runtime-patch-menu-v0.5.8-m4.3-instance-resolver-v1`
-
-- 新增 `ZNIL2CPPInstanceResolver.h/.mm`，通过 Unity/IL2CPP liveness API 枚举指定 Class 的活实例。
-- legacy 路径优先；modern fallback 要求 `il2cpp_stop_gc_world/start_gc_world` 时序。
-- instance `/0`、`/1` 在恰好一个活实例时可把该对象作为 `this` 交给 `il2cpp_runtime_invoke`。
-- 搜索页新增 Assembly picker，默认 `Assembly-CSharp`，可选其他运行时 Assembly 或 `全部 Assembly`。
-- 搜索最大结果由原 64 hard limit 升到可输入，UI/backend hard max `1024`。
-- `/1` 参数输入框移到方法名/Class 下方；Details 页去掉重复 Runtime 测试/创建动作。
-- Final workflow run `35750846250`: success。
+- CI head `a5688b3f42f53aa50366f349813be069ef0e5418`; run `35750846250` success。
+- IL2CPP liveness instance enumeration；unique instance 可作为 `this`。
+- Assembly picker、自定义 max result 1024、`/1` 输入布局、Details cleanup。
 
 ## 2026-09-22 — v0.5.8-dev M4.2 Typed Arguments UI V1
 
-分支：`feature/runtime-patch-menu-v0.5.8-m4.2-typed-args-ui-v1`
-
-- 保留 M4 `/0` static Runtime Method Call 路径，新增 `/1` typed static invoke。
-- 支持 bool、signed/unsigned 32/64-bit integer、float、double、primitive-backed enum、`System.String`。
-- `/2+`、ref/out、pointer、复杂 struct、普通 object reference、unknown ABI、generic definition fail closed。
-- Runtime Action Model 新增 `argumentValues`；Builder 可编辑 `/1` 保存值。
-- Method Finder 增加动态 `[全部][0][1]...` 本地 arity filter。
-- compact result 隐藏 Namespace/RVA，右侧直接 `测试执行` / `创建方法`。
-- App Libraries 改为只显示最终模块名。
-- Final CI run `35742172120`: success。
+- CI head `e7c81172b04e162f74b3652048dcaf499d753aa4`; run `35742172120` success。
+- `/0` retained；`/1` primitive/enum/string typed invoke；dynamic arity filter；compact result cards。
 - Artifact ID `10699772622`; dylib SHA256 `a8c7e86b2b81c48ece1a35d4a4b422f8c8457525e3185f5e360e7dad47527125`。
-- `/1` 仍待真机验证。
 
 ## 2026-09-22 — v0.5.8-dev M4.1 UI/UX V2
 
-分支：`fix/runtime-patch-menu-v0.5.8-m4.1-ui-ux-v2`
-
-- 自动二进制目标：UnityFramework 优先，主程序 fallback。
-- App Libraries 选择器。
-- 菜单 panel 外触摸穿透。
-- 同页滚动位置保持。
-- 生成二进制无需先手工点 `读取验证`；内部仍执行 required preflight。
-- Runtime Method Call title 可编辑，与 method identity 分离。
-- CI run `35704458522`: success。
-- 新 UX 仍待真机验收。
+- CI head `911dec0c56234387820fbec5daf996e396f86294`; run `35704458522` success。
+- 自动二进制、App Libraries、panel 外触摸穿透、滚动位置保持、direct-build preflight、Runtime Action title editing。
 
 ## 2026-09-22 — v0.5.8-dev M4 Runtime Method Call V1 device evidence
 
-分支：`feature/runtime-patch-menu-v0.5.8-m4-runtime-method-call-v1`
-
-- Runtime Action ABI 独立于 Static Patch ABI。
-- `ZNRuntimeActionHeader == 64`, `ZNRuntimeMethodCallEntry == 64`, `ZN44StaticEntry == 128`。
-- V1 通过 `il2cpp_runtime_invoke` 支持 zero-argument static methods。
-- CI run `35689545606`: success；dylib SHA256 `53bc795e7c9fbefb7443da12d5ea9598b5eba9f0a2b51a453ad9445d93f50651`。
-- 用户明确真机确认：`创建方法按钮`、`测试执行`、生成后二进制可用。仅这些路径标记 device-verified。
+- Branch `feature/runtime-patch-menu-v0.5.8-m4-runtime-method-call-v1`。
+- CI `35689545606` success；dylib SHA256 `53bc795e7c9fbefb7443da12d5ea9598b5eba9f0a2b51a453ad9445d93f50651`。
+- 用户真机确认：`/0 创建方法按钮`、`/0 测试执行`、生成后二进制可用。
 
 ## 2026-09-15 — Method Finder V3 M2.2 device acceptance
 
-- Product source: `19b912c840e7223adbc2c26ef80185c32b8eb77a`。
-- Builder Feature/Patch delete；Toggle/Number/Action/Slider controls；Static ABI 128-byte Entry。
-- CI run `34893082122`: success。
+- Product source `19b912c840e7223adbc2c26ef80185c32b8eb77a`。
+- CI `34893082122` success。
 - 用户反馈：`目前没问题了。`
 
 ## Historical anchors
 
 - Offset Resolver V2 baseline: `a3b8db8651eaea23ec0ae7e5fca497e8f67bcf6c`。
 - v0.5.6.2 sealed: `86edac4d70ef467e9a58912768b6c6c72077842a`。
-- Method Finder V3 M2 broad search 设备观测：第一次 `423.1 ms`，后续约 `147–150 ms`。
-- v0.5.1 Static RVA Protection V1 的真实 `.znpatched` 验证缺口继续记录于 `KNOWN_ISSUES.md`。
+- Method Finder V3 M2 broad-search device observation: first `423.1 ms`, later about `147–150 ms`。
+- Static RVA Protection V1 final real `.znpatched` gap remains in `KNOWN_ISSUES.md`.
