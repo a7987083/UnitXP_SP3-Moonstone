@@ -52,12 +52,18 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSStrin
 
     for (NSUInteger i = 0; i < actions.count; i++) {
         ZNRuntimeMethodAction *action = actions[i];
-        if (action.argumentCount != 0) {
-            if (error) *error = [NSString stringWithFormat:@"%@：M4.1 仅能导出 0 参数 Runtime Method Call", action.canonicalIdentity];
+        if (action.argumentCount > 1) {
+            if (error) *error = [NSString stringWithFormat:@"%@：M4.2 首版仅能导出 /0 与 /1 Runtime Method Call", action.canonicalIdentity];
             return nil;
         }
+        if (action.argumentCount == 1 && action.argumentValues.count != 1) {
+            if (error) *error = [NSString stringWithFormat:@"%@：缺少 /1 参数值", action.canonicalIdentity];
+            return nil;
+        }
+
         uint32_t titleOffset = 0, groupOffset = 0, assemblyOffset = 0;
         uint32_t namespaceOffset = 0, classOffset = 0, methodOffset = 0;
+        uint32_t argument0Offset = 0;
         NSString *stringError = nil;
         if (!ZNRABAppendString(data, action.title, &titleOffset, &stringError) ||
             !ZNRABAppendString(data, action.group, &groupOffset, &stringError) ||
@@ -68,6 +74,12 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSStrin
             if (error) *error = stringError ?: @"Runtime Action string pool 写入失败";
             return nil;
         }
+        if (action.argumentCount == 1 &&
+            !ZNRABAppendString(data, action.argumentValues.firstObject ?: @"", &argument0Offset, &stringError)) {
+            if (error) *error = stringError ?: @"Runtime Action 参数写入失败";
+            return nil;
+        }
+
         ZNRuntimeMethodCallEntry *entries = (ZNRuntimeMethodCallEntry *)((uint8_t *)data.mutableBytes + sizeof(ZNRuntimeActionHeader));
         ZNRuntimeMethodCallEntry *entry = &entries[i];
         entry->actionID = action.actionID;
@@ -79,6 +91,10 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSStrin
         entry->namespaceOffset = namespaceOffset;
         entry->classOffset = classOffset;
         entry->methodOffset = methodOffset;
+        if (action.argumentCount == 1) {
+            entry->flags |= ZNRuntimeActionFlagArgument0Text;
+            entry->reserved[0] = argument0Offset;
+        }
     }
 
     while (data.length & 7u) {
@@ -101,7 +117,6 @@ static BOOL ZNRABIsZeroRange(const uint8_t *p, size_t n) {
     return YES;
 }
 
-
 static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
                                   NSArray<ZNRuntimeMethodAction *> *actions,
                                   NSUInteger tableBytes) {
@@ -123,6 +138,7 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
             @"title": action.title ?: @"",
             @"identity": action.canonicalIdentity ?: @"",
             @"argumentCount": @(action.argumentCount),
+            @"argumentValues": action.argumentValues ?: @[],
         }];
     }
     object[@"runtimeMethodCall"] = @{
@@ -130,9 +146,11 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
         @"version": @1,
         @"storage": @"__ZNDATA/__zndata after Static Dispatch table",
         @"staticEntryABIPreserved": @YES,
+        @"runtimeEntrySize": @(sizeof(ZNRuntimeMethodCallEntry)),
+        @"typedArgumentMaxCount": @1,
+        @"supportedArgumentCounts": @[@0, @1],
         @"count": @(actions.count),
         @"bytes": @(tableBytes),
-        @"m41ZeroArgOnly": @YES,
         @"actions": items,
     };
     NSData *updated = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingPrettyPrinted error:nil];
@@ -259,7 +277,7 @@ BOOL ZNRuntimeActionEmbedIntoGeneratedOutputs(NSArray<NSString *> *builderOutput
         }
     }
     if (!unityOutput.length) {
-        if (error) *error = @"存在 Runtime Method Call，但本次 Builder 没有 UnityFramework.znpatched 输出。M4.1 首版请至少保留一个已验证的 UnityFramework Static Patch 再生成。";
+        if (error) *error = @"存在 Runtime Method Call，但本次 Builder 没有 UnityFramework.znpatched 输出。请至少保留一个已验证的 UnityFramework Static Patch 再生成。";
         return NO;
     }
 
@@ -271,7 +289,7 @@ BOOL ZNRuntimeActionEmbedIntoGeneratedOutputs(NSArray<NSString *> *builderOutput
 
     ZNRABUpdateBuildReport(builderOutputs, actions, table.length);
     if (report) {
-        *report = [NSString stringWithFormat:@"Runtime Method Call：已嵌入 %lu 个 0 参数 action · %lu bytes · %@",
+        *report = [NSString stringWithFormat:@"Runtime Method Call：已嵌入 %lu 个 /0-/1 action · %lu bytes · %@",
                    (unsigned long)actions.count,
                    (unsigned long)table.length,
                    unityOutput.lastPathComponent];
