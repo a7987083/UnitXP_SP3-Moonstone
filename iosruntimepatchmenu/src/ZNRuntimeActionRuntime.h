@@ -11,6 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy,readonly) NSString *className;
 @property(nonatomic,copy,readonly) NSString *methodName;
 @property(nonatomic,assign,readonly) NSUInteger argumentCount;
+@property(nonatomic,copy,readonly) NSArray<NSString *> *argumentValues;
 @property(nonatomic,copy,readonly) NSString *sourceImage;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @end
