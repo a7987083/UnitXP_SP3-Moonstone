@@ -4,111 +4,120 @@
 
 - Project: ZonoPatch Runtime Patch Menu
 - Version: `0.5.8-dev`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-method-finder-v3-m2.1-cancel-ux`
-- Stage: `Method Finder V3 Milestone 2.1 — visible cancel UX on top of async wide search/index`
-- M2 core product source: `69b546edd0ed83a5699805951304aa3371a0bc30`
-- M2.1 product source: `47d186730ffdf28c2c4bc8fc2992c938c3f1e2b5`
-- CI run: `34885020233` — `success`
-- Artifact ID: `10364618234`
-- M2 wide-search device observation: `PARTIAL PASS`
-- M2.1 cancel UX device validation: `PENDING`
+- Active branch: `fix/runtime-patch-menu-v0.5.8-m4.1-ui-ux-v2`
+- Runtime product source head: `4d3f62bd5ae645493e3af10e179402d9cc47e889`
+- CI validated branch head: `911dec0c56234387820fbec5daf996e396f86294`
+- Stage: `M4.1 UI/UX V2 — Runtime Method Call usability + binary target selection + touch/scroll repair`
+- CI run: `35704458522` — `success`
+- Artifact: `ZonoPatch-v0.5.8-M4.1-UIUX-V2`
+- Artifact ID: `10683409230`
+- Artifact ZIP SHA256: `f9d88f62a923a4adc9797d686ad601198761af14d4f27d4919906ba97dc83450`
+- Dylib: `ZonoPatch_v0.5.8_M4.1_UIUX_V2.dylib`
+- Dylib SHA256: `4ad03fdd759cb7218cb3aeb22a12f1bca75ff6ccf12a10532f47e5bf516574ae`
+- Current device validation: `PENDING` for the M4.1 UX additions.
 
 ## Baselines
 
-- v0.5.6.2 sealed: `86edac4d70ef467e9a58912768b6c6c72077842a` — never modify directly.
-- v0.5.7 Named Offset baseline: `8300cf41589bf8aa9a690152d4dab3dd6333073c`.
-- V2 device-verified Method Finder/zero-vmaddr baseline: `4377d4a4c6e325e54299e3055346240f4963940f`.
-- V3 M1 product source: `ef98a090e1df5b69df3fbb86adb905008285d82c`.
-- V3 M1 device acceptance: PASS for the agreed candidate/detail/RVA/Builder paths.
+- v0.5.6.2 sealed: `86edac4d70ef467e9a58912768b6c6c72077842a` — do not rewrite.
+- Method Finder V3 M2.2 device-accepted product: `19b912c840e7223adbc2c26ef80185c32b8eb77a`.
+- Offset Resolver V2 baseline: `a3b8db8651eaea23ec0ae7e5fca497e8f67bcf6c`.
+- M4 Runtime Method Call V1 CI head: `d53c75dfbb7510e31a60e49f202532ad2f5e099e`.
+- M4 Runtime Method Call V1 CI run: `35689545606` — success.
+- M4 Runtime Method Call V1 artifact ID: `10678476991`.
+- M4 Runtime Method Call V1 dylib SHA256: `53bc795e7c9fbefb7443da12d5ea9598b5eba9f0a2b51a453ad9445d93f50651`.
+- M4 Runtime Method Call V1 device evidence: user confirmed `创建方法按钮`, `测试执行`, and the generated binary all work on device. Treat those paths as device-verified, not as a full regression pass.
 
-## Completed — V3 Milestone 1
+## Completed — Offset Resolver V2
 
-- Multiple candidate result list.
-- Qualified lookup and RVA reverse lookup.
-- Detail page with RVA / Preferred VA / Runtime VA / MethodInfo / Method Pointer.
-- First 16-byte code preview and copy controls.
-- Exact selected candidate -> Builder canonical expression bridge.
-- Known target `Cash::get_TotalCashReward/0` device-verified at RVA `0x2DA9E10`.
+- Exact dyld image identity.
+- Accepts preferred/unslid VA and historical RVA forms and normalizes internally.
+- Preserves author input while maintaining canonical RVA internally.
+- Offset Resolver V2 core file remains unchanged by M4.1.
 
-## Implemented — V3 Milestone 2
+## Completed — M4 Runtime Method Call V1
 
-- Bare-name wide search, case-insensitive.
-- Ranking: `exact > prefix > suffix > contains`.
-- Structured expressions remain exact.
-- RVA reverse remains exact.
-- Background search execution; UI thread is no longer responsible for full metadata scanning.
-- Cooperative Cancel engine.
-- 12,000-class shard progress updates.
-- Compact local IL2CPP index built on first broad search.
-- Index fingerprint: UnityFramework Mach-O UUID + file size.
-- Binary plist persistence with deduplicated Assembly/Namespace/Class/Method tables and fixed 32-byte records.
-- Persist only Assembly/Namespace/Class/Method/argCount/RVA; never persist launch-specific MethodInfo/Method Pointer/Runtime VA.
-- Subsequent broad searches use index first and re-resolve live runtime candidates.
-- Assembly-CSharp-first ordering preserved.
+- Added independent Runtime Action ABI instead of changing the legacy Static Patch ABI.
+- `ZNRuntimeActionHeader == 64` bytes.
+- `ZNRuntimeMethodCallEntry == 64` bytes.
+- Runtime Action table is embedded separately from `ZN44StaticEntry`.
+- Method Finder can create Runtime Method Call authoring actions.
+- Zero-argument static IL2CPP methods can be test-invoked through `il2cpp_runtime_invoke`.
+- Instance methods fail closed instead of invoking with a null instance.
+- Builder embeds Runtime Actions into generated binaries.
+- `ZN44StaticEntry` remains 128 bytes.
+- Device acceptance received for create button, test execution, and generated-binary use.
 
-## M2 real-device evidence
+## Implemented — M4.1 UI/UX V2
 
-Broad query `cash` on the real target:
+### Binary target discovery and selection
 
-- first run: `423.1 ms`
-- second run: `147 ms`
-- later runs: approximately `150 ms`
+- Default target policy: prefer loaded `UnityFramework`; if unavailable, use the main executable.
+- Do not persist `/var/containers/Bundle/Application/<UUID>/...` absolute paths.
+- `其他 -> 二进制` becomes a selector rather than requiring manual typing.
+- `App Libraries` picker enumerates app-bundle loaded images and lets the user select the main executable, `UnityFramework`, app `.dylib`, or framework executables.
+- Internal target identity and real file path remain separate concepts.
 
-This is enough to mark the broad-search path as real-device observed and performant on the current target. The repeat-query reduction is consistent with index reuse, but the `index=hit` UI/log marker itself was not separately reported and remains unconfirmed.
+### Menu touch passthrough
 
-The original bottom-of-page Cancel control was not observed. At these durations, especially ~150 ms repeats, asking the user to manually race the search is not a useful acceptance criterion.
+- M4.1 adds an outer UX repair layer around the existing menu shell.
+- Goal: menu controls remain interactive while touches outside the menu panel continue to the game.
+- The repair uses a child-controller/passthrough shell rather than disabling interaction on the menu.
+- This requires real-device regression because presentation ownership previously affected Translate stability.
 
-## Implemented — M2.1 cancel UX
+### Scroll position preservation
 
-- Search/cancel engine remains unchanged.
-- While an active M2 token exists, the primary top `搜索` button changes to `取消`.
-- Primary action target switches to `zn61m2_cancelSearch:`.
-- Old temporary bottom Cancel card is removed while active.
-- Completion clears token and normal re-render restores `搜索`.
-- Accessibility marker: `ZNMethodFinderPrimaryCancel`.
-- Production search is not intentionally slowed for testing.
+- Same-page actions preserve `UIScrollView.contentOffset` across `renderPage` rebuilds.
+- Category switches may still intentionally return to the top.
+- Add/delete/type/runtime-authoring actions should no longer jump the current page to offset zero.
 
-## CI gate — M2.1 passed
+### Direct binary generation
 
-Run `34885020233`:
+- `生成新二进制` no longer requires the user to manually press `读取验证` first.
+- Build performs the required preflight automatically before Static Builder work.
+- Required Original/length/relocation/Mach-O safety checks are not removed; only the manual prerequisite is removed.
+- `读取验证` remains available as an explicit test/debug action.
 
-- source assertions: PASS
-- Named Offset parser: PASS
-- static protection tests: PASS
-- Theos arm64 compile/link/sign: PASS
-- M2.1 source compile: PASS
-- binary verify: PASS
-- exported API symbols: PASS
-- M1/M2/M2.1 binary markers: PASS
-- `__init_offsets == 4`: PASS
-- artifact upload: PASS
+### Runtime Method Call display-name editing
 
-Artifact:
+- Runtime action display `title` is editable independently from `methodName`.
+- Renaming a menu button does not change the canonical IL2CPP method identity.
+- Existing Runtime Action ABI already has independent `titleOffset` and `methodOffset`, so no entry-size change is required.
 
-- `ZonoPatch-v0.5.8-MethodFinder-V3-M2.1`
-- ID `10364618234`
-- ZIP SHA256 `f0dc1779dbb129bca51b9a4221aa76e0f02756c832022171df6d50038ed54637`
-- dylib SHA256 `f6778203804b2d28c90b201a2de7cf8b141a31d2d215f5d0ed3dfb5e99a86ba6`
-- dylib size `751232` bytes
+## CI gate — M4.1 passed
 
-## Next — M2.1 physical-device acceptance
+Run `35704458522` passed:
+
+- checkout;
+- source contract assertions;
+- dependency/Theos install;
+- arm64 Theos build;
+- binary verification;
+- artifact upload.
+
+CI also asserts that these Offset/Static core files are unchanged relative to Offset Resolver V2:
+
+- `iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm`
+- `iosruntimepatchmenu/src/ZNOffsetResolverV2.mm`
+- `iosruntimepatchmenu/src/ZNStaticPatchFormat.h`
+
+Binary verification includes M4.1 markers for `App Libraries`, Runtime Action authoring rename, direct-build preflight, touch passthrough shell, `il2cpp_runtime_invoke`, `Unslid VA`, and one constructor (`__init_offsets == 4`).
+
+## Next — M4.1 physical-device acceptance
 
 Status: `NEXT`
 
-1. Install M2.1 and run `cash` once; confirm the top action changes from `搜索` to `取消` for whatever portion of the search duration is visually observable.
-2. Do not require a successful manual tap on a 147–423 ms search. Cancellation behavior should be exercised later on a naturally slower/larger target if needed.
-3. Confirm broad search still completes normally and remains near the current performance profile.
-4. If visible in results/log, confirm `m2-wide-index` / `index=hit` on a repeat query.
-5. Regress known target detail to RVA `0x2DA9E10`.
-6. Regress full qualified expression and exact RVA reverse lookup.
-7. Regress copy controls and Create Patch canonical handoff.
+1. Confirm opening the menu no longer blocks gameplay touches outside the menu panel.
+2. Regress Translate/system text presentation to ensure the previous modal stability is preserved.
+3. Confirm `其他 -> 二进制` automatically selects `UnityFramework` in Unity games and falls back to the main executable when UnityFramework is absent.
+4. Confirm tapping the binary field opens App Libraries and selecting another app image changes the target without manual input.
+5. Confirm same-page buttons no longer jump the Builder page back to the top.
+6. Rename a Runtime Method Call display title, build, reload, and confirm the renamed title is retained while the same method is invoked.
+7. Without pressing `读取验证`, fill a valid patch and press `生成新二进制`; confirm automatic preflight + generation succeeds.
+8. Regress M4 V1 device-verified paths: create method button, test execution, and generated binary usability.
 
-## After M2.1 acceptance
+## After M4.1 acceptance
 
-- Clean Objective-C category dependency declarations and remove the temporary `-Wno-incomplete-implementation` suppression before sealing.
-- Decide whether ~150 ms indexed lookup is already sufficient. Only optimize further if real UX needs it, because part of that time is deliberate current-launch MethodInfo/Method Pointer re-resolution.
-- Add stale-index cache cleanup.
-- Improve generic / inflated / shared native-pointer classification.
-- Then proceed to IL2CPP signature/ABI metadata, Return Override, jailbreak Hook/Replace, call trace, and unified Runtime Modification management.
-
-Do not start Hook/Replace work until M2.1 search/index behavior has device evidence and M1 regressions remain green.
+- Record per-item device results in `CHANGELOG_DEV.md` and `PROJECT_STATE.json`.
+- If touch passthrough is stable, keep the M4.1 shell as the interaction baseline; otherwise fix that layer only without changing Offset Resolver V2 or Runtime Action ABI.
+- Continue parameter/instance Runtime Method Call work only after M4.1 regression is accepted.
+- Keep all future milestones on new branches; do not rewrite accepted historical product commits.
