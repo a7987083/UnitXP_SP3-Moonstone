@@ -1,0 +1,88 @@
+name: Build Runtime Patch Menu v0.5.8 M4.2 Typed Args UI V1
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m4.2-typed-args-ui-v1
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
+          grep -q 'src/ZNMethodFinderM42UI.mm' iosruntimepatchmenu/Makefile
+          grep -q 'typedArg1Static' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm
+          grep -q 'argumentValues' iosruntimepatchmenu/src/ZNRuntimeActionModel.h
+          grep -q 'ZNRuntimeActionFlagArgument0Text' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'znm42_filterTapped' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
+          grep -q 'znm42_testCandidate' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
+          grep -q 'znm42_createCandidate' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
+          grep -q 'App Libraries' iosruntimepatchmenu/src/ZNMethodFinderM42UI.mm
+          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          git diff --exit-code a3b8db8651eaea23ec0ae7e5fca497e8f67bcf6c -- \
+            iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm \
+            iosruntimepatchmenu/src/ZNOffsetResolverV2.mm \
+            iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build M4.2 Typed Args UI V1
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m4.2-typed-args-ui-v1
+          cp .theos/obj/ZonoePatchV03.dylib dist-m4.2-typed-args-ui-v1/ZonoPatch_v0.5.8_M4.2_TypedArgsUI_V1.dylib
+          shasum -a 256 dist-m4.2-typed-args-ui-v1/ZonoPatch_v0.5.8_M4.2_TypedArgsUI_V1.dylib | tee dist-m4.2-typed-args-ui-v1/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m4.2-typed-args-ui-v1/ZonoPatch_v0.5.8_M4.2_TypedArgsUI_V1.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out"
+          strings -a "$out" > /tmp/zono_m42_strings.txt
+          grep -q '\[offset-v2\]' /tmp/zono_m42_strings.txt
+          grep -q '\[runtime-method-call\]' /tmp/zono_m42_strings.txt
+          grep -q '\[ux-v2\]' /tmp/zono_m42_strings.txt
+          grep -q '\[m4.2-ui\]' /tmp/zono_m42_strings.txt
+          grep -q 'typedArg1Static' /tmp/zono_m42_strings.txt
+          grep -q '测试执行' /tmp/zono_m42_strings.txt
+          grep -q '创建方法' /tmp/zono_m42_strings.txt
+          grep -q 'App Libraries' /tmp/zono_m42_strings.txt
+          grep -q 'il2cpp_runtime_invoke' /tmp/zono_m42_strings.txt
+          grep -q 'il2cpp_string_new' /tmp/zono_m42_strings.txt
+          init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
+          echo "__init_offsets size=$init_size"
+          test "$init_size" = '0x0000000000000004' -o "$init_size" = '0x4'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M4.2-TypedArgsUI-V1
+          path: |
+            iosruntimepatchmenu/dist-m4.2-typed-args-ui-v1/ZonoPatch_v0.5.8_M4.2_TypedArgsUI_V1.dylib
+            iosruntimepatchmenu/dist-m4.2-typed-args-ui-v1/SHA256.txt
+          if-no-files-found: error
