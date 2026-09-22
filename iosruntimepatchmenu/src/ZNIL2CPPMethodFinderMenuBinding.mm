@@ -24,6 +24,7 @@ extern "C" void ZNInstallMethodFinderM43PolishDeferred(void);
 extern "C" void ZNInstallInstanceSelectionV2UIDeferred(void);
 extern "C" void ZNInstallM441HotfixDeferred(void);
 extern "C" void ZNInstallM442SearchRestoreDeferred(void);
+extern "C" void ZNInstallM45AddressOwningMethodDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -105,9 +106,12 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         // M4.4.1 keeps address/offset normalization and common Unity /1 structs.
         ZNInstallM441HotfixDeferred();
 
-        // M4.4.2 is the final search-route layer. It restores the proven V3
-        // execution path for both keyboard and button while retaining explicit
-        // Assembly filtering only after a user picker selection.
+        // M4.4.2 restores the device-proven V3 named-search execution path.
         ZNInstallM442SearchRestoreDeferred();
+
+        // M4.5 stays outside the proven named-search route and intercepts only
+        // address queries. It resolves both exact method entries and interior
+        // ARM64 instruction RVAs to a bounded owning MethodInfo.
+        ZNInstallM45AddressOwningMethodDeferred();
     });
 }
