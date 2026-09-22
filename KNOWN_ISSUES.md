@@ -70,14 +70,14 @@ fingerprint 防止错误复用，但旧缓存暂不主动删除。
 Severity: `LOW`  
 Status: `OPEN / PRE-SEAL CLEANUP`
 
-封板前应整理专用接口/协议，减少 category dependency declaration 技术债。
+封板前应整理专用接口/协议，减少 category dependency declaration 技术债。M4.4.1 首轮 CI 因新 translation unit 缺少 V3 Search category 可见声明而失败，进一步证明此项应在封板前整理。
 
 ## KI-011 — Feature-branch Actions 历史 startup_failure
 
 Severity: `LOW`  
 Status: `WORKAROUND / MONITOR`
 
-M4–M4.4 专用 workflow 已能正常创建 runner 并实际编译；若再出现 startup failure，应与产品编译错误分开判断。
+M4–M4.4.1 专用 workflow 已能正常创建 runner 并实际编译；若再出现 startup failure，应与产品编译错误分开判断。
 
 ## KI-012 — M2 Cancel UX 缺少单独视觉验收
 
@@ -121,34 +121,41 @@ Status: `FIX IMPLEMENTED / DEVICE VERIFICATION PENDING`
 
 需要覆盖增加/删除 Patch、Runtime Action 改名/参数编辑等 renderPage 重建场景。
 
-## KI-018 — M4.2 `/1` typed invoke 尚未真机验证
+## KI-018 — M4.2/M4.4.1 `/1` typed invoke 尚未真机验证
 
 Severity: `HIGH`  
 Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
 
-支持 bool、signed/unsigned 32/64、float、double、primitive-backed enum、`System.String`。至少需一个副作用明确且安全的 `/1` 方法验证输入值 -> 测试执行 -> 预期效果 -> 无异常。
+基础支持：bool、signed/unsigned 32/64、float、double、primitive-backed enum、`System.String`。
+
+M4.4.1 追加四种 exact Unity value types：`Vector2`、`Vector3`、`Quaternion`、`Color`。这些路径目前只有源码/CI/二进制证据，至少需要安全副作用方法验证输入值 -> 测试执行 -> 预期效果 -> 创建方法 -> Builder 保存 -> 再执行。
 
 ## KI-019 — instance 方法原“完全不支持”限制已被 M4.3/M4.4 部分解除
 
 Severity: `HIGH`  
 Status: `SUPERSEDED / PARTIALLY RESOLVED`
 
-M4.2 的 `FAILED_INSTANCE_REQUIRED` 限制已经不是当前完整状态：
-
 - M4.3 能通过 IL2CPP liveness 枚举 Class 活实例；
 - 恰好 1 个候选时可自动作为 `this`；
 - M4.4 对多个候选提供显式 instance picker，并在当前进程 session 内复用选择。
 
-仍未解决的部分转入 KI-022 / KI-023 / KI-024。
+仍未解决的部分转入 KI-022 / KI-023 / KI-024 / KI-025。
 
-## KI-020 — `/2+` 与复杂参数仍只显示/筛选，不执行
+## KI-020 — `/2+`、自定义 struct 与普通 object reference 仍不执行
 
 Severity: `MEDIUM`  
 Status: `KNOWN LIMITATION / FAIL CLOSED`
 
-当前 Runtime Invoke 仍只支持 `/0`、`/1`。ref/out、pointer、普通 object reference、complex struct/value type、generic definition 仍 fail closed。
+当前 Runtime Invoke 仍只支持 `/0`、`/1`。M4.4.1 已经显式支持 `/1` 的 `Vector2/Vector3/Quaternion/Color`，因此旧的“所有 complex struct 均不支持”描述已过时。
 
-Vector2/Vector3/Quaternion 即使是 `/1` 也属于一个复杂 struct 参数，不能把它误当成多个独立 float。
+仍 fail closed：
+
+- `/2+`；
+- custom complex struct/value type；
+- 普通 managed object reference（`System.String` 除外）；
+- ref/out；
+- pointer；
+- 未识别 ABI / 不安全 generic path。
 
 ## KI-021 — arity filter 只代表当前候选集
 
@@ -162,42 +169,23 @@ Status: `BY DESIGN / UI DISCLOSURE`
 Severity: `HIGH`  
 Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
 
-当前实现：
-
-- legacy `il2cpp_unity_liveness_calculation_begin/from_statics/end` 优先；
-- modern `allocate_struct/from_statics/finalize/free_struct` fallback；
-- modern path 要求 `il2cpp_stop_gc_world/start_gc_world`；
-- candidate 通过 `il2cpp_object_get_class` / `il2cpp_class_is_assignable_from` 二次验证。
-
-风险：不同 Unity 版本导出情况、GC 时序以及真实游戏对象生命周期只能通过真机证明。
-
-M4.3 final CI run `35750846250` success 只证明编译/二进制契约，不证明游戏运行时安全。
+不同 Unity 版本导出情况、GC 时序以及真实游戏对象生命周期只能通过真机证明。M4.3 CI success 只证明编译/二进制契约，不证明游戏运行时安全。
 
 ## KI-023 — M4.4 多实例选择尚未真机验证
 
 Severity: `HIGH`  
 Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
 
-M4.4 final CI run `35751669688` success；Artifact ID `10704773628`。
+预期：1 个候选自动选择；多个候选弹 `选择实例`；选择按 `assembly|namespace|class` 在当前进程复用；使用前验证 Class；invalid/stale selection 清除。
 
-预期：
-
-- 1 个候选 -> 自动选择；
-- 多个候选 -> `选择实例` action sheet；
-- 选择按 `assembly|namespace|class` 在当前进程复用；
-- 使用前验证 Class；
-- invalid/stale selection 清除，不继续 Runtime Invoke。
-
-需要特别验证：同一 Class 存在本地玩家/远端玩家/预览对象等多个实例时，用户能否稳定选择正确对象。
+需要特别验证同一 Class 存在本地玩家/远端玩家/预览对象等多个实例时，用户能否稳定选择正确对象。
 
 ## KI-024 — 当前 instance selection 是 Class 级、session-only，不等于“自动识别正确对象”
 
 Severity: `MEDIUM`  
 Status: `BY DESIGN / NEXT RESOLUTION PROBLEM`
 
-M4.4 不保存 raw object pointer 到生成二进制；重启后必须重新解析/选择，这是正确的生命周期边界。
-
-同时，Class 级 selection 意味着同一 Class 的多个方法共享选择。如果一个 Class 同时存在不同业务角色实例，单靠地址列表不能自动判断“哪个才是本地玩家”。必要时后续要加入更强的候选描述或 receiver capture。
+M4.4 不保存 raw object pointer 到生成二进制；重启后必须重新解析/选择。Class 级 selection 意味着同一 Class 的多个方法共享选择；必要时后续要加入更强的候选描述或 receiver capture。
 
 ## KI-025 — receiver/`this` capture fallback 尚未实现
 
@@ -208,28 +196,62 @@ Status: `PLANNED / NOT IMPLEMENTED`
 
 当前仓库没有成熟的 arbitrary-address ARM64 inline-hook/instrumentation backend。不要手写固定长度 trampoline 去猜 PC-relative relocation。
 
-若真机证明确有必要，应接入**固定版本、可审计、可卸载**的成熟 arm64/iOS instrumentation backend；capture 完成后立即 disable/destroy probe。
-
 ## KI-026 — M4.4 session object validation 在极端 stale-pointer 窗口仍需加强
 
 Severity: `MEDIUM`  
 Status: `HARDENING CANDIDATE`
 
-当前已在 reuse 前调用 `il2cpp_object_get_class` + assignability 验证，但如果地址已经变成完全不可读的 unmapped/stale pointer，直接交给 IL2CPP object API 的防御性仍需真机评估。
-
-后续可在 Class API 前增加 readable mapped-region 检查（例如 Mach VM region/readability probe），再进入 IL2CPP validation，进一步降低 stale-pointer crash 风险。
+当前 reuse 前会调用 `il2cpp_object_get_class` + assignability 验证；完全不可读的 stale pointer 仍应评估在 Class API 前增加 readable mapped-region probe。
 
 ## KI-027 — M4.3/M4.4 搜索与实例 UI 新交互尚未完整验收
 
 Severity: `MEDIUM`  
 Status: `DEVICE VERIFICATION PENDING`
 
-仍需确认：
+仍需确认 Assembly picker、全部 Assembly、自定义 max result、result card Assembly 去重、`/1` 布局、Details cleanup、instance picker 等真机行为。
 
-- Assembly picker 与 `全部 Assembly`；
-- max result 输入 64/128/256 等；
-- selected Assembly 的 result card 不重复显示 `Assembly-CSharp`；
-- all-Assembly result 保留 Assembly 区分；
-- `/1` 输入框位于方法名下方；
-- 键盘右下角 `完成` 能正确 dismiss；
-- Details 不再出现重复 test/create 区。
+## KI-028 — 键盘 Search / 页面 Search 路由差异已修复但待真机确认
+
+Severity: `HIGH`  
+Status: `FIX IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
+
+用户实机发现：页面 `搜索` 按钮可正常搜索，但键盘右下角 Search 会提示找不到 IL2CPP 方法。
+
+根因是 M4.3 的 `method_exchangeImplementations` 使两个 selector 最终对应不同 implementation；搜索框的旧 target 和页面按钮的 target 因此走了不同链路。
+
+M4.4.1 在 render 后把两者都重新绑定到 `znm441_submitSearch:`。CI run `35789261862` 已通过，但必须在同一 Assembly/query/limit 下真机对比两种触发方式结果完全一致后才能关闭。
+
+## KI-029 — Finder 裸 HEX / RVA / Runtime VA 反查规范化待真机验证
+
+Severity: `MEDIUM`  
+Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
+
+M4.4.1 接受：
+
+```text
+38064A8
+0x38064A8
+rva:38064A8
+rva:0x38064A8
+va:0x...
+```
+
+前四种归一化为 `rva:0x...`；`va:` 先按当前 UnityFramework runtime base 换算 RVA，再进入现有 V3 reverse-RVA backend。
+
+风险：裸 HEX 采用 address-like heuristic。若真实方法名本身恰好是长十六进制样式 token，显式 `rva:` 可消除地址意图歧义。
+
+## KI-030 — Patch Offset 自动 `0x` 规范化待真机验证
+
+Severity: `LOW`  
+Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
+
+底层 validator/workspace 原本已经支持裸十六进制。M4.4.1 只统一 UI：输入 `38064A8` 后按 `完成`，应显示并保存为 `0x38064A8`，随后继续走原验证/构建链。
+
+## KI-031 — Common Unity struct `/1` 仅覆盖四种已知 layout
+
+Severity: `MEDIUM`  
+Status: `LIMITED SUPPORT / DEVICE VERIFICATION PENDING`
+
+M4.4.1 仅把 exact `Vector2`、`Vector3`、`Quaternion`、`Color` 作为连续 float component struct 处理。不要把这个支持泛化为“所有 complex value type 都可执行”。
+
+自定义 struct、Matrix、Bounds、Ray、Nullable、自定义泛型值类型等仍必须独立分析 ABI/layout 后再开放。
