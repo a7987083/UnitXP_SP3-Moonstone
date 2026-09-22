@@ -30,6 +30,8 @@ jobs:
           grep -q 'bounded-method-interval' iosruntimepatchmenu/src/ZNIL2CPPOwningMethodResolver.mm
           grep -q 'bounded-by-next-known-method' iosruntimepatchmenu/src/ZNIL2CPPOwningMethodResolver.mm
           grep -q 'znm442_submitSearch:' iosruntimepatchmenu/src/ZNM45AddressOwningMethodUI.mm
+          grep -q 'unsupported-argument-label' iosruntimepatchmenu/src/ZNM45AddressOwningMethodUI.mm
+          grep -q 'ZNM45ReplaceUnsupportedInputs' iosruntimepatchmenu/src/ZNM45AddressOwningMethodUI.mm
           grep -q 'm4.5-owning-method' iosruntimepatchmenu/src/ZNM45AddressOwningMethodUI.mm
           grep -q '+0x%llX' iosruntimepatchmenu/src/ZNIL2CPPOwningMethodResolver.mm
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
@@ -71,6 +73,7 @@ jobs:
           grep -q '\[instance-selection-v2\]' /tmp/zono_m45_strings.txt
           grep -q '\[m4.4.2-search-restore\]' /tmp/zono_m45_strings.txt
           grep -q '\[m4.5-owning-method\]' /tmp/zono_m45_strings.txt
+          grep -q 'unsupported-argument-label' /tmp/zono_m45_strings.txt
           grep -q 'bounded-method-interval' /tmp/zono_m45_strings.txt
           grep -q 'znm45_submitSearch:' /tmp/zono_m45_strings.txt
           grep -q 'il2cpp_method_get_pointer' /tmp/zono_m45_strings.txt
