@@ -20,6 +20,11 @@ enum {
     // stores an absolute string-pool offset containing the textual argument.
     // Runtime resolves the actual IL2CPP parameter type again before invoke.
     ZNRuntimeActionFlagArgument0Text = 1u << 0,
+    // M4.6 keeps the same 64-byte entry and version. When set, reserved[1]
+    // stores a string-pool offset containing the exact managed parameter type
+    // list encoded with U+001F separators. Empty string is the exact /0
+    // signature; absence of this flag means legacy Method/N resolution.
+    ZNRuntimeActionFlagParameterSignature = 1u << 1,
 };
 
 typedef struct {
@@ -51,6 +56,9 @@ typedef struct {
     // M4.2 /1 ABI:
     // reserved[0] = argument0 text string-pool offset when
     //               ZNRuntimeActionFlagArgument0Text is set.
+    // M4.6 signature ABI:
+    // reserved[1] = encoded parameter-type string-pool offset when
+    //               ZNRuntimeActionFlagParameterSignature is set.
     uint32_t reserved[6];
 } ZNRuntimeMethodCallEntry;
 
