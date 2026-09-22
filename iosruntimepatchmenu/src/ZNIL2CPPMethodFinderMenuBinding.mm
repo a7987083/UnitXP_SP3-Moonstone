@@ -18,6 +18,7 @@ extern "C" void ZNInstallOffsetResolverV2Deferred(void);
 extern "C" void ZNInstallBinaryPatchWorkspaceAddressV2Deferred(void);
 extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
+extern "C" void ZNInstallUXFixesV2Deferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -84,17 +85,16 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallFeatureBuilderControlsV2Deferred();
         ZNInstallFeatureRuntimeControlsV2Deferred();
 
-        // Device-accepted modal shell stays untouched. Only the address/patch
-        // plumbing changes here: exact dyld image identity, Unslid VA first,
-        // historical RVA fallback, and preservation of the author's input.
+        // Exact dyld image identity + Offset Resolver V2 stay unchanged.
         ZNInstallOffsetResolverV2Deferred();
         ZNInstallBinaryPatchWorkspaceAddressV2Deferred();
         ZNInstallRuntimeMenuModalShellDeferred();
 
         // Runtime Method Call is layered after Method Finder V3 / Offset V2.
-        // Its Builder wrapper intentionally installs before FeatureBuilderUI;
-        // the later zn44_renderOther <-> zn50b_renderOther exchange preserves
-        // the wrapper chain without changing the stable Builder implementation.
         ZNInstallRuntimeMethodCallDeferred();
+
+        // M4.1 UX fixes are intentionally outermost so they preserve the full
+        // existing renderer/runtime chain while changing only interaction UX.
+        ZNInstallUXFixesV2Deferred();
     });
 }
