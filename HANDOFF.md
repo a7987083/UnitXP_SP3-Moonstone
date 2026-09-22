@@ -2,20 +2,21 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M4.2 Typed Arguments UI V1 on top of M4.1 UX + Offset Resolver V2 + Runtime Method Call V1**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M4.3.1 Instance Resolver Polish V1 on top of M4.2 typed `/1`, M4.1 UX, Offset Resolver V2 and Runtime Method Call V1**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-m4.2-typed-args-ui-v1`
-- Runtime product source head: `d775db7015a2290e508ab8de8aeeae7ce0723c7a`
-- CI validated head: `e7c81172b04e162f74b3652048dcaf499d753aa4`
+- Active branch: `feature/runtime-patch-menu-v0.5.8-m4.3.1-instance-resolver-polish-v1`
+- Runtime product source head: `7e34d4edd905ea8de1328323ae39143b98601fba`
+- CI validated head: `f702e27bb0f138b6f54f4f6460c3307807c215b9`
 - Offset Resolver V2 baseline: `a3b8db8651eaea23ec0ae7e5fca497e8f67bcf6c`
 - M4 V1 device-verified CI head: `d53c75dfbb7510e31a60e49f202532ad2f5e099e`
-- M4.2 CI run: `35742172120` — success
-- Artifact: `ZonoPatch-v0.5.8-M4.2-TypedArgsUI-V1`
-- Artifact ID: `10699772622`
-- ZIP SHA256: `abdde87ce011b96e0f31472973addc8147ff9d2e389f5124d3713b457a451626`
-- Dylib: `ZonoPatch_v0.5.8_M4.2_TypedArgsUI_V1.dylib`
-- Dylib SHA256: `a8c7e86b2b81c48ece1a35d4a4b422f8c8457525e3185f5e360e7dad47527125`
+- M4.3.1 CI run: `35751054253` — success
+- Artifact: `ZonoPatch-v0.5.8-M4.3.1-InstanceResolverPolish-V1`
+- Artifact ID: `10705387042`
+- ZIP SHA256: `698923e8cd03228fa86a3fc9920c4c6fae6363cbd5668bf82e42488c16459a84`
+- Dylib: `ZonoPatch_v0.5.8_M4.3.1_InstanceResolverPolish_V1.dylib`
+- Dylib size: `985472`
+- Dylib SHA256: `04384aaadeb9a21ba8b494bfb9d2adf4ac201e5125f2d79a7ae5acefd66574dd`
 - Dylib format: thin arm64 Mach-O dylib
 
 ## Validation boundary
@@ -30,26 +31,23 @@ For `feature/runtime-patch-menu-v0.5.8-m4-runtime-method-call-v1`, the user expl
 - `/0` `测试执行` works on device;
 - generated binary is usable on device.
 
-Those specific M4 V1 paths are device-verified. This is not a full regression pass.
+Those paths are device-verified. M4.1, M4.2, M4.3 and M4.3.1 additions remain device-validation pending until the user explicitly reports them working.
 
-### Current M4.2 state
+### Current M4.3.1 state
 
 - source implemented: YES;
 - committed to GitHub: YES;
 - arm64 CI compiled/linked/signed: YES;
 - binary verified: YES;
 - artifact produced and independently hash-checked: YES;
-- M4.1 new UX physical-device validation: PENDING;
-- M4.2 `/1` typed invoke physical-device validation: PENDING;
+- physical-device verification: PENDING;
 - full regression: NO.
 
 ## Architecture that must remain stable
 
 ### Offset Resolver V2
 
-Do not rewrite while validating M4.2. Core behavior remains exact dyld image identity, Preferred/Unslid VA handling, historical RVA fallback, canonical RVA internal representation and author-input preservation.
-
-CI asserts these remain unchanged relative to `a3b8db8...`:
+Do not rewrite while validating M4.3.1. CI continues to assert these stay unchanged relative to the Offset Resolver V2 baseline:
 
 - `iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm`
 - `iosruntimepatchmenu/src/ZNOffsetResolverV2.mm`
@@ -60,53 +58,52 @@ CI asserts these remain unchanged relative to `a3b8db8...`:
 - `ZN44StaticEntry == 128` bytes.
 - `ZNRuntimeActionHeader == 64` bytes.
 - `ZNRuntimeMethodCallEntry == 64` bytes.
-- Runtime Actions stay separate from Static Patch ABI.
-- M4.2 `/1` storage uses the existing Runtime Action string pool; `ZNRuntimeActionFlagArgument0Text` marks `reserved[0]` as the argument text offset. Do not enlarge the entry for this milestone.
+- Runtime Actions remain separate from Static Patch ABI.
+- `/1` saved argument still uses `ZNRuntimeActionFlagArgument0Text + reserved[0]` and the existing string pool.
 
-## M4.1 inherited UX behavior
+## Current Method Finder UX
 
-- Prefer `UnityFramework`, otherwise main executable.
-- Binary target is chosen through `App Libraries`, not mandatory free text.
-- Do not persist `/var/containers/Bundle/Application/<UUID>/...` paths.
-- Menu outside-panel touch passthrough layer.
-- Same-page scroll preservation.
-- Build can be pressed without prior manual `读取验证`; required preflight still runs.
-- Runtime Method Call `title` is editable independently from method identity.
-
-All of the above remain pending explicit device acceptance unless the user separately reports them working.
-
-## M4.2 actual changes
-
-### Method Finder compact results
-
-The result list now targets this interaction:
+Search page:
 
 ```text
-[全部] [0] [1] [2] ...   // only arities present in current results
-
-SetSpeed/1   [2.5]        测试执行
-Player                    创建方法
-Assembly-CSharp
+方法名      [ SetSpeed____________ ]   [搜索]
+Assembly    [ Assembly-CSharp      › ]
+最大结果    [ 128 ]
 ```
 
 Rules:
 
-- Namespace is hidden in compact results; Details still shows it.
-- RVA is hidden in compact results; Details still shows it.
-- Class and Assembly remain visible.
-- Left information region opens Details.
-- `/1` has an inline value editor.
-- right-side actions directly test/create.
-- filter is local and does not rescan IL2CPP.
-- `/2+` may be filtered/displayed, but direct actions are disabled in V1.
-- input values survive filter/render changes within the result page.
+- Assembly button opens an action-sheet list of current IL2CPP assemblies, matching the App Libraries picker interaction style.
+- Default is `Assembly-CSharp`; `全部 Assembly` is available.
+- Maximum result count is editable from `1` to `1024`; backend hard limit is also 1024.
+- A large requested count is still subject to the existing search wall-clock budget.
 
-### Typed `/1` invoke
+Result page:
 
-The runtime does not infer the argument ABI from the string field. It resolves the method and calls `ZNIL2CPPDescribeMethodABI` first.
+```text
+[全部] [0] [1] [2] ...
 
-Supported V1 argument categories:
+SetSpeed/1                 测试执行
+Player                     创建方法
+[ 2.5 ]
+```
 
+Compact-result rules:
+
+- Method/arity is visible.
+- Class is visible.
+- `/1` argument input is on its own lower row.
+- Assembly is intentionally hidden here because it was selected on the previous page.
+- Namespace and RVA are also hidden.
+- Assembly/Namespace/RVA/VA/MethodInfo remain available in Details.
+- Details no longer adds a duplicate Runtime test/create panel; test/create live on the result card.
+- `/1` and maximum-result editors use `Done` to dismiss the keyboard.
+
+## Typed argument scope
+
+M4.3.1 inherits M4.2 typed `/1` behavior:
+
+- `/0` and `/1` only;
 - bool;
 - signed/unsigned 32-bit integer;
 - signed/unsigned 64-bit integer;
@@ -115,35 +112,39 @@ Supported V1 argument categories:
 - enum when metadata resolves to a supported primitive ABI;
 - `System.String` via `il2cpp_string_new`.
 
-Fail closed:
+Still fail closed:
 
-- instance methods without an object instance;
 - `/2+`;
 - ref/out;
 - pointer;
-- object reference other than String;
-- complex value type/struct (including Vector types until explicitly implemented);
+- ordinary object-reference argument;
+- complex value type / struct;
 - unknown ABI;
 - generic definition.
 
-Execution still uses `il2cpp_runtime_invoke`. Value arguments are passed through typed local storage addresses in `void **params`; String is a managed object pointer.
+## Instance Resolver M4.3.1
 
-### Runtime Action persistence
+For non-static `/0` and `/1` methods, the Invoke Engine asks `ZNIL2CPPInstanceResolver` for a live target object.
 
-- `ZNRuntimeMethodAction.argumentValues` stores authoring values.
-- Builder can edit the saved `/1` argument after creation.
-- Binary serialization stores the text argument in the existing Runtime Action string pool.
-- Runtime parser restores it and the Invoke Engine validates current method ABI again before execution.
+Resolution policy:
 
-### App Libraries display
+1. Resolve the exact Assembly/Namespace/Class.
+2. Prefer legacy Unity liveness APIs when available:
+   `il2cpp_unity_liveness_calculation_begin -> from_statics -> end`.
+3. If legacy APIs are unavailable, use modern:
+   `il2cpp_stop_gc_world -> allocate_struct -> from_statics -> finalize -> il2cpp_start_gc_world -> free_struct`.
+4. When available, verify candidates using `il2cpp_object_get_class` and `il2cpp_class_is_assignable_from`.
+5. Exactly one candidate: invoke with that object as `this`.
+6. Zero candidates: fail closed.
+7. More than one candidate: fail closed with `FAILED_INSTANCE_AMBIGUOUS`; never choose arbitrarily.
 
-M4.2 keeps M4.1 discovery/selection logic but displays only the final module name (`UnityFramework`, app executable, `.dylib`, framework executable), not the relative path.
+This implementation follows the same high-level liveness ordering used by current `frida-il2cpp-bridge gc.choose()` but is implemented natively in the dylib.
 
 ## CI evidence
 
-Final workflow: `Build Runtime Patch Menu v0.5.8 M4.2 Typed Args UI V1`
+Workflow: `Build Runtime Patch Menu v0.5.8 M4.3.1 Instance Resolver Polish V1`
 
-Final run: `35742172120` — `success`.
+Run `35751054253` — `success`.
 
 Passed steps:
 
@@ -151,35 +152,32 @@ Passed steps:
 - Source contract assertions
 - Install dependencies
 - Install Theos
-- Build M4.2 Typed Args UI V1
+- Build M4.3.1 Instance Resolver Polish V1
 - Verify binary
 - Upload artifact
 
-The immediately prior run `35741898563` compiled successfully but Verify Binary failed because macOS `strings` mangled Chinese UTF-8 before grep. The final workflow verifies action selectors (`znm42_testCandidate:` / `znm42_createCandidate:`) instead, while source-contract assertions verify the Chinese labels.
+Independent artifact verification confirmed:
 
-Independent post-download artifact verification confirmed:
-
-- ZIP SHA256 `abdde87ce011b96e0f31472973addc8147ff9d2e389f5124d3713b457a451626`;
-- dylib SHA256 `a8c7e86b2b81c48ece1a35d4a4b422f8c8457525e3185f5e360e7dad47527125`;
+- ZIP SHA256 `698923e8cd03228fa86a3fc9920c4c6fae6363cbd5668bf82e42488c16459a84`;
+- dylib SHA256 `04384aaadeb9a21ba8b494bfb9d2adf4ac201e5125f2d79a7ae5acefd66574dd`;
 - thin arm64 Mach-O;
-- strings include `[m4.2-ui]`, `typedArg1Static`, `znm42_testCandidate:`, `znm42_createCandidate:`, `App Libraries`, `il2cpp_runtime_invoke`, `il2cpp_string_new`.
+- strings include `[m4.3.1-ui]`, `[instance-resolver]`, `il2cpp_stop_gc_world`, `il2cpp_start_gc_world`, `znm43_testCandidate:`, `znm43_createCandidate:`.
 
 ## Immediate physical-device checklist
 
-1. M4.1 regression: menu outside touch passthrough + menu controls + Translate second-use stability.
-2. `其他 -> 二进制`: Unity default target and simple-name App Libraries picker.
-3. Same-page scroll preservation and direct-build auto preflight.
-4. Search a method with mixed arities; verify dynamic `[全部] [0] [1] ...` only contains arities actually present.
-5. Confirm result cards hide Namespace/RVA but Details retains full metadata.
-6. Pick a known safe **static `/1` primitive** method, enter a value and press `测试执行`.
-7. Create that method, change title/argument in Builder, generate, reload, execute persisted action.
-8. If available, test one safe static `System.String/1` method.
-9. Confirm instance `/1`, `/2+`, ref/out/pointer/object/complex types fail closed.
+1. Regress M4.1 touch passthrough, Translate, App Libraries, scroll retention, title editing and direct build.
+2. Open Assembly picker, select `Assembly-CSharp` and at least one other Assembly; verify search scope changes.
+3. Enter a maximum result count above 64, such as 128/256; confirm the backend no longer clamps to 64.
+4. Search a method with mixed arities and verify `[全部] [0] [1] ...` only contains arities present in the returned set.
+5. Confirm result cards hide Assembly/Namespace/RVA but Details still shows them.
+6. Confirm `/1` argument field sits under Method/Class and keyboard `Done` dismisses without a newline.
+7. Test one safe static `/1` primitive method.
+8. Test one safe instance `/0` or `/1` method where exactly one live object exists.
+9. Test a class with zero live objects and a class with multiple live objects; both must fail closed without a crash.
 10. Regress M4 V1 `/0` create/test/generated-binary paths.
 
-## Next action after user feedback
+## Next action after device feedback
 
-- Do not label M4.2 `device_verified` until the user explicitly reports `/1` behavior on device.
-- If `/1` primitive path passes, record exact tested method/signature/value/result in all five long-term files.
-- Only then extend the same ABI-driven argument marshaler to `/2+`; do not create separate hard-coded engines for each arity.
-- Treat Vector2/Vector3/Quaternion and other structs as explicit future typed editors/ABI work, not as multiple primitive parameters.
+- If unique-instance execution works, record exact method/Class/arity/result and resolver diagnostics in all five long-term files.
+- If a target has multiple instances, the next feature should be explicit instance selection or short runtime receiver capture; do not auto-pick the first object.
+- Do not extend to `/2+` until M4.3.1 instance and `/1` paths have real device evidence.
