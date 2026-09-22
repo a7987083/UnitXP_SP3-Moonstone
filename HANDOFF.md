@@ -2,18 +2,18 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M4.4.1 Hotfix on top of M4.4 multi-instance selection + M4.3 Finder/Instance Resolver + M4.2 typed `/1` + M4.1 UX + Offset Resolver V2**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M4.4.2 Search Restore on top of M4.4.1 input/typed-struct hotfix + M4.4 multi-instance selection + M4.3 Finder/Instance Resolver + M4.2 typed `/1` + M4.1 UX + Offset Resolver V2**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `fix/runtime-patch-menu-v0.5.8-m4.4.1-keyboard-search-route`
-- CI validated product head: `0025556b8f3a2a20466b7344120ca82f9db7f921`
-- Final CI run: `35789261862` — `success`
-- Artifact: `ZonoPatch-v0.5.8-M4.4.1-Hotfix`
-- Artifact ID: `10721074579`
-- ZIP SHA256: `5008897e16957231938f03a7a663d72395c500ef00801ce23ccf306ed70d14ee`
-- Dylib: `ZonoPatch_v0.5.8_M4.4.1_Hotfix.dylib`
-- Dylib size: `1018832`
-- Dylib SHA256: `2f41f35a1bce9e07af766d2026ca8a76a6e6bf3f1919940bcdad77b80cc51549`
+- Active branch: `fix/runtime-patch-menu-v0.5.8-m4.4.2-search-restore`
+- CI validated product head: `fe8655444420bc9445ee741e2d3c4cffbaead066`
+- Final CI run: `35791561620` — `success`
+- Artifact: `ZonoPatch-v0.5.8-M4.4.2-SearchRestore`
+- Artifact ID: `10722211742`
+- ZIP SHA256: `c420ab0af09943be5bf05f10cf358514071b9b00982fb242f4573a1a5b94578c`
+- Dylib: `ZonoPatch_v0.5.8_M4.4.2_SearchRestore.dylib`
+- Dylib size: `1018880`
+- Dylib SHA256: `4497d04f3583a4bc447e3cdd692c2bf99479d87440221c2b85554210b251b84b`
 - Format: thin arm64 Mach-O dylib
 
 ## Validation boundary
@@ -24,14 +24,15 @@ Do not conflate source, CI, binary and device verification.
 
 M4 Runtime Method Call V1 has explicit user device evidence for `/0` create, `/0` test execute and generated binary usable. This is not a full regression pass.
 
-### Current M4.4.1 state
+### Current M4.4.2 state
 
 - source implemented: YES;
 - committed to GitHub: YES;
 - arm64 CI compile/link/sign: YES;
 - binary verification: YES;
 - artifact upload + independent hash check: YES;
-- keyboard/button Search device validation: PENDING;
+- restored Finder search route device validation: PENDING;
+- explicit Assembly strict-filter device validation: PENDING;
 - HEX/RVA/VA reverse lookup device validation: PENDING;
 - Patch Offset normalization device validation: PENDING;
 - common Unity struct `/1` device validation: PENDING;
@@ -50,28 +51,74 @@ M4 Runtime Method Call V1 has explicit user device evidence for `/0` create, `/0
 - Common Unity struct values are still one text argument; conversion to typed struct happens only immediately before `il2cpp_runtime_invoke`.
 - Do not persist `/var/containers/Bundle/Application/<UUID>/...` paths.
 - Do not persist raw `Il2CppObject *` addresses in generated Runtime Actions.
+- M4.4.2 is search routing only; no ABI version/entry-size changes.
 
-## Finder UX / search routing
+## Critical search-routing history
 
-Current search page:
-
-```text
-方法名      [ SetSpeed____________ ]   [搜索]
-Assembly    [ Assembly-CSharp      › ]
-最大结果    [ 128 ]
-```
-
-M4.4.1 fixes the previous split between the visible button and keyboard Return/Search. Both controls are rebound after rendering to:
+M4.3 performs:
 
 ```text
-znm441_submitSearch:
+zn60v3_startSearch:  <->  znm43_startSearch:
 ```
 
-That handler performs the same selected-Assembly scope, max-result handling, query normalization and V3 candidate search for either trigger.
+via `method_exchangeImplementations`.
 
-### Accepted method/address input
+That means after installation:
 
-Method-name forms continue to work normally. Address-like input is normalized as follows:
+```text
+selector znm43_startSearch:
+→ original V3 search implementation
+
+selector zn60v3_startSearch:
+→ M4.3 search implementation
+```
+
+This matters because the M4.3 visible Search button was bound to `znm43_startSearch:` and was therefore using the original V3 engine that the user confirmed worked on device. The keyboard Search target was `zn60v3_startSearch:` and used the M4.3 implementation.
+
+M4.4.1 attempted to make them consistent by rebinding both controls to `znm441_submitSearch:`. Device feedback then showed a regression: both controls became consistent, but both could return `找不到 IL2CPP 方法` for a query that the earlier visible Search button could find.
+
+M4.4.2 fixes this by adding `ZNM442SearchRestore.mm` as the outermost route layer. Both keyboard and visible Search now perform normalization, then delegate actual search execution to post-swap `znm43_startSearch:`, i.e. the original device-proven V3 implementation.
+
+## Assembly semantics
+
+Before M4.4.2, the M4.3/M4.4.1 path treated the visual `Assembly-CSharp` default as a strict search filter by forming:
+
+```text
+Assembly-CSharp.dll!Method
+```
+
+This was a regression from original V3 behavior. Original V3 behavior with no explicit Assembly is:
+
+```text
+scan all loaded Assemblies
+Assembly-CSharp first
+then remaining Assemblies
+```
+
+M4.4.2 restores that behavior until the user explicitly chooses an Assembly.
+
+Current rules:
+
+```text
+Default / untouched Assembly button
+→ Assembly-CSharp · 优先
+→ global V3 search, Assembly-CSharp-first
+
+User explicitly chooses Assembly-CSharp
+→ strict Assembly-CSharp search
+
+User explicitly chooses another Assembly
+→ strict selected-Assembly search
+
+User chooses 全部 Assembly
+→ global search
+```
+
+The explicit-selection state is process/UI-session state only. Temporary `Assembly!query` qualification is used for execution but is not left in the visible method-name field.
+
+## Accepted method/address input
+
+M4.4.1 input normalization is retained:
 
 ```text
 38064A8       -> rva:0x38064A8
@@ -81,27 +128,25 @@ rva:0x38064A8 -> rva:0x38064A8
 va:0x...      -> loaded UnityFramework Runtime VA -> RVA -> reverse lookup
 ```
 
-Address queries bypass the selected Assembly prefix and use the existing V3 reverse-RVA backend.
-
-Bare HEX detection is intentionally address-like, not a general method-name transformation. If a real method identifier is ambiguous with a bare hex-looking token, use the explicit method identity or `rva:` prefix for addresses.
+Address queries bypass Assembly filtering and use V3 reverse-RVA search.
 
 ## Patch Offset normalization
 
-The Patch validator already accepted both `0x...` and bare hexadecimal input. M4.4.1 makes the UI consistent:
+The validator/workspace already accepts bare HEX and `0x`. M4.4.1 UI normalization remains active:
 
 ```text
 38064A8
 ```
 
-on `完成` becomes:
+press `完成`:
 
 ```text
 0x38064A8
 ```
 
-The normalized text is written back into `ZNBinaryPatchWorkspace`; normal read/validate/build safety checks remain unchanged.
+Normal read/validate/build safety checks remain unchanged.
 
-## `/1` behavior
+## `/1` behavior retained
 
 Primitive/string support inherited from M4.2:
 
@@ -112,7 +157,7 @@ Primitive/string support inherited from M4.2:
 - primitive-backed enum;
 - `System.String`.
 
-M4.4.1 additionally handles four exact Unity value types:
+M4.4.1 additionally handles exact Unity value types:
 
 ```text
 Vector2      1,2
@@ -121,9 +166,7 @@ Quaternion   0,0,0,1
 Color        1,0,0,1
 ```
 
-Comma, Chinese comma, semicolon and whitespace separators are accepted. The Runtime Action stores the source text as one `/1` value; invoke-time marshaling creates the corresponding float struct.
-
-Unsupported `/1` inputs now retain a visible type/reason instead of only looking disabled. Ordinary object references, custom structs, ref/out and pointers are still intentionally fail closed.
+Unsupported `/1` parameters expose a visible type/reason. Custom struct, ordinary managed object reference, ref/out, pointer and `/2+` still fail closed.
 
 ## M4.3 / M4.4 instance behavior retained
 
@@ -134,11 +177,15 @@ Unsupported `/1` inputs now retain a visible type/reason instead of only looking
 - Selected object is revalidated before reuse; stale selection is cleared.
 - Raw object pointers are not serialized and are resolved again after restart.
 
-## Build history
+## Build result
 
-M4.4.1 first CI run `35789012451` failed at compile because the new translation unit did not have the V3 Search category declaration visible. No runtime conclusion was drawn from that run.
+M4.4.2 product/CI head:
 
-After exposing `ZNIL2CPPMethodFinderSearchV3.h`, product head `0025556b8f3a2a20466b7344120ca82f9db7f921` passed run `35789261862`:
+```text
+fe8655444420bc9445ee741e2d3c4cffbaead066
+```
+
+CI run `35791561620`:
 
 ```text
 Source Contract  PASS
@@ -147,12 +194,12 @@ Binary Verify    PASS
 Artifact Upload  PASS
 ```
 
-Independent downloaded artifact verification:
+Independent artifact check:
 
 ```text
 Mach-O 64-bit arm64 dynamically linked shared library
-ZIP SHA256   5008897e16957231938f03a7a663d72395c500ef00801ce23ccf306ed70d14ee
-Dylib SHA256 2f41f35a1bce9e07af766d2026ca8a76a6e6bf3f1919940bcdad77b80cc51549
+ZIP SHA256   c420ab0af09943be5bf05f10cf358514071b9b00982fb242f4573a1a5b94578c
+Dylib SHA256 4497d04f3583a4bc447e3cdd692c2bf99479d87440221c2b85554210b251b84b
 ```
 
 ## Receiver capture boundary
@@ -161,15 +208,14 @@ Dylib SHA256 2f41f35a1bce9e07af766d2026ca8a76a6e6bf3f1919940bcdad77b80cc51549
 
 ## Immediate device checklist
 
-1. Search the same method by visible `搜索` and keyboard Search; verify identical candidates with the same Assembly/max-result settings.
-2. Reverse-lookup one known RVA using bare HEX, `0x`, `rva:` and explicit `rva:0x` forms.
-3. If available, test a `va:` Runtime VA for the same method.
-4. Enter a bare Patch Offset and press `完成`; verify automatic `0x` normalization followed by normal validation.
-5. Check an unsupported `/1`; it should state the parameter type/reason.
-6. Test safe `/1` Vector2/Vector3/Quaternion/Color methods if available, including create method and Builder persistence.
-7. Regress primitive/string `/1`, unique instance resolution, multi-instance selection/reuse and stale-selection rejection.
-8. Regress the user-confirmed M4 `/0` create/test/generated-binary paths and M4.1 UX.
+1. Re-test the exact method name that worked before M4.4.1 and then failed in M4.4.1.
+2. Test once by visible `搜索`, once by keyboard Search; candidate sets should match.
+3. Do not touch Assembly picker first; `Assembly-CSharp · 优先` should still find a method located in another loaded Assembly because default scope is global.
+4. Explicitly choose an Assembly; then verify results are strictly scoped to it.
+5. Regress bare HEX / `0x` / `rva:` / `va:` reverse lookup.
+6. Regress Patch Offset bare HEX -> `0x` normalization.
+7. Regress supported and unsupported `/1` UI, common Unity structs, M4.4 instance selection and M4 `/0` create/test/generated-binary.
 
 ## Next engineering action
 
-Do not expand `/2+` or add an inline-hook receiver backend before M4.4.1 device evidence. First validate search routing, address normalization, Patch Offset normalization, common struct marshaling and M4.4 instance behavior on a real device.
+Do not expand `/2+` or add receiver inline-hook capture before M4.4.2 real-device search evidence. The first acceptance gate is the exact previously regressed query: it must work through both Search triggers again.
