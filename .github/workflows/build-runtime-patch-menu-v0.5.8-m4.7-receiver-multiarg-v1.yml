@@ -63,6 +63,10 @@ jobs:
           git clone https://github.com/jmpews/Dobby.git vendor/Dobby
           cd vendor/Dobby
           git checkout 5dfc8546954ce3b3198132ab13fddb89ee92cdd7
+          # Python 3.13+ removed the legacy pipes module; this pinned Dobby
+          # builder imports it but does not use it, so remove that dead import
+          # rather than changing the pinned Dobby source revision.
+          sed -i '' '/^import pipes$/d' scripts/platform_builder.py
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
           file build/iphoneos/arm64/libdobby.a
