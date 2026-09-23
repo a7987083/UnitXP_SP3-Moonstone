@@ -1,0 +1,94 @@
+name: Build Runtime Patch Menu v0.5.8 M4.6.2 Stability V1
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m4.6.2-stability-v1
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNM462InstanceSafety.mm
+          test -f iosruntimepatchmenu/src/ZNM462CandidateBindingUI.mm
+          test -f iosruntimepatchmenu/src/ZNM462RuntimeOnlyVerifier.h
+          test -f iosruntimepatchmenu/src/ZNM462RuntimeOnlyVerifier.mm
+          grep -q 'src/ZNM462InstanceSafety.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNM462CandidateBindingUI.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNM462RuntimeOnlyVerifier.mm' iosruntimepatchmenu/Makefile
+          grep -q 'il2cpp_gchandle_new' iosruntimepatchmenu/src/ZNM462InstanceSafety.mm
+          grep -q 'il2cpp_gchandle_get_target' iosruntimepatchmenu/src/ZNM462InstanceSafety.mm
+          grep -q 'il2cpp_gchandle_free' iosruntimepatchmenu/src/ZNM462InstanceSafety.mm
+          grep -q 'explicitly bound' iosruntimepatchmenu/src/ZNM462CandidateBindingUI.mm
+          grep -q 'without Y-coordinate mapping' iosruntimepatchmenu/src/ZNM462CandidateBindingUI.mm
+          grep -q 'ZNM462VerifyRuntimeOnlyOutputs' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'staticHeader->count != 0' iosruntimepatchmenu/src/ZNM462RuntimeOnlyVerifier.mm
+          grep -q 'ZNRuntimeActionFlagParameterSignature' iosruntimepatchmenu/src/ZNM462RuntimeOnlyVerifier.mm
+          grep -q 'ZNInstallM462InstanceSafetyDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNInstallM462CandidateBindingUIDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          git diff --exit-code e1ea5a3497d619f1386d61d0b30176583f41f98d -- \
+            iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm \
+            iosruntimepatchmenu/src/ZNOffsetResolverV2.mm \
+            iosruntimepatchmenu/src/ZNStaticPatchFormat.h \
+            iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build M4.6.2
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m4.6.2
+          cp .theos/obj/ZonoePatchV03.dylib dist-m4.6.2/ZonoPatch_v0.5.8_M4.6.2_Stability_V1.dylib
+          shasum -a 256 dist-m4.6.2/ZonoPatch_v0.5.8_M4.6.2_Stability_V1.dylib | tee dist-m4.6.2/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m4.6.2/ZonoPatch_v0.5.8_M4.6.2_Stability_V1.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out"
+          strings -a "$out" > /tmp/zono_m462_strings.txt
+          grep -q '\[m4.6.1-polish\]' /tmp/zono_m462_strings.txt
+          grep -q '\[instance-selection-v3\]' /tmp/zono_m462_strings.txt
+          grep -q '\[m4.6.2-candidate-binding\]' /tmp/zono_m462_strings.txt
+          grep -q '\[m4.6.2-runtime-only-verify\]' /tmp/zono_m462_strings.txt
+          grep -q 'il2cpp_gchandle_new' /tmp/zono_m462_strings.txt
+          grep -q 'il2cpp_gchandle_get_target' /tmp/zono_m462_strings.txt
+          grep -q 'il2cpp_gchandle_free' /tmp/zono_m462_strings.txt
+          init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
+          echo "__init_offsets size=$init_size"
+          test "$init_size" = '0x0000000000000004' -o "$init_size" = '0x4'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M4.6.2-Stability-V1
+          path: |
+            iosruntimepatchmenu/dist-m4.6.2/ZonoPatch_v0.5.8_M4.6.2_Stability_V1.dylib
+            iosruntimepatchmenu/dist-m4.6.2/SHA256.txt
+          if-no-files-found: error
