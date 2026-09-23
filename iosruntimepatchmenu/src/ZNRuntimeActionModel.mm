@@ -1,4 +1,5 @@
 #import "ZNRuntimeActionModel.h"
+#import "ZNRuntimeActionFormat.h"
 #import "ZNIL2CPPMethodSignature.h"
 #import "ZNPatchCore.h"
 
@@ -119,14 +120,15 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
         if (error) *error = @"方法身份不完整，无法创建 Runtime Method Call";
         return nil;
     }
-    if (argc > 1) {
-        if (error) *error = [NSString stringWithFormat:@"M4.2 首版支持 /0 与 /1；当前 argumentCount=%ld", (long)argc];
+    if ((NSUInteger)argc > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) {
+        if (error) *error = [NSString stringWithFormat:@"M4.7 当前最多保存 %u 个 Runtime 参数；当前=%ld",
+                             ZN_RUNTIME_ACTION_MAX_ARGUMENTS, (long)argc];
         return nil;
     }
     NSArray<NSString *> *values = argumentValues ?: @[];
     if (argc == 0) values = @[];
-    if (argc == 1 && values.count != 1) {
-        if (error) *error = @"/1 方法必须提供 1 个参数值";
+    if (argc > 0 && values.count != (NSUInteger)argc) {
+        if (error) *error = [NSString stringWithFormat:@"/%ld 方法必须提供 %ld 个参数值", (long)argc, (long)argc];
         return nil;
     }
 
@@ -205,12 +207,14 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
         ZNRuntimeMethodAction *action = self.mutableActions[index];
         NSArray<NSString *> *values = argumentValues ?: @[];
         if (action.argumentCount == 0) values = @[];
-        if (action.argumentCount == 1 && values.count != 1) {
-            if (error) *error = @"/1 方法必须保存 1 个参数值";
+        if (action.argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) {
+            if (error) *error = [NSString stringWithFormat:@"M4.7 参数数量超过上限 %u", ZN_RUNTIME_ACTION_MAX_ARGUMENTS];
             return NO;
         }
-        if (action.argumentCount > 1) {
-            if (error) *error = @"M4.2 首版仅允许编辑 /0 与 /1 参数";
+        if (action.argumentCount > 0 && values.count != action.argumentCount) {
+            if (error) *error = [NSString stringWithFormat:@"/%lu 方法必须保存 %lu 个参数值",
+                                 (unsigned long)action.argumentCount,
+                                 (unsigned long)action.argumentCount];
             return NO;
         }
         action.argumentValues = [values copy];
