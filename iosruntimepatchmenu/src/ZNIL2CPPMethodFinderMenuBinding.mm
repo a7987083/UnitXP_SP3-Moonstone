@@ -28,6 +28,8 @@ extern "C" void ZNInstallM45AddressOwningMethodDeferred(void);
 extern "C" void ZNInstallM46SignatureExecutionDeferred(void);
 extern "C" void ZNInstallM46FullSignatureUIDeferred(void);
 extern "C" void ZNInstallM461PolishDeferred(void);
+extern "C" void ZNInstallM462InstanceSafetyDeferred(void);
+extern "C" void ZNInstallM462CandidateBindingUIDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -109,9 +111,15 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM46SignatureExecutionDeferred();
         ZNInstallM46FullSignatureUIDeferred();
 
-        // M4.6.1 is deliberately outermost: it only polishes overload label
-        // placement and overrides the obsolete Static-only Build button gate
-        // when the workspace contains Runtime Methods and zero Static rows.
+        // M4.6.1 keeps the device-accepted overload helper row and Runtime-only
+        // Build button behavior.
         ZNInstallM461PolishDeferred();
+
+        // M4.6.2 is stability-only and remains outermost. Receiver selections
+        // become GCHandle-backed when the runtime exports the handle API, while
+        // result test buttons get explicit candidate associations after the
+        // complete M4.6.1 render chain (no Y-coordinate candidate lookup).
+        ZNInstallM462InstanceSafetyDeferred();
+        ZNInstallM462CandidateBindingUIDeferred();
     });
 }
