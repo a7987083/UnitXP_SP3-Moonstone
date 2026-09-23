@@ -17,19 +17,13 @@ enum {
 typedef uint32_t ZNRuntimeActionFlags;
 enum {
     ZNRuntimeActionFlagNone = 0,
-    // M4.2 keeps the 64-byte entry ABI intact. For /1 actions, reserved[0]
-    // stores an absolute string-pool offset containing the textual argument.
-    // Runtime resolves the actual IL2CPP parameter type again before invoke.
     ZNRuntimeActionFlagArgument0Text = 1u << 0,
-    // M4.6 keeps the same 64-byte entry and version. When set, reserved[1]
-    // stores a string-pool offset containing the exact managed parameter type
-    // list encoded with U+001F separators. Empty string is the exact /0
-    // signature; absence of this flag means legacy Method/N resolution.
     ZNRuntimeActionFlagParameterSignature = 1u << 1,
-    // M4.7 keeps the same 64-byte entry and version. reserved[2] points to a
-    // UTF-8 JSON array containing every textual argument value. /1 records
-    // keep Argument0Text too so old runtimes remain able to consume them.
     ZNRuntimeActionFlagArgumentVectorText = 1u << 2,
+    // M5.1 reserved[3] -> UTF-8 JSON per-argument runtime control config.
+    ZNRuntimeActionFlagArgumentControls = 1u << 3,
+    // M5.1 reserved[4] -> UTF-8 JSON Immediate Chain target descriptor.
+    ZNRuntimeActionFlagImmediateChain = 1u << 4,
 };
 
 typedef struct {
@@ -50,23 +44,18 @@ typedef struct {
     uint32_t kind;
     uint32_t flags;
     uint32_t argumentCount;
-
     uint32_t titleOffset;
     uint32_t groupOffset;
     uint32_t assemblyOffset;
     uint32_t namespaceOffset;
     uint32_t classOffset;
     uint32_t methodOffset;
-
-    // M4.2 /1 ABI:
-    // reserved[0] = argument0 text string-pool offset when
-    //               ZNRuntimeActionFlagArgument0Text is set.
-    // M4.6 signature ABI:
-    // reserved[1] = encoded parameter-type string-pool offset when
-    //               ZNRuntimeActionFlagParameterSignature is set.
-    // M4.7 multi-argument ABI:
-    // reserved[2] = JSON string-pool offset when
-    //               ZNRuntimeActionFlagArgumentVectorText is set.
+    // reserved[0] argument0 text (legacy /1)
+    // reserved[1] full parameter signature
+    // reserved[2] argument vector JSON
+    // reserved[3] M5.1 argument control JSON
+    // reserved[4] M5.1 Immediate Chain JSON
+    // reserved[5] free
     uint32_t reserved[6];
 } ZNRuntimeMethodCallEntry;
 
