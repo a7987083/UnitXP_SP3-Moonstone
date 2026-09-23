@@ -186,7 +186,7 @@ static NSDictionary<NSString *, id> *ZNM48ReturnMetadataForAction(ZNRuntimeMetho
     NSString *type = ret[@"returnType"] ?: @"?";
     NSString *value = ret[@"returnValue"] ?: @"?";
     uintptr_t raw = [ret[@"returnRawObject"] unsignedLongLongValue];
-    NSString *summary = [NSString stringWithFormat:@"return=%@ %@ · raw=%@",
+    NSString *summary = [NSString stringWithFormat:@"返回 %@ = %@ · raw=%@",
                          type,
                          value,
                          ZNM48PointerString(raw)];
@@ -221,7 +221,7 @@ static NSDictionary<NSString *, id> *ZNM48ReturnMetadataForAction(ZNRuntimeMetho
             summary = gZNM48PendingReturnSummary;
             gZNM48PendingReturnSummary = nil;
         }
-        if (summary.length) finalStatus = [finalStatus stringByAppendingFormat:@" · %@", summary];
+        if (summary.length) finalStatus = summary;
     }
     [self znm48_setStatus:finalStatus];
 }
