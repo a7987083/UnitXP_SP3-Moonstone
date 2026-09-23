@@ -2,13 +2,14 @@
 #import "ZNStaticBinaryBuilderV3Internal.h"
 #import "ZNGeneratedBinaryPostprocess.h"
 #import "ZNRuntimeOnlyBinaryBuilder.h"
+#import "ZNM462RuntimeOnlyVerifier.h"
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNPatchCore.h"
 
-// ZonoPatch v0.5.4 Builder Consolidation + M4.6.1 runtime-only route.
+// ZonoPatch v0.5.4 Builder Consolidation + M4.6.2 runtime-only verification.
 //
 // Public buildWorkspace stays single-entry. Static/mixed builds keep the proven
 // V3 pipeline. A workspace with zero Static Patch rows but one or more Runtime
@@ -67,6 +68,21 @@
         return NO;
     }
 
+    // M4.6.2 runtime-only generation is verified after Runtime Action + Full
+    // Signature embedding and before signing. This catches malformed section
+    // bounds/string-pool offsets/counts while the artifact is still disposable.
+    NSString *verificationReport = nil;
+    if (runtimeOnly) {
+        NSString *verificationError = nil;
+        if (!ZNM462VerifyRuntimeOnlyOutputs(builderOutputs ?: @[],
+                                            actions.count,
+                                            &verificationReport,
+                                            &verificationError)) {
+            if (error) *error = verificationError ?: @"M4.6.2 Runtime-only Verify 失败";
+            return NO;
+        }
+    }
+
     NSString *combinedReport = builderReport ?: @"";
     if (actionReport.length) {
         combinedReport = combinedReport.length
@@ -77,6 +93,11 @@
         combinedReport = combinedReport.length
             ? [combinedReport stringByAppendingFormat:@"\n%@", signatureReport]
             : signatureReport;
+    }
+    if (verificationReport.length) {
+        combinedReport = combinedReport.length
+            ? [combinedReport stringByAppendingFormat:@"\n%@", verificationReport]
+            : verificationReport;
     }
 
     NSString *postprocessError = nil;
@@ -89,7 +110,7 @@
     }
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ static=%lu runtime=%lu",
-                                         runtimeOnly ? @"runtime-only-m4.6.1" : @"static/mixed-v3",
+                                         runtimeOnly ? @"runtime-only-m4.6.2-verified" : @"static/mixed-v3",
                                          (unsigned long)workspace.filledCount,
                                          (unsigned long)actions.count]];
     return YES;
