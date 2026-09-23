@@ -9,303 +9,41 @@
 #import <mach-o/loader.h>
 #include <string.h>
 
-static uint64_t ZNRARAlign8(uint64_t value) {
-    return (value + 7ULL) & ~7ULL;
-}
+static uint64_t ZNRARAlign8(uint64_t value){return(value+7ULL)&~7ULL;}
 
 @interface ZNRuntimeMethodActionRecord ()
-@property(nonatomic,assign,readwrite) uint32_t actionID;
-@property(nonatomic,copy,readwrite) NSString *title;
-@property(nonatomic,copy,readwrite) NSString *group;
-@property(nonatomic,copy,readwrite) NSString *assembly;
-@property(nonatomic,copy,readwrite) NSString *namespaceName;
-@property(nonatomic,copy,readwrite) NSString *className;
-@property(nonatomic,copy,readwrite) NSString *methodName;
-@property(nonatomic,assign,readwrite) NSUInteger argumentCount;
-@property(nonatomic,copy,readwrite) NSArray<NSString *> *argumentValues;
-@property(nonatomic,copy,readwrite) NSArray<NSString *> *parameterTypeNames;
-@property(nonatomic,assign,readwrite) BOOL signatureAvailable;
-@property(nonatomic,copy,readwrite) NSString *sourceImage;
+@property(nonatomic,assign,readwrite) uint32_t actionID;@property(nonatomic,copy,readwrite) NSString *title;@property(nonatomic,copy,readwrite) NSString *group;@property(nonatomic,copy,readwrite) NSString *assembly;@property(nonatomic,copy,readwrite) NSString *namespaceName;@property(nonatomic,copy,readwrite) NSString *className;@property(nonatomic,copy,readwrite) NSString *methodName;@property(nonatomic,assign,readwrite) NSUInteger argumentCount;@property(nonatomic,copy,readwrite) NSArray<NSString *> *argumentValues;@property(nonatomic,copy,readwrite) NSArray<NSString *> *parameterTypeNames;@property(nonatomic,assign,readwrite) BOOL signatureAvailable;@property(nonatomic,copy,readwrite) NSArray<NSDictionary<NSString *,id> *> *argumentControlConfigs;@property(nonatomic,copy,readwrite) NSDictionary<NSString *,id> *immediateChain;@property(nonatomic,copy,readwrite) NSString *sourceImage;
 @end
-
 @implementation ZNRuntimeMethodActionRecord
-- (instancetype)init {
-    self = [super init];
-    if (!self) return nil;
-    _title = @""; _group = @"Runtime Methods"; _assembly = @"";
-    _namespaceName = @""; _className = @""; _methodName = @"";
-    _argumentValues = @[]; _parameterTypeNames = @[]; _signatureAvailable = NO; _sourceImage = @"";
-    return self;
-}
-- (NSString *)canonicalIdentity {
-    if (self.signatureAvailable && self.parameterTypeNames.count == self.argumentCount) {
-        return ZNIL2CPPFullMethodIdentity(self.assembly ?: @"",
-                                          self.namespaceName ?: @"",
-                                          self.className ?: @"",
-                                          self.methodName ?: @"",
-                                          self.parameterTypeNames ?: @[]);
-    }
-    NSString *owner = self.namespaceName.length
-        ? [NSString stringWithFormat:@"%@.%@", self.namespaceName, self.className]
-        : self.className;
-    return [NSString stringWithFormat:@"%@!%@::%@/%lu",
-            self.assembly ?: @"", owner ?: @"", self.methodName ?: @"", (unsigned long)self.argumentCount];
-}
+- (instancetype)init{self=[super init];if(!self)return nil;_title=@"";_group=@"Runtime Methods";_assembly=@"";_namespaceName=@"";_className=@"";_methodName=@"";_argumentValues=@[];_parameterTypeNames=@[];_argumentControlConfigs=@[];_immediateChain=@{};_sourceImage=@"";return self;}
+- (NSString *)canonicalIdentity{if(self.signatureAvailable&&self.parameterTypeNames.count==self.argumentCount)return ZNIL2CPPFullMethodIdentity(self.assembly?:@"",self.namespaceName?:@"",self.className?:@"",self.methodName?:@"",self.parameterTypeNames?:@[]);NSString *owner=self.namespaceName.length?[NSString stringWithFormat:@"%@.%@",self.namespaceName,self.className]:self.className;return[NSString stringWithFormat:@"%@!%@::%@/%lu",self.assembly?:@"",owner?:@"",self.methodName?:@"",(unsigned long)self.argumentCount];}
 @end
 
-static NSString *ZNRARReadString(const uint8_t *table,
-                                 const ZNRuntimeActionHeader *header,
-                                 uint32_t offset) {
-    if (!table || !header) return nil;
-    if (offset < header->stringPoolOffset || offset >= header->totalSize) return nil;
-    const uint8_t *start = table + offset;
-    const uint8_t *end = table + header->totalSize;
-    const uint8_t *nul = (const uint8_t *)memchr(start, 0, (size_t)(end - start));
-    if (!nul) return nil;
-    NSData *data = [NSData dataWithBytes:start length:(NSUInteger)(nul - start)];
-    NSString *value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    return value;
-}
+static NSString *ZNRARReadString(const uint8_t *table,const ZNRuntimeActionHeader *header,uint32_t offset){if(!table||!header||offset<header->stringPoolOffset||offset>=header->totalSize)return nil;const uint8_t *start=table+offset,*end=table+header->totalSize,*nul=(const uint8_t *)memchr(start,0,(size_t)(end-start));if(!nul)return nil;return[[NSString alloc]initWithData:[NSData dataWithBytes:start length:(NSUInteger)(nul-start)] encoding:NSUTF8StringEncoding];}
+static id ZNRARDecodeJSON(NSString *json,Class cls){if(!json.length)return nil;NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];if(!data.length)return nil;id obj=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];return[obj isKindOfClass:cls]?obj:nil;}
+static NSArray<NSString *> *ZNRARDecodeArgs(NSString *json){NSArray *arr=ZNRARDecodeJSON(json,NSArray.class);if(!arr)return nil;for(id x in arr)if(![x isKindOfClass:NSString.class])return nil;return arr;}
 
-static NSArray<NSString *> *ZNRARDecodeArgumentVector(NSString *json) {
-    if (!json.length) return nil;
-    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
-    if (!data.length) return nil;
-    id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    if (![object isKindOfClass:NSArray.class]) return nil;
-    NSMutableArray<NSString *> *values = [NSMutableArray array];
-    for (id item in (NSArray *)object) {
-        if (![item isKindOfClass:NSString.class]) return nil;
-        [values addObject:item];
-    }
-    return [values copy];
-}
-
-static void ZNRARParseImage(uint32_t imageIndex,
-                            NSMutableArray<ZNRuntimeMethodActionRecord *> *out,
-                            NSMutableSet<NSString *> *dedupe,
-                            NSMutableArray<NSString *> *diagnostics) {
-    const struct mach_header *raw = _dyld_get_image_header(imageIndex);
-    if (!raw || raw->magic != MH_MAGIC_64) return;
-    const struct mach_header_64 *mh = (const struct mach_header_64 *)raw;
-    intptr_t slide = _dyld_get_image_vmaddr_slide(imageIndex);
-    const char *cpath = _dyld_get_image_name(imageIndex);
-    NSString *path = cpath ? [NSString stringWithUTF8String:cpath] : @"";
-
-    const uint8_t *cursor = (const uint8_t *)(mh + 1);
-    const uint8_t *limit = cursor + mh->sizeofcmds;
-    if (mh->ncmds > 4096 || mh->sizeofcmds > 16 * 1024 * 1024) return;
-
-    const struct section_64 *zndata = NULL;
-    for (uint32_t i = 0; i < mh->ncmds; i++) {
-        if (cursor + sizeof(struct load_command) > limit) return;
-        const struct load_command *lc = (const struct load_command *)cursor;
-        if (lc->cmdsize < sizeof(*lc) || cursor + lc->cmdsize > limit) return;
-        if (lc->cmd == LC_SEGMENT_64 && lc->cmdsize >= sizeof(struct segment_command_64)) {
-            const struct segment_command_64 *seg = (const struct segment_command_64 *)cursor;
-            if (strncmp(seg->segname, "__ZNDATA", 16) == 0) {
-                uint64_t sectionBytes = (uint64_t)seg->nsects * sizeof(struct section_64);
-                if (lc->cmdsize < sizeof(*seg) + sectionBytes) return;
-                const struct section_64 *sections = (const struct section_64 *)(seg + 1);
-                for (uint32_t j = 0; j < seg->nsects; j++) {
-                    if (strncmp(sections[j].sectname, "__zndata", 16) == 0) {
-                        zndata = &sections[j];
-                        break;
-                    }
-                }
-            }
-        }
-        if (zndata) break;
-        cursor += lc->cmdsize;
-    }
-    if (!zndata || zndata->size < sizeof(ZN44StaticHeader)) return;
-
-    __int128 runtimeAddress = (__int128)zndata->addr + (__int128)slide;
-    if (runtimeAddress <= 0 || runtimeAddress > UINTPTR_MAX) return;
-    const uint8_t *section = (const uint8_t *)(uintptr_t)runtimeAddress;
-    uint64_t sectionSize = zndata->size;
-
-    const ZN44StaticHeader *staticHeader = (const ZN44StaticHeader *)section;
-    if (staticHeader->magic0 != ZN44_STATIC_MAGIC0 || staticHeader->magic1 != ZN44_STATIC_MAGIC1 ||
-        staticHeader->entrySize != sizeof(ZN44StaticEntry) || staticHeader->count > ZN44_STATIC_MAX_ENTRIES) return;
-
-    uint64_t staticBytes = sizeof(ZN44StaticHeader) + (uint64_t)staticHeader->count * staticHeader->entrySize;
-    staticBytes = ZNRARAlign8(staticBytes);
-    if (staticBytes > sectionSize || sectionSize - staticBytes < sizeof(ZNRuntimeActionHeader)) return;
-
-    const uint8_t *table = section + staticBytes;
-    const ZNRuntimeActionHeader *header = (const ZNRuntimeActionHeader *)table;
-    if (header->magic != ZN_RUNTIME_ACTION_MAGIC || header->version != ZN_RUNTIME_ACTION_VERSION ||
-        header->entrySize != sizeof(ZNRuntimeMethodCallEntry) || header->count > ZN_RUNTIME_ACTION_MAX_ENTRIES) return;
-    if (header->totalSize < sizeof(*header) || header->totalSize > sectionSize - staticBytes) return;
-
-    uint64_t entryBytes = (uint64_t)header->count * header->entrySize;
-    uint64_t fixedEnd = sizeof(*header) + entryBytes;
-    if (fixedEnd > header->totalSize || header->stringPoolOffset < fixedEnd ||
-        header->stringPoolOffset > header->totalSize || header->stringPoolSize > header->totalSize - header->stringPoolOffset) return;
-
-    const ZNRuntimeMethodCallEntry *entries = (const ZNRuntimeMethodCallEntry *)(table + sizeof(*header));
-    NSUInteger accepted = 0;
-    NSUInteger fullSignatureAccepted = 0;
-    NSUInteger multiArgAccepted = 0;
-    for (uint32_t i = 0; i < header->count; i++) {
-        const ZNRuntimeMethodCallEntry *entry = &entries[i];
-        if (entry->kind != ZNRuntimeActionKindIL2CPPMethodCall) continue;
-        if (entry->argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) continue;
-
-        NSString *title = ZNRARReadString(table, header, entry->titleOffset);
-        NSString *group = ZNRARReadString(table, header, entry->groupOffset);
-        NSString *assembly = ZNRARReadString(table, header, entry->assemblyOffset);
-        NSString *namespaceName = ZNRARReadString(table, header, entry->namespaceOffset);
-        NSString *className = ZNRARReadString(table, header, entry->classOffset);
-        NSString *methodName = ZNRARReadString(table, header, entry->methodOffset);
-        if (!title || !group || !assembly || !namespaceName || !className || !methodName ||
-            !assembly.length || !className.length || !methodName.length) continue;
-
-        NSArray<NSString *> *argumentValues = @[];
-        if (entry->argumentCount > 0) {
-            if ((entry->flags & ZNRuntimeActionFlagArgumentVectorText) != 0) {
-                NSString *encodedArgs = ZNRARReadString(table, header, entry->reserved[2]);
-                NSArray<NSString *> *decoded = ZNRARDecodeArgumentVector(encodedArgs);
-                if (!decoded || decoded.count != entry->argumentCount) continue;
-                argumentValues = decoded;
-                if (entry->argumentCount > 1) multiArgAccepted++;
-            } else if (entry->argumentCount == 1 && (entry->flags & ZNRuntimeActionFlagArgument0Text) != 0) {
-                NSString *argument0 = ZNRARReadString(table, header, entry->reserved[0]);
-                if (!argument0) continue;
-                argumentValues = @[argument0];
-            } else {
-                continue;
-            }
-        }
-
-        NSArray<NSString *> *parameterTypeNames = @[];
-        BOOL signatureAvailable = NO;
-        if ((entry->flags & ZNRuntimeActionFlagParameterSignature) != 0) {
-            NSString *encoded = ZNRARReadString(table, header, entry->reserved[1]);
-            if (!encoded) continue;
-            parameterTypeNames = ZNIL2CPPDecodeParameterTypeNames(encoded);
-            if (parameterTypeNames.count != entry->argumentCount) continue;
-            signatureAvailable = YES;
-            fullSignatureAccepted++;
-        }
-
-        ZNRuntimeMethodActionRecord *record = [ZNRuntimeMethodActionRecord new];
-        record.actionID = entry->actionID;
-        record.title = title.length ? title : methodName;
-        record.group = group.length ? group : @"Runtime Methods";
-        record.assembly = assembly;
-        record.namespaceName = namespaceName;
-        record.className = className;
-        record.methodName = methodName;
-        record.argumentCount = entry->argumentCount;
-        record.argumentValues = argumentValues;
-        record.parameterTypeNames = parameterTypeNames;
-        record.signatureAvailable = signatureAvailable;
-        record.sourceImage = path ?: @"";
-        NSString *key = [NSString stringWithFormat:@"%u|%@|%@", record.actionID, record.canonicalIdentity, record.argumentValues];
-        if ([dedupe containsObject:key]) continue;
-        [dedupe addObject:key];
-        [out addObject:record];
-        accepted++;
-    }
-    if (accepted) {
-        [diagnostics addObject:[NSString stringWithFormat:@"%@：Runtime Actions %lu · full-signature %lu · multi-arg %lu",
-                                path.lastPathComponent ?: @"image",
-                                (unsigned long)accepted,
-                                (unsigned long)fullSignatureAccepted,
-                                (unsigned long)multiArgAccepted]];
-    }
+static void ZNRARParseImage(uint32_t imageIndex,NSMutableArray *out,NSMutableSet *dedupe,NSMutableArray *diagnostics){
+    const struct mach_header *raw=_dyld_get_image_header(imageIndex);if(!raw||raw->magic!=MH_MAGIC_64)return;const struct mach_header_64 *mh=(const struct mach_header_64 *)raw;intptr_t slide=_dyld_get_image_vmaddr_slide(imageIndex);const char *cpath=_dyld_get_image_name(imageIndex);NSString *path=cpath?[NSString stringWithUTF8String:cpath]:@"";const uint8_t *cursor=(const uint8_t *)(mh+1),*limit=cursor+mh->sizeofcmds;if(mh->ncmds>4096||mh->sizeofcmds>16*1024*1024)return;const struct section_64 *zndata=NULL;
+    for(uint32_t i=0;i<mh->ncmds;i++){if(cursor+sizeof(struct load_command)>limit)return;const struct load_command *lc=(const struct load_command *)cursor;if(lc->cmdsize<sizeof(*lc)||cursor+lc->cmdsize>limit)return;if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(struct segment_command_64)){const struct segment_command_64 *seg=(const struct segment_command_64 *)cursor;if(strncmp(seg->segname,"__ZNDATA",16)==0){if(lc->cmdsize<sizeof(*seg)+(uint64_t)seg->nsects*sizeof(struct section_64))return;const struct section_64 *sections=(const struct section_64 *)(seg+1);for(uint32_t j=0;j<seg->nsects;j++)if(strncmp(sections[j].sectname,"__zndata",16)==0){zndata=&sections[j];break;}}}if(zndata)break;cursor+=lc->cmdsize;}
+    if(!zndata||zndata->size<sizeof(ZN44StaticHeader))return;__int128 ra=(__int128)zndata->addr+(__int128)slide;if(ra<=0||ra>UINTPTR_MAX)return;const uint8_t *section=(const uint8_t *)(uintptr_t)ra;uint64_t sectionSize=zndata->size;const ZN44StaticHeader *sh=(const ZN44StaticHeader *)section;if(sh->magic0!=ZN44_STATIC_MAGIC0||sh->magic1!=ZN44_STATIC_MAGIC1||sh->entrySize!=sizeof(ZN44StaticEntry)||sh->count>ZN44_STATIC_MAX_ENTRIES)return;uint64_t staticBytes=ZNRARAlign8(sizeof(ZN44StaticHeader)+(uint64_t)sh->count*sh->entrySize);if(staticBytes>sectionSize||sectionSize-staticBytes<sizeof(ZNRuntimeActionHeader))return;const uint8_t *table=section+staticBytes;const ZNRuntimeActionHeader *header=(const ZNRuntimeActionHeader *)table;if(header->magic!=ZN_RUNTIME_ACTION_MAGIC||header->version!=ZN_RUNTIME_ACTION_VERSION||header->entrySize!=sizeof(ZNRuntimeMethodCallEntry)||header->count>ZN_RUNTIME_ACTION_MAX_ENTRIES||header->totalSize>sectionSize-staticBytes)return;uint64_t fixedEnd=sizeof(*header)+(uint64_t)header->count*header->entrySize;if(fixedEnd>header->totalSize||header->stringPoolOffset<fixedEnd||header->stringPoolOffset>header->totalSize)return;
+    const ZNRuntimeMethodCallEntry *entries=(const ZNRuntimeMethodCallEntry *)(table+sizeof(*header));NSUInteger accepted=0;
+    for(uint32_t i=0;i<header->count;i++){const ZNRuntimeMethodCallEntry *entry=&entries[i];if(entry->kind!=ZNRuntimeActionKindIL2CPPMethodCall||entry->argumentCount>ZN_RUNTIME_ACTION_MAX_ARGUMENTS)continue;NSString *title=ZNRARReadString(table,header,entry->titleOffset),*group=ZNRARReadString(table,header,entry->groupOffset),*assembly=ZNRARReadString(table,header,entry->assemblyOffset),*ns=ZNRARReadString(table,header,entry->namespaceOffset),*cls=ZNRARReadString(table,header,entry->classOffset),*method=ZNRARReadString(table,header,entry->methodOffset);if(!title||!group||!assembly||!ns||!cls||!method||!assembly.length||!cls.length||!method.length)continue;
+        NSArray *args=@[];if(entry->argumentCount>0){if(entry->flags&ZNRuntimeActionFlagArgumentVectorText){args=ZNRARDecodeArgs(ZNRARReadString(table,header,entry->reserved[2]));if(!args||args.count!=entry->argumentCount)continue;}else if(entry->argumentCount==1&&(entry->flags&ZNRuntimeActionFlagArgument0Text)){NSString *a=ZNRARReadString(table,header,entry->reserved[0]);if(!a)continue;args=@[a];}else continue;}
+        NSArray *types=@[];BOOL sig=NO;if(entry->flags&ZNRuntimeActionFlagParameterSignature){NSString *encoded=ZNRARReadString(table,header,entry->reserved[1]);if(!encoded)continue;types=ZNIL2CPPDecodeParameterTypeNames(encoded);if(types.count!=entry->argumentCount)continue;sig=YES;}
+        NSArray *controls=@[];if(entry->flags&ZNRuntimeActionFlagArgumentControls){controls=ZNRARDecodeJSON(ZNRARReadString(table,header,entry->reserved[3]),NSArray.class);if(!controls||controls.count!=entry->argumentCount)continue;}
+        NSDictionary *chain=@{};if(entry->flags&ZNRuntimeActionFlagImmediateChain){chain=ZNRARDecodeJSON(ZNRARReadString(table,header,entry->reserved[4]),NSDictionary.class);if(!chain)continue;}
+        ZNRuntimeMethodActionRecord *r=[ZNRuntimeMethodActionRecord new];r.actionID=entry->actionID;r.title=title.length?title:method;r.group=group.length?group:@"Runtime Methods";r.assembly=assembly;r.namespaceName=ns;r.className=cls;r.methodName=method;r.argumentCount=entry->argumentCount;r.argumentValues=args;r.parameterTypeNames=types;r.signatureAvailable=sig;r.argumentControlConfigs=controls?:@[];r.immediateChain=chain?:@{};r.sourceImage=path?:@"";NSString *key=[NSString stringWithFormat:@"%u|%@|%@",r.actionID,r.canonicalIdentity,r.argumentValues];if([dedupe containsObject:key])continue;[dedupe addObject:key];[out addObject:r];accepted++;}
+    if(accepted)[diagnostics addObject:[NSString stringWithFormat:@"%@：Runtime Actions %lu",path.lastPathComponent?:@"image",(unsigned long)accepted]];
 }
 
 @interface ZNRuntimeActionRuntime ()
-@property(nonatomic,copy,readwrite) NSArray<ZNRuntimeMethodActionRecord *> *records;
-@property(nonatomic,copy,readwrite) NSString *lastStatus;
-@property(nonatomic,copy) NSArray<NSString *> *lastDiagnostics;
+@property(nonatomic,copy,readwrite) NSArray<ZNRuntimeMethodActionRecord *> *records;@property(nonatomic,copy,readwrite) NSString *lastStatus;@property(nonatomic,copy) NSArray<NSString *> *lastDiagnostics;
 @end
-
 @implementation ZNRuntimeActionRuntime
-
-+ (instancetype)sharedRuntime {
-    static ZNRuntimeActionRuntime *runtime;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ runtime = [ZNRuntimeActionRuntime new]; });
-    return runtime;
-}
-
-- (instancetype)init {
-    self = [super init];
-    if (!self) return nil;
-    _records = @[];
-    _lastDiagnostics = @[];
-    _lastStatus = @"尚未扫描 Runtime Method Call";
-    return self;
-}
-
-- (void)refresh {
-    NSMutableArray<ZNRuntimeMethodActionRecord *> *found = [NSMutableArray array];
-    NSMutableSet<NSString *> *dedupe = [NSMutableSet set];
-    NSMutableArray<NSString *> *diagnostics = [NSMutableArray array];
-    uint32_t count = _dyld_image_count();
-    for (uint32_t i = 0; i < count; i++) ZNRARParseImage(i, found, dedupe, diagnostics);
-    self.records = [found copy];
-    self.lastDiagnostics = [diagnostics copy];
-    self.lastStatus = [NSString stringWithFormat:@"Runtime Method Call：%lu actions", (unsigned long)found.count];
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] refresh -> %lu actions", (unsigned long)found.count]];
-}
-
-- (BOOL)executeRecord:(ZNRuntimeMethodActionRecord *)record error:(NSString **)error {
-    if (!record) {
-        if (error) *error = @"Runtime Method Call record 为空";
-        return NO;
-    }
-    ZNRuntimeMethodAction *action = [ZNRuntimeMethodAction new];
-    action.actionID = record.actionID;
-    action.title = record.title;
-    action.group = record.group;
-    action.assembly = record.assembly;
-    action.namespaceName = record.namespaceName;
-    action.className = record.className;
-    action.methodName = record.methodName;
-    action.argumentCount = record.argumentCount;
-    action.argumentValues = record.argumentValues ?: @[];
-    action.parameterTypeNames = record.parameterTypeNames ?: @[];
-    action.signatureAvailable = record.signatureAvailable;
-
-    NSString *invokeError = nil;
-    NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&invokeError];
-    if (!result) {
-        self.lastStatus = invokeError ?: @"Runtime Method Call 执行失败";
-        if (error) *error = self.lastStatus;
-        return NO;
-    }
-    self.lastStatus = [NSString stringWithFormat:@"%@：SUCCESS", record.title.length ? record.title : record.methodName];
-    return YES;
-}
-
-- (NSArray<NSString *> *)diagnosticLines {
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    [lines addObject:self.lastStatus ?: @""];
-    [lines addObjectsFromArray:self.lastDiagnostics ?: @[]];
-    NSDictionary *cap = [[ZNIL2CPPInvokeEngine sharedEngine] capabilities];
-    [lines addObject:[NSString stringWithFormat:@"Invoke resolver=%@ runtimeInvoke=%@ methodFlags=%@ /0=%@ /1=%@ /2+=%@ string=%@",
-                      [cap[@"resolver"] boolValue] ? @"YES" : @"NO",
-                      [cap[@"runtimeInvoke"] boolValue] ? @"YES" : @"NO",
-                      [cap[@"methodGetFlags"] boolValue] ? @"YES" : @"NO",
-                      [cap[@"zeroArgStatic"] boolValue] ? @"YES" : @"NO",
-                      [cap[@"typedArg1Static"] boolValue] ? @"YES" : @"NO",
-                      [cap[@"multiArgStatic"] boolValue] ? @"YES" : @"NO",
-                      [cap[@"stringNew"] boolValue] ? @"YES" : @"NO"]];
-    for (ZNRuntimeMethodActionRecord *record in self.records) {
-        [lines addObject:[NSString stringWithFormat:@"[%u] %@ · %@ · signature=%@ · args=%@ · source=%@",
-                          record.actionID,
-                          record.title ?: @"",
-                          record.canonicalIdentity,
-                          record.signatureAvailable ? @"full" : @"legacy",
-                          record.argumentValues ?: @[],
-                          record.sourceImage.lastPathComponent ?: @""]];
-    }
-    return lines;
-}
-
++ (instancetype)sharedRuntime{static ZNRuntimeActionRuntime *r;static dispatch_once_t once;dispatch_once(&once,^{r=[ZNRuntimeActionRuntime new];});return r;}
+- (instancetype)init{self=[super init];if(!self)return nil;_records=@[];_lastDiagnostics=@[];_lastStatus=@"尚未扫描 Runtime Method Call";return self;}
+- (void)refresh{NSMutableArray *found=[NSMutableArray array];NSMutableSet *dedupe=[NSMutableSet set];NSMutableArray *diag=[NSMutableArray array];for(uint32_t i=0;i<_dyld_image_count();i++)ZNRARParseImage(i,found,dedupe,diag);self.records=[found copy];self.lastDiagnostics=[diag copy];self.lastStatus=[NSString stringWithFormat:@"Runtime Method Call：%lu actions",(unsigned long)found.count];[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[runtime-method-call] refresh -> %lu actions",(unsigned long)found.count]];}
+- (BOOL)executeRecord:(ZNRuntimeMethodActionRecord *)record error:(NSString **)error{if(!record){if(error)*error=@"Runtime Method Call record 为空";return NO;}ZNRuntimeMethodAction *a=[ZNRuntimeMethodAction new];a.actionID=record.actionID;a.title=record.title;a.group=record.group;a.assembly=record.assembly;a.namespaceName=record.namespaceName;a.className=record.className;a.methodName=record.methodName;a.argumentCount=record.argumentCount;a.argumentValues=record.argumentValues?:@[];a.parameterTypeNames=record.parameterTypeNames?:@[];a.signatureAvailable=record.signatureAvailable;a.argumentControlConfigs=record.argumentControlConfigs?:@[];a.immediateChain=record.immediateChain?:@{};NSString *invokeError=nil;NSDictionary *result=[[ZNIL2CPPInvokeEngine sharedEngine]executeAction:a error:&invokeError];if(!result){self.lastStatus=invokeError?:@"Runtime Method Call 执行失败";if(error)*error=self.lastStatus;return NO;}self.lastStatus=[NSString stringWithFormat:@"%@：SUCCESS",record.title.length?record.title:record.methodName];return YES;}
+- (NSArray<NSString *> *)diagnosticLines{NSMutableArray *lines=[NSMutableArray array];[lines addObject:self.lastStatus?:@""];[lines addObjectsFromArray:self.lastDiagnostics?:@[]];for(ZNRuntimeMethodActionRecord *r in self.records)[lines addObject:[NSString stringWithFormat:@"[%u] %@ · %@ · args=%@ · controls=%lu · chain=%@",r.actionID,r.title?:@"",r.canonicalIdentity,r.argumentValues?:@[],(unsigned long)r.argumentControlConfigs.count,r.immediateChain.count?@"YES":@"NO"]];return lines;}
 @end
