@@ -14,6 +14,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy,readonly) NSArray<NSString *> *argumentValues;
 @property(nonatomic,copy,readonly) NSArray<NSString *> *parameterTypeNames;
 @property(nonatomic,assign,readonly) BOOL signatureAvailable;
+@property(nonatomic,copy,readonly) NSArray<NSDictionary<NSString *, id> *> *argumentControlConfigs;
+@property(nonatomic,copy,readonly) NSDictionary<NSString *, id> *immediateChain;
 @property(nonatomic,copy,readonly) NSString *sourceImage;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @end
