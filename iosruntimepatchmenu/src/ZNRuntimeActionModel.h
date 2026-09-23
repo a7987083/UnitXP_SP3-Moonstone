@@ -2,6 +2,18 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef NS_ENUM(NSInteger, ZNRuntimeArgumentControlType) {
+    ZNRuntimeArgumentControlTypeFixed = 0,
+    ZNRuntimeArgumentControlTypeSwitch = 1,
+    ZNRuntimeArgumentControlTypeButton = 2,
+    ZNRuntimeArgumentControlTypeNumber = 3,
+    ZNRuntimeArgumentControlTypeSlider = 4,
+};
+
+FOUNDATION_EXPORT NSString *ZNRuntimeArgumentControlTypeName(ZNRuntimeArgumentControlType type);
+FOUNDATION_EXPORT NSString *ZNRuntimeArgumentControlTypeKey(ZNRuntimeArgumentControlType type);
+FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromKey(NSString *key);
+
 @interface ZNRuntimeMethodAction : NSObject <NSCopying>
 @property(nonatomic,assign) uint32_t actionID;
 @property(nonatomic,copy) NSString *title;
@@ -17,6 +29,12 @@ NS_ASSUME_NONNULL_BEGIN
 // legacy Method/N compatibility for records authored by older versions.
 @property(nonatomic,copy) NSArray<NSString *> *parameterTypeNames;
 @property(nonatomic,assign) BOOL signatureAvailable;
+// M5.1: one dictionary per argument. enabled=NO means fixed value. enabled=YES
+// exposes that argument in the generated menu using switch/button/number/slider.
+@property(nonatomic,copy) NSArray<NSDictionary<NSString *, id> *> *argumentControlConfigs;
+// M5.1 Immediate Chain. Empty means no chain. V1 stores a complete target
+// method descriptor and never persists a returned object address/GCHandle.
+@property(nonatomic,copy) NSDictionary<NSString *, id> *immediateChain;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @property(nonatomic,copy,readonly) NSString *legacyCanonicalIdentity;
 @end
@@ -36,6 +54,12 @@ NS_ASSUME_NONNULL_BEGIN
             atIndex:(NSUInteger)index
               error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)updateArgumentValues:(NSArray<NSString *> *)argumentValues
+                     atIndex:(NSUInteger)index
+                       error:(NSString * _Nullable * _Nullable)error;
+- (BOOL)updateArgumentControlConfigs:(NSArray<NSDictionary<NSString *, id> *> *)configs
+                             atIndex:(NSUInteger)index
+                               error:(NSString * _Nullable * _Nullable)error;
+- (BOOL)updateImmediateChain:(nullable NSDictionary<NSString *, id> *)chain
                      atIndex:(NSUInteger)index
                        error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)removeActionAtIndex:(NSUInteger)index;
