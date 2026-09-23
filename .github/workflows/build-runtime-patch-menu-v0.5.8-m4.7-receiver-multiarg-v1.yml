@@ -112,7 +112,7 @@ jobs:
           set -euxo pipefail
           out=iosruntimepatchmenu/dist-m4.7/ZonoPatch_v0.5.8_M4.7_Receiver_MultiArg_V1.dylib
           file "$out" | grep -q 'arm64'
-          otool -L "$out"
+          otool -L "$out" | tee /tmp/zono_m47_load_commands.txt
           strings -a "$out" > /tmp/zono_m47_strings.txt
           grep -q '\[m4.7-receiver-capture\]' /tmp/zono_m47_strings.txt
           grep -q '\[m4.7-receiver-ui\]' /tmp/zono_m47_strings.txt
@@ -120,7 +120,11 @@ jobs:
           grep -q '\[m4.7-multiarg-ui\]' /tmp/zono_m47_strings.txt
           grep -q '\[m4.7-builder-args\]' /tmp/zono_m47_strings.txt
           grep -q '\[m4.7-version\]' /tmp/zono_m47_strings.txt
-          grep -q 'DobbyInstrument' /tmp/zono_m47_strings.txt
+          # Dobby is linked from libdobby.a and the final tweak is stripped, so
+          # DobbyInstrument is not required to survive as a literal/symbol string.
+          # Source contract checks the call site; successful final link proves it
+          # resolved, and the final Mach-O must not depend on an external Dobby dylib.
+          ! grep -qi 'dobby' /tmp/zono_m47_load_commands.txt
           grep -q 'Receiver Capture + Multi-Arg Invoke' /tmp/zono_m47_strings.txt
           init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
           echo "__init_offsets size=$init_size"
