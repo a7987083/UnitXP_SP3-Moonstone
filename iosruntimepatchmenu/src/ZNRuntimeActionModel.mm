@@ -162,19 +162,34 @@ static uint32_t ZNRMAFNV1a32(NSString *text) {
     action.signatureAvailable = signatureAvailable;
     action.title = ZNRMATrim(title).length ? ZNRMATrim(title) : methodName;
     action.group = @"Runtime Methods";
-    action.actionID = ZNRMAFNV1a32(action.canonicalIdentity);
 
+    // Button identity is intentionally independent from method identity.
+    // The same exact method/signature/arguments/title may be authored multiple
+    // times; each row receives a unique actionID so generated binaries preserve
+    // every button instead of collapsing them during runtime discovery.
     @synchronized (self) {
-        for (ZNRuntimeMethodAction *existing in self.mutableActions) {
-            if ([existing.canonicalIdentity isEqualToString:action.canonicalIdentity]) {
-                if (error) *error = @"该方法按钮已存在；可在 Builder 中修改名称/参数";
-                return [existing copy];
+        uint32_t serial = 0;
+        BOOL collision = NO;
+        do {
+            NSString *seed = [NSString stringWithFormat:@"%@|%@|%@|%lu|%u",
+                              action.canonicalIdentity ?: @"",
+                              action.title ?: @"",
+                              action.argumentValues ?: @[],
+                              (unsigned long)self.mutableActions.count,
+                              serial++];
+            action.actionID = ZNRMAFNV1a32(seed);
+            collision = NO;
+            for (ZNRuntimeMethodAction *existing in self.mutableActions) {
+                if (existing.actionID == action.actionID) {
+                    collision = YES;
+                    break;
+                }
             }
-        }
+        } while (collision);
         [self.mutableActions addObject:action];
     }
 
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring add id=%u %@ args=%@ signature=%@",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] authoring add id=%u %@ args=%@ signature=%@ duplicate-methods=allowed",
                                          action.actionID,
                                          action.canonicalIdentity,
                                          action.argumentValues,
