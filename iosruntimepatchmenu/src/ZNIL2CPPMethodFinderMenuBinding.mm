@@ -37,6 +37,7 @@ extern "C" void ZNInstallM47BuilderArgsUIDeferred(void);
 extern "C" void ZNInstallM47VersionUIDeferred(void);
 extern "C" void ZNInstallM48ReturnCaptureDeferred(void);
 extern "C" void ZNInstallM49GenericInvokeEditableArgsDeferred(void);
+extern "C" void ZNInstallM50ManagedReturnChainingDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -121,25 +122,19 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM462InstanceSafetyDeferred();
         ZNInstallM462CandidateBindingUIDeferred();
 
-        // M4.7 layers are outermost. Receiver capture observes the real method
-        // entry and stores x0/this through the M4.6.2 GCHandle-backed selection
-        // path. Multi-arg invocation consumes exact full-signature candidates
-        // and exposes dynamic /2-/8 parameter rows without disturbing /0-/1.
         ZNInstallM47ReceiverCaptureUIDeferred();
         ZNInstallM47MultiArgInvokeDeferred();
         ZNInstallM47MultiArgUIDeferred();
         ZNInstallM47BuilderArgsUIDeferred();
         ZNInstallM47VersionUIDeferred();
 
-        // M4.8 is deliberately installed after M4.7 so its executeAction wrapper
-        // observes both the legacy /0-/1 route and the M4.7 /2-/8 route. It
-        // decodes the actual il2cpp_runtime_invoke result after the call returns.
         ZNInstallM48ReturnCaptureDeferred();
-
-        // M4.9 sits outside M4.8. Runtime actions with /1-/8 now prompt with
-        // their saved values, assemble a one-shot argument vector, then execute
-        // through the same Generic Invoke + Return Capture pipeline. /0 keeps
-        // the proven one-tap behavior.
         ZNInstallM49GenericInvokeEditableArgsDeferred();
+
+        // M5.0 is deliberately the outermost invoke layer. It consumes the
+        // decoded M4.8 return metadata, retains managed-reference returns with
+        // a GCHandle, and temporarily injects a compatible chained receiver
+        // before the next instance Runtime Action executes.
+        ZNInstallM50ManagedReturnChainingDeferred();
     });
 }
