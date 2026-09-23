@@ -128,7 +128,10 @@ jobs:
           grep -q 'Receiver Capture + Multi-Arg Invoke' /tmp/zono_m47_strings.txt
           init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
           echo "__init_offsets size=$init_size"
-          test "$init_size" = '0x0000000000000004' -o "$init_size" = '0x4'
+          # M3.1/M4.6.2 had one 4-byte cold-launch init offset. M4.7 intentionally
+          # statically links pinned Dobby and the verified arm64 image has 22 entries
+          # (0x58 bytes). Keep this exact to detect constructor-set regressions.
+          test "$init_size" = '0x0000000000000058' -o "$init_size" = '0x58'
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
