@@ -8,4 +8,4 @@
 #define ZN_PRODUCT_VERSION @"0.5.8"
 #define ZN_MILESTONE_VERSION @"M4.7"
 #define ZN_MENU_VERSION_DISPLAY @"0.5.8 · M4.7"
-#define ZN_MENU_VERSION_FEATURE @"Receiver Capture"
+#define ZN_MENU_VERSION_FEATURE @"Receiver Capture + Multi-Arg Invoke"
