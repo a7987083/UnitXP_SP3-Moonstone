@@ -2,186 +2,116 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M4.5 Address → Owning Method Resolver V1 on top of M4.4.2 Search Restore + M4.4 Instance Resolver + M4.2 typed invoke + M4.1 UX + Offset Resolver V2**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.0 Managed-reference Return Chaining V1** on top of M4.9 Generic Invoke + Runtime Editable Args + M4.8 Return Capture + M4.7 Receiver/Multi-Arg.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-m4.5-address-owning-method-v1`
-- CI validated product head: `fa2f9db21b507da64feb6ffe0acc6a29d71aff2e`
-- Final CI run: `35795001139` — `success`
-- Artifact: `ZonoPatch-v0.5.8-M4.5-OwningMethod-V1`
-- Artifact ID: `10723682927`
-- ZIP SHA256: `7d3070974665d4cf2962f7e4bb5283bff0c03b938bc05ce57b8f1f943545c250`
-- Dylib: `ZonoPatch_v0.5.8_M4.5_OwningMethod_V1.dylib`
-- Dylib size: `1052128`
-- Dylib SHA256: `faa43520ac6e7086a0d6f6719a0c7076578a12d8ba493088cc114b0748ff7fa1`
-- Format: thin arm64 Mach-O dylib
+- Active branch: `feature/runtime-patch-menu-v0.5.8-m5.0-managed-return-chaining-v1`
+- Current source head before docs-only commits: `ec6ed852c24684cb92dbfc927afe16797eccbc0d`
+- Latest M5.0 CI Run under validation: `35927940785`
+- Device verification: PENDING
 
 ## Validation boundary
 
 Do not conflate source, CI, binary and device verification.
 
-### Device-verified predecessor only
+Known device evidence inherited:
 
-M4 Runtime Method Call V1 has explicit user device evidence for `/0` create, `/0` test execute and generated binary usable. It is not a full regression pass.
+- M4 Runtime Method Call V1: `/0` create/test/generated-binary usable.
+- M4.7: receiver capture produced a stable live instance in user testing.
+- M4.8: explicit Runtime Invoke `System.Int32` return decode displayed the real value (`1`) while raw remained the boxed object pointer.
 
-### Current M4.5 state
+M5.0 itself has no physical-device acceptance yet.
 
-- source implemented: YES;
-- committed to GitHub: YES;
-- arm64 CI compile/link/sign: YES;
-- binary verification: YES;
-- artifact upload + independent hash check: YES;
-- exact-entry RVA reverse lookup device validation: PENDING;
-- interior-instruction -> owning method device validation: PENDING;
-- named-search M4.4.2 regression test: PENDING;
-- unsupported `/1` reason-label UI device validation: PENDING;
-- M4.4 instance selection device validation: PENDING;
-- receiver/`this` hook capture backend: NOT IMPLEMENTED;
-- full regression: NO.
+## What M5.0 does
+
+M5.0 turns an explicit managed-reference return into a reusable receiver candidate for the next Runtime Action.
+
+```text
+Action A
+ -> il2cpp_runtime_invoke
+ -> M4.8 return metadata
+ -> managed reference + non-null
+ -> M5.0 GCHandle retain
+
+Action B
+ -> get latest chained target
+ -> validate target against B declaring class
+ -> compatible: temporary receiver injection
+ -> execute B
+ -> restore prior selected receiver
+ -> capture B managed-reference return if present
+```
+
+### Lifetime model
+
+- preferred: strong non-pinned `il2cpp_gchandle_new`;
+- reuse: `il2cpp_gchandle_get_target` so moving GC addresses can be refreshed;
+- replacement: old chain handle is freed when a new managed return is captured;
+- stripped target fallback: raw process-session address only when all GCHandle exports are unavailable; class validation still gates use;
+- the receiver that was selected before temporary chaining gets a separate temporary keepalive handle before being replaced, then is restored after the chained call.
+
+### Compatibility model
+
+M5.0 never injects an arbitrary returned object blindly. Before use it calls existing instance validation against:
+
+```text
+Assembly + Namespace + Class
+```
+
+If validation fails, M5.0 does nothing and the existing M4.x instance resolver/selection path remains responsible for `this`.
+
+## Important scope boundaries
+
+- Chaining currently applies only to **explicit Runtime Invoke** results decoded by M4.8.
+- Natural game-call return capture is not implemented.
+- `System.Int32`, bool, float, enum, pointer and boxed ValueType returns are not chain receivers.
+- complex struct/value-type chaining is not implemented.
+- ref/out receiver chaining is not implemented.
+- raw managed object pointer is never persisted to generated Runtime Action storage.
+- chain is process-session only.
+
+## M4.9 behavior inherited and must not regress
+
+- generated Runtime Method Actions must visibly render an `执行` button;
+- `/1-/8` execution opens an argument editor populated from saved values;
+- editing is one-shot and does not require recreating the button;
+- same method/signature can create multiple Runtime buttons;
+- button/action identity is independent from method identity;
+- M4.8 return display must remain available after invoke.
 
 ## Architecture invariants
 
-- Offset Resolver V2 exact image identity/canonical RVA behavior stays unchanged.
 - `ZN44StaticEntry == 128` bytes.
 - `ZNRuntimeActionHeader == 64` bytes.
 - `ZNRuntimeMethodCallEntry == 64` bytes.
-- Runtime Action ABI remains independent from Static Patch ABI.
-- `/1` text arguments continue using the existing Runtime Action string pool.
-- Raw `Il2CppObject *` addresses are not persisted.
-- M4.5 does not alter ABI or generated-binary entry sizes.
+- Runtime Action ABI version remains unchanged.
+- Static Patch ABI remains unchanged.
+- Dobby remains statically linked with no external Dobby dylib dependency.
+- exact image/RVA behavior from Offset Resolver V2 remains unchanged.
 
-## Named search routing — do not regress
+## Files added/changed for M5.0
 
-M4.3 previously swapped:
+- `iosruntimepatchmenu/src/ZNM50ManagedReturnChaining.mm` — new chaining layer.
+- `iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm` — installs M5.0 outermost.
+- `iosruntimepatchmenu/Makefile` — compiles M5.0 translation unit.
+- `iosruntimepatchmenu/src/ZNBuildVersion.h` — displays M5.0.
+- `.github/workflows/build-runtime-patch-menu-v0.5.8-m5.0-managed-return-chaining-v1.yml` — M5.0 CI contract/build/binary verification.
 
-```text
-zn60v3_startSearch: <-> znm43_startSearch:
-```
+## Device checklist
 
-M4.4.2 established the current reference behavior: both visible Search and keyboard Search route through normalization and then delegate actual named search to the original device-proven V3 implementation. Untouched Assembly state means global search with Assembly-CSharp first; only an explicit picker choice is strict.
-
-M4.5 is installed outside that route. `znm45_submitSearch:` only consumes address-shaped queries; normal method names immediately delegate back to the M4.4.2 implementation.
-
-## M4.5 address ownership model
-
-Accepted inputs:
-
-```text
-38064A8
-0x38064A8
-rva:38064A8
-rva:0x38064A8
-va:0x...
-```
-
-`va:` is converted using current UnityFramework runtime base.
-
-For an exact method entry:
-
-```text
-targetRVA == methodStart
-```
-
-M4.5 returns `ownershipKind = exact-method-entry`.
-
-For an instruction inside a method, M4.5 scans live IL2CPP MethodInfo/native pointers and requires:
-
-```text
-methodStart <= targetRVA < nextKnownMethodStart
-```
-
-Then it records:
-
-```text
-queryRVA
-methodRVA
-nextMethodRVA
-intraMethodOffset = queryRVA - methodRVA
-ownershipKind = bounded-method-interval
-```
-
-Interior resolution fails closed when the scan exceeds the 6-second budget or no safe next-method boundary exists. This is intentional: do not infer ownership from only “closest previous method” when the upper bound is unknown.
-
-Shared/generic native pointers may map multiple MethodInfos to the same method start. Those are returned as multiple candidates; do not silently choose one.
-
-## Patch bridge behavior
-
-M4.5 interior candidate canonical form is:
-
-```text
-Assembly!Namespace.Class::Method/N+0xDELTA
-```
-
-`ZNIL2CPPResolver.parseNamedOffsetExpression` already parses delta before `/argumentCount`, so the existing V3 Patch bridge can preserve the original instruction address through Builder/Validator. No new Patch ABI or patch engine was introduced.
-
-## `/1` UI cleanup
-
-M4.4.1 appended an unsupported reason into the disabled input placeholder but left the text field `enabled = NO` / alpha reduced. This caused the user to still see a gray input.
-
-M4.5 now post-processes result cards:
-
-```text
-supported /1
-→ actual editable input remains
-
-unsupported /1
-→ disabled gray input removed
-→ normal-color type/reason label inserted
-→ Test/Create remain disabled
-```
-
-This is UI truthfulness only; it does not pretend unsupported ABI kinds are callable.
-
-## Existing typed/instance behavior retained
-
-- Primitive/string `/1`: bool, signed/unsigned integers, float/double, enum, System.String.
-- Exact Unity `/1`: Vector2, Vector3, Quaternion, Color.
-- `/2+`, custom structs, ordinary managed object refs, ref/out and pointer remain fail closed.
-- M4.3 liveness + M4.4 session instance selection remain unchanged.
-
-## Build result
-
-Product/CI head:
-
-```text
-fa2f9db21b507da64feb6ffe0acc6a29d71aff2e
-```
-
-CI run `35795001139`:
-
-```text
-Source Contract  PASS
-arm64 Build      PASS
-Binary Verify    PASS
-Artifact Upload  PASS
-```
-
-Independent downloaded artifact verification:
-
-```text
-Mach-O 64-bit arm64 dynamically linked shared library
-ZIP SHA256   7d3070974665d4cf2962f7e4bb5283bff0c03b938bc05ce57b8f1f943545c250
-Dylib SHA256 faa43520ac6e7086a0d6f6719a0c7076578a12d8ba493088cc114b0748ff7fa1
-```
-
-## Known M4.5 limitations
-
-- Live owning-method index is rebuilt by scan; very large games may approach the 6-second safety budget.
-- Interior ownership deliberately fails closed on timeout/incomplete upper bound.
-- Full Method Signature identity is not implemented yet; same-name/same-arity overload ambiguity remains a later task.
-- Receiver capture through temporary native instrumentation is still not implemented.
-- Current invoke engine still executes at most one explicit argument.
-
-## Immediate device checklist
-
-1. Search the same normal method name with visible Search and keyboard Search; confirm both still work.
-2. Enter a known method start RVA; confirm exact method and `+0x0`.
-3. Enter an instruction address several ARM64 instructions inside that method; confirm same method and correct `+0x...`.
-4. Verify Details shows query RVA, method start, next method start and ownership kind.
-5. From the interior result use Create Patch; confirm Builder offset is the original queried instruction RVA.
-6. Find unsupported `/1`; confirm the gray fake input is gone and a reason label is shown.
-7. Regress Patch Offset normalization, supported `/1`, instance selection and `/0` create/test/generated binary.
+1. Use a method that returns a known class/object reference, not a primitive.
+2. Execute it through Runtime Invoke.
+3. Confirm return UI still displays M4.8 result.
+4. Check log for `[m5.0-chain] captured ...`.
+5. Execute an instance method belonging to that returned object's class (or compatible base class).
+6. Check log for `[m5.0-chain] receiver injected ...`.
+7. Verify the second call actually affects/reads the returned object.
+8. Execute an incompatible class method and confirm chain is not injected.
+9. Execute a primitive-return method and confirm it does not replace the managed-reference chain.
+10. If a manual receiver was selected before chaining, confirm it is restored afterward.
+11. Regress M4.9 Runtime `执行` button and editable args.
+12. Regress M4 `/0` generated-binary path.
 
 ## Next engineering action
 
-After real-device acceptance of M4.5, proceed to **M4.6 Full Method Signature Identity**. Do not expand generic `/2+` invocation before overload identity is exact.
+After M5.0 physical-device acceptance, proceed to Object/Collection Inspector using the retained managed object as the first inspection root. Array/List/Dictionary traversal and JSON export should be layered after object/class/field inspection is stable.
