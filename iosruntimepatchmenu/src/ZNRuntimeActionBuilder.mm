@@ -29,6 +29,22 @@ static BOOL ZNRABAppendString(NSMutableData *data, NSString *value, uint32_t *of
     return YES;
 }
 
+static NSString *ZNRABEncodeArgumentVector(NSArray<NSString *> *values, NSString **error) {
+    NSArray *safe = values ?: @[];
+    NSError *jsonError = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:safe options:0 error:&jsonError];
+    if (!data) {
+        if (error) *error = [NSString stringWithFormat:@"Runtime Action 参数 JSON 编码失败：%@", jsonError.localizedDescription ?: @"unknown"];
+        return nil;
+    }
+    NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!json) {
+        if (error) *error = @"Runtime Action 参数 JSON 不是 UTF-8";
+        return nil;
+    }
+    return json;
+}
+
 static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSString **error) {
     if (!actions.count) return [NSData data];
     if (actions.count > ZN_RUNTIME_ACTION_MAX_ENTRIES) {
@@ -52,18 +68,22 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSStrin
 
     for (NSUInteger i = 0; i < actions.count; i++) {
         ZNRuntimeMethodAction *action = actions[i];
-        if (action.argumentCount > 1) {
-            if (error) *error = [NSString stringWithFormat:@"%@：M4.2 首版仅能导出 /0 与 /1 Runtime Method Call", action.canonicalIdentity];
+        if (action.argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) {
+            if (error) *error = [NSString stringWithFormat:@"%@：参数数量超过 M4.7 上限 %u",
+                                 action.canonicalIdentity, ZN_RUNTIME_ACTION_MAX_ARGUMENTS];
             return nil;
         }
-        if (action.argumentCount == 1 && action.argumentValues.count != 1) {
-            if (error) *error = [NSString stringWithFormat:@"%@：缺少 /1 参数值", action.canonicalIdentity];
+        if (action.argumentCount > 0 && action.argumentValues.count != action.argumentCount) {
+            if (error) *error = [NSString stringWithFormat:@"%@：需要 %lu 个参数值，当前=%lu",
+                                 action.canonicalIdentity,
+                                 (unsigned long)action.argumentCount,
+                                 (unsigned long)action.argumentValues.count];
             return nil;
         }
 
         uint32_t titleOffset = 0, groupOffset = 0, assemblyOffset = 0;
         uint32_t namespaceOffset = 0, classOffset = 0, methodOffset = 0;
-        uint32_t argument0Offset = 0;
+        uint32_t argument0Offset = 0, argumentVectorOffset = 0;
         NSString *stringError = nil;
         if (!ZNRABAppendString(data, action.title, &titleOffset, &stringError) ||
             !ZNRABAppendString(data, action.group, &groupOffset, &stringError) ||
@@ -74,12 +94,22 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSStrin
             if (error) *error = stringError ?: @"Runtime Action string pool 写入失败";
             return nil;
         }
+
         if (action.argumentCount == 1 &&
             !ZNRABAppendString(data, action.argumentValues.firstObject ?: @"", &argument0Offset, &stringError)) {
-            if (error) *error = stringError ?: @"Runtime Action 参数写入失败";
+            if (error) *error = stringError ?: @"Runtime Action 参数 1 写入失败";
             return nil;
         }
 
+        if (action.argumentCount > 0) {
+            NSString *json = ZNRABEncodeArgumentVector(action.argumentValues, &stringError);
+            if (!json || !ZNRABAppendString(data, json, &argumentVectorOffset, &stringError)) {
+                if (error) *error = stringError ?: @"Runtime Action 参数向量写入失败";
+                return nil;
+            }
+        }
+
+        // data.mutableBytes may move after every string append; reacquire here.
         ZNRuntimeMethodCallEntry *entries = (ZNRuntimeMethodCallEntry *)((uint8_t *)data.mutableBytes + sizeof(ZNRuntimeActionHeader));
         ZNRuntimeMethodCallEntry *entry = &entries[i];
         entry->actionID = action.actionID;
@@ -95,6 +125,10 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSStrin
             entry->flags |= ZNRuntimeActionFlagArgument0Text;
             entry->reserved[0] = argument0Offset;
         }
+        if (action.argumentCount > 0) {
+            entry->flags |= ZNRuntimeActionFlagArgumentVectorText;
+            entry->reserved[2] = argumentVectorOffset;
+        }
     }
 
     while (data.length & 7u) {
@@ -105,7 +139,6 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions, NSStrin
         if (error) *error = @"Runtime Action table 超过 4GB";
         return nil;
     }
-    // data.mutableBytes can move after append, so reacquire pointers only now.
     header = (ZNRuntimeActionHeader *)data.mutableBytes;
     header->totalSize = (uint32_t)data.length;
     header->stringPoolSize = header->totalSize - header->stringPoolOffset;
@@ -147,8 +180,9 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
         @"storage": @"__ZNDATA/__zndata after Static Dispatch table",
         @"staticEntryABIPreserved": @YES,
         @"runtimeEntrySize": @(sizeof(ZNRuntimeMethodCallEntry)),
-        @"typedArgumentMaxCount": @1,
-        @"supportedArgumentCounts": @[@0, @1],
+        @"typedArgumentMaxCount": @(ZN_RUNTIME_ACTION_MAX_ARGUMENTS),
+        @"supportedArgumentRange": @"0-8",
+        @"argumentVectorEncoding": @"UTF-8 JSON array via reserved[2]",
         @"count": @(actions.count),
         @"bytes": @(tableBytes),
         @"actions": items,
@@ -277,7 +311,7 @@ BOOL ZNRuntimeActionEmbedIntoGeneratedOutputs(NSArray<NSString *> *builderOutput
         }
     }
     if (!unityOutput.length) {
-        if (error) *error = @"存在 Runtime Method Call，但本次 Builder 没有 UnityFramework.znpatched 输出。请至少保留一个已验证的 UnityFramework Static Patch 再生成。";
+        if (error) *error = @"存在 Runtime Method Call，但本次 Builder 没有 UnityFramework.znpatched 输出。";
         return NO;
     }
 
@@ -289,14 +323,15 @@ BOOL ZNRuntimeActionEmbedIntoGeneratedOutputs(NSArray<NSString *> *builderOutput
 
     ZNRABUpdateBuildReport(builderOutputs, actions, table.length);
     if (report) {
-        *report = [NSString stringWithFormat:@"Runtime Method Call：已嵌入 %lu 个 /0-/1 action · %lu bytes · %@",
+        *report = [NSString stringWithFormat:@"Runtime Method Call：已嵌入 %lu 个 /0-/8 action · %lu bytes · %@",
                    (unsigned long)actions.count,
                    (unsigned long)table.length,
                    unityOutput.lastPathComponent];
     }
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] embedded count=%lu bytes=%lu output=%@",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] embedded count=%lu bytes=%lu maxArgs=%u output=%@",
                                          (unsigned long)actions.count,
                                          (unsigned long)table.length,
+                                         ZN_RUNTIME_ACTION_MAX_ARGUMENTS,
                                          unityOutput.lastPathComponent]];
     return YES;
 }
