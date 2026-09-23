@@ -106,6 +106,9 @@ static void ZNM50CaptureManagedReturn(uintptr_t object, NSString *typeName) {
     ZNIL2CPPInstanceResolver *resolver = [ZNIL2CPPInstanceResolver sharedResolver];
     uintptr_t chain = ZNM50CurrentManagedReturn();
     uintptr_t previous = 0;
+    ZNM50GCHandle previousKeepAlive = 0;
+    ZNM50GCHandleGetTargetFn getFn = NULL;
+    ZNM50GCHandleFreeFn freeFn = NULL;
     BOOL injected = NO;
 
     if (chain && action.className.length) {
@@ -118,6 +121,18 @@ static void ZNM50CaptureManagedReturn(uintptr_t object, NSString *typeName) {
             previous = [resolver znm44_selectedInstanceForAssembly:action.assembly ?: @""
                                                           namespace:action.namespaceName ?: @""
                                                           className:action.className];
+
+            if (previous && previous != chain) {
+                ZNM50GCHandleNewFn newFn = NULL;
+                if (ZNM50GCAPI(&newFn, &getFn, &freeFn) && newFn) {
+                    previousKeepAlive = newFn((void *)previous, false);
+                    if (previousKeepAlive && !getFn(previousKeepAlive)) {
+                        freeFn(previousKeepAlive);
+                        previousKeepAlive = 0;
+                    }
+                }
+            }
+
             NSString *selectError = nil;
             injected = [resolver znm44_selectInstanceAddress:chain
                                                     assembly:action.assembly ?: @""
@@ -135,9 +150,13 @@ static void ZNM50CaptureManagedReturn(uintptr_t object, NSString *typeName) {
     NSDictionary *result = [self znm50_executeAction:action error:error];
 
     if (injected) {
-        if (previous && previous != chain) {
+        uintptr_t restoreAddress = previous;
+        if (previousKeepAlive && getFn) {
+            restoreAddress = (uintptr_t)getFn(previousKeepAlive);
+        }
+        if (restoreAddress && restoreAddress != chain) {
             NSString *restoreError = nil;
-            [resolver znm44_selectInstanceAddress:previous
+            [resolver znm44_selectInstanceAddress:restoreAddress
                                          assembly:action.assembly ?: @""
                                         namespace:action.namespaceName ?: @""
                                         className:action.className
@@ -148,6 +167,7 @@ static void ZNM50CaptureManagedReturn(uintptr_t object, NSString *typeName) {
                                                     className:action.className];
         }
     }
+    if (previousKeepAlive && freeFn) freeFn(previousKeepAlive);
 
     if (result) {
         NSString *kind = [result[@"returnKind"] isKindOfClass:NSString.class] ? result[@"returnKind"] : @"";
