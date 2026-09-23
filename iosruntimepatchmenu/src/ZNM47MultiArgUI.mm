@@ -82,8 +82,9 @@ static CGFloat ZNM47Bottom(UIView *root) {
 }
 
 static NSString *ZNM47ShortType(NSString *type) {
-    NSArray *parts = [type ?: @"" componentsSeparatedByString:@"."];
-    return parts.lastObject.length ? parts.lastObject : (type ?: @"?");
+    NSArray<NSString *> *parts = [type ?: @"" componentsSeparatedByString:@"."];
+    NSString *last = parts.lastObject;
+    return last.length ? last : (type ?: @"?");
 }
 
 static NSUInteger ZNM47StructCount(NSString *type) {
