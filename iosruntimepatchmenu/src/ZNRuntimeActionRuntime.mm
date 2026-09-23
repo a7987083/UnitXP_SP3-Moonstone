@@ -67,6 +67,20 @@ static NSString *ZNRARReadString(const uint8_t *table,
     return value;
 }
 
+static NSArray<NSString *> *ZNRARDecodeArgumentVector(NSString *json) {
+    if (!json.length) return nil;
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data.length) return nil;
+    id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![object isKindOfClass:NSArray.class]) return nil;
+    NSMutableArray<NSString *> *values = [NSMutableArray array];
+    for (id item in (NSArray *)object) {
+        if (![item isKindOfClass:NSString.class]) return nil;
+        [values addObject:item];
+    }
+    return [values copy];
+}
+
 static void ZNRARParseImage(uint32_t imageIndex,
                             NSMutableArray<ZNRuntimeMethodActionRecord *> *out,
                             NSMutableSet<NSString *> *dedupe,
@@ -133,10 +147,11 @@ static void ZNRARParseImage(uint32_t imageIndex,
     const ZNRuntimeMethodCallEntry *entries = (const ZNRuntimeMethodCallEntry *)(table + sizeof(*header));
     NSUInteger accepted = 0;
     NSUInteger fullSignatureAccepted = 0;
+    NSUInteger multiArgAccepted = 0;
     for (uint32_t i = 0; i < header->count; i++) {
         const ZNRuntimeMethodCallEntry *entry = &entries[i];
         if (entry->kind != ZNRuntimeActionKindIL2CPPMethodCall) continue;
-        if (entry->argumentCount > 1) continue;
+        if (entry->argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) continue;
 
         NSString *title = ZNRARReadString(table, header, entry->titleOffset);
         NSString *group = ZNRARReadString(table, header, entry->groupOffset);
@@ -148,18 +163,27 @@ static void ZNRARParseImage(uint32_t imageIndex,
             !assembly.length || !className.length || !methodName.length) continue;
 
         NSArray<NSString *> *argumentValues = @[];
-        if (entry->argumentCount == 1) {
-            if ((entry->flags & ZNRuntimeActionFlagArgument0Text) == 0) continue;
-            NSString *argument0 = ZNRARReadString(table, header, entry->reserved[0]);
-            if (!argument0) continue;
-            argumentValues = @[argument0];
+        if (entry->argumentCount > 0) {
+            if ((entry->flags & ZNRuntimeActionFlagArgumentVectorText) != 0) {
+                NSString *encodedArgs = ZNRARReadString(table, header, entry->reserved[2]);
+                NSArray<NSString *> *decoded = ZNRARDecodeArgumentVector(encodedArgs);
+                if (!decoded || decoded.count != entry->argumentCount) continue;
+                argumentValues = decoded;
+                if (entry->argumentCount > 1) multiArgAccepted++;
+            } else if (entry->argumentCount == 1 && (entry->flags & ZNRuntimeActionFlagArgument0Text) != 0) {
+                NSString *argument0 = ZNRARReadString(table, header, entry->reserved[0]);
+                if (!argument0) continue;
+                argumentValues = @[argument0];
+            } else {
+                continue;
+            }
         }
 
         NSArray<NSString *> *parameterTypeNames = @[];
         BOOL signatureAvailable = NO;
         if ((entry->flags & ZNRuntimeActionFlagParameterSignature) != 0) {
             NSString *encoded = ZNRARReadString(table, header, entry->reserved[1]);
-            if (!encoded) continue; // marked full-signature but malformed: fail closed per-record
+            if (!encoded) continue;
             parameterTypeNames = ZNIL2CPPDecodeParameterTypeNames(encoded);
             if (parameterTypeNames.count != entry->argumentCount) continue;
             signatureAvailable = YES;
@@ -186,8 +210,11 @@ static void ZNRARParseImage(uint32_t imageIndex,
         accepted++;
     }
     if (accepted) {
-        [diagnostics addObject:[NSString stringWithFormat:@"%@：Runtime Actions %lu · full-signature %lu",
-                                path.lastPathComponent ?: @"image", (unsigned long)accepted, (unsigned long)fullSignatureAccepted]];
+        [diagnostics addObject:[NSString stringWithFormat:@"%@：Runtime Actions %lu · full-signature %lu · multi-arg %lu",
+                                path.lastPathComponent ?: @"image",
+                                (unsigned long)accepted,
+                                (unsigned long)fullSignatureAccepted,
+                                (unsigned long)multiArgAccepted]];
     }
 }
 
@@ -261,12 +288,13 @@ static void ZNRARParseImage(uint32_t imageIndex,
     [lines addObject:self.lastStatus ?: @""];
     [lines addObjectsFromArray:self.lastDiagnostics ?: @[]];
     NSDictionary *cap = [[ZNIL2CPPInvokeEngine sharedEngine] capabilities];
-    [lines addObject:[NSString stringWithFormat:@"Invoke resolver=%@ runtimeInvoke=%@ methodFlags=%@ /0=%@ /1=%@ string=%@",
+    [lines addObject:[NSString stringWithFormat:@"Invoke resolver=%@ runtimeInvoke=%@ methodFlags=%@ /0=%@ /1=%@ /2+=%@ string=%@",
                       [cap[@"resolver"] boolValue] ? @"YES" : @"NO",
                       [cap[@"runtimeInvoke"] boolValue] ? @"YES" : @"NO",
                       [cap[@"methodGetFlags"] boolValue] ? @"YES" : @"NO",
                       [cap[@"zeroArgStatic"] boolValue] ? @"YES" : @"NO",
                       [cap[@"typedArg1Static"] boolValue] ? @"YES" : @"NO",
+                      [cap[@"multiArgStatic"] boolValue] ? @"YES" : @"NO",
                       [cap[@"stringNew"] boolValue] ? @"YES" : @"NO"]];
     for (ZNRuntimeMethodActionRecord *record in self.records) {
         [lines addObject:[NSString stringWithFormat:@"[%u] %@ · %@ · signature=%@ · args=%@ · source=%@",
