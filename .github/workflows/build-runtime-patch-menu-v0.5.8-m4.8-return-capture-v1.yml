@@ -1,0 +1,116 @@
+name: Build Runtime Patch Menu v0.5.8 M4.8 Return Capture V1
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m4.8-return-capture-v1
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNM47ReceiverCapture.mm
+          test -f iosruntimepatchmenu/src/ZNM47MultiArgInvoke.mm
+          test -f iosruntimepatchmenu/src/ZNM48ReturnCapture.mm
+          grep -q 'ZNInstallM48ReturnCaptureDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'il2cpp_object_unbox' iosruntimepatchmenu/src/ZNM48ReturnCapture.mm
+          grep -q 'm4.8-return' iosruntimepatchmenu/src/ZNM48ReturnCapture.mm
+          grep -q 'src/ZNM48ReturnCapture.mm' iosruntimepatchmenu/Makefile
+          grep -q '0.5.8 · M4.8' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Receiver + Multi-Arg + Return Capture' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'ZN_RUNTIME_ACTION_MAX_ARGUMENTS 8u' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid cmake
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build pinned Dobby for iPhone arm64
+        run: |
+          set -euxo pipefail
+          mkdir -p vendor
+          git clone https://github.com/jmpews/Dobby.git vendor/Dobby
+          cd vendor/Dobby
+          git checkout 5dfc8546954ce3b3198132ab13fddb89ee92cdd7
+          sed -i '' '/^import pipes$/d' scripts/platform_builder.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('include/dobby.h')
+          s = p.read_text()
+          old = '''#ifdef __cplusplus
+          extern "C" {
+          #endif
+
+          #include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+          '''
+          new = '''#include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          '''
+          if old not in s:
+              raise SystemExit('unexpected Dobby header layout')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
+          test -f build/iphoneos/arm64/libdobby.a
+          file build/iphoneos/arm64/libdobby.a
+
+      - name: Build M4.8
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m4.8
+          cp .theos/obj/ZonoePatchV03.dylib dist-m4.8/ZonoPatch_v0.5.8_M4.8_Return_Capture_V1.dylib
+          shasum -a 256 dist-m4.8/ZonoPatch_v0.5.8_M4.8_Return_Capture_V1.dylib | tee dist-m4.8/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m4.8/ZonoPatch_v0.5.8_M4.8_Return_Capture_V1.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out" | tee /tmp/zono_m48_load_commands.txt
+          strings -a "$out" > /tmp/zono_m48_strings.txt
+          grep -q '\[m4.7-receiver-capture\]' /tmp/zono_m48_strings.txt
+          grep -q '\[m4.7-multiarg\]' /tmp/zono_m48_strings.txt
+          grep -q '\[m4.8-return\]' /tmp/zono_m48_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m48_load_commands.txt
+          grep -q 'Receiver + Multi-Arg + Return Capture' /tmp/zono_m48_strings.txt
+          init_size=$(otool -l "$out" | awk '$1=="sectname" && $2=="__init_offsets" {found=1; next} found && $1=="size" {print $2; exit}')
+          echo "__init_offsets size=$init_size"
+          test "$init_size" = '0x0000000000000058' -o "$init_size" = '0x58'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M4.8-Return-Capture-V1
+          path: |
+            iosruntimepatchmenu/dist-m4.8/ZonoPatch_v0.5.8_M4.8_Return_Capture_V1.dylib
+            iosruntimepatchmenu/dist-m4.8/SHA256.txt
+          if-no-files-found: error
