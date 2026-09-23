@@ -80,8 +80,9 @@ static UITextField *ZNM47FindTitleField(UIView *root, NSUInteger index) {
         for (NSUInteger arg = 0; arg < action.argumentCount; arg++) {
             UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(13, rowY + arg * rowStep, 48, 28)];
             NSString *type = (action.parameterTypeNames.count == action.argumentCount) ? action.parameterTypeNames[arg] : @"?";
-            NSArray *parts = [type componentsSeparatedByString:@"."];
-            NSString *shortType = parts.lastObject.length ? parts.lastObject : type;
+            NSArray<NSString *> *parts = [type componentsSeparatedByString:@"."];
+            NSString *last = parts.lastObject;
+            NSString *shortType = last.length ? last : type;
             label.text = [NSString stringWithFormat:@"参数%lu", (unsigned long)arg + 1];
             label.textColor = self.theme.secondaryTextColor;
             label.font = [UIFont systemFontOfSize:8.2 weight:UIFontWeightSemibold];
