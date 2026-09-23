@@ -6,6 +6,7 @@
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
+#import "ZNPatchCore.h"
 
 // ZonoPatch v0.5.4 Builder Consolidation + M4.6.1 runtime-only route.
 //
