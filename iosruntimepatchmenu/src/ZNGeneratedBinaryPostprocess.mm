@@ -14,12 +14,17 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
     }
 
     NSMutableArray<NSDictionary *> *signing = [NSMutableArray array];
+    NSMutableArray<NSString *> *finalOutputs = [NSMutableArray arrayWithCapacity:innerOutputs.count];
+    NSMutableDictionary<NSString *, NSString *> *renameMap = [NSMutableDictionary dictionary];
     NSString *failure = nil;
     NSString *folder = nil;
     NSUInteger totalEncodedNames = 0;
     NSUInteger totalProtectedRVAs = 0;
     NSUInteger generatedTargets = 0;
 
+    // Keep the proven Static Builder V3 internal staging name (.znpatched),
+    // run all protection/signing against that staging file, then rename only
+    // the final exported Mach-O back to its original suffixless binary name.
     for (NSString *path in innerOutputs) {
         if (![path.pathExtension.lowercaseString isEqualToString:@"znpatched"]) continue;
         generatedTargets++;
@@ -28,22 +33,15 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         NSUInteger encodedNames = 0;
         NSString *privacyError = nil;
         if (!ZNScrubStaticDisplayMetadataAtPath(path, &encodedNames, &privacyError)) {
-            failure = [NSString stringWithFormat:@"%@：%@",
-                       path.lastPathComponent,
-                       privacyError ?: @"显示 metadata 编码失败"];
+            failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, privacyError ?: @"显示 metadata 编码失败"];
             break;
         }
         totalEncodedNames += encodedNames;
 
-        // Fixed v0.5.4 order: the display-name codec consumes the ordinary V3
-        // Static Entry first. RVA protection then transforms site/off/on fields,
-        // and the signer hashes only that final on-disk representation.
         NSUInteger protectedRVAs = 0;
         NSString *rvaError = nil;
         if (!ZN55ProtectStaticRVAsAtPath(path, &protectedRVAs, &rvaError)) {
-            failure = [NSString stringWithFormat:@"%@：%@",
-                       path.lastPathComponent,
-                       rvaError ?: @"Static RVA Protection V1 失败"];
+            failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, rvaError ?: @"Static RVA Protection V1 失败"];
             break;
         }
         totalProtectedRVAs += protectedRVAs;
@@ -51,48 +49,57 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         NSDictionary *signMetadata = nil;
         NSString *signError = nil;
         if (!ZNAdhocResignMachOAtPath(path, &signMetadata, &signError)) {
-            failure = [NSString stringWithFormat:@"%@：%@",
-                       path.lastPathComponent,
-                       signError ?: @"ad-hoc CodeDirectory 重建失败"];
+            failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, signError ?: @"ad-hoc CodeDirectory 重建失败"];
             break;
         }
 
+        NSString *finalName = [path.lastPathComponent stringByDeletingPathExtension];
+        NSString *finalPath = [path.stringByDeletingLastPathComponent stringByAppendingPathComponent:finalName];
+        [NSFileManager.defaultManager removeItemAtPath:finalPath error:nil];
+        NSError *renameError = nil;
+        if (![NSFileManager.defaultManager moveItemAtPath:path toPath:finalPath error:&renameError]) {
+            failure = [NSString stringWithFormat:@"%@：移除 .znpatched 后缀失败：%@", path.lastPathComponent, renameError.localizedDescription ?: @"未知错误"];
+            break;
+        }
+        renameMap[path] = finalPath;
+
         NSMutableDictionary *item = [signMetadata mutableCopy] ?: [NSMutableDictionary dictionary];
-        item[@"output"] = path;
+        item[@"stagingOutput"] = path;
+        item[@"output"] = finalPath;
+        item[@"suffixlessExport"] = @YES;
         item[@"encodedFeatureMetadataEntries"] = @(encodedNames);
         item[@"protectedStaticRVAEntries"] = @(protectedRVAs);
         [signing addObject:item];
     }
 
-    if (!failure && generatedTargets == 0) {
-        failure = @"Builder 输出中没有 .znpatched 目标";
-    }
-
+    if (!failure && generatedTargets == 0) failure = @"Builder 输出中没有 Static Builder V3 目标";
     if (failure) {
         if (folder.length) [NSFileManager.defaultManager removeItemAtPath:folder error:nil];
         if (error) *error = [NSString stringWithFormat:@"生成后二进制后处理失败：%@", failure];
         return NO;
     }
 
-    // Add machine-readable evidence to V3's existing report without changing
-    // the Static Dispatch format or runtime ABI.
     for (NSString *path in innerOutputs) {
+        NSString *mapped = renameMap[path];
+        [finalOutputs addObject:mapped ?: path];
+    }
+
+    for (NSString *path in finalOutputs) {
         if (![path.lastPathComponent isEqualToString:@"build_report.json"]) continue;
         NSData *data = [NSData dataWithContentsOfFile:path];
         if (!data.length) continue;
-        NSMutableDictionary *object = [[NSJSONSerialization JSONObjectWithData:data
-                                                                        options:NSJSONReadingMutableContainers
-                                                                          error:nil] mutableCopy];
+        NSMutableDictionary *object = [[NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil] mutableCopy];
         if (![object isKindOfClass:NSMutableDictionary.class]) continue;
 
         object[@"generatedBinaryPipeline"] = @{
-            @"mode": @"explicit-v0.5.6",
+            @"mode": @"explicit-v0.5.6+m5.1-suffixless-export",
             @"builder": @"Static Binary Builder V3",
-            @"postprocessOrder": @[@"Payload Layout V2 (Builder)", @"ZNF1", @"Static RVA Protection V1", @"Adhoc CodeDirectory"],
+            @"postprocessOrder": @[@"Payload Layout V2 (Builder)", @"ZNF1", @"Static RVA Protection V1", @"Adhoc CodeDirectory", @"Suffixless Export"],
             @"runtimeBuilderSwizzle": @NO,
             @"asyncLoadOrderDependency": @NO,
             @"legacyV1Compiled": @NO,
             @"legacySigningBridgeCompiled": @NO,
+            @"suffixlessBinaryName": @YES,
         };
         object[@"generatedBinarySignature"] = @{
             @"mode": @"zonoe-self-contained-adhoc",
@@ -130,17 +137,14 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             @"directSiteBranchStillArchitectural": @YES,
         };
 
-        NSData *updated = [NSJSONSerialization dataWithJSONObject:object
-                                                          options:NSJSONWritingPrettyPrinted
-                                                            error:nil];
+        NSData *updated = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingPrettyPrinted error:nil];
         if (updated) [updated writeToFile:path atomically:YES];
         break;
     }
 
-    if (outputs) *outputs = innerOutputs;
+    if (outputs) *outputs = [finalOutputs copy];
     if (report) {
-        *report = [NSString stringWithFormat:@"%@\nv0.5.6 使用显式保护流水线：V3 Payload V2 → ZNF1 → Static RVA Protection V1 → ad-hoc CodeDirectory。已移除 Builder +load/swizzle 与异步 SigningBridge 顺序依赖；替换回 IPA 后仍需正常整包重签。",
-                   innerReport ?: @"Static Binary Builder V3 生成成功"];
+        *report = [NSString stringWithFormat:@"%@\nv0.5.6 保护流水线保持不变；M5.1 最终导出时移除 .znpatched 后缀，生成二进制保持原始文件名。替换回 IPA 后仍需正常整包重签。", innerReport ?: @"Static Binary Builder V3 生成成功"];
     }
     return YES;
 }
