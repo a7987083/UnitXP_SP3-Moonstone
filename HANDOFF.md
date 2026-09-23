@@ -2,122 +2,121 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.0 Managed-reference Return Chaining V1** on top of M4.9 Generic Invoke + Runtime Editable Args + M4.8 Return Capture + M4.7 Receiver/Multi-Arg.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.1 Runtime Arg Controls + Immediate Chain V1**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-m5.0-managed-return-chaining-v1`
-- CI-validated product source head: `ec6ed852c24684cb92dbfc927afe16797eccbc0d`
-- Final product CI run: `35927940785` — success
-- Job: `107407405755`
-- Artifact: `ZonoPatch-v0.5.8-M5.0-Managed-Return-Chaining-V1`
-- Artifact ID: `10779609055`
-- Artifact digest: `sha256:31d49ef89513677ce8b566f066c679f45010ee4905af062fa3216f9190a396fe`
-- Dylib: `ZonoPatch_v0.5.8_M5.0_Managed_Return_Chaining_V1.dylib`
-- Dylib size: `1254432`
-- Dylib SHA256: `a75e30a9400bafdf7bfcf8e59c65a7f651a422522cd5e1d529f84eb06b4e9cd7`
-- Source/CI/Binary/Artifact hash: VERIFIED
-- Physical-device M5.0 acceptance: PENDING
+- Active branch: `feature/runtime-patch-menu-v0.5.8-m5.1-runtime-arg-controls-immediate-chain-v1`
+- CI-validated product head: `c24b77ee709cec477a5a94b8a35f98c38a459f97`
+- Final CI run: `35932826187` — success
+- Job: `107423107248` — success
+- Artifact ID: `10781652685`
+- Artifact ZIP SHA256: `76f812e245aa2bd45084f732485737df9a781af55bfc95d19f8e3aa468588ac8`
+- Dylib size: `1287760`
+- Dylib SHA256: `b0ec99af081edbd1612d27aa2a6cdadb83451dc6301f4097fb2555735ef1544e`
+- Format: thin arm64 Mach-O dylib
 
 ## Validation boundary
 
 Do not conflate source, CI, binary and device verification.
 
-Inherited device evidence:
+Current M5.1 state:
 
-- M4 Runtime Method Call V1: `/0` create/test/generated-binary usable.
-- M4.7: receiver capture produced a stable live instance in user testing.
-- M4.8: explicit Runtime Invoke `System.Int32` return decode displayed the real value (`1`) while raw remained the boxed object pointer.
+- source implemented: YES
+- committed to GitHub: YES
+- arm64 CI compile/link/sign: YES
+- binary marker verification: YES
+- artifact upload + independent ZIP/dylib hash check: YES
+- per-argument customer controls on device: PENDING
+- Immediate Chain on device: PENDING
+- actual generated suffixless UnityFramework on device/fixture: PENDING
+- full regression: NO
 
-M5.0 itself has no physical-device acceptance yet.
+## M5.1 authoring model
 
-## What M5.0 does
+Static Offset entries keep the existing behavior.
 
-```text
-Action A
- -> il2cpp_runtime_invoke
- -> M4.8 return metadata
- -> managed reference + non-null
- -> M5.0 GCHandle retain
-
-Action B
- -> get latest chained target
- -> validate target against B declaring class
- -> compatible: temporary receiver injection
- -> execute B
- -> restore prior selected receiver
- -> capture B managed-reference return if present
-```
-
-### Lifetime model
-
-- preferred: strong non-pinned `il2cpp_gchandle_new`;
-- reuse: `il2cpp_gchandle_get_target` refreshes moving-GC address;
-- replacement: old chain handle is freed when a new managed return is captured;
-- stripped target fallback: raw process-session address only when all GCHandle exports are unavailable; class validation still gates use;
-- receiver selected before temporary chaining gets a separate temporary keepalive handle, then is restored after the chained call.
-
-### Compatibility model
-
-M5.0 never injects an arbitrary returned object blindly. Before use it validates against:
+Runtime Method entries use the Runtime Action authoring model:
 
 ```text
-Assembly + Namespace + Class
+Method identity
+arg[0] value [☐/☑] [Fixed/Switch/Button/Number/Slider]
+arg[1] value [☐/☑] [Fixed/Switch/Button/Number/Slider]
+...
 ```
 
-If validation fails, M5.0 does nothing and the existing M4.x instance resolver/selection path remains responsible for `this`.
+Unchecked arguments remain fixed and are not shown in the customer menu. Checked arguments are rendered with the selected control family. The customer-side invocation vector is assembled from fixed authoring values plus current exposed-control values.
 
-## Important scope boundaries
+M5.1 Slider authoring currently has no min/max/step UI; defaults are `0 / 100 / 1`.
 
-- Chaining currently applies only to **explicit Runtime Invoke** results decoded by M4.8.
-- Natural game-call return capture is not implemented.
-- primitive and boxed ValueType returns are not chain receivers.
-- complex struct/value-type chaining is not implemented.
-- ref/out receiver chaining is not implemented.
-- raw managed object pointer is never persisted to generated Runtime Action storage.
-- chain is process-session only.
+## Immediate Chain V1
 
-## M4.9 behavior inherited and must not regress
+Finder result order is:
 
-- generated Runtime Method Actions visibly render an `执行` button;
-- `/1-/8` execution opens an argument editor populated from saved values;
-- editing is one-shot and does not require recreating the button;
-- same method/signature can create multiple Runtime buttons;
-- button/action identity is independent from method identity;
-- M4.8 return display remains available after invoke.
+```text
+[测试执行]
+[创建方法]
+[链式调用]
+```
 
-## Architecture invariants
+Immediate Chain is only offered for managed-reference/ObjectReference primary returns. The chain descriptor stores assembly/namespace/class/method/argc/arguments; no returned object pointer or GCHandle is serialized.
 
-- `ZN44StaticEntry == 128` bytes.
-- `ZNRuntimeActionHeader == 64` bytes.
-- `ZNRuntimeMethodCallEntry == 64` bytes.
-- Runtime Action ABI version remains unchanged.
-- Static Patch ABI remains unchanged.
-- Dobby is statically linked with no external Dobby dylib dependency.
-- exact image/RVA behavior from Offset Resolver V2 remains unchanged.
+V1 second hop currently uses `argc=0`. Execution is:
 
-## Files added/changed for M5.0
+```text
+Primary action
+→ M4.8 return decode
+→ M5.0 managed-reference capture / GCHandle / class validation
+→ M5.1 second action
+→ M5.0 injects latest compatible managed return as receiver
+→ second-hop result returned to UI
+```
 
-- `iosruntimepatchmenu/src/ZNM50ManagedReturnChaining.mm`
-- `iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm`
-- `iosruntimepatchmenu/Makefile`
-- `iosruntimepatchmenu/src/ZNBuildVersion.h`
-- `.github/workflows/build-runtime-patch-menu-v0.5.8-m5.0-managed-return-chaining-v1.yml`
+Example:
 
-## Device checklist
+```text
+yy::DY(0)
+→ ee*
+→ ee::ToString()/0
+→ System.String
+```
 
-1. Use a method that returns a known class/object reference, not a primitive.
-2. Execute it through Runtime Invoke.
-3. Confirm M4.8 return UI still displays the result.
-4. Check log for `[m5.0-chain] captured ...`.
-5. Execute an instance method belonging to that returned object's class or compatible base class.
-6. Check log for `[m5.0-chain] receiver injected ...`.
-7. Verify the second call acts on/reads the returned object.
-8. Execute an incompatible class method and confirm chain is not injected.
-9. Execute a primitive-return method and confirm it does not replace the managed-reference chain.
-10. If a manual receiver was selected before chaining, confirm it is restored afterward.
-11. Regress M4.9 Runtime `执行` button and editable args.
-12. Regress M4 `/0` generated-binary path.
+## Runtime Action ABI invariants
 
-## Next engineering action
+`ZNRuntimeMethodCallEntry == 64` bytes and version remains 1.
 
-After M5.0 physical-device acceptance, proceed to Object/Collection Inspector using the retained managed object as the first inspection root. Array/List/Dictionary traversal and JSON export should be layered after object/class/field inspection is stable.
+```text
+reserved[0] legacy /1 argument0
+reserved[1] Full Parameter Signature
+reserved[2] argument vector JSON
+reserved[3] M5.1 per-argument control JSON
+reserved[4] M5.1 Immediate Chain JSON
+reserved[5] free
+```
+
+Static Patch entry remains `128` bytes. Runtime Action ABI remains separate from Static Patch ABI.
+
+## Generated binary naming
+
+Final generated Mach-O output uses the original binary filename, e.g. `UnityFramework`.
+
+- Runtime-only Builder writes the original filename directly.
+- Static Builder may internally stage as `UnityFramework.znpatched` while existing patch/protection/signing logic runs, then final postprocess renames it to `UnityFramework`.
+- Source Contract + compilation validate the code path, but a real generated fixture/device export is still required before calling suffixless output device-verified.
+
+## Immediate device checklist
+
+1. Find a `/3` method and create it. Builder must show 3 parameter rows.
+2. Leave arg0/arg2 fixed; enable arg1 and select Number.
+3. Generate a binary; final output filename should be `UnityFramework`, not `.znpatched`.
+4. Customer runtime menu should expose only arg1. Change it and execute; arg0/arg2 must remain fixed.
+5. Repeat with Switch, Button and Slider where the parameter ABI makes sense.
+6. Find a method with managed-reference return; confirm `链式调用` is directly below `创建方法`.
+7. Configure target `Class::Method/0` such as `ee::ToString()/0` and execute generated action. Confirm second-hop result is returned without exposing the raw object address.
+8. Regress ordinary Offset patches and older Runtime `/0-/8` calls.
+
+## Known scope limits
+
+- Immediate Chain V1 second hop is `/0` only.
+- Slider authoring bounds UI is not implemented yet; defaults are 0/100/1.
+- ObjectReference/ref/out/pointer/complex ValueType arguments are not generally solved by the per-argument control UI; existing ABI safety rules still apply.
+- M5.0/M5.1 managed-object lifetime and receiver behavior remains device-validation dependent.
