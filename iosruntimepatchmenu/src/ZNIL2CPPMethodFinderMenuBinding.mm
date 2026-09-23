@@ -35,6 +35,7 @@ extern "C" void ZNInstallM47MultiArgInvokeDeferred(void);
 extern "C" void ZNInstallM47MultiArgUIDeferred(void);
 extern "C" void ZNInstallM47BuilderArgsUIDeferred(void);
 extern "C" void ZNInstallM47VersionUIDeferred(void);
+extern "C" void ZNInstallM48ReturnCaptureDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -128,5 +129,10 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM47MultiArgUIDeferred();
         ZNInstallM47BuilderArgsUIDeferred();
         ZNInstallM47VersionUIDeferred();
+
+        // M4.8 is deliberately installed after M4.7 so its executeAction wrapper
+        // observes both the legacy /0-/1 route and the M4.7 /2-/8 route. It
+        // decodes the actual il2cpp_runtime_invoke result after the call returns.
+        ZNInstallM48ReturnCaptureDeferred();
     });
 }
