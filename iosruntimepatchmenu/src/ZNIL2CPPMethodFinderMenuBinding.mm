@@ -30,6 +30,11 @@ extern "C" void ZNInstallM46FullSignatureUIDeferred(void);
 extern "C" void ZNInstallM461PolishDeferred(void);
 extern "C" void ZNInstallM462InstanceSafetyDeferred(void);
 extern "C" void ZNInstallM462CandidateBindingUIDeferred(void);
+extern "C" void ZNInstallM47ReceiverCaptureUIDeferred(void);
+extern "C" void ZNInstallM47MultiArgInvokeDeferred(void);
+extern "C" void ZNInstallM47MultiArgUIDeferred(void);
+extern "C" void ZNInstallM47BuilderArgsUIDeferred(void);
+extern "C" void ZNInstallM47VersionUIDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -110,16 +115,18 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM45AddressOwningMethodDeferred();
         ZNInstallM46SignatureExecutionDeferred();
         ZNInstallM46FullSignatureUIDeferred();
-
-        // M4.6.1 keeps the device-accepted overload helper row and Runtime-only
-        // Build button behavior.
         ZNInstallM461PolishDeferred();
-
-        // M4.6.2 is stability-only and remains outermost. Receiver selections
-        // become GCHandle-backed when the runtime exports the handle API, while
-        // result test buttons get explicit candidate associations after the
-        // complete M4.6.1 render chain (no Y-coordinate candidate lookup).
         ZNInstallM462InstanceSafetyDeferred();
         ZNInstallM462CandidateBindingUIDeferred();
+
+        // M4.7 layers are outermost. Receiver capture observes the real method
+        // entry and stores x0/this through the M4.6.2 GCHandle-backed selection
+        // path. Multi-arg invocation consumes exact full-signature candidates
+        // and exposes dynamic /2-/8 parameter rows without disturbing /0-/1.
+        ZNInstallM47ReceiverCaptureUIDeferred();
+        ZNInstallM47MultiArgInvokeDeferred();
+        ZNInstallM47MultiArgUIDeferred();
+        ZNInstallM47BuilderArgsUIDeferred();
+        ZNInstallM47VersionUIDeferred();
     });
 }
