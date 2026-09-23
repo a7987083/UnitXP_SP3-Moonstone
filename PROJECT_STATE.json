@@ -4,11 +4,13 @@
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
   "phase": "m5.0-managed-return-chaining-v1",
-  "phase_status": "source-implemented-ci-running-device-validation-pending",
+  "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
   "branch": "feature/runtime-patch-menu-v0.5.8-m5.0-managed-return-chaining-v1",
   "runtime_product_head": "ec6ed852c24684cb92dbfc927afe16797eccbc0d",
+  "ci_validated_head": "ec6ed852c24684cb92dbfc927afe16797eccbc0d",
   "ci_run": 35927940785,
-  "ci_result": "in_progress",
+  "ci_job": 107407405755,
+  "ci_result": "success",
   "device_verified": false,
   "full_regression_verified": false,
   "baseline": {
@@ -76,20 +78,24 @@
     "workflow": "Build Runtime Patch Menu v0.5.8 M5.0 Managed Return Chaining V1",
     "workflow_file": ".github/workflows/build-runtime-patch-menu-v0.5.8-m5.0-managed-return-chaining-v1.yml",
     "run_id": 35927940785,
+    "job_id": 107407405755,
+    "result": "success",
     "source_contract_assertions": true,
-    "compiled": false,
-    "binary_verified": false,
-    "artifact_uploaded": false,
+    "compiled": true,
+    "binary_verified": true,
+    "artifact_uploaded": true,
+    "independent_artifact_hash_verified": true,
     "device_verified": false
   },
   "artifact": {
     "name": "ZonoPatch-v0.5.8-M5.0-Managed-Return-Chaining-V1",
-    "id": null,
-    "archive_size": null,
-    "archive_sha256": null,
+    "id": 10779609055,
+    "archive_size": 563220,
+    "archive_sha256": "31d49ef89513677ce8b566f066c679f45010ee4905af062fa3216f9190a396fe",
     "dylib_name": "ZonoPatch_v0.5.8_M5.0_Managed_Return_Chaining_V1.dylib",
-    "dylib_size": null,
-    "dylib_sha256": null
+    "dylib_size": 1254432,
+    "dylib_sha256": "a75e30a9400bafdf7bfcf8e59c65a7f651a422522cd5e1d529f84eb06b4e9cd7",
+    "mach_o": "thin arm64 dylib"
   },
   "device_acceptance_pending": [
     "confirm generated Runtime Method Action shows an execute button",
@@ -103,7 +109,7 @@
     "regress M4.8 return display, M4.7 receiver/multiarg and M4 zero-arg generated-binary path"
   ],
   "known_boundaries": [
-    "M5.0 is not device verified",
+    "M5.0 is source/CI/binary/artifact verified but not device verified",
     "managed return chaining currently depends on explicit il2cpp_runtime_invoke",
     "natural-call return capture is not implemented",
     "GCHandle-incomplete targets use a weaker process-session raw fallback",
