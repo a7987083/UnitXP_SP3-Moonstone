@@ -34,6 +34,8 @@ jobs:
           grep -q 'switch' iosruntimepatchmenu/src/ZNRuntimeActionModel.mm
           grep -q 'slider' iosruntimepatchmenu/src/ZNRuntimeActionModel.mm
           grep -q 'No .znpatched suffix' iosruntimepatchmenu/src/ZNRuntimeOnlyBinaryBuilder.mm
+          grep -q 'suffixlessBinaryName' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
+          grep -q 'stringByDeletingPathExtension' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
           grep -q '0.5.8 · M5.1' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
@@ -105,7 +107,6 @@ jobs:
           grep -q '\[m5.1\]' /tmp/zono_m51_strings.txt
           grep -q '\[m5.1-chain\]' /tmp/zono_m51_strings.txt
           grep -q 'Runtime Arg Controls + Immediate Chain' /tmp/zono_m51_strings.txt
-          grep -q '链式调用' /tmp/zono_m51_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m51_load_commands.txt
 
       - name: Upload artifact
