@@ -29,6 +29,7 @@ jobs:
           grep -q 'managed reference' iosruntimepatchmenu/src/ZNM50ManagedReturnChaining.mm
           grep -q 'il2cpp_gchandle_new' iosruntimepatchmenu/src/ZNM50ManagedReturnChaining.mm
           grep -q 'znm44_validateInstanceAddress' iosruntimepatchmenu/src/ZNM50ManagedReturnChaining.mm
+          grep -q 'previousKeepAlive' iosruntimepatchmenu/src/ZNM50ManagedReturnChaining.mm
           grep -q 'managedReturnChained' iosruntimepatchmenu/src/ZNM50ManagedReturnChaining.mm
           grep -q '0.5.8 · M5.0' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'Managed-reference Return Chaining + Generic Invoke' iosruntimepatchmenu/src/ZNBuildVersion.h
