@@ -5,9 +5,9 @@
 ## KI-001 — M5.0 Managed-reference Return Chaining 尚未真机验证
 
 Severity: `HIGH`  
-Status: `IMPLEMENTED / CI IN PROGRESS / DEVICE VERIFICATION PENDING`
+Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
 
-需要真机证明：managed-reference return 被捕获并保活；兼容目标 class 的下一次实例调用实际使用该 returned object；不兼容目标不注入；原手工 receiver 可恢复。
+CI Run `35927940785` 已通过 Source Contract / Build / Binary Verify / Artifact Upload，artifact hash 也已独立复核。仍需真机证明 managed-reference return 被捕获并保活；兼容目标 class 的下一次实例调用实际使用该 returned object；不兼容目标不注入；原手工 receiver 可恢复。
 
 ## KI-002 — M5.0 目前只消费显式 Runtime Invoke 返回
 
