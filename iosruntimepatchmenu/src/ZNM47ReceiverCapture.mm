@@ -1,8 +1,8 @@
 #import "ZNM47ReceiverCapture.h"
+#import "ZNM47DobbyCompat.h"
 #import "ZNPatchCore.h"
 
 #include <atomic>
-#include <dobby.h>
 
 static std::atomic<bool> gZNM47CaptureActive(false);
 static std::atomic<uintptr_t> gZNM47CapturedReceiver(0);
@@ -32,7 +32,7 @@ static void ZNM47FinishReceiverCapture(BOOL timedOut) {
     }
 }
 
-static void ZNM47DobbyPreHandler(void *address, DobbyRegisterContext *ctx) {
+static void ZNM47DobbyPreHandler(void *address, ZNM47DobbyRegisterContextPrefix *ctx) {
     (void)address;
     if (!ctx || !gZNM47CaptureActive.load(std::memory_order_relaxed)) return;
 #if defined(__arm64__) || defined(__aarch64__)
