@@ -6,6 +6,7 @@
 #define ZN_RUNTIME_ACTION_MAGIC UINT64_C(0x00314E5443414E5A) /* "ZNACTN1" */
 #define ZN_RUNTIME_ACTION_VERSION 1u
 #define ZN_RUNTIME_ACTION_MAX_ENTRIES 128u
+#define ZN_RUNTIME_ACTION_MAX_ARGUMENTS 8u
 
 typedef uint32_t ZNRuntimeActionKind;
 enum {
@@ -25,6 +26,10 @@ enum {
     // list encoded with U+001F separators. Empty string is the exact /0
     // signature; absence of this flag means legacy Method/N resolution.
     ZNRuntimeActionFlagParameterSignature = 1u << 1,
+    // M4.7 keeps the same 64-byte entry and version. reserved[2] points to a
+    // UTF-8 JSON array containing every textual argument value. /1 records
+    // keep Argument0Text too so old runtimes remain able to consume them.
+    ZNRuntimeActionFlagArgumentVectorText = 1u << 2,
 };
 
 typedef struct {
@@ -59,6 +64,9 @@ typedef struct {
     // M4.6 signature ABI:
     // reserved[1] = encoded parameter-type string-pool offset when
     //               ZNRuntimeActionFlagParameterSignature is set.
+    // M4.7 multi-argument ABI:
+    // reserved[2] = JSON string-pool offset when
+    //               ZNRuntimeActionFlagArgumentVectorText is set.
     uint32_t reserved[6];
 } ZNRuntimeMethodCallEntry;
 
