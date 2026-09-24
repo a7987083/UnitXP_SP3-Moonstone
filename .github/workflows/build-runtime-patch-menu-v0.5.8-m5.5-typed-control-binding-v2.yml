@@ -24,6 +24,7 @@ jobs:
           test -f iosruntimepatchmenu/src/ZNValueTypeModel.h
           test -f iosruntimepatchmenu/src/ZNValueTypeModel.mm
           test -f iosruntimepatchmenu/src/ZNM55TypedControlBinding.mm
+          test -f iosruntimepatchmenu/src/ZNM55StaticTypedBinding.mm
           grep -q 'ZNValueTypeAuto' iosruntimepatchmenu/src/ZNValueTypeModel.h
           grep -q 'ZNValueTypeI32' iosruntimepatchmenu/src/ZNValueTypeModel.h
           grep -q 'ZNValueTypeU32' iosruntimepatchmenu/src/ZNValueTypeModel.h
@@ -32,8 +33,13 @@ jobs:
           grep -q 'ZNValueTypeF32' iosruntimepatchmenu/src/ZNValueTypeModel.h
           grep -q 'ZNValueTypeF64' iosruntimepatchmenu/src/ZNValueTypeModel.h
           grep -q 'ZN_FEATURE_VALUE_FLAG_MASK' iosruntimepatchmenu/src/ZNFeatureControlModel.h
+          grep -q 'ZNM55IsScalarFMOVImm' iosruntimepatchmenu/src/ZNM55StaticTypedBinding.mm
+          grep -q 'ZNM55MOVActions' iosruntimepatchmenu/src/ZNM55StaticTypedBinding.mm
+          grep -q 'ZNM55FMOVActions' iosruntimepatchmenu/src/ZNM55StaticTypedBinding.mm
           grep -q 'ZNInstallM55TypedControlBindingDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNInstallM55StaticTypedBindingDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           grep -q 'src/ZNM55TypedControlBinding.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNM55StaticTypedBinding.mm' iosruntimepatchmenu/Makefile
           grep -q '0.5.8 · M5.5' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
@@ -102,6 +108,7 @@ jobs:
           strings -a "$out" > /tmp/zono_m55_strings.txt
           grep -q '\[m5.4-unified-ui\]' /tmp/zono_m55_strings.txt
           grep -q '\[m5.5-typed\]' /tmp/zono_m55_strings.txt
+          grep -q '\[m5.5-static\]' /tmp/zono_m55_strings.txt
           grep -q 'znm55_cycleValueType:' /tmp/zono_m55_strings.txt
           grep -q 'znm55_rangeLongPress:' /tmp/zono_m55_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m55_load_commands.txt
