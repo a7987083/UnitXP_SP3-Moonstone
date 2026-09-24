@@ -5,17 +5,18 @@
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNFeatureControlModel.h"
 #import "ZNTheme.h"
+#import "ZNValueTypeModel.h"
 
-// M2.2 Builder overlay. It deliberately decorates the proven v0.5 Builder
-// instead of replacing it: existing Offset/Enabled/validation/build behavior
-// stays untouched, while authoring gains two missing delete operations and a
-// generic Feature control-type selector.
+// Builder control model: [ +Patch ] [ Control ] [ Value Type ] [ Delete ].
+// Value Type is orthogonal to the public control surface and is persisted into
+// Static Entry flags during generation without changing the 128-byte ABI.
 
 static const NSInteger kZN64AddPatchTagBase = 461000;
 static const NSInteger kZN64OffsetFieldTagBase = 441000;
 static const NSInteger kZN64TypeTagBase = 466000;
 static const NSInteger kZN64DeleteFeatureTagBase = 467000;
 static const NSInteger kZN64DeletePatchTagBase = 468000;
+static const NSInteger kZN64ValueTypeTagBase = 469500;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -41,29 +42,17 @@ static NSArray<NSDictionary *> *ZN64FeatureGroups(ZNBinaryPatchWorkspace *worksp
     NSMutableArray<NSString *> *order = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSMutableArray<ZNBinaryPatchRow *> *> *rowsByKey = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSString *> *names = [NSMutableDictionary dictionary];
-
     for (ZNBinaryPatchRow *row in workspace.rows) {
         if (!ZN64RowVisible(row)) continue;
         NSString *name = ZN64Trim(row.group);
         if (!name.length || [name caseInsensitiveCompare:@"Imported"] == NSOrderedSame) name = ZN64Trim(row.title);
         if (!name.length) name = @"未命名功能";
         NSString *key = name.lowercaseString;
-        if (!rowsByKey[key]) {
-            rowsByKey[key] = [NSMutableArray array];
-            names[key] = name;
-            [order addObject:key];
-        }
+        if (!rowsByKey[key]) { rowsByKey[key] = [NSMutableArray array]; names[key] = name; [order addObject:key]; }
         [rowsByKey[key] addObject:row];
     }
-
     NSMutableArray *out = [NSMutableArray arrayWithCapacity:order.count];
-    for (NSString *key in order) {
-        [out addObject:@{
-            @"key": key,
-            @"name": names[key] ?: @"功能",
-            @"rows": [rowsByKey[key] copy] ?: @[]
-        }];
-    }
+    for (NSString *key in order) [out addObject:@{@"key":key, @"name":names[key] ?: @"功能", @"rows":[rowsByKey[key] copy] ?: @[]}];
     return out;
 }
 
@@ -71,7 +60,6 @@ static UIButton *ZN64ButtonWithTag(UIView *root, NSInteger tag) {
     UIView *view = [root viewWithTag:tag];
     return [view isKindOfClass:UIButton.class] ? (UIButton *)view : nil;
 }
-
 static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
     UIView *view = [root viewWithTag:tag];
     return [view isKindOfClass:UITextField.class] ? (UITextField *)view : nil;
@@ -80,6 +68,7 @@ static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
 @interface ZNRuntimeMenuControllerV040 (ZNFeatureBuilderControlsV2)
 - (void)zn64fb_renderOther;
 - (void)zn64fb_cycleType:(UIButton *)sender;
+- (void)zn64fb_cycleValueType:(UIButton *)sender;
 - (void)zn64fb_deleteFeature:(UIButton *)sender;
 - (void)zn64fb_deletePatch:(UIButton *)sender;
 @end
@@ -87,56 +76,62 @@ static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureBuilderControlsV2)
 
 - (void)zn64fb_renderOther {
-    // After swizzling, this calls the complete existing Builder renderer.
     [self zn64fb_renderOther];
-
     ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
     BOOL locked = workspace.hasAnyApplied || workspace.isBuilding;
     NSArray<NSDictionary *> *features = ZN64FeatureGroups(workspace);
 
-    // Expanded Feature action row: [ +Patch ] [ Type ] [ Delete Feature ].
     for (NSUInteger i = 0; i < features.count; i++) {
         UIButton *addPatch = ZN64ButtonWithTag(self.contentView, kZN64AddPatchTagBase + (NSInteger)i);
         UIView *card = addPatch.superview;
-        if (!addPatch || !card) continue; // collapsed Feature
-
-        CGFloat left = 10.0;
-        CGFloat gap = 6.0;
+        if (!addPatch || !card) continue;
+        CGFloat left = 8.0, gap = 4.0;
         CGFloat inner = CGRectGetWidth(card.bounds) - left * 2.0;
-        CGFloat w = (inner - gap * 2.0) / 3.0;
+        CGFloat w = (inner - gap * 3.0) / 4.0;
         addPatch.frame = CGRectMake(left, 6, w, 32);
-        [addPatch setTitle:@"＋ Patch" forState:UIControlStateNormal];
+        [addPatch setTitle:@"＋Patch" forState:UIControlStateNormal];
+        addPatch.titleLabel.adjustsFontSizeToFitWidth = YES;
+        addPatch.titleLabel.minimumScaleFactor = 0.55;
 
         NSString *name = features[i][@"name"] ?: @"功能";
-        ZNFeatureControlType type = [workspace controlTypeForFeature:name];
-        UIButton *typeButton = [self zn40_button:[NSString stringWithFormat:@"类型 · %@", ZNFeatureControlTypeName(type)]
+        ZNFeatureControlType controlType = [workspace controlTypeForFeature:name];
+        ZNValueType valueType = [workspace valueTypeForFeature:name];
+
+        UIButton *typeButton = [self zn40_button:[NSString stringWithFormat:@"控件·%@", ZNFeatureControlTypeName(controlType)]
                                           selector:@selector(zn64fb_cycleType:)
-                                             frame:CGRectMake(left + w + gap, 6, w, 32)];
+                                             frame:CGRectMake(left + (w + gap), 6, w, 32)];
         typeButton.tag = kZN64TypeTagBase + (NSInteger)i;
         typeButton.enabled = !locked;
         typeButton.titleLabel.adjustsFontSizeToFitWidth = YES;
-        typeButton.titleLabel.minimumScaleFactor = 0.65;
+        typeButton.titleLabel.minimumScaleFactor = 0.48;
         [card addSubview:typeButton];
 
-        UIButton *deleteFeature = [self zn40_button:@"删除功能"
+        UIButton *valueButton = [self zn40_button:[NSString stringWithFormat:@"值·%@", ZNValueTypeName(valueType)]
+                                           selector:@selector(zn64fb_cycleValueType:)
+                                              frame:CGRectMake(left + (w + gap) * 2.0, 6, w, 32)];
+        valueButton.tag = kZN64ValueTypeTagBase + (NSInteger)i;
+        valueButton.enabled = !locked && (controlType == ZNFeatureControlTypeNumber || controlType == ZNFeatureControlTypeSlider);
+        valueButton.alpha = valueButton.enabled ? 1.0 : 0.45;
+        valueButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+        valueButton.titleLabel.minimumScaleFactor = 0.55;
+        [card addSubview:valueButton];
+
+        UIButton *deleteFeature = [self zn40_button:@"删除"
                                             selector:@selector(zn64fb_deleteFeature:)
-                                               frame:CGRectMake(left + (w + gap) * 2.0, 6, w, 32)];
+                                               frame:CGRectMake(left + (w + gap) * 3.0, 6, w, 32)];
         deleteFeature.tag = kZN64DeleteFeatureTagBase + (NSInteger)i;
         deleteFeature.enabled = !locked;
         deleteFeature.titleLabel.adjustsFontSizeToFitWidth = YES;
-        deleteFeature.titleLabel.minimumScaleFactor = 0.7;
+        deleteFeature.titleLabel.minimumScaleFactor = 0.65;
         deleteFeature.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.12];
         deleteFeature.layer.borderColor = [UIColor.systemRedColor colorWithAlphaComponent:0.72].CGColor;
         [card addSubview:deleteFeature];
     }
 
-    // Every visible Patch gets its own delete button. Global row index is used
-    // because that is the same identity already used by Offset/Enabled fields.
     for (NSUInteger globalIndex = 0; globalIndex < workspace.rows.count; globalIndex++) {
         UITextField *offset = ZN64FieldWithTag(self.contentView, kZN64OffsetFieldTagBase + (NSInteger)globalIndex);
         UIView *patchCard = offset.superview;
         if (!offset || !patchCard) continue;
-
         UIButton *deletePatch = [self zn40_button:@"删除"
                                           selector:@selector(zn64fb_deletePatch:)
                                              frame:CGRectMake(CGRectGetWidth(patchCard.bounds) - 58, 3, 45, 19)];
@@ -146,68 +141,61 @@ static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
         deletePatch.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.10];
         deletePatch.layer.borderColor = [UIColor.systemRedColor colorWithAlphaComponent:0.64].CGColor;
         [patchCard addSubview:deletePatch];
-
         for (UIView *child in patchCard.subviews) {
             if (![child isKindOfClass:UILabel.class]) continue;
             UILabel *label = (UILabel *)child;
             if (CGRectGetMinY(label.frame) <= 6.0 && CGRectGetMinX(label.frame) <= 20.0) {
-                CGRect f = label.frame;
-                f.size.width = MAX(40.0, CGRectGetWidth(patchCard.bounds) - CGRectGetMinX(f) - 76.0);
-                label.frame = f;
-                break;
+                CGRect f = label.frame; f.size.width = MAX(40.0, CGRectGetWidth(patchCard.bounds) - CGRectGetMinX(f) - 76.0); label.frame = f; break;
             }
         }
     }
 }
 
 - (void)zn64fb_cycleType:(UIButton *)sender {
-    NSInteger index = sender.tag - kZN64TypeTagBase;
-    if (index < 0) return;
+    NSInteger index = sender.tag - kZN64TypeTagBase; if (index < 0) return;
     ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-    NSArray<NSDictionary *> *features = ZN64FeatureGroups(workspace);
-    if ((NSUInteger)index >= features.count) return;
+    NSArray<NSDictionary *> *features = ZN64FeatureGroups(workspace); if ((NSUInteger)index >= features.count) return;
     NSString *name = features[(NSUInteger)index][@"name"] ?: @"";
     ZNFeatureControlType current = [workspace controlTypeForFeature:name];
     ZNFeatureControlType next = (ZNFeatureControlType)(((uint32_t)current + 1u) % 4u);
     NSString *error = nil;
-    if (![workspace setControlType:next forFeature:name error:&error]) {
-        workspace.lastStatus = [NSString stringWithFormat:@"修改控件类型失败：%@", error ?: @"未知错误"];
-    }
+    if (![workspace setControlType:next forFeature:name error:&error]) workspace.lastStatus = [NSString stringWithFormat:@"修改控件类型失败：%@", error ?: @"未知错误"];
+    [self renderPage];
+}
+
+- (void)zn64fb_cycleValueType:(UIButton *)sender {
+    NSInteger index = sender.tag - kZN64ValueTypeTagBase; if (index < 0) return;
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+    NSArray<NSDictionary *> *features = ZN64FeatureGroups(workspace); if ((NSUInteger)index >= features.count) return;
+    NSString *name = features[(NSUInteger)index][@"name"] ?: @"";
+    ZNValueType current = [workspace valueTypeForFeature:name];
+    ZNValueType next = current >= ZNValueTypeF64 ? ZNValueTypeAuto : (ZNValueType)(current + 1);
+    NSString *error = nil;
+    if (![workspace setValueType:next forFeature:name error:&error]) workspace.lastStatus = [NSString stringWithFormat:@"修改值类型失败：%@", error ?: @"未知错误"];
     [self renderPage];
 }
 
 - (void)zn64fb_deleteFeature:(UIButton *)sender {
-    NSInteger index = sender.tag - kZN64DeleteFeatureTagBase;
-    if (index < 0) return;
+    NSInteger index = sender.tag - kZN64DeleteFeatureTagBase; if (index < 0) return;
     ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-    NSArray<NSDictionary *> *features = ZN64FeatureGroups(workspace);
-    if ((NSUInteger)index >= features.count) return;
-    NSString *name = features[(NSUInteger)index][@"name"] ?: @"";
-    NSString *error = nil;
-    if (![workspace removeFeatureNamed:name error:&error]) {
-        workspace.lastStatus = [NSString stringWithFormat:@"删除功能失败：%@", error ?: @"未知错误"];
-    }
+    NSArray<NSDictionary *> *features = ZN64FeatureGroups(workspace); if ((NSUInteger)index >= features.count) return;
+    NSString *error = nil; NSString *name = features[(NSUInteger)index][@"name"] ?: @"";
+    if (![workspace removeFeatureNamed:name error:&error]) workspace.lastStatus = [NSString stringWithFormat:@"删除功能失败：%@", error ?: @"未知错误"];
     [self renderPage];
 }
 
 - (void)zn64fb_deletePatch:(UIButton *)sender {
-    NSInteger index = sender.tag - kZN64DeletePatchTagBase;
-    if (index < 0) return;
-    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-    NSString *error = nil;
-    if (![workspace removePatchAtGlobalIndex:(NSUInteger)index error:&error]) {
-        workspace.lastStatus = [NSString stringWithFormat:@"删除 Patch 失败：%@", error ?: @"未知错误"];
-    }
+    NSInteger index = sender.tag - kZN64DeletePatchTagBase; if (index < 0) return;
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace]; NSString *error = nil;
+    if (![workspace removePatchAtGlobalIndex:(NSUInteger)index error:&error]) workspace.lastStatus = [NSString stringWithFormat:@"删除 Patch 失败：%@", error ?: @"未知错误"];
     [self renderPage];
 }
-
 @end
 
 extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
-        if (!cls) return;
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040"); if (!cls) return;
         Method original = class_getInstanceMethod(cls, @selector(zn50b_renderOther));
         Method replacement = class_getInstanceMethod(cls, @selector(zn64fb_renderOther));
         if (original && replacement) method_exchangeImplementations(original, replacement);
