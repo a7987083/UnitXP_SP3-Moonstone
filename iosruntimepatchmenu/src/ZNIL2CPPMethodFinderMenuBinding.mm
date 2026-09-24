@@ -41,6 +41,8 @@ extern "C" void ZNInstallM50ManagedReturnChainingDeferred(void);
 extern "C" void ZNInstallM51RuntimeArgControlsImmediateChainDeferred(void);
 extern "C" void ZNInstallM52ChainStoreV2Deferred(void);
 extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
+extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
+extern "C" void ZNInstallM52MethodSearchHistoryDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -81,9 +83,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM48ReturnCaptureDeferred(); ZNInstallM49GenericInvokeEditableArgsDeferred();
         ZNInstallM50ManagedReturnChainingDeferred();
         ZNInstallM51RuntimeArgControlsImmediateChainDeferred();
-        // M5.2 is outermost for version=2 chain transactions while delegating
-        // each node through the existing typed invoke + M5.0 receiver/GCHandle stack.
         ZNInstallM52ChainStoreV2Deferred();
         ZNInstallM52ImmediateChainV2Deferred();
+        // Outermost M5.2 UX layers: completed chains become executable in place,
+        // and method-name searches persist as a 50-entry scrollable history.
+        ZNInstallM52ChainExecuteButtonDeferred();
+        ZNInstallM52MethodSearchHistoryDeferred();
     });
 }
