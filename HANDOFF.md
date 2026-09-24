@@ -2,83 +2,125 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.1 Runtime Arg Controls + Immediate Chain V1**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.2 Immediate Chain V2**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-m5.1-runtime-arg-controls-immediate-chain-v1`
-- CI-validated product head: `c24b77ee709cec477a5a94b8a35f98c38a459f97`
-- Final CI run: `35932826187` — success
-- Job: `107423107248` — success
-- Artifact ID: `10781652685`
-- Artifact ZIP SHA256: `76f812e245aa2bd45084f732485737df9a781af55bfc95d19f8e3aa468588ac8`
-- Dylib size: `1287760`
-- Dylib SHA256: `b0ec99af081edbd1612d27aa2a6cdadb83451dc6301f4097fb2555735ef1544e`
+- Active branch: `feature/runtime-patch-menu-v0.5.8-m5.2-immediate-chain-v2`
+- CI-validated product head: `2456f6ba4dfb659e3480db2e677452dad8516153`
+- Final CI run: `35939364930` — success
+- Job: `107443621364` — success
+- Artifact ID: `10784551336`
+- Artifact ZIP SHA256: `334c56df627ff2a18cd8cf0572afd9848433808d1d9816d2c4c7c1c29a15dd3c`
+- Dylib size: `1304480`
+- Dylib SHA256: `84a9ff17e66ddb50c42893603b45123457d31ff3986655f07bc12748efef9d87`
 - Format: thin arm64 Mach-O dylib
 
 ## Validation boundary
 
 Do not conflate source, CI, binary and device verification.
 
-Current M5.1 state:
+Current M5.2 state:
 
 - source implemented: YES
 - committed to GitHub: YES
 - arm64 CI compile/link/sign: YES
 - binary marker verification: YES
 - artifact upload + independent ZIP/dylib hash check: YES
-- per-argument customer controls on device: PENDING
-- Immediate Chain on device: PENDING
-- actual generated suffixless UnityFramework on device/fixture: PENDING
+- customer silent-success behavior on device: PENDING
+- Immediate Chain V2 real-game behavior: PENDING
+- System.String real-game decode: PENDING
+- 3+ level managed receiver continuity: PENDING
 - full regression: NO
 
-## M5.1 authoring model
+## Customer Runtime UX inherited from M5.1 Silent
 
-Static Offset entries keep the existing behavior.
-
-Runtime Method entries use the Runtime Action authoring model:
+Customer-facing generated menu behavior:
 
 ```text
-Method identity
-arg[0] value [☐/☑] [Fixed/Switch/Button/Number/Slider]
-arg[1] value [☐/☑] [Fixed/Switch/Button/Number/Slider]
-...
+success -> silent
+failure -> 执行失败 alert
 ```
 
-Unchecked arguments remain fixed and are not shown in the customer menu. Checked arguments are rendered with the selected control family. The customer-side invocation vector is assembled from fixed authoring values plus current exposed-control values.
+This applies to Runtime actions and Immediate Chain execution. Builder / Method Finder test execution remains a developer/debug surface and keeps return/debug information.
 
-M5.1 Slider authoring currently has no min/max/step UI; defaults are `0 / 100 / 1`.
+## Immediate Chain V2 execution model
 
-## Immediate Chain V1
+Versioned metadata uses `immediateChain = { version:2, atomic:true, nodes:[...] }`.
 
-Finder result order is:
+Execution:
 
 ```text
-[测试执行]
-[创建方法]
-[链式调用]
+Root Runtime Action
+  -> managed return
+  -> Chain Node 1 /0-/8
+  -> managed return
+  -> Chain Node 2 /0-/8
+  -> ...
 ```
 
-Immediate Chain is only offered for managed-reference/ObjectReference primary returns. The chain descriptor stores assembly/namespace/class/method/argc/arguments; no returned object pointer or GCHandle is serialized.
+The entire chain executes in one transaction. There is no UI round-trip between levels and no persisted temporary object address/GCHandle.
 
-V1 second hop currently uses `argc=0`. Execution is:
+Each node stores stable managed identity data:
 
 ```text
-Primary action
-→ M4.8 return decode
-→ M5.0 managed-reference capture / GCHandle / class validation
-→ M5.1 second action
-→ M5.0 injects latest compatible managed return as receiver
-→ second-hop result returned to UI
+Assembly
+Namespace
+Class
+Method
+Parameter Types
+argument values
+token (when available)
+return type (when available)
 ```
 
-Example:
+`MethodInfo*` and `MethodPointer` are current-process diagnostics only; do not serialize them as cross-launch identities because ASLR makes absolute addresses unstable.
+
+## Reused lower layers
+
+M5.2 intentionally delegates each node through existing layers:
+
+- M4.6 Full Signature resolver: exact overload resolution / fail closed
+- M4.7 typed invoke: `/0-/8`, primitive/String/basic supported value types; numeric zero uses real typed storage address
+- M4.8 Return Capture: primitive boxed return decoding
+- M5.0 Managed Return Chaining: GCHandle lifetime + compatible receiver injection
+- M5.1 per-argument control authoring and customer runtime controls
+- M5.1 Silent Customer Execution
+
+## M5.2 additions
+
+- up to 8 additional nodes after root
+- per-node `/0-/8` arguments
+- exact signature preflight before each node
+- token check when `il2cpp_method_get_token` exists
+- return-type guard when available
+- null/non-managed previous-return stop
+- best-effort managed exception class/message/stack detail
+- per-level trace/log with receiver/args/return/runtime pointers
+- System.String decode using `il2cpp_string_length` + `il2cpp_string_chars`
+
+## Authoring flow
+
+`链式调用` remains directly below `创建方法`.
+
+For the current target scenario:
 
 ```text
-yy::DY(0)
-→ ee*
-→ ee::ToString()/0
-→ System.String
+Root: yo::wB()/0
+
+Level 1:
+Class: yy
+Method: DY
+Parameter Types: K
+Args: 0
+
+Level 2:
+Class: ee
+Method: ToString
+Parameter Types: <blank>
+Args: <blank>
 ```
+
+Repeat `DY` argument `1` for the second currency path. The actual returned values must be treated as device evidence only; no value is considered verified until observed on device.
 
 ## Runtime Action ABI invariants
 
@@ -89,34 +131,33 @@ reserved[0] legacy /1 argument0
 reserved[1] Full Parameter Signature
 reserved[2] argument vector JSON
 reserved[3] M5.1 per-argument control JSON
-reserved[4] M5.1 Immediate Chain JSON
+reserved[4] M5.1/M5.2 Immediate Chain JSON
 reserved[5] free
 ```
 
-Static Patch entry remains `128` bytes. Runtime Action ABI remains separate from Static Patch ABI.
+Static Patch entry remains `128` bytes.
 
 ## Generated binary naming
 
-Final generated Mach-O output uses the original binary filename, e.g. `UnityFramework`.
-
-- Runtime-only Builder writes the original filename directly.
-- Static Builder may internally stage as `UnityFramework.znpatched` while existing patch/protection/signing logic runs, then final postprocess renames it to `UnityFramework`.
-- Source Contract + compilation validate the code path, but a real generated fixture/device export is still required before calling suffixless output device-verified.
+Final generated Mach-O output remains the original filename (`UnityFramework` etc.). Static Builder may use `.znpatched` internally only as a staging name.
 
 ## Immediate device checklist
 
-1. Find a `/3` method and create it. Builder must show 3 parameter rows.
-2. Leave arg0/arg2 fixed; enable arg1 and select Number.
-3. Generate a binary; final output filename should be `UnityFramework`, not `.znpatched`.
-4. Customer runtime menu should expose only arg1. Change it and execute; arg0/arg2 must remain fixed.
-5. Repeat with Switch, Button and Slider where the parameter ABI makes sense.
-6. Find a method with managed-reference return; confirm `链式调用` is directly below `创建方法`.
-7. Configure target `Class::Method/0` such as `ee::ToString()/0` and execute generated action. Confirm second-hop result is returned without exposing the raw object address.
-8. Regress ordinary Offset patches and older Runtime `/0-/8` calls.
+1. Confirm customer successful Button/Runtime action execution shows no completion alert.
+2. Force an invalid Runtime action and confirm only `执行失败` remains visible.
+3. Confirm Builder/Method Finder test execution still displays return/debug data.
+4. Create the 3-level `yo::wB() -> yy::DY(0) -> ee::ToString()` chain.
+5. Confirm Level 1 receives the root managed object automatically; customer never handles a raw address.
+6. Confirm final System.String is decoded as text, not only `object 0x...`.
+7. Repeat with `DY(1)`.
+8. Test null return: chain must stop before the next call without crash.
+9. Test a deliberately wrong signature/class and confirm fail-closed behavior.
+10. Regress Static Offset, Runtime `/0-/8`, per-argument controls, Immediate Chain V1 compatibility, and suffixless generated output.
 
 ## Known scope limits
 
-- Immediate Chain V1 second hop is `/0` only.
-- Slider authoring bounds UI is not implemented yet; defaults are 0/100/1.
-- ObjectReference/ref/out/pointer/complex ValueType arguments are not generally solved by the per-argument control UI; existing ABI safety rules still apply.
-- M5.0/M5.1 managed-object lifetime and receiver behavior remains device-validation dependent.
+- Enum execution is typed by underlying primitive, but enum member-name dropdown authoring is not implemented.
+- Chain node editor currently uses CSV for Parameter Types/Args; argument strings containing commas are not a good fit for this V2 editor.
+- Arbitrary object arguments sourced from `Level N return` are not implemented; chaining currently uses previous managed return as receiver.
+- Generic object-reference args (other than existing String path), ref/out, pointer, and broad custom ValueType marshaling remain fail-closed according to existing ABI safety rules.
+- Real device proof for GCHandle lifetime across multiple levels is still required.
