@@ -9,12 +9,27 @@
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNPatchCore.h"
 
-// ZonoPatch v0.5.4 Builder Consolidation + M4.6.2 runtime-only verification.
+// ZonoPatch v0.5.6.2 Builder mode gate.
 //
-// Public buildWorkspace stays single-entry. Static/mixed builds keep the proven
-// V3 pipeline. A workspace with zero Static Patch rows but one or more Runtime
-// Method Actions uses an owned-data-only Mach-O container, so no dummy Static
-// Patch, validation gate, or temporary Runtime Patch restoration is required.
+// IMPORTANT: workspace.filledCount is intentionally NOT used to decide whether
+// the output is Static/Mixed. filledCount counts a row when either Offset OR
+// Enabled has text, so a stale/half-edited Builder row can incorrectly divert a
+// Runtime-only build into Static V3 postprocess. A Static intent is considered
+// real only when both Offset and Enabled are present.
+static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
+                                           NSUInteger *partialRows) {
+    NSUInteger complete = 0;
+    NSUInteger partial = 0;
+    for (ZNBinaryPatchRow *row in workspace.rows ?: @[]) {
+        BOOL hasOffset = row.offsetText.length > 0;
+        BOOL hasEnabled = row.enabledText.length > 0;
+        if (hasOffset && hasEnabled) complete++;
+        else if (hasOffset || hasEnabled) partial++;
+    }
+    if (partialRows) *partialRows = partial;
+    return complete;
+}
+
 @implementation ZNStaticBinaryBuilder
 
 + (BOOL)buildWorkspace:(ZNBinaryPatchWorkspace *)workspace
@@ -22,7 +37,16 @@
                 report:(NSString **)report
                  error:(NSString **)error {
     NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
-    BOOL runtimeOnly = actions.count > 0 && workspace.filledCount == 0;
+    NSUInteger partialStaticRows = 0;
+    NSUInteger completeStaticRows = ZNCompleteStaticRowCount(workspace, &partialStaticRows);
+    BOOL runtimeOnly = actions.count > 0 && completeStaticRows == 0;
+
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
+        @"[builder-mode-m5.6.2] runtime=%lu completeStatic=%lu partialStatic=%lu mode=%@",
+        (unsigned long)actions.count,
+        (unsigned long)completeStaticRows,
+        (unsigned long)partialStaticRows,
+        runtimeOnly ? @"runtime-only" : @"static/mixed"]];
 
     NSArray<NSString *> *builderOutputs = nil;
     NSString *builderReport = nil;
@@ -55,10 +79,6 @@
         return NO;
     }
 
-    // M4.6 extends the existing Runtime Action string pool in-place. This runs
-    // after the M4 table is embedded, while the generated output is still an
-    // unsigned Builder artifact, so final postprocess/signing covers the exact
-    // signature metadata too. Entry/header sizes and version remain unchanged.
     NSString *signatureReport = nil;
     NSString *signatureError = nil;
     if (!ZNRuntimeActionAugmentGeneratedOutputsM46(builderOutputs ?: @[],
@@ -68,9 +88,6 @@
         return NO;
     }
 
-    // M4.6.2 runtime-only generation is verified after Runtime Action + Full
-    // Signature embedding and before signing. This catches malformed section
-    // bounds/string-pool offsets/counts while the artifact is still disposable.
     NSString *verificationReport = nil;
     if (runtimeOnly) {
         NSString *verificationError = nil;
@@ -99,6 +116,13 @@
             ? [combinedReport stringByAppendingFormat:@"\n%@", verificationReport]
             : verificationReport;
     }
+    if (runtimeOnly && partialStaticRows) {
+        NSString *ignored = [NSString stringWithFormat:@"M5.6.2 Runtime-only：忽略 %lu 个未完整填写的 Offset/Enabled 草稿行。",
+                             (unsigned long)partialStaticRows];
+        combinedReport = combinedReport.length
+            ? [combinedReport stringByAppendingFormat:@"\n%@", ignored]
+            : ignored;
+    }
 
     NSString *postprocessError = nil;
     BOOL postprocessOK = runtimeOnly
@@ -109,9 +133,10 @@
         return NO;
     }
 
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ static=%lu runtime=%lu",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ completeStatic=%lu partialStatic=%lu runtime=%lu",
                                          runtimeOnly ? @"runtime-only-m4.6.2-verified" : @"static/mixed-v3",
-                                         (unsigned long)workspace.filledCount,
+                                         (unsigned long)completeStaticRows,
+                                         (unsigned long)partialStaticRows,
                                          (unsigned long)actions.count]];
     return YES;
 }
