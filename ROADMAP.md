@@ -1,52 +1,56 @@
 # ROADMAP
 
-## Current milestone — M5.5.1 Recovery
+## Current milestone — M5.6 Stable Runtime Slider + Static RW Value Cell V1
 
 Branch: `feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2`
 
-CI-validated head: `a40979aac1e98df9af84f5c67a09dcb356c62176`
+CI-validated head: `2d6351ac7e2652ae76e2ba2542118cc0beb2338e`
 
-### Recovery scope
+### Device evidence that triggered M5.6
 
-- Restore the proven M5.4 Builder base geometry instead of replacing it with a four-column M5.5 layout.
-- Move Runtime Method Call `删除` to the title row and increase vertical separation from the parameter-control row.
-- Add persistent Runtime Method authoring state using `zonoe.m5.5.authoring-actions.v1`.
-- Persist title, method identity, arguments, managed parameter types, signature availability, argument controls, Value Type, Default/Min/Max/Step and Immediate Chain.
-- Restore saved authoring actions automatically when the in-memory store is empty at startup.
-- Save on create, rename, argument edit, control edit, Value Type/range edit, chain edit, delete and clear.
-- Important boundary: actions that had already existed only in memory before M5.5.1 and were lost on process restart cannot be reconstructed automatically without a previous serialized source/log/generated action table.
+1. Static Number + Auto on a generated Offset patch failed on device with:
+   `写入完成但恢复 RX 权限失败: errno=13 (Permission denied)`.
+   This proves executable-page runtime mutation is not viable on the current signing/device model.
+2. Runtime Slider froze/crashed as soon as it was dragged. Audit found M5.5 calling `ZNRuntimeActionRuntime refresh` on every `UIControlEventValueChanged`.
 
-### Root cause confirmed
+### M5.6 implemented
 
-`ZNRuntimeActionStore` had historically been an in-memory `NSMutableArray` only. Changing dylib/restarting the process therefore discarded authoring actions. M5.5 inherited that behavior. M5.5.1 adds explicit persistence.
+- Runtime Slider hot path is cache-only while dragging.
+- Slider release performs exactly one Runtime Action refresh, step quantization, final cache write, and one Invoke.
+- Added build-time `Static RW Value Cell V1` parameterization.
+- Number/Slider generated ON variants are rewritten before signing to load from owned `__ZNDATA` RW cells.
+- Runtime Static value changes write only RW data; no `mprotect`, no RX->RW->RX executable-page mutation.
+- MOVZ(+MOVK) variants become LDR W/X from cell; compatible trailing MOVK slots are NOPed at build time.
+- scalar FMOV S/D variants become LDR S/D from cell.
+- Auto resolves backing type from verified source instruction family.
+- Existing Static selectedTarget dispatch stays unchanged; enabling still selects the generated ON variant.
+- Value-cell metadata uses new flags without changing `ZN44StaticEntry` size (128 bytes).
+- Runtime Action ABI remains 64 bytes.
+- M5.5.1 Builder baseline recovery and persistent Runtime authoring remain retained.
 
-### Recovery CI / artifact
+### Final CI / artifact
 
-- Workflow: `Build Runtime Patch Menu v0.5.8 M5.5 Typed Control Binding V2`
-- Run: `36002343325`
-- Job: `107641806291`
+- Workflow: `Build Runtime Patch Menu v0.5.8 M5.6 RW Value Cell`
+- Run: `36004751812`
+- Job: `107649917061`
 - Result: SUCCESS
-- Artifact ID: `10808925953`
-- ZIP SHA256: `f8c813ae0c9bd10b376c58e510f3767633866e803f55f396040caa9efb02eeac`
-- Recovery dylib size: `1404688` bytes
-- Recovery dylib SHA256: `bf3ffc1c75c27bae19a6d03a7e6dc93d5e23c9953143fb024267f8705d679453`
+- Artifact ID: `10809323261`
+- ZIP SHA256: `fc1f0596f2f603a993d2249e9ab1c965e5ff38019fcda3d5d4a75a189ecf2c03`
+- Dylib: `ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib`
+- Dylib size: `1421376` bytes
+- Dylib SHA256: `191c93dea1fc43d504860abcfd047fcf15391c6ad74c39be383f299eaa7cf54c`
 - Mach-O: thin arm64 dylib
+- Independent artifact/hash verification: PASS
 
 ### Immediate device acceptance
 
-1. Confirm footer reports `0.5.8 · M5.5.1`.
-2. Confirm the original M5.4 Builder content appears again before Runtime Method Call.
-3. Confirm Runtime Method Call `删除` is on the title row and no longer crowds parameter controls.
-4. Create two Runtime Method Calls, change control/value-type/range, kill and relaunch the game, and confirm both actions/configs restore.
-5. Delete one action, relaunch, and confirm the deletion persists.
-6. Only after recovery acceptance, reintroduce Static Value Type authoring as a non-destructive overlay on the M5.4 Builder baseline.
+1. Footer must show `0.5.8 · M5.6`.
+2. Runtime Slider: drag repeatedly; no freeze/crash during drag. Release should invoke once.
+3. Rebuild the Static Offset Number test with M5.6. Old M5.5-generated binaries do not contain RW value cells and must not be reused for this test.
+4. Static Number + Auto/MOV W case: changing value must not show RX permission errors.
+5. Static Slider FMOV case: integer values 1..10 should update through RW cell without executable-page writes.
+6. Regress M5.5.1 Builder layout/persistence and M5.4 Unified Method Finder.
 
-## M5.5 Typed Control Binding V2 retained backend
+### Important compatibility boundary
 
-- Public controls: Switch / Button / Number / Slider.
-- Value Types: Auto / I32 / U32 / I64 / U64 / F32 / F64.
-- Runtime Auto resolves from IL2CPP managed signatures.
-- Runtime configs carry Default / Min / Max / Step.
-- Static backend retains typed MOVZ/MOVK and scalar FMOV S/D adapters with fail-closed behavior.
-- Static Entry ABI remains 128 bytes; Runtime Action Entry ABI remains 64 bytes.
-- M5.4 Unified Method Finder remains the final Search / Results / Detail renderer.
+M5.6 dylib alone cannot retrofit RW value cells into an already-generated M5.5 UnityFramework. Static Number/Slider must be generated again with the M5.6 Builder/postprocess so the generated ON variant contains the LDR-to-RW-cell parameterization.
