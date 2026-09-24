@@ -2,77 +2,70 @@
 
 只记录当前未关闭问题、验证缺口和设计边界。
 
-## KI-M562-001 — Static executable-page writer regression was still active after initial M5.6
+## KI-M57-001 — Runtime Slider 多 owner / 双 UI 已在 M5.7 收敛，真机待验收
 
 Severity: `HIGH`  
-Status: `SOURCE/CI FIXED IN M5.6.2 / DEVICE PENDING`
+Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
 
-真机仍返回 `写入完成但恢复 RX 权限失败: errno=13 (Permission denied)`。后续审计确认当前分支的 `M5.6.1-regression` 安装链又恢复了 M5.3 executable-page typed writer，并停用了 M5.6 value-cell runtime owner/postprocess。M5.6.2 已恢复 `ZNF1 -> RW Value Cell -> RVA Protection -> Sign`，并显式移除 M5.3/M5.5 Static observers。必须重新生成目标二进制后真机验收。
+审计确认历史上同时存在多层 Runtime Slider handler（M5.1/M5.3/M5.5/M5.5.1/M5.6.2）以及独立 Static Feature Slider `ValueChanged` 通知路径；同时旧 `ZNRuntimeMethodCallFeatureUI` 和 M5.1 typed Runtime cards 构成两套客户 Runtime UI。M5.7 停止安装 M5.3/M5.5.1/M5.6.2 control owner 和旧 Runtime Feature UI，最终 Runtime 事件只由 `ZNM57UnifiedRuntimeControls` 拥有。需要真机确认拖动不再卡死/闪退且 release 只执行一次。
 
-## KI-M562-002 — Runtime Slider drag crash requires UI-vs-Invoke isolation
-
-Severity: `HIGH`  
-Status: `M5.6.2 ISOLATION BUILD READY / DEVICE PENDING`
-
-前一版即使减少 refresh，真机仍报告拖动卡死/闪退。M5.6.2 不再自动执行 Slider：最终 `ValueChanged` 只修改 UISlider 值，不 refresh/render/invoke/add release target。客户必须点 Runtime 卡片 `执行` 才调用。如果纯拖动仍崩，问题在 UI/selector 之外；如果拖动稳定但点执行崩，问题在 Runtime Invoke/receiver/F32 ABI 路径。
-
-## KI-M562-003 — Static Auto->F32 client value stuck at 0
+## KI-M57-002 — Number 统一为 Return 收键盘、手动 Execute
 
 Severity: `HIGH`  
-Status: `ROOT CAUSE PATH FIXED IN SOURCE/CI / DEVICE PENDING`
+Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
 
-用户新增 Static Number 后 Auto 解析为 F32，但客户端无论修改什么值都表现为 0。审计确认此前 UI/metadata 能显示 F32，但最终 runtime owner 并未使用 value-cell F32 后端。M5.6.2 由 build-time FMOV -> LDR S/D value-cell 参数化写入 resolved type flags，并由 `ZNM56StaticValueCellBinder` 按 F32/F64 bit pattern atomic store RW cell。必须重新生成目标二进制验证。
+Runtime 与 Static/Offset Number 均已改为输入只更新值；Return/Done 保存并 `resignFirstResponder`，不得因此执行。Runtime 使用卡片 `执行`；Static/Offset Number 使用 inline `执行`。需真机确认 Return 确实收起键盘且功能在 Execute 前不生效。
 
-## KI-M562-004 — Runtime-only builder mode could be polluted by partial Static rows
-
-Severity: `HIGH`  
-Status: `SOURCE/CI FIXED / DEVICE PENDING`
-
-旧 mode gate 使用 `workspace.filledCount`；只要 Offset 或 Enabled 任一字段残留就计入 Static。M5.6.2 改为完整行判断：仅 `Offset && Enabled` 同时存在才算 Static intent；partial rows 被记录但不阻止 Runtime-only。
-
-## KI-M562-005 — M5.6.2 Static tests require regenerated targets
+## KI-M57-003 — Runtime-only 实际生成但 UI 报失败
 
 Severity: `HIGH`  
-Status: `EXPECTED MIGRATION BOUNDARY`
+Status: `ROOT CAUSE FIXED / DEVICE PENDING`
 
-旧 M5.5/M5.6.1 生成物可能仍包含 executable-immediate variants，不能用来判断 M5.6.2 RW Value Cell 是否有效。Static Number/Slider/F32 验收必须由 M5.6.2 Builder 重新生成并替换回 IPA。
+Runtime-only 从 M5.1 起保持原始 Mach-O 文件名，无 `.znpatched` 后缀；旧 `ZNM462RuntimeOnlyVerifier` 仍只扫描 `.znpatched`，导致 Mach-O 实际生成成功后 verifier 返回“没有输出”。M5.7 改为按 thin Mach-O magic/内容识别 suffixless 输出。同时新增 Runtime-only Builder gate，使 Runtime Actions + 0 完整 Static 行时无需普通 Offset 即可启用生成。需真机确认最终 UI 报告成功。
 
-## KI-M56-004 — Value Cell LDR literal has ±1MB range limit
+## KI-M57-004 — Static Number/Slider RW Value Cell 仍需当前版本重生成后真机验收
+
+Severity: `HIGH`  
+Status: `CI/BINARY VERIFIED / DEVICE PENDING`
+
+Static typed backend 保持 `ZNF1 -> RW Value Cell -> RVA Protection -> Sign`。Number 只在 inline Execute 提交；Slider 只在 release 提交。旧 M5.5/M5.6.1 generated target 不是有效测试对象，必须使用当前 Builder 重生成。
+
+## KI-M57-005 — Static Auto->F32 历史 value=0 问题待 M5.7 重生成验证
+
+Severity: `HIGH`  
+Status: `PATH FIXED / DEVICE PENDING`
+
+此前 Auto->F32 UI/metadata 与最终 backend 不一致，客户端数值始终表现为 0。当前路径要求 FMOV build-time parameterization -> LDR S/D -> F32/F64 RW cell，且只有 M5.6 value-cell binder 是 Static typed backend owner。需用 M5.7 重生成目标并测试 1/5/10。
+
+## KI-M56-004 — Value Cell LDR literal ±1MB 距离限制
 
 Severity: `MEDIUM`  
 Status: `FAIL-CLOSED BY DESIGN`
 
-ARM64 LDR literal 使用 imm19*4。Builder 若 source fragment 到 owned `__ZNDATA` cell 超出 ±1MB，会生成失败；不会回退到 runtime executable write。
+ARM64 LDR literal 使用 imm19*4。Builder 若 source fragment 到 owned `__ZNDATA` cell 超出 ±1MB，会生成失败，不回退到 executable-page runtime write。
 
-## KI-M551-001 — Pre-M5.5.1 Runtime authoring historical loss
+## KI-M551-001 — M5.5.1 前 Runtime authoring 历史丢失不可自动恢复
 
 Severity: `MEDIUM`  
 Status: `FUTURE LOSS FIXED / HISTORICAL LOSS NOT AUTO-RECOVERABLE`
 
-M5.5.1 起使用 `zonoe.m5.5.authoring-actions.v1` 持久化。修复前已丢失且没有序列化源/日志/action table 的条目无法可靠恢复。
+M5.5.1 起使用 `zonoe.m5.5.authoring-actions.v1` 持久化；修复前已经丢失且无序列化源/日志/action table 的条目无法可靠恢复。
 
-## KI-M551-002 — Builder Recovery full device regression pending
-
-Severity: `MEDIUM`  
-Status: `CI VERIFIED / DEVICE REGRESSION PENDING`
-
-继续确认 M5.4 Builder 基线、删除按钮间距、Runtime authoring 重启恢复在 M5.6.2 无回归。
-
-## KI-M54-003 — Unified Search History interaction acceptance incomplete
+## KI-M54-003 — Unified Search History 完整交互验收未完成
 
 Severity: `MEDIUM`  
 Status: `VISIBLE ON DEVICE / INTERACTION PENDING`
 
 Unified/search-history 已真机可见；历史点击仅回填、手动搜索、持久化/去重/50 条淘汰仍需完整验收。
 
-## KI-M54-004 — Unified Results decorators need full regression
+## KI-M54-004 — Unified Results 行为装饰器需完整回归
 
 Severity: `HIGH`  
 Status: `DEVICE REGRESSION PENDING`
 
 需继续验证 `/0-/8`、candidate binding、Test/捕获、receiver long-press、创建方法和 Chain 状态机。
 
-## KI-M52-001 — Immediate Chain V2 Level 0 return investigation
+## KI-M52-001 — Immediate Chain V2 Level 0 返回问题仍开放
 
 Severity: `HIGH`  
 Status: `PARTIAL DEVICE EVIDENCE / INVESTIGATION OPEN`
