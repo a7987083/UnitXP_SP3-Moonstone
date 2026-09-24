@@ -1,9 +1,9 @@
-name: Build Runtime Patch Menu v0.5.8 M5.6 RW Value Cell
+name: Build Runtime Patch Menu v0.5.8 M5.6.2 Recovery
 
 on:
   push:
     branches:
-      - feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2
+      - fix/m5.6.2-runtime-slider-static-valuecell
   workflow_dispatch:
 
 jobs:
@@ -21,19 +21,23 @@ jobs:
       - name: Source contract assertions
         run: |
           set -euxo pipefail
-          test -f iosruntimepatchmenu/src/ZNM551RuntimeSliderStability.mm
+          test -f iosruntimepatchmenu/src/ZNM562SliderIsolation.mm
           test -f iosruntimepatchmenu/src/ZNStaticValueCellV1.h
           test -f iosruntimepatchmenu/src/ZNStaticValueCellV1.mm
           test -f iosruntimepatchmenu/src/ZNM56StaticValueCellBinding.mm
+          grep -q 'ZNCompleteStaticRowCount' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'completeStaticRows == 0' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
           grep -q 'ZN44_STATIC_HEADER_FLAG_VALUE_CELLS_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
           grep -q 'ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
           grep -q 'ZNStaticValueCellAugmentAtPath' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
-          grep -q 'runtimeExecutableWrites' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
-          grep -q 'ZNInstallM551RuntimeSliderStabilityDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'runtimeExecutableWrites": @NO' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
           grep -q 'ZNInstallM56StaticValueCellBindingDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNInstallM562SliderIsolationDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNM53StaticControlBinder' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           grep -q 'src/ZNStaticValueCellV1.mm' iosruntimepatchmenu/Makefile
           grep -q 'src/ZNM56StaticValueCellBinding.mm' iosruntimepatchmenu/Makefile
-          grep -q '0.5.8 · M5.6' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'src/ZNM562SliderIsolation.mm' iosruntimepatchmenu/Makefile
+          grep -q '0.5.8 · M5.6.2' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
 
@@ -82,33 +86,34 @@ jobs:
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
 
-      - name: Build M5.6
+      - name: Build M5.6.2
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m5.6
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.6/ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib
-          shasum -a 256 dist-m5.6/ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib | tee dist-m5.6/SHA256.txt
+          mkdir -p dist-m5.6.2
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.6.2/ZonoPatch_v0.5.8_M5.6.2_Runtime_Static_Recovery.dylib
+          shasum -a 256 dist-m5.6.2/ZonoPatch_v0.5.8_M5.6.2_Runtime_Static_Recovery.dylib | tee dist-m5.6.2/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m5.6/ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib
+          out=iosruntimepatchmenu/dist-m5.6.2/ZonoPatch_v0.5.8_M5.6.2_Runtime_Static_Recovery.dylib
           file "$out" | grep -q 'arm64'
-          otool -L "$out" | tee /tmp/zono_m56_load_commands.txt
-          strings -a "$out" > /tmp/zono_m56_strings.txt
-          grep -q '\[m5.5.1-slider\]' /tmp/zono_m56_strings.txt
-          grep -q '\[m5.6-value-cell\]' /tmp/zono_m56_strings.txt
-          grep -q 'RW __ZNDATA cells only' /tmp/zono_m56_strings.txt
-          ! grep -qi 'dobby' /tmp/zono_m56_load_commands.txt
+          otool -L "$out" | tee /tmp/zono_m562_load_commands.txt
+          strings -a "$out" > /tmp/zono_m562_strings.txt
+          grep -q '\[m5.6.2-slider\]' /tmp/zono_m562_strings.txt
+          grep -q '\[m5.6-value-cell\]' /tmp/zono_m562_strings.txt
+          grep -q '\[builder-mode-m5.6.2\]' /tmp/zono_m562_strings.txt
+          grep -q 'RW __ZNDATA value cells' /tmp/zono_m562_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m562_load_commands.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.8-M5.6-RW-Value-Cell
+          name: ZonoPatch-v0.5.8-M5.6.2-Runtime-Static-Recovery
           path: |
-            iosruntimepatchmenu/dist-m5.6/ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib
-            iosruntimepatchmenu/dist-m5.6/SHA256.txt
+            iosruntimepatchmenu/dist-m5.6.2/ZonoPatch_v0.5.8_M5.6.2_Runtime_Static_Recovery.dylib
+            iosruntimepatchmenu/dist-m5.6.2/SHA256.txt
           if-no-files-found: error
