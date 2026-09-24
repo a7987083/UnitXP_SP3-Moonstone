@@ -2,65 +2,46 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-24 — M5.5.1 Recovery
+
+### 根因
+
+- 真机反馈更换 M5.5 后，制作页原有内容/Runtime Method Call 条目缺失。
+- 审计确认 `ZNRuntimeActionStore` 历史上只使用进程内 `NSMutableArray`，没有 authoring 持久化；换 dylib、杀进程或重启后旧条目会丢。
+- M5.5 同时改写了 Builder 控件布局，增加了恢复风险。
+
+### 实际修复
+
+- `ZNFeatureBuilderControlsV2.mm` 恢复为 M5.4 已验证的 Builder 基础布局，不再用四列 Typed 控件替换基线几何。
+- Runtime Method Call 卡片的 `删除` 按钮移到标题行右上角；参数区下移并增加卡片高度/卡片间距。
+- 新增 `ZNM551AuthoringPersistence.mm`。
+- 持久化 key：`zonoe.m5.5.authoring-actions.v1`。
+- 保存字段：title、assembly、namespace、class、method、argc、argumentValues、parameterTypeNames、signatureAvailable、argumentControlConfigs、immediateChain。
+- 在 create / rename / argument edit / control edit / Value Type+Range edit / chain edit / delete / clear 后自动写入。
+- 启动时仅当内存 Store 为空时自动恢复，避免覆盖同进程已有 authoring state。
+- 版本标识改为 `0.5.8 · M5.5.1` / `Recovery · M5.4 Builder Baseline · Persistent Authoring`。
+
+### CI / artifact
+
+- Run `36002343325` / Job `107641806291`: Source Contract、arm64 Build、Binary Verify、Artifact Upload 全部 SUCCESS。
+- Artifact ID `10808925953`。
+- ZIP SHA256 `f8c813ae0c9bd10b376c58e510f3767633866e803f55f396040caa9efb02eeac`。
+- Dylib size `1404688` bytes。
+- Dylib SHA256 `bf3ffc1c75c27bae19a6d03a7e6dc93d5e23c9953143fb024267f8705d679453`。
+- Mach-O: thin arm64 dylib。
+
+### 边界
+
+- M5.5.1 开始可以防止以后 authoring 数据随进程重启丢失。
+- 在 M5.5.1 之前已经只存在内存且已经丢失的条目，没有可靠序列化源时无法自动恢复；不能根据截断截图猜完整方法身份。
+
 ## 2026-09-24 — M5.5 Typed Control Binding V2
 
-Branch: `feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2`
-
-CI-validated product: `3548cbc655f4347e03947d9dba0fb501f15b137e`
-
-### 实际修改
-
-- 新增统一 Value Type：`Auto / I32 / U32 / I64 / U64 / F32 / F64`。
-- 控件类型继续保持 `Switch / Button / Number / Slider`，不把 MOV/FMOV/ABI 暴露成客户 UI 类型。
-- Runtime Auto 根据 IL2CPP 参数签名推荐数值类型。
-- Runtime Builder 参数控件新增 Value Type 按钮；长按进入 `Default / Min / Max / Step` 编辑。
-- Runtime Slider 在旧 M5.3 自动执行之前完成 step 量化；默认 Slider `1..10 / step 1`。
-- Runtime Number 在执行前按选中/解析后的类型做 canonical validation。
-- Runtime Action control JSON 现在保留 `valueType/default/min/max/step`；64-byte Entry ABI 未变化。
-- Static Builder 新增独立 Value Type 选择。
-- Static Value Type 存入 Entry flags bits 11..13；旧生成物 `0` 自动解释为 Auto；128-byte Static Entry ABI 未变化。
-- Static Number 增加精确 `valueText` 通路，避免 U64 在进入编码器前被 double 精度截断。
-- Static Slider 改为整数值 `1..10 / step 1`。
-- 新增 `ZNM55StaticTypedBinding.mm`：
-  - MOVZ(+MOVK) -> I32/U32/I64/U64；
-  - scalar FMOV S,#imm -> F32；
-  - scalar FMOV D,#imm -> F64；
-  - Auto 根据已验证首指令族选择后端；
-  - 类型不匹配、MOVK 槽位不足、FMOV 无法精确编码时 fail closed。
-- M5.5 Static binder 安装后移除旧 M5.3 Static MOV-only observer；M5.3 Runtime Button/Switch/Number/Slider auto-execute 仍保留。
-- FMOV immediate 扩展算法对当前产品常用整数区间做了独立验证；1..31 均可精确表示，当前公开 Slider 默认仍为 1..10。
-
-### CI 历史
-
-- Run `35995621476`: 第一轮 Build 失败，原因仅为 Objective-C++ 中 `NSData.bytes` 从 `const void *` 到 `const uint8_t *` 缺显式 cast。
-- 修复 commit `c80db10b5c93c9d88aca3323abc2b48a912f3cc1` 后，基础 Typed Runtime/Builder 版本 Run `35996073916` 全绿。
-- 最终加入 Static MOV/FMOV typed adapter 后，Run `35996840472` / Job `107623672455`：Source Contract、Build、Binary Verify、Artifact Upload 全部 SUCCESS。
-
-### 最终制品
-
-- Artifact ID: `10806284095`
-- ZIP SHA256: `9ec1d6ab1a484572b16c1eff57eb90a7d54836b9717ed9748296fcc66a4b86e9`
-- Dylib size: `1404656`
-- Dylib SHA256: `0dacef0f731d0a6b59e1446b08977d69a6eeb732096c761a9ed321be0214375a`
-- Mach-O: thin arm64 dylib
-- 独立下载后 ZIP digest 与 GitHub digest 一致，dylib hash 与 Artifact `SHA256.txt` 一致。
-
-### 验证边界
-
-- source implemented: YES
-- GitHub committed: YES
-- arm64 compile/link/sign: YES
-- Binary Verify: YES
-- independent artifact hash: YES
-- M5.5 typed controls device verification: PENDING
-- Static FMOV/MOV typed backend device verification: PENDING
-- full M5.4/M5.5 regression: PENDING
-
-## 2026-09-24 — M5.4 Device Evidence
-
-- 用户真机确认 M5.4 Unified Method Finder / 搜索历史已经可见。
-- 关闭此前“History 源码存在但最终 UI 不显示”的核心 blocker。
-- 历史点击、candidate binding、receiver capture、Chain 等交互仍需逐项回归。
+- 新增 `Auto / I32 / U32 / I64 / U64 / F32 / F64`。
+- 控件保持 `Switch / Button / Number / Slider`。
+- Runtime Auto 根据 IL2CPP managed signature 推断数值类型；Runtime Range 支持 Default/Min/Max/Step。
+- Static 后端支持验证过的 MOVZ(+MOVK) 整数与 scalar FMOV S/D immediate，错误编码 fail closed。
+- Final M5.5 Run `35996840472`, dylib SHA256 `0dacef0f731d0a6b59e1446b08977d69a6eeb732096c761a9ed321be0214375a`。
 
 ## Historical anchors
 
