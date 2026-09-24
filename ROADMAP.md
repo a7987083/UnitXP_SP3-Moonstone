@@ -1,57 +1,58 @@
 # ROADMAP
 
-## Current milestone — M5.3 Control Binding V1
+## Current milestone — M5.3 Control Binding V1 + M4.3 Search History UI Fix
 
 Branch: `feature/runtime-patch-menu-v0.5.8-m5.3-control-binding-v1`
 
-CI-validated product head: `b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f`
+CI-validated product head: `064d535918cacd0f40a220521af7cad18a3d42d9`
 
 Implemented:
 
-- M5.2 Immediate Chain V2, `执行链` state machine, 50-entry M4.3 Finder search history and customer silent-success behavior are retained.
-- Runtime per-argument controls are now behavior-bound instead of requiring a separate top Execute action:
+- M5.2 Immediate Chain V2, `执行链` state machine, customer silent-success behavior and 50-entry persistent search-history storage are retained.
+- M4.3 search-history display bug fixed: the old implementation used `maxY(contentView)` and could place history below footer/other views. History is now inserted at the known M4.3 boundary immediately below the 170pt search card (`y=187`), and later M4.3 content is shifted down.
+- Search history remains newest-first, case-insensitive deduplicated, persistent, one row per query, independently scrollable, capped at 50.
+- Tapping a search-history row now **only autofills the 方法名 field**. It updates both the Finder query model and the visible query field (`tag 603001`) and does **not** automatically start a search.
+- Runtime per-argument controls are behavior-bound:
   - Button: tap invokes immediately.
   - Switch: value change invokes immediately.
   - Number: editing completion invokes immediately.
-  - Slider: drag keeps updating the value; touch release commits one invoke.
-- Runtime invoke still composes exposed values with hidden fixed arguments and uses the existing typed `/0-/8` + full-signature path.
+  - Slider: drag updates value; touch release commits one invoke.
+- Runtime invoke keeps hidden fixed args + exposed live values and reuses typed `/0-/8`, full-signature resolution, receiver handling and Immediate Chain.
 - Successful customer Runtime execution stays silent; failures still show `执行失败`; Builder/Finder test surfaces keep return/debug output.
-- Static Button is now bound to the existing fixed Enabled variant instead of only publishing an event.
-- Static Number/Slider V1 now binds a customer value to generated Static Dispatch ON variants when the Enabled prefix is a verified ARM64 `MOVZ` followed by compatible `MOVK` instructions.
-- Protection V2 fragmented ON instructions are followed through their generated branch chain; the matching MOV immediate fields are rewritten transactionally with expected-byte verification/read-back/rollback through `ZNRuntimePatchExecutor`, then the Static variant is enabled.
-- Static Number/Slider refuses unsupported Enabled patterns instead of guessing arbitrary bytes. V1 accepts non-negative integer values only; W values are limited by available MOVZ/MOVK halfword slots, X values are limited to exact-double range (`2^53-1`).
-- Static Slider updates are debounced before the dynamic write.
-- Static Dispatch entry ABI remains 128 bytes; Runtime Action entry ABI remains 64 bytes. No ABI expansion.
+- Static Switch keeps existing Static Dispatch behavior.
+- Static Button enables the existing fixed Enabled variant.
+- Static Number/Slider V1 binds customer values only for verified ARM64 `MOVZ` + compatible `MOVK` generated ON variants; unknown encodings fail closed.
+- Static dynamic writes use expected-byte verification/read-back/rollback through `ZNRuntimePatchExecutor`.
+- Static Dispatch Entry ABI remains 128 bytes; Runtime Action Entry ABI remains 64 bytes.
 
 CI/build status:
 
-- Run `35951498398`: SUCCESS
-- Job `107480818078`: SUCCESS
-- Artifact ID `10788349821`
-- Artifact ZIP SHA256 `80a2461b89ad5625d03d86407ad8ec5ea9854cde46422485d08e1037232fd777`
-- Dylib SHA256 `e4ed0643ed7cf8aceb89f93f06c40f41442f4f12a64b1d8bcd7970765df7b98b`
+- History UI Fix Run `35960360188`: SUCCESS
+- Job `107507414304`: SUCCESS
+- Artifact ID `10792097181`
+- Artifact ZIP SHA256 `48a8eae15b567f10ec889861c89f1c03c1d6a79b72e43479abcbfbbe6c084acf`
+- Dylib SHA256 `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`
 - Dylib size `1337776` bytes
 - Mach-O: thin arm64 dylib
 - Independent ZIP/dylib hash verification: PASS
 
 Device acceptance required:
 
-1. Runtime Switch: toggle once and confirm the underlying method is invoked immediately with `true/false`, with no success popup.
-2. Runtime Number: edit the value and finish editing; confirm one invoke using the new value.
-3. Runtime Slider: drag without repeated invoke spam, then release and confirm one invoke using the final stepped value.
-4. Runtime Button: tap and confirm immediate invoke; success remains silent and forced failure remains visible.
-5. Static Button: tap and confirm the fixed Enabled variant activates.
-6. Static Number/Slider: use a validated Enabled beginning with `MOV W/Xd,#imm` (`MOVZ`, optional `MOVK`) and confirm customer value changes the effective immediate rather than reusing the original fixed value.
-7. Static unsupported Enabled: confirm it fails closed with `执行失败` rather than modifying unknown bytes.
-8. Regress M5.2 Chain V2, execution-chain UI, M4.3 search history, ordinary Static Switch, Runtime `/0-/8`, and suffixless generated binaries.
+1. Search at least two method names and return to M4.3 search page; confirm `搜索记录 · n/50` appears directly below the main search card and above the status card.
+2. Tap a history row; confirm the value is copied into the visible `方法名` field and **no search starts automatically**.
+3. Manually press `搜索` after autofill; confirm the selected history query searches normally.
+4. Reopen/restart the menu and confirm history persists; repeated queries deduplicate and move to the top; only newest 50 remain.
+5. Runtime Switch/Number/Slider/Button auto-execute regression.
+6. Static Button and compatible MOVZ/MOVK Number/Slider regression.
+7. Regress Chain V2, ordinary Static Switch, Runtime `/0-/8`, and suffixless generated binaries.
 
 Known architectural boundary:
 
-- Static dynamic V1 changes generated executable ON-variant instructions through the existing transactional Runtime Patch executor. On targets that prohibit RX→RW executable-page mutation, this path may fail closed at runtime. A future non-writable-code implementation should move the dynamic scalar into generated RW data and have a build-time parameterized stub consume it.
-- Static V1 intentionally does not treat arbitrary Enabled bytes as Int32/Float or guess instruction semantics.
+- Static dynamic V1 changes generated executable ON-variant instructions through the transactional Runtime Patch executor. On targets that prohibit RX→RW executable-page mutation, this path may fail closed. Future Static Dynamic V2 should use generated RW value cells + parameterized stubs.
+- Static V1 intentionally does not reinterpret arbitrary Enabled bytes as Int32/Float or guess instruction semantics.
 
 Next engineering work after device evidence:
 
-- If executable-page mutation is blocked on the intended signing/device model, implement Static Dynamic V2 with build-time RW value cells + parameterized generated stubs (no runtime executable-page writes).
-- Add explicit signed/float encodings and Builder range/default/step authoring only after V1 device evidence.
+- Accept/reject the corrected M4.3 search-history placement and autofill-only interaction on device.
+- If executable-page mutation is blocked, implement Static Dynamic V2 with RW value cells + generated parameterized stubs.
 - Continue Chain typed-row/enum/object-source work after the control-binding regression matrix is accepted.
