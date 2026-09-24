@@ -2,6 +2,12 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-24 — M5.4 Device Evidence: Unified/History Visible
+
+- 用户真机反馈“有了”，对应本轮验收上下文中的 M5.4 Unified Method Finder / 搜索历史可见性检查。
+- 记录为：M5.4 最终 Unified 渲染路径已在真机出现，之前“历史存在但 UI 看不到”的核心问题已不再复现。
+- 此证据只关闭可见性/最终 renderer 接管这一项；历史点击仅回填、手动搜索、`/0-/8`、candidate binding、receiver capture、创建方法、Chain、M5.3 控件等仍需分别回归，不提前判定通过。
+
 ## 2026-09-24 — M5.4 Unified Method Finder
 
 Branch: `refactor/method-finder-ui-consolidation-m5.4`
@@ -59,8 +65,8 @@ Product-code head: `eff4f4d86c1851558e703addb89ed86578259a64`
 - arm64 compile/link/sign: YES
 - Binary Verify: YES
 - artifact independent hash verification: YES
-- device confirms Unified title/page: PENDING
-- Unified search history visible/autofill-only: PENDING
+- device confirms Unified/history visibility: YES
+- history autofill-only interaction: PENDING
 - `/0-/8` result rows regression: PENDING
 - Test/candidate binding + receiver capture regression: PENDING
 - Chain create/execute/long-press regression: PENDING
