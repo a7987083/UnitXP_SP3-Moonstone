@@ -200,13 +200,26 @@ static BOOL ZNM462VerifyPath(NSString *path,
     return ok;
 }
 
+static BOOL ZNM462LooksLikeMachOPath(NSString *path) {
+    if (!path.length || [path.lastPathComponent isEqualToString:@"build_report.json"]) return NO;
+    int fd = open(path.fileSystemRepresentation, O_RDONLY);
+    if (fd < 0) return NO;
+    uint32_t magic = 0;
+    ssize_t n = read(fd, &magic, sizeof(magic));
+    close(fd);
+    return n == sizeof(magic) && magic == MH_MAGIC_64;
+}
+
 BOOL ZNM462VerifyRuntimeOnlyOutputs(NSArray<NSString *> *outputs,
                                     NSUInteger expectedActionCount,
                                     NSString **report,
                                     NSString **error) {
     NSUInteger verified = 0;
     for (NSString *path in outputs ?: @[]) {
-        if (![path.pathExtension.lowercaseString isEqualToString:@"znpatched"]) continue;
+        // Runtime-only Builder has intentionally been suffixless since M5.1.
+        // Verify actual Mach-O outputs by content, not by the historical
+        // `.znpatched` staging suffix.
+        if (!ZNM462LooksLikeMachOPath(path)) continue;
         NSString *localError = nil;
         if (!ZNM462VerifyPath(path, expectedActionCount, &localError)) {
             if (error) *error = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, localError ?: @"verify failed"];
@@ -215,16 +228,15 @@ BOOL ZNM462VerifyRuntimeOnlyOutputs(NSArray<NSString *> *outputs,
         verified++;
     }
     if (!verified) {
-        if (error) *error = @"M4.7 verifier：没有 .znpatched 输出";
+        if (error) *error = @"M5.7 verifier：没有找到 Runtime-only Mach-O 输出";
         return NO;
     }
     if (report) {
-        *report = [NSString stringWithFormat:@"M4.7 Runtime-only Verify：%lu 个 Mach-O · %lu Runtime Actions · Static count=0 · Full Signature + /0-/8 argument vector + section bounds/RW protection 全部通过",
+        *report = [NSString stringWithFormat:@"M5.7 Runtime-only Verify：%lu 个 suffixless Mach-O · %lu Runtime Actions · Static count=0 · Full Signature + /0-/8 argument vector + section bounds/RW protection 全部通过",
                    (unsigned long)verified, (unsigned long)expectedActionCount];
     }
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.7-runtime-only-verify] targets=%lu actions=%lu maxArgs=%u PASS",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.7-runtime-only-verify] targets=%lu actions=%lu suffixless=YES PASS",
                                          (unsigned long)verified,
-                                         (unsigned long)expectedActionCount,
-                                         ZN_RUNTIME_ACTION_MAX_ARGUMENTS]];
+                                         (unsigned long)expectedActionCount]];
     return YES;
 }
