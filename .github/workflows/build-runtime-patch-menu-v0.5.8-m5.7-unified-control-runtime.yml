@@ -22,6 +22,7 @@ jobs:
         run: |
           set -euxo pipefail
           test -f iosruntimepatchmenu/src/ZNM57UnifiedRuntimeControls.mm
+          test -f iosruntimepatchmenu/src/ZNM57RuntimeOnlyBuilderGate.mm
           grep -q 'ZNM462LooksLikeMachOPath' iosruntimepatchmenu/src/ZNM462RuntimeOnlyVerifier.mm
           grep -q 'suffixless Mach-O' iosruntimepatchmenu/src/ZNM462RuntimeOnlyVerifier.mm
           grep -q 'zn65fc_numberReturn' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
@@ -29,12 +30,14 @@ jobs:
           grep -q 'zn65fc_sliderCommitted' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
           grep -q 'UIControlEventEditingDidEndOnExit' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
           grep -q 'ZNInstallM57UnifiedRuntimeControlsDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNInstallM57RuntimeOnlyBuilderGateDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           grep -q 'ZNInstallM56StaticValueCellBindingDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           ! grep -q 'ZNInstallM53ControlBindingDeferred();' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           ! grep -q 'ZNInstallM551RuntimeSliderStabilityDeferred();' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           ! grep -q 'ZNInstallM562SliderIsolationDeferred();' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           ! grep -q 'ZNInstallRuntimeMethodCallFeatureUIDeferred();' iosruntimepatchmenu/src/ZNRuntimeMethodCallBootstrap.mm
           grep -q 'src/ZNM57UnifiedRuntimeControls.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNM57RuntimeOnlyBuilderGate.mm' iosruntimepatchmenu/Makefile
           grep -q '0.5.8 · M5.7' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNStaticValueCellAugmentAtPath' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
           grep -q 'runtimeExecutableWrites": @NO' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
@@ -105,6 +108,7 @@ jobs:
           strings -a "$out" > /tmp/zono_m57_strings.txt
           grep -q '\[m5.7-controls\]' /tmp/zono_m57_strings.txt
           grep -q '\[m5.7-runtime-only-verify\]' /tmp/zono_m57_strings.txt
+          grep -q '\[m5.7-builder-gate\]' /tmp/zono_m57_strings.txt
           grep -q '\[m5.6-value-cell\]' /tmp/zono_m57_strings.txt
           grep -q 'Unified Control Runtime' /tmp/zono_m57_strings.txt
           grep -q 'legacy duplicate Feature action UI disabled' /tmp/zono_m57_strings.txt
