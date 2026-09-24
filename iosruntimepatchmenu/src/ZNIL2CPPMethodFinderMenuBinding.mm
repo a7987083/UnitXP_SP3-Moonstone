@@ -19,6 +19,7 @@ extern "C" void ZNInstallOffsetResolverV2Deferred(void);
 extern "C" void ZNInstallBinaryPatchWorkspaceAddressV2Deferred(void);
 extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
+extern "C" void ZNInstallM551AuthoringPersistenceDeferred(void);
 extern "C" void ZNInstallUXFixesV2Deferred(void);
 extern "C" void ZNInstallMethodFinderM43UIDeferred(void);
 extern "C" void ZNInstallMethodFinderM43PolishDeferred(void);
@@ -67,18 +68,17 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         Method a=class_getInstanceMethod(cls,@selector(zn40_baseCategories)),b=class_getInstanceMethod(cls,@selector(zn57mfb_baseCategories));if(a&&b)method_exchangeImplementations(a,b);
         Method c=class_getInstanceMethod(cls,@selector(zn40_baseSymbols)),d=class_getInstanceMethod(cls,@selector(zn57mfb_baseSymbols));if(c&&d)method_exchangeImplementations(c,d);
         ZNInstallIL2CPPMethodFinderUXV2Deferred();ZNInstallIL2CPPMethodFinderV3Deferred();ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();ZNInstallIL2CPPMethodFinderM2Deferred();ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();ZNInstallIL2CPPABIDetailUIDeferred();
-        ZNInstallFeatureBuilderControlsV2Deferred();ZNInstallFeatureRuntimeControlsV2Deferred();ZNInstallOffsetResolverV2Deferred();ZNInstallBinaryPatchWorkspaceAddressV2Deferred();ZNInstallRuntimeMenuModalShellDeferred();ZNInstallRuntimeMethodCallDeferred();ZNInstallUXFixesV2Deferred();
+        ZNInstallFeatureBuilderControlsV2Deferred();ZNInstallFeatureRuntimeControlsV2Deferred();ZNInstallOffsetResolverV2Deferred();ZNInstallBinaryPatchWorkspaceAddressV2Deferred();ZNInstallRuntimeMenuModalShellDeferred();
+        ZNInstallRuntimeMethodCallDeferred();
+        ZNInstallM551AuthoringPersistenceDeferred();
+        ZNInstallUXFixesV2Deferred();
         ZNInstallMethodFinderM43UIDeferred();ZNInstallMethodFinderM43PolishDeferred();ZNInstallInstanceSelectionV2UIDeferred();ZNInstallM441HotfixDeferred();ZNInstallM442SearchRestoreDeferred();ZNInstallM45AddressOwningMethodDeferred();ZNInstallM46SignatureExecutionDeferred();ZNInstallM46FullSignatureUIDeferred();ZNInstallM461PolishDeferred();ZNInstallM462InstanceSafetyDeferred();
         ZNInstallM47MultiArgInvokeDeferred();ZNInstallM47MultiArgUIDeferred();ZNInstallM47BuilderArgsUIDeferred();ZNInstallM47VersionUIDeferred();ZNInstallM48ReturnCaptureDeferred();ZNInstallM49GenericInvokeEditableArgsDeferred();ZNInstallM50ManagedReturnChainingDeferred();
         ZNInstallMethodFinderUnifiedUIDeferred();
         ZNInstallM462CandidateBindingUIDeferred();ZNInstallM47ReceiverCaptureUIDeferred();ZNInstallM51RuntimeArgControlsImmediateChainDeferred();ZNInstallM52ChainStoreV2Deferred();ZNInstallM52ImmediateChainV2Deferred();ZNInstallM52ChainExecuteButtonDeferred();
-        // Runtime: typed canonicalization is installed before M5.3 so M5.3's
-        // auto-execute wrapper invokes only after the typed handler has run.
         ZNInstallM55TypedControlBindingDeferred();
-        // M5.3 still provides Runtime auto execution. Its legacy Static
-        // MOV-only observer is immediately replaced by M5.5's typed adapter.
         ZNInstallM53ControlBindingDeferred();
         ZNInstallM55StaticTypedBindingDeferred();
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.5-typed] Unified Finder + Runtime/Static Typed Control Binding V2 installed"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.5.1-recovery] M5.4 Builder baseline + persistent authoring + typed backends installed"];
     });
 }
