@@ -106,8 +106,11 @@ jobs:
           grep -q '\[m5.2-chain\]' /tmp/zono_m54_strings.txt
           grep -q '\[m5.3-binding\]' /tmp/zono_m54_strings.txt
           grep -q '\[m5.4-unified-ui\]' /tmp/zono_m54_strings.txt
-          grep -q 'IL2CPP 方法查找 · Unified' /tmp/zono_m54_strings.txt
-          grep -q '搜索记录' /tmp/zono_m54_strings.txt
+          grep -q 'zonoe.m52.method-search-history.v1' /tmp/zono_m54_strings.txt
+          grep -q 'znm54_historyTapped:' /tmp/zono_m54_strings.txt
+          grep -q 'znm54_renderSearchAtWidth:' /tmp/zono_m54_strings.txt
+          grep -q 'znm54_renderResultsAtWidth:' /tmp/zono_m54_strings.txt
+          grep -q 'znm54_renderDetailAtWidth:' /tmp/zono_m54_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m54_load_commands.txt
 
       - name: Upload artifact
