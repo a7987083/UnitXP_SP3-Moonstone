@@ -2,24 +2,51 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.3 Control Binding V1**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.3 Control Binding V1 + M4.3 Search History UI Fix**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
 - Active branch: `feature/runtime-patch-menu-v0.5.8-m5.3-control-binding-v1`
-- CI-validated product head: `b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f`
-- CI Run: `35951498398` — success
-- Job: `107480818078` — success
-- Artifact ID: `10788349821`
-- Artifact ZIP SHA256: `80a2461b89ad5625d03d86407ad8ec5ea9854cde46422485d08e1037232fd777`
+- CI-validated product head: `064d535918cacd0f40a220521af7cad18a3d42d9`
+- CI Run: `35960360188` — success
+- Job: `107507414304` — success
+- Artifact ID: `10792097181`
+- Artifact ZIP SHA256: `48a8eae15b567f10ec889861c89f1c03c1d6a79b72e43479abcbfbbe6c084acf`
 - Dylib size: `1337776`
-- Dylib SHA256: `e4ed0643ed7cf8aceb89f93f06c40f41442f4f12a64b1d8bcd7970765df7b98b`
+- Dylib SHA256: `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`
 - Format: thin arm64 Mach-O dylib
 
-## M5.3 purpose
+## Search history current UX
 
-M5.3 closes the gap between visible customer controls and their actual execution semantics.
+The device uses `IL2CPP 方法查找 · M4.3`. The corrected history path is intentionally tied to that page:
 
-### Runtime Method controls
+```text
+M4.3 main search card (y=9, h=170)
+↓
+搜索记录 · n/50   (insert y=187)
+query A
+query B
+...
+↓
+M4.3 status card / later content
+```
+
+Rules:
+
+- history persists via NSUserDefaults
+- maximum 50 entries
+- newest first
+- case-insensitive dedupe
+- one row per query
+- independent vertical scrolling
+- repeated query moves to top
+- oldest is dropped after 50
+- **tap history row = autofill 方法名 only**
+- tapping a row does **not** run a search
+- user manually presses `搜索` after autofill
+
+The old placement bug came from using `maxY(contentView)`, which included footer/other later views and could push the history below the visible Finder area. The current implementation inserts at the known M4.3 boundary and shifts subsequent main-content views down.
+
+## M5.3 Runtime Method controls
 
 ```text
 Button  -> tap -> invoke now
@@ -29,65 +56,40 @@ Slider  -> drag updates value -> release -> invoke once
 ```
 
 - Hidden/fixed arguments remain fixed.
-- Exposed argument values are composed into the existing `ZNRuntimeMethodAction`.
 - Existing typed `/0-/8`, full-signature resolver, receiver selection, Return Capture and Immediate Chain remain underneath.
-- Customer success remains silent via M5.1 Silent Execution; failures still surface `执行失败`.
-- Top `执行` remains for backward compatibility; auto-triggering controls no longer require it.
+- Customer success remains silent; failures still surface `执行失败`.
 
-### Static Offset controls
+## M5.3 Static Offset controls
 
-- Switch: unchanged, uses existing Static Dispatch OFF/ON behavior.
-- Button: now enables the fixed Enabled variant instead of only emitting a notification.
-- Number/Slider V1: dynamic only when the generated ON Enabled prefix is a safely recognized ARM64 wide-immediate sequence:
-
-```text
-MOVZ W/Xd, #imm16
-MOVK W/Xd, #imm16, LSL #16/#32/#48   (optional, same register/width)
-```
-
-The binding follows Protection V2 fragment branches to the actual generated ON instructions, modifies only the immediate fields required by the customer value, uses `ZNRuntimePatchExecutor` expected-byte/read-back/rollback, then activates the Static variant.
-
-Fail-closed rules:
-
-- first Enabled instruction is not MOVZ -> reject
-- incompatible/missing MOVK slot for requested high halfword -> reject
-- negative/fractional Static V1 value -> reject
-- unsupported Protection layout -> reject
-- executable page cannot become writable -> reject with visible failure
-
-No arbitrary byte sequence is reinterpreted as Int32/Float.
-
-## Architectural caution
-
-Static Dispatch V3 was designed so normal ON/OFF switching only mutates RW `selectedTarget`, not executable pages. M5.3 Static dynamic V1 necessarily rewrites generated ON-variant instructions. Therefore targets/signing modes that forbid RX→RW mutation may reject Number/Slider V1 even though ordinary Static Switch/Button continues to work.
-
-If that occurs on the intended deployment model, do not weaken protection or blind-write. The next implementation should be **Static Dynamic V2**: generated RW value cells + build-time parameterized executable stubs that read the cell, so customer value changes touch only RW data.
+- Switch: existing Static Dispatch OFF/ON.
+- Button: enable fixed Enabled variant.
+- Number/Slider V1: dynamic only for safely recognized ARM64 `MOVZ` + compatible `MOVK` generated ON instructions.
+- Unknown or unsupported encodings fail closed.
+- Runtime dynamic write uses expected-byte validation/read-back/rollback.
+- Targets that prohibit RX→RW executable-page mutation may reject Static Number/Slider V1; ordinary Static Switch/Button remain separate.
 
 ## M5.2 features retained
 
 - Immediate Chain V2, root + up to 8 nodes
 - `链式调用 -> 执行链`; tap execute; long-press rebuild
-- M4.3 Finder persistent search history, 50 max, one row/query
 - System.String decode, per-level trace, exact signatures
 - suffixless generated binaries
 
-## Device checklist
+## Immediate device checklist
 
-1. Runtime Switch: change ON/OFF and verify one immediate method call with the new bool value.
-2. Runtime Number: type a different value, finish editing, verify one call using that value.
-3. Runtime Slider: move it and verify invocation occurs on release rather than every intermediate ValueChanged.
-4. Runtime Button: tap and verify immediate invoke; no success dialog.
-5. Force one Runtime failure and verify `执行失败` still appears.
-6. Static Button: tap and verify fixed Enabled activates.
-7. Static Number: use a validated `MOV W0,#N`/`MOV X0,#N` style patch and change the customer number; verify effect follows customer value.
-8. Static Slider: same compatible patch, drag/release and verify final integer value takes effect.
-9. Test an unsupported Static Enabled pattern and verify fail-closed without corrupting the patch site.
-10. Regress Chain V2, search history, Static Switch, Runtime `/0-/8`, and generated binary naming.
+1. On M4.3 search page, search two different names and return to search; confirm history is visible immediately below the main search card.
+2. Tap one history row; confirm only the 方法名 field changes and no search starts.
+3. Press `搜索`; confirm the autofilled query now searches normally.
+4. Restart/reopen menu; confirm history persists and dedupe/max-50 behavior remains.
+5. Regress Runtime Switch/Number/Slider/Button automatic execution.
+6. Regress Static Button and compatible MOVZ/MOVK dynamic Number/Slider.
+7. Regress Chain V2 and ordinary Static Switch.
 
 ## Pending evidence
 
+- Corrected M4.3 history placement: source/CI/binary/artifact verified; device pending.
+- History tap autofill-only behavior: source/CI/binary/artifact verified; device pending.
 - Runtime control auto-execute: source/CI/binary verified; device pending.
 - Static Button binding: source/CI/binary verified; device pending.
 - Static dynamic MOVZ/MOVK: source/CI/binary verified; device pending.
-- executable-page mutation on intended non-jailbreak/signing configuration: unknown until device test.
-- M5.2 chain Level 0 `yo::wB()/0` previously produced `previous managed return is null` on device; receiver/real-null distinction remains open.
+- M5.2 chain Level 0 `yo::wB()/0` previously produced `previous managed return is null`; receiver/real-null distinction remains open.
