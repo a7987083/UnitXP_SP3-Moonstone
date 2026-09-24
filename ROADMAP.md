@@ -1,42 +1,53 @@
 # ROADMAP
 
-## Current milestone — M5.1 Runtime Arg Controls + Immediate Chain V1
+## Current milestone — M5.2 Immediate Chain V2
 
-Branch: `feature/runtime-patch-menu-v0.5.8-m5.1-runtime-arg-controls-immediate-chain-v1`
+Branch: `feature/runtime-patch-menu-v0.5.8-m5.2-immediate-chain-v2`
 
-CI-validated product head: `c24b77ee709cec477a5a94b8a35f98c38a459f97`
+CI-validated product head: `2456f6ba4dfb659e3480db2e677452dad8516153`
 
 Implemented:
 
-- Runtime Method Builder reuses the existing authoring surface. Static Offset behavior remains unchanged.
-- Runtime `/1-/8` actions expose one row per argument. Each argument may stay fixed or be marked Runtime-editable.
-- Editable arguments reuse the four existing customer control families: `开关 / 按钮 / 数值 / 滑块`.
-- Generated runtime menu only exposes arguments explicitly enabled by the author; all other arguments keep their authored fixed values.
-- Method Finder result cards add `链式调用` directly below `创建方法`.
-- Immediate Chain V1 stores only the second-hop method descriptor. Returned object addresses / GCHandles are not serialized or shown to customers.
-- Immediate Chain V1 currently supports a second-hop target with `argc=0`; it reuses the M5.0 managed-reference capture + validated receiver injection path.
-- Runtime Action ABI remains version 1 / 64-byte entries. `reserved[3]` stores argument-control JSON; `reserved[4]` stores Immediate Chain JSON; `reserved[1]` Full Signature is preserved.
-- Runtime-only and Static generated binaries now export with the original Mach-O filename. Static Builder may use `.znpatched` only as an internal staging name; final export is suffixless.
+- M5.1 per-argument authored controls are retained: fixed / Switch / Button / Number / Slider.
+- Customer runtime success is silent. Button/Runtime invoke/Immediate Chain success no longer shows an `执行完成` dialog; failures still show `执行失败`. Builder / Method Finder test return/debug surfaces remain intact.
+- Immediate Chain metadata upgraded to version 2 with an ordered `nodes[]` schema while Runtime Action ABI remains version 1 / 64-byte entries.
+- A root Runtime Action can atomically execute up to 8 additional chain nodes. Each subsequent node supports `/0-/8` typed argument values and exact parameter signatures.
+- Each subsequent node is exact-resolved by Assembly + Namespace + Class + Method + Parameter Types before execution. Saved token is checked when `il2cpp_method_get_token` is available; saved return type is also checked when available.
+- Absolute MethodInfo/MethodPointer values are not persisted as stable identities. They are runtime diagnostics only, avoiding ASLR-invalid cross-launch identities.
+- Existing typed invoke is reused, so numeric `0` is passed via actual typed storage (`&value`), not treated as a null argument.
+- Existing M5.0 managed-reference GCHandle / validated receiver injection is reused between chain levels.
+- `System.String` results now have a V2 decode path using `il2cpp_string_length` + `il2cpp_string_chars` (UTF-16 -> NSString) instead of only showing an object address.
+- Existing M4.8 primitive unboxing remains the primitive-return decoder.
+- Chain V2 emits per-level trace/log data: level, identity, receiver, args, MethodInfo/MethodPointer, return type/kind/value/raw, status.
+- Managed exceptions get best-effort class/message/stack enrichment when IL2CPP formatting exports are available.
+- Null or non-managed previous returns stop the chain before a next receiver call instead of blindly invoking.
+- Runtime-only and Static final generated Mach-O names remain suffixless; `.znpatched` may only exist as Static Builder internal staging.
 
 CI/build status:
 
-- Run `35932826187`: SUCCESS
-- Job `107423107248`: SUCCESS
-- Artifact `10781652685`
-- Dylib SHA256 `b0ec99af081edbd1612d27aa2a6cdadb83451dc6301f4097fb2555735ef1544e`
-- Dylib size `1287760` bytes
+- Final Run `35939364930`: SUCCESS
+- Job `107443621364`: SUCCESS
+- Artifact ID `10784551336`
+- Artifact ZIP SHA256 `334c56df627ff2a18cd8cf0572afd9848433808d1d9816d2c4c7c1c29a15dd3c`
+- Dylib SHA256 `84a9ff17e66ddb50c42893603b45123457d31ff3986655f07bc12748efef9d87`
+- Dylib size `1304480` bytes
+- Independent artifact/dylib hash verification: PASS
 
 Device acceptance still required:
 
-1. Create a `/3` method and confirm three Builder parameter rows.
-2. Mark only one parameter Runtime-editable and choose Number; generated menu must expose only that parameter.
-3. Change the customer-side value and confirm fixed parameters are retained in the final invoke vector.
-4. Verify Switch/Button/Slider customer controls independently.
-5. Verify `链式调用` is directly below `创建方法`, and `ObjectReference -> target /0` returns the expected second-hop result without exposing an address.
-6. Generate both Runtime-only and Static binaries and confirm final filenames are original names such as `UnityFramework`, not `UnityFramework.znpatched`.
+1. Verify customer success is silent for Button and Runtime actions; force a failure and verify only failure alerts remain.
+2. Verify Builder / Method Finder test execution still displays return/debug information.
+3. Build `yo::wB() -> yy::DY(0) -> ee::ToString()` and confirm final decoded string is the actual in-game value, not `object 0x...`.
+4. Repeat with `yy::DY(1)`.
+5. Confirm each level logs receiver / args / return and does not expose raw temporary object addresses to the customer UI.
+6. Verify a null previous managed return terminates safely.
+7. Verify an incompatible class/signature/token/return-type mismatch fails closed.
+8. Regress ordinary Offset, older Runtime `/0-/8`, per-argument controls, and suffixless generated binary output.
 
 Next engineering work after device evidence:
 
-- Add authoring UI for Slider min/max/step (M5.1 currently uses defaults 0/100/1).
-- Extend Immediate Chain target arguments beyond `/0` with exact signature + typed argument authoring.
-- Add fixture/device verification for suffixless generated Mach-O output and final IPA replacement/signing.
+- Replace Chain V2 CSV argument authoring with one typed row per argument, reusing the Runtime parameter-control authoring UI.
+- Add enum member-name enumeration/dropdown; current enum execution is typed by underlying primitive value but the editor accepts numeric values.
+- Add explicit chain object-argument sources (`previous return`, `Level N return`, captured object) instead of receiver-only chaining.
+- Add safe ref/out and broader custom ValueType support only where metadata-driven marshaling can be verified.
+- Add saved chain templates / replay / trace export after the execution model is device-accepted.
