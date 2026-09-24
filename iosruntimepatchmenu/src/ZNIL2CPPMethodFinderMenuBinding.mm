@@ -39,6 +39,8 @@ extern "C" void ZNInstallM48ReturnCaptureDeferred(void);
 extern "C" void ZNInstallM49GenericInvokeEditableArgsDeferred(void);
 extern "C" void ZNInstallM50ManagedReturnChainingDeferred(void);
 extern "C" void ZNInstallM51RuntimeArgControlsImmediateChainDeferred(void);
+extern "C" void ZNInstallM52ChainStoreV2Deferred(void);
+extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -78,9 +80,10 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM47ReceiverCaptureUIDeferred(); ZNInstallM47MultiArgInvokeDeferred(); ZNInstallM47MultiArgUIDeferred(); ZNInstallM47BuilderArgsUIDeferred(); ZNInstallM47VersionUIDeferred();
         ZNInstallM48ReturnCaptureDeferred(); ZNInstallM49GenericInvokeEditableArgsDeferred();
         ZNInstallM50ManagedReturnChainingDeferred();
-        // M5.1 installs after M5.0 so its Immediate Chain transaction can reuse
-        // M5.0's managed-reference lifetime/receiver validation layer while its
-        // UI is the outermost renderer for per-argument controls.
         ZNInstallM51RuntimeArgControlsImmediateChainDeferred();
+        // M5.2 is outermost for version=2 chain transactions while delegating
+        // each node through the existing typed invoke + M5.0 receiver/GCHandle stack.
+        ZNInstallM52ChainStoreV2Deferred();
+        ZNInstallM52ImmediateChainV2Deferred();
     });
 }
