@@ -1,0 +1,130 @@
+name: Build Runtime Patch Menu v0.5.8 M5.2 Immediate Chain V2
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m5.2-immediate-chain-v2
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          test -f iosruntimepatchmenu/src/ZNM52ChainStoreV2.mm
+          test -f iosruntimepatchmenu/src/ZNM51SilentCustomerExecution.mm
+          grep -q 'ZNInstallM52ChainStoreV2Deferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZNInstallM52ImmediateChainV2Deferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'src/ZNM52ChainStoreV2.mm' iosruntimepatchmenu/Makefile
+          grep -q 'src/ZNM52ImmediateChainV2.mm' iosruntimepatchmenu/Makefile
+          grep -q 'version.*@2' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'nodes' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'kZNM52MaxChainNodes = 8' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'il2cpp_string_length' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'il2cpp_string_chars' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'il2cpp_method_get_token' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'chainTrace' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'il2cpp_format_exception' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q 'parameterTypeNames' iosruntimepatchmenu/src/ZNM52ImmediateChainV2.mm
+          grep -q '\[m5.1-silent\]' iosruntimepatchmenu/src/ZNM51SilentCustomerExecution.mm
+          grep -q 'ZNRuntimeActionFlagParameterSignature' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'reserved\[3\]' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'reserved\[4\]' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'No .znpatched suffix' iosruntimepatchmenu/src/ZNRuntimeOnlyBinaryBuilder.mm
+          grep -q 'suffixlessBinaryName' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
+          grep -q '0.5.8 · M5.2' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid cmake
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build pinned Dobby for iPhone arm64
+        run: |
+          set -euxo pipefail
+          mkdir -p vendor
+          git clone https://github.com/jmpews/Dobby.git vendor/Dobby
+          cd vendor/Dobby
+          git checkout 5dfc8546954ce3b3198132ab13fddb89ee92cdd7
+          sed -i '' '/^import pipes$/d' scripts/platform_builder.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('include/dobby.h')
+          s = p.read_text()
+          old = '''#ifdef __cplusplus
+          extern "C" {
+          #endif
+
+          #include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+          '''
+          new = '''#include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          '''
+          if old not in s:
+              raise SystemExit('unexpected Dobby header layout')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
+          test -f build/iphoneos/arm64/libdobby.a
+          file build/iphoneos/arm64/libdobby.a
+
+      - name: Build M5.2
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m5.2
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.2/ZonoPatch_v0.5.8_M5.2_Immediate_Chain_V2.dylib
+          shasum -a 256 dist-m5.2/ZonoPatch_v0.5.8_M5.2_Immediate_Chain_V2.dylib | tee dist-m5.2/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m5.2/ZonoPatch_v0.5.8_M5.2_Immediate_Chain_V2.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out" | tee /tmp/zono_m52_load_commands.txt
+          strings -a "$out" > /tmp/zono_m52_strings.txt
+          grep -q '\[m5.0-chain\]' /tmp/zono_m52_strings.txt
+          grep -q '\[m5.1-silent\]' /tmp/zono_m52_strings.txt
+          grep -q '\[m5.2-chain\]' /tmp/zono_m52_strings.txt
+          grep -q '\[m5.2-chain-store\]' /tmp/zono_m52_strings.txt
+          grep -q 'Immediate Chain V2' /tmp/zono_m52_strings.txt
+          grep -q 'Multi-Level Typed Chain' /tmp/zono_m52_strings.txt
+          grep -q 'il2cpp_string_length' /tmp/zono_m52_strings.txt
+          grep -q 'il2cpp_string_chars' /tmp/zono_m52_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m52_load_commands.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M5.2-Immediate-Chain-V2
+          path: |
+            iosruntimepatchmenu/dist-m5.2/ZonoPatch_v0.5.8_M5.2_Immediate_Chain_V2.dylib
+            iosruntimepatchmenu/dist-m5.2/SHA256.txt
+          if-no-files-found: error
