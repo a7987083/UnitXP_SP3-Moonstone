@@ -43,6 +43,7 @@ extern "C" void ZNInstallM52ChainStoreV2Deferred(void);
 extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM52MethodSearchHistoryDeferred(void);
+extern "C" void ZNInstallM53ControlBindingDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -85,9 +86,9 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM51RuntimeArgControlsImmediateChainDeferred();
         ZNInstallM52ChainStoreV2Deferred();
         ZNInstallM52ImmediateChainV2Deferred();
-        // Outermost M5.2 UX layers: completed chains become executable in place,
-        // and method-name searches persist as a 50-entry scrollable history.
         ZNInstallM52ChainExecuteButtonDeferred();
         ZNInstallM52MethodSearchHistoryDeferred();
+        // M5.3 stays outermost so control events see the final M5.1/M5.2 runtime surfaces.
+        ZNInstallM53ControlBindingDeferred();
     });
 }
