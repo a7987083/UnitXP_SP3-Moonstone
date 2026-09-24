@@ -8,6 +8,7 @@
 static NSString * const kZNM52SearchHistoryDefaultsKey = @"zonoe.m52.method-search-history.v1";
 static const NSUInteger kZNM52SearchHistoryMax = 50;
 static const NSInteger kZNM52SearchHistoryButtonTagBase = 846000;
+static const NSInteger kZNM52M43QueryFieldTag = 603001;
 static const void *kZNM52SearchHistoryValueKey = &kZNM52SearchHistoryValueKey;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
@@ -41,7 +42,12 @@ static NSArray<NSString *> *ZNM52HHistory(void) {
     for (id item in (NSArray *)raw) {
         if (![item isKindOfClass:NSString.class]) continue;
         NSString *value = ZNM52HTrim(item);
-        if (!value.length || [clean containsObject:value]) continue;
+        if (!value.length) continue;
+        BOOL duplicate = NO;
+        for (NSString *existing in clean) {
+            if ([existing caseInsensitiveCompare:value] == NSOrderedSame) { duplicate = YES; break; }
+        }
+        if (duplicate) continue;
         [clean addObject:value];
         if (clean.count >= kZNM52SearchHistoryMax) break;
     }
@@ -83,13 +89,27 @@ static CGFloat ZNM52HMaxY(UIView *root) {
     NSArray<NSString *> *history = ZNM52HHistory();
     if (!history.count) return;
 
-    CGFloat rowH = 31.0;
+    // M4.3 search card is fixed at y=9 / h=170 and its next section begins at y=187.
+    // Insert history exactly there. The previous implementation used maxY(contentView),
+    // which also saw footer/other views and pushed history below the visible Finder area.
+    const CGFloat insertY = 187.0;
+    const CGFloat rowH = 31.0;
     CGFloat visibleRows = MIN((CGFloat)history.count, 6.0);
     CGFloat scrollH = MAX(rowH, visibleRows * rowH);
     CGFloat panelH = 31.0 + scrollH + 8.0;
-    CGFloat y = ZNM52HMaxY(self.contentView) + 8.0;
+    CGFloat displacement = panelH + 8.0;
 
-    UIView *card = [self cardAtY:y height:panelH width:width compact:NO];
+    // Move the M4.3 status card and every later main-content view down before adding history.
+    // This keeps the history directly under the search controls and avoids overlap.
+    NSArray<UIView *> *existing = [self.contentView.subviews copy];
+    for (UIView *view in existing) {
+        if (CGRectGetMinY(view.frame) + 0.5 < insertY) continue;
+        CGRect frame = view.frame;
+        frame.origin.y += displacement;
+        view.frame = frame;
+    }
+
+    UIView *card = [self cardAtY:insertY height:panelH width:width compact:NO];
     UILabel *title = [self label:[NSString stringWithFormat:@"搜索记录 · %lu/50", (unsigned long)history.count]
                                size:9.8
                              weight:UIFontWeightSemibold
@@ -105,7 +125,7 @@ static CGFloat ZNM52HMaxY(UIView *root) {
     for (NSUInteger i = 0; i < history.count; i++) {
         NSString *value = history[i];
         UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
-        row.frame = CGRectMake(0, i * rowH, scroll.bounds.size.width, rowH);
+        row.frame = CGRectMake(0, i * rowH, scroll.bounds.size.width, rowH - 2.0);
         row.tag = kZNM52SearchHistoryButtonTagBase + (NSInteger)i;
         [row setTitle:value forState:UIControlStateNormal];
         [row setTitleColor:self.theme.primaryTextColor forState:UIControlStateNormal];
@@ -125,14 +145,25 @@ static CGFloat ZNM52HMaxY(UIView *root) {
     scroll.contentSize = CGSizeMake(scroll.bounds.size.width, history.count * rowH);
     [card addSubview:scroll];
     [self.contentView addSubview:card];
-    [self zn40_updateContentHeight:CGRectGetMaxY(card.frame) + 8.0];
+
+    CGFloat bottom = MAX(CGRectGetMaxY(card.frame), ZNM52HMaxY(self.contentView));
+    [self zn40_updateContentHeight:bottom + 8.0];
 }
 
 - (void)znm52h_historyTapped:(UIButton *)sender {
     NSString *value = objc_getAssociatedObject(sender, kZNM52SearchHistoryValueKey);
     if (!value.length) return;
+
+    // Requested UX: tapping history only fills the Method Name field.
+    // It must NOT launch another search automatically.
     [self zn57mf_setQuery:value];
-    [self znm43_startSearch:sender];
+    UIView *candidate = [self.contentView viewWithTag:kZNM52M43QueryFieldTag];
+    if ([candidate isKindOfClass:UITextField.class]) {
+        UITextField *field = (UITextField *)candidate;
+        field.text = value;
+        [field becomeFirstResponder];
+    }
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.2-search-history] autofill-only query=%@", value]];
 }
 
 @end
@@ -150,6 +181,6 @@ extern "C" void ZNInstallM52MethodSearchHistoryDeferred(void) {
             ZNM52HSwap(menu, @selector(znm43_startSearch:), @selector(znm52h_startM43Search:));
             ZNM52HSwap(menu, @selector(znm43_renderSearchAtWidth:), @selector(znm52h_renderM43SearchAtWidth:));
         }
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.2-search-history] M4.3 finder history installed max=50 one-row-per-query scrollable"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.3-search-history-fix] M4.3 fixed insertion y=187 max=50 tap=autofill-only"];
     });
 }
