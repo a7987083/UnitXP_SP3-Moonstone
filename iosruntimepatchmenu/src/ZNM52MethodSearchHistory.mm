@@ -20,13 +20,13 @@ static const void *kZNM52SearchHistoryValueKey = &kZNM52SearchHistoryValueKey;
 - (void)zn40_updateContentHeight:(CGFloat)y;
 - (NSString *)zn57mf_query;
 - (void)zn57mf_setQuery:(NSString *)value;
-- (void)zn60v3_renderSearchAtWidth:(CGFloat)width;
-- (void)zn60v3_startSearch:(id)sender;
+- (void)znm43_renderSearchAtWidth:(CGFloat)width;
+- (void)znm43_startSearch:(id)sender;
 @end
 
 @interface ZNRuntimeMenuControllerV040 (ZNM52MethodSearchHistory)
-- (void)znm52h_renderSearchAtWidth:(CGFloat)width;
-- (void)znm52h_startSearch:(id)sender;
+- (void)znm52h_renderM43SearchAtWidth:(CGFloat)width;
+- (void)znm52h_startM43Search:(id)sender;
 - (void)znm52h_historyTapped:(UIButton *)sender;
 @end
 
@@ -58,7 +58,9 @@ static void ZNM52HRecord(NSString *query) {
     }];
     if (matches.count) [items removeObjectsAtIndexes:matches];
     [items insertObject:value atIndex:0];
-    if (items.count > kZNM52SearchHistoryMax) [items removeObjectsInRange:NSMakeRange(kZNM52SearchHistoryMax, items.count - kZNM52SearchHistoryMax)];
+    if (items.count > kZNM52SearchHistoryMax) {
+        [items removeObjectsInRange:NSMakeRange(kZNM52SearchHistoryMax, items.count - kZNM52SearchHistoryMax)];
+    }
     [[NSUserDefaults standardUserDefaults] setObject:items forKey:kZNM52SearchHistoryDefaultsKey];
 }
 
@@ -70,31 +72,24 @@ static CGFloat ZNM52HMaxY(UIView *root) {
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM52MethodSearchHistory)
 
-- (void)znm52h_startSearch:(id)sender {
+- (void)znm52h_startM43Search:(id)sender {
     ZNM52HRecord([self zn57mf_query]);
-    [self znm52h_startSearch:sender];
+    [self znm52h_startM43Search:sender];
 }
 
-- (void)znm52h_renderSearchAtWidth:(CGFloat)width {
-    [self znm52h_renderSearchAtWidth:width];
+- (void)znm52h_renderM43SearchAtWidth:(CGFloat)width {
+    [self znm52h_renderM43SearchAtWidth:width];
+
     NSArray<NSString *> *history = ZNM52HHistory();
     if (!history.count) return;
 
-    CGFloat insertY = 101.0;
     CGFloat rowH = 31.0;
     CGFloat visibleRows = MIN((CGFloat)history.count, 6.0);
     CGFloat scrollH = MAX(rowH, visibleRows * rowH);
     CGFloat panelH = 31.0 + scrollH + 8.0;
-    CGFloat delta = panelH + 8.0;
+    CGFloat y = ZNM52HMaxY(self.contentView) + 8.0;
 
-    for (UIView *view in self.contentView.subviews) {
-        if (CGRectGetMinY(view.frame) + 0.5 < insertY) continue;
-        CGRect frame = view.frame;
-        frame.origin.y += delta;
-        view.frame = frame;
-    }
-
-    UIView *card = [self cardAtY:insertY height:panelH width:width compact:NO];
+    UIView *card = [self cardAtY:y height:panelH width:width compact:NO];
     UILabel *title = [self label:[NSString stringWithFormat:@"搜索记录 · %lu/50", (unsigned long)history.count]
                                size:9.8
                              weight:UIFontWeightSemibold
@@ -126,17 +121,18 @@ static CGFloat ZNM52HMaxY(UIView *root) {
         [row addTarget:self action:@selector(znm52h_historyTapped:) forControlEvents:UIControlEventTouchUpInside];
         [scroll addSubview:row];
     }
+
     scroll.contentSize = CGSizeMake(scroll.bounds.size.width, history.count * rowH);
     [card addSubview:scroll];
     [self.contentView addSubview:card];
-    [self zn40_updateContentHeight:ZNM52HMaxY(self.contentView) + 8.0];
+    [self zn40_updateContentHeight:CGRectGetMaxY(card.frame) + 8.0];
 }
 
 - (void)znm52h_historyTapped:(UIButton *)sender {
     NSString *value = objc_getAssociatedObject(sender, kZNM52SearchHistoryValueKey);
     if (!value.length) return;
     [self zn57mf_setQuery:value];
-    [self zn60v3_startSearch:sender];
+    [self znm43_startSearch:sender];
 }
 
 @end
@@ -151,9 +147,9 @@ extern "C" void ZNInstallM52MethodSearchHistoryDeferred(void) {
     dispatch_once(&onceToken, ^{
         Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (menu) {
-            ZNM52HSwap(menu, @selector(zn60v3_startSearch:), @selector(znm52h_startSearch:));
-            ZNM52HSwap(menu, @selector(zn60v3_renderSearchAtWidth:), @selector(znm52h_renderSearchAtWidth:));
+            ZNM52HSwap(menu, @selector(znm43_startSearch:), @selector(znm52h_startM43Search:));
+            ZNM52HSwap(menu, @selector(znm43_renderSearchAtWidth:), @selector(znm52h_renderM43SearchAtWidth:));
         }
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.2-search-history] persistent search records installed max=50 one-row-per-query scrollable"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.2-search-history] M4.3 finder history installed max=50 one-row-per-query scrollable"];
     });
 }
