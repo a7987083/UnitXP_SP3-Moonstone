@@ -2,81 +2,69 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
-## 2026-09-24 — M5.4 Device Evidence: Unified/History Visible
+## 2026-09-24 — M5.5 Typed Control Binding V2
 
-- 用户真机反馈“有了”，对应本轮验收上下文中的 M5.4 Unified Method Finder / 搜索历史可见性检查。
-- 记录为：M5.4 最终 Unified 渲染路径已在真机出现，之前“历史存在但 UI 看不到”的核心问题已不再复现。
-- 此证据只关闭可见性/最终 renderer 接管这一项；历史点击仅回填、手动搜索、`/0-/8`、candidate binding、receiver capture、创建方法、Chain、M5.3 控件等仍需分别回归，不提前判定通过。
+Branch: `feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2`
 
-## 2026-09-24 — M5.4 Unified Method Finder
+CI-validated product: `3548cbc655f4347e03947d9dba0fb501f15b137e`
 
-Branch: `refactor/method-finder-ui-consolidation-m5.4`
+### 实际修改
 
-CI-validated head: `8c6131b2628f1e8c980d8c71fc62ac0cdc8c5845`  
-Product-code head: `eff4f4d86c1851558e703addb89ed86578259a64`
+- 新增统一 Value Type：`Auto / I32 / U32 / I64 / U64 / F32 / F64`。
+- 控件类型继续保持 `Switch / Button / Number / Slider`，不把 MOV/FMOV/ABI 暴露成客户 UI 类型。
+- Runtime Auto 根据 IL2CPP 参数签名推荐数值类型。
+- Runtime Builder 参数控件新增 Value Type 按钮；长按进入 `Default / Min / Max / Step` 编辑。
+- Runtime Slider 在旧 M5.3 自动执行之前完成 step 量化；默认 Slider `1..10 / step 1`。
+- Runtime Number 在执行前按选中/解析后的类型做 canonical validation。
+- Runtime Action control JSON 现在保留 `valueType/default/min/max/step`；64-byte Entry ABI 未变化。
+- Static Builder 新增独立 Value Type 选择。
+- Static Value Type 存入 Entry flags bits 11..13；旧生成物 `0` 自动解释为 Auto；128-byte Static Entry ABI 未变化。
+- Static Number 增加精确 `valueText` 通路，避免 U64 在进入编码器前被 double 精度截断。
+- Static Slider 改为整数值 `1..10 / step 1`。
+- 新增 `ZNM55StaticTypedBinding.mm`：
+  - MOVZ(+MOVK) -> I32/U32/I64/U64；
+  - scalar FMOV S,#imm -> F32；
+  - scalar FMOV D,#imm -> F64；
+  - Auto 根据已验证首指令族选择后端；
+  - 类型不匹配、MOVK 槽位不足、FMOV 无法精确编码时 fail closed。
+- M5.5 Static binder 安装后移除旧 M5.3 Static MOV-only observer；M5.3 Runtime Button/Switch/Number/Slider auto-execute 仍保留。
+- FMOV immediate 扩展算法对当前产品常用整数区间做了独立验证；1..31 均可精确表示，当前公开 Slider 默认仍为 1..10。
 
-### Architecture audit
+### CI 历史
 
-- Added `METHOD_FINDER_UI_AUDIT.md`.
-- Confirmed multiple Method Finder generations were installed simultaneously on `ZNRuntimeMenuControllerV040`.
-- Confirmed repeated swizzles of `zn60v3_renderSearchAtWidth:`, `zn60v3_startSearch:`, `zn60v3_renderResultsAtWidth:` and `zn60v3_renderDetailAtWidth:`.
-- Confirmed M4.4.1 performs view-tree search + `removeTarget:nil action:NULL` + target rebinding.
-- Confirmed later layers depended on the post-swizzle meaning of earlier selector aliases.
-- Confirmed some installers mix backend behavior and UI mutation, so whole-module disable would remove required runtime functionality.
+- Run `35995621476`: 第一轮 Build 失败，原因仅为 Objective-C++ 中 `NSData.bytes` 从 `const void *` 到 `const uint8_t *` 缺显式 cast。
+- 修复 commit `c80db10b5c93c9d88aca3323abc2b48a912f3cc1` 后，基础 Typed Runtime/Builder 版本 Run `35996073916` 全绿。
+- 最终加入 Static MOV/FMOV typed adapter 后，Run `35996840472` / Job `107623672455`：Source Contract、Build、Binary Verify、Artifact Upload 全部 SUCCESS。
 
-### Refactor implemented
+### 最终制品
 
-- Added `iosruntimepatchmenu/src/ZNMethodFinderUnifiedUI.mm`.
-- Added one final non-chaining Search / Results / Detail renderer.
-- Reordered `ZNIL2CPPMethodFinderMenuBinding.mm` so backend/state layers install first, Unified installs after them, and only narrow behavior decorators install outside Unified.
-- Removed `ZNInstallM52MethodSearchHistoryDeferred()` from the runtime install path; its file remains compiled for compatibility but is inactive.
-- Search history moved into Unified Search renderer itself; max 50, persistent, newest-first, case-insensitive dedupe, independently scrollable.
-- History row tap now only updates Finder query + visible 方法名 field; no automatic search.
-- Unified Search retains Assembly selection and editable result limit and routes submit through existing M4.4.2/M4.5-compatible search backend.
-- Unified Results directly renders `/0-/8` argument rows from ABI metadata and preserves existing argument-store key conventions.
-- Unified Results keeps visible `测试执行` / `创建方法` controls so M4.6.2 candidate binding, receiver capture and M5.1/M5.2 chain behavior remain compatible.
-- Unified Detail renders canonical method metadata, ABI return/parameter information and owning-method metadata when present.
-- Updated Makefile and version marker to `0.5.8 · M5.4` / `Unified Method Finder · Single Renderer · History 50`.
-- Added dedicated workflow `.github/workflows/build-runtime-patch-menu-v0.5.8-m5.4-unified-method-finder.yml`.
+- Artifact ID: `10806284095`
+- ZIP SHA256: `9ec1d6ab1a484572b16c1eff57eb90a7d54836b9717ed9748296fcc66a4b86e9`
+- Dylib size: `1404656`
+- Dylib SHA256: `0dacef0f731d0a6b59e1446b08977d69a6eeb732096c761a9ed321be0214375a`
+- Mach-O: thin arm64 dylib
+- 独立下载后 ZIP digest 与 GitHub digest 一致，dylib hash 与 Artifact `SHA256.txt` 一致。
 
-### CI history
+### 验证边界
 
-- Run `35964177732`: Build failed because new install-graph logging used `ZNRuntimeLogger` without importing `ZNPatchCore.h`; fixed by import only.
-- Run `35964480222`: Build/Link/Sign SUCCESS; Verify failed on Chinese CFString `strings -a` assertion. Product dylib was generated; failure was CI verification-only.
-- Run `35964757740` / Job `107520782444`: Source Contract, dependencies, Dobby arm64, Build M5.4, Binary Verify and Artifact Upload all SUCCESS.
-
-### Final artifact
-
-- Artifact: `ZonoPatch-v0.5.8-M5.4-Unified-Method-Finder`
-- Artifact ID: `10793662459`
-- Artifact ZIP SHA256: `b607318f0225a2b4e1203ca30a151913c22eeb79e13a0519f42b1f13d769af6b`
-- Dylib: `ZonoPatch_v0.5.8_M5.4_Unified_Method_Finder.dylib`
-- Dylib size: `1354480` bytes
-- Dylib SHA256: `6804ca2f2a242337f8a81eb20125e5b0867bd59add02b9df0e28a35656f37ca2`
-- Mach-O: thin arm64 dynamically linked shared library
-- Downloaded ZIP digest matches GitHub Artifact digest; dylib hash matches Artifact `SHA256.txt`.
-- This differs from the previous M5.3 HistoryFix (`1337776` bytes / `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`).
-
-### Validation boundary
-
-- architecture audit: DONE
-- source refactor: DONE
+- source implemented: YES
 - GitHub committed: YES
 - arm64 compile/link/sign: YES
 - Binary Verify: YES
-- artifact independent hash verification: YES
-- device confirms Unified/history visibility: YES
-- history autofill-only interaction: PENDING
-- `/0-/8` result rows regression: PENDING
-- Test/candidate binding + receiver capture regression: PENDING
-- Chain create/execute/long-press regression: PENDING
-- M5.3 controls regression: PENDING
-- full regression: NO
+- independent artifact hash: YES
+- M5.5 typed controls device verification: PENDING
+- Static FMOV/MOV typed backend device verification: PENDING
+- full M5.4/M5.5 regression: PENDING
+
+## 2026-09-24 — M5.4 Device Evidence
+
+- 用户真机确认 M5.4 Unified Method Finder / 搜索历史已经可见。
+- 关闭此前“History 源码存在但最终 UI 不显示”的核心 blocker。
+- 历史点击、candidate binding、receiver capture、Chain 等交互仍需逐项回归。
 
 ## Historical anchors
 
-- M5.3 HistoryFix device-reported failure: product `064d535918cacd0f40a220521af7cad18a3d42d9`, dylib SHA `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`.
+- M5.4 Unified CI green: `8c6131b2628f1e8c980d8c71fc62ac0cdc8c5845` / Run `35964757740`.
 - M5.3 Control Binding initial green: `b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f`.
 - M5.2 core multi-level chain: `2456f6ba4dfb659e3480db2e677452dad8516153`.
 - M5.1 Silent Customer Execution: `29c33d9246fd9842107c443d3254aff23effd59e`.
-- M5.0 Managed-reference Return Chaining: `ec6ed852c24684cb92dbfc927afe16797eccbc0d`.
