@@ -38,11 +38,11 @@ extern "C" void ZNInstallM47VersionUIDeferred(void);
 extern "C" void ZNInstallM48ReturnCaptureDeferred(void);
 extern "C" void ZNInstallM49GenericInvokeEditableArgsDeferred(void);
 extern "C" void ZNInstallM50ManagedReturnChainingDeferred(void);
+extern "C" void ZNInstallMethodFinderUnifiedUIDeferred(void);
 extern "C" void ZNInstallM51RuntimeArgControlsImmediateChainDeferred(void);
 extern "C" void ZNInstallM52ChainStoreV2Deferred(void);
 extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
-extern "C" void ZNInstallM52MethodSearchHistoryDeferred(void);
 extern "C" void ZNInstallM53ControlBindingDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
@@ -60,35 +60,94 @@ extern "C" void ZNInstallM53ControlBindingDeferred(void);
     if ([base containsObject:@"方法查找"] || ![ZNDeveloperGate sharedGate].authorized) return base;
     NSMutableArray<NSString *> *items = [base mutableCopy];
     NSUInteger other = [items indexOfObject:@"其他"], settings = [items indexOfObject:@"设置"], insertion = items.count;
-    if (other != NSNotFound) insertion = MIN(other + 1, items.count); else if (settings != NSNotFound) insertion = settings; else if (items.count > 0) insertion = 1;
-    [items insertObject:@"方法查找" atIndex:insertion]; return items;
+    if (other != NSNotFound) insertion = MIN(other + 1, items.count);
+    else if (settings != NSNotFound) insertion = settings;
+    else if (items.count > 0) insertion = 1;
+    [items insertObject:@"方法查找" atIndex:insertion];
+    return items;
 }
 - (NSArray<NSString *> *)zn57mfb_baseSymbols {
     NSArray<NSString *> *base = [self zn57mfb_baseSymbols], *categories = [self zn40_baseCategories];
-    if (base.count == categories.count) return base; NSUInteger finder = [categories indexOfObject:@"方法查找"];
-    if (finder == NSNotFound || finder > base.count) return base; NSMutableArray<NSString *> *symbols = [base mutableCopy]; [symbols insertObject:@"magnifyingglass" atIndex:finder]; return symbols;
+    if (base.count == categories.count) return base;
+    NSUInteger finder = [categories indexOfObject:@"方法查找"];
+    if (finder == NSNotFound || finder > base.count) return base;
+    NSMutableArray<NSString *> *symbols = [base mutableCopy];
+    [symbols insertObject:@"magnifyingglass" atIndex:finder];
+    return symbols;
 }
 @end
 
 extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        ZNInstallIL2CPPMethodFinderSearchV2Deferred(); ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
-        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040"); if (!cls) return;
-        Method categoriesOriginal = class_getInstanceMethod(cls, @selector(zn40_baseCategories)); Method categoriesReplacement = class_getInstanceMethod(cls, @selector(zn57mfb_baseCategories)); if (categoriesOriginal && categoriesReplacement) method_exchangeImplementations(categoriesOriginal, categoriesReplacement);
-        Method symbolsOriginal = class_getInstanceMethod(cls, @selector(zn40_baseSymbols)); Method symbolsReplacement = class_getInstanceMethod(cls, @selector(zn57mfb_baseSymbols)); if (symbolsOriginal && symbolsReplacement) method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
-        ZNInstallIL2CPPMethodFinderUXV2Deferred(); ZNInstallIL2CPPMethodFinderV3Deferred(); ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred(); ZNInstallIL2CPPMethodFinderM2Deferred(); ZNInstallIL2CPPMethodFinderM21CancelUXDeferred(); ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(); ZNInstallIL2CPPABIDetailUIDeferred(); ZNInstallFeatureBuilderControlsV2Deferred(); ZNInstallFeatureRuntimeControlsV2Deferred();
-        ZNInstallOffsetResolverV2Deferred(); ZNInstallBinaryPatchWorkspaceAddressV2Deferred(); ZNInstallRuntimeMenuModalShellDeferred(); ZNInstallRuntimeMethodCallDeferred(); ZNInstallUXFixesV2Deferred(); ZNInstallMethodFinderM43UIDeferred(); ZNInstallMethodFinderM43PolishDeferred();
-        ZNInstallInstanceSelectionV2UIDeferred(); ZNInstallM441HotfixDeferred(); ZNInstallM442SearchRestoreDeferred(); ZNInstallM45AddressOwningMethodDeferred(); ZNInstallM46SignatureExecutionDeferred(); ZNInstallM46FullSignatureUIDeferred(); ZNInstallM461PolishDeferred(); ZNInstallM462InstanceSafetyDeferred(); ZNInstallM462CandidateBindingUIDeferred();
-        ZNInstallM47ReceiverCaptureUIDeferred(); ZNInstallM47MultiArgInvokeDeferred(); ZNInstallM47MultiArgUIDeferred(); ZNInstallM47BuilderArgsUIDeferred(); ZNInstallM47VersionUIDeferred();
-        ZNInstallM48ReturnCaptureDeferred(); ZNInstallM49GenericInvokeEditableArgsDeferred();
+        ZNInstallIL2CPPMethodFinderSearchV2Deferred();
+        ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
+
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        Method categoriesOriginal = class_getInstanceMethod(cls, @selector(zn40_baseCategories));
+        Method categoriesReplacement = class_getInstanceMethod(cls, @selector(zn57mfb_baseCategories));
+        if (categoriesOriginal && categoriesReplacement) method_exchangeImplementations(categoriesOriginal, categoriesReplacement);
+        Method symbolsOriginal = class_getInstanceMethod(cls, @selector(zn40_baseSymbols));
+        Method symbolsReplacement = class_getInstanceMethod(cls, @selector(zn57mfb_baseSymbols));
+        if (symbolsOriginal && symbolsReplacement) method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
+
+        // Compatibility/state/backend generations. Some of these historically
+        // contain renderer wrappers; M5.4 installs a non-chaining Unified renderer
+        // afterwards so those old renderers are no longer on the final UI path.
+        ZNInstallIL2CPPMethodFinderUXV2Deferred();
+        ZNInstallIL2CPPMethodFinderV3Deferred();
+        ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
+        ZNInstallIL2CPPMethodFinderM2Deferred();
+        ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();
+        ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();
+        ZNInstallIL2CPPABIDetailUIDeferred();
+        ZNInstallFeatureBuilderControlsV2Deferred();
+        ZNInstallFeatureRuntimeControlsV2Deferred();
+        ZNInstallOffsetResolverV2Deferred();
+        ZNInstallBinaryPatchWorkspaceAddressV2Deferred();
+        ZNInstallRuntimeMenuModalShellDeferred();
+        ZNInstallRuntimeMethodCallDeferred();
+        ZNInstallUXFixesV2Deferred();
+        ZNInstallMethodFinderM43UIDeferred();
+        ZNInstallMethodFinderM43PolishDeferred();
+        ZNInstallInstanceSelectionV2UIDeferred();
+        ZNInstallM441HotfixDeferred();
+        ZNInstallM442SearchRestoreDeferred();
+        ZNInstallM45AddressOwningMethodDeferred();
+        ZNInstallM46SignatureExecutionDeferred();
+        ZNInstallM46FullSignatureUIDeferred();
+        ZNInstallM461PolishDeferred();
+        ZNInstallM462InstanceSafetyDeferred();
+
+        // Install argument/invoke/return backends before Unified. Their old
+        // renderer wrappers become unreachable because Unified does not call the
+        // previous render implementation; non-render selector swaps remain active.
+        ZNInstallM47MultiArgInvokeDeferred();
+        ZNInstallM47MultiArgUIDeferred();
+        ZNInstallM47BuilderArgsUIDeferred();
+        ZNInstallM47VersionUIDeferred();
+        ZNInstallM48ReturnCaptureDeferred();
+        ZNInstallM49GenericInvokeEditableArgsDeferred();
         ZNInstallM50ManagedReturnChainingDeferred();
+
+        // Single Search / Results / Detail renderer.
+        ZNInstallMethodFinderUnifiedUIDeferred();
+
+        // Narrow behavior decorators that require the final result controls.
+        // These are allowed to bind candidate/gestures/buttons but must not own
+        // the base Method Finder layout.
+        ZNInstallM462CandidateBindingUIDeferred();
+        ZNInstallM47ReceiverCaptureUIDeferred();
         ZNInstallM51RuntimeArgControlsImmediateChainDeferred();
         ZNInstallM52ChainStoreV2Deferred();
         ZNInstallM52ImmediateChainV2Deferred();
         ZNInstallM52ChainExecuteButtonDeferred();
-        ZNInstallM52MethodSearchHistoryDeferred();
-        // M5.3 stays outermost so control events see the final M5.1/M5.2 runtime surfaces.
+
+        // The old M5.2 search-history renderer hook is intentionally NOT installed.
+        // Search history is now owned directly by ZNMethodFinderUnifiedUI.
+
         ZNInstallM53ControlBindingDeferred();
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.4-unified-ui] Method Finder install graph consolidated"];
     });
 }
