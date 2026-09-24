@@ -115,7 +115,7 @@ jobs:
           grep -q '\[m5.2-chain\]' /tmp/zono_m52_strings.txt
           grep -q '\[m5.2-chain-store\]' /tmp/zono_m52_strings.txt
           grep -q 'Immediate Chain V2' /tmp/zono_m52_strings.txt
-          grep -q 'Multi-Level Typed Chain' /tmp/zono_m52_strings.txt
+          grep -q 'atomic multi-level' /tmp/zono_m52_strings.txt
           grep -q 'il2cpp_string_length' /tmp/zono_m52_strings.txt
           grep -q 'il2cpp_string_chars' /tmp/zono_m52_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m52_load_commands.txt
