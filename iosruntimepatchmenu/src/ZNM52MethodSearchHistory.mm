@@ -21,8 +21,11 @@ static const void *kZNM52SearchHistoryValueKey = &kZNM52SearchHistoryValueKey;
 - (NSString *)zn57mf_query;
 - (void)zn57mf_setQuery:(NSString *)value;
 - (void)zn60v3_renderSearchAtWidth:(CGFloat)width;
-- (void)znm52h_renderSearchAtWidth:(CGFloat)width;
 - (void)zn60v3_startSearch:(id)sender;
+@end
+
+@interface ZNRuntimeMenuControllerV040 (ZNM52MethodSearchHistory)
+- (void)znm52h_renderSearchAtWidth:(CGFloat)width;
 - (void)znm52h_startSearch:(id)sender;
 - (void)znm52h_historyTapped:(UIButton *)sender;
 @end
@@ -77,8 +80,6 @@ static CGFloat ZNM52HMaxY(UIView *root) {
     NSArray<NSString *> *history = ZNM52HHistory();
     if (!history.count) return;
 
-    // V3's search card ends at y=93 and the options card begins at y=101.
-    // Insert one fixed-height scrollable history panel directly between them.
     CGFloat insertY = 101.0;
     CGFloat rowH = 31.0;
     CGFloat visibleRows = MIN((CGFloat)history.count, 6.0);
