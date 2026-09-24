@@ -1,56 +1,57 @@
 # ROADMAP
 
-## Current milestone — M5.6 Stable Runtime Slider + Static RW Value Cell V1
+## Current milestone — M5.6.2 Runtime/Static Recovery
 
-Branch: `feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2`
+Branch: `fix/m5.6.2-runtime-slider-static-valuecell`
 
-CI-validated head: `2d6351ac7e2652ae76e2ba2542118cc0beb2338e`
+CI-validated head: `690ee9eb9af2f2431f8d8909fa9c1dd558ae77aa`
 
-### Device evidence that triggered M5.6
+### Device evidence driving M5.6.2
 
-1. Static Number + Auto on a generated Offset patch failed on device with:
-   `写入完成但恢复 RX 权限失败: errno=13 (Permission denied)`.
-   This proves executable-page runtime mutation is not viable on the current signing/device model.
-2. Runtime Slider froze/crashed as soon as it was dragged. Audit found M5.5 calling `ZNRuntimeActionRuntime refresh` on every `UIControlEventValueChanged`.
+1. Static Number + Auto still produced `写入完成但恢复 RX 权限失败: errno=13 (Permission denied)`.
+2. Runtime Slider still froze/crashed when dragged.
+3. A newly authored Static Number that Auto-resolved to F32 stayed effectively at value 0 regardless of customer edits.
+4. Runtime-only generation could enter the wrong Static/Mixed path when residual/partial Offset rows were present.
 
-### M5.6 implemented
+### Root-cause correction
 
-- Runtime Slider hot path is cache-only while dragging.
-- Slider release performs exactly one Runtime Action refresh, step quantization, final cache write, and one Invoke.
-- Added build-time `Static RW Value Cell V1` parameterization.
-- Number/Slider generated ON variants are rewritten before signing to load from owned `__ZNDATA` RW cells.
-- Runtime Static value changes write only RW data; no `mprotect`, no RX->RW->RX executable-page mutation.
-- MOVZ(+MOVK) variants become LDR W/X from cell; compatible trailing MOVK slots are NOPed at build time.
-- scalar FMOV S/D variants become LDR S/D from cell.
-- Auto resolves backing type from verified source instruction family.
-- Existing Static selectedTarget dispatch stays unchanged; enabling still selects the generated ON variant.
-- Value-cell metadata uses new flags without changing `ZN44StaticEntry` size (128 bytes).
-- Runtime Action ABI remains 64 bytes.
-- M5.5.1 Builder baseline recovery and persistent Runtime authoring remain retained.
+The earlier M5.6 claim that RW Value Cell was fully active was incorrect. Audit of the actual branch showed a later `M5.6.1-regression` path had disabled the value-cell runtime owner/postprocess and restored the M5.3 executable-page writer. That explains the unchanged RX-permission failure and the F32 value not being consumed by a cell backend.
 
-### Final CI / artifact
+### M5.6.2 implementation
 
-- Workflow: `Build Runtime Patch Menu v0.5.8 M5.6 RW Value Cell`
-- Run: `36004751812`
-- Job: `107649917061`
+- Runtime-only mode is selected by **complete Static rows** (`Offset && Enabled`), not `workspace.filledCount`.
+- Partial/stale Offset rows are logged and ignored for Runtime-only mode selection.
+- `ZNF1 -> RW Value Cell V1 -> RVA Protection -> Ad-hoc Sign` is restored as the authoritative Static postprocess order.
+- Static Number/Slider generated variants use owned `__ZNDATA` value cells; runtime executable writes are disabled.
+- M5.3/M5.5 Static observers are explicitly removed before the M5.6 value-cell binder becomes the single Static Number/Slider owner.
+- Auto F32/F64 uses the resolved value-cell type written during build-time FMOV parameterization.
+- Runtime Slider `ValueChanged` now has one final owner (`ZNM562SliderIsolation`): drag is UI-only and does not refresh, render, attach release handlers, or invoke IL2CPP.
+- For M5.6.2 device isolation, Runtime Slider execution is manual via the Runtime card's existing `执行` button. That button reads the visible slider value directly.
+- Static Entry ABI remains 128 bytes; Runtime Action Entry ABI remains 64 bytes.
+
+### CI / artifact
+
+- Workflow: `Build Runtime Patch Menu v0.5.8 M5.6.2 Recovery`
+- Run: `36012593002`
+- Job: `107676813892`
 - Result: SUCCESS
-- Artifact ID: `10809323261`
-- ZIP SHA256: `fc1f0596f2f603a993d2249e9ab1c965e5ff38019fcda3d5d4a75a189ecf2c03`
-- Dylib: `ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib`
-- Dylib size: `1421376` bytes
-- Dylib SHA256: `191c93dea1fc43d504860abcfd047fcf15391c6ad74c39be383f299eaa7cf54c`
+- Artifact ID: `10812584568`
+- ZIP SHA256: `48662e7ffdc798d18358b443a6996214e3eb37e2a9fc005232e7afd7ab533aeb`
+- Dylib: `ZonoPatch_v0.5.8_M5.6.2_Runtime_Static_Recovery.dylib`
+- Dylib size: `1421392` bytes
+- Dylib SHA256: `d6657fdc723b1b1ca68637dac63ec66f3f95d3a0cade6f5066361215dd6588c7`
 - Mach-O: thin arm64 dylib
-- Independent artifact/hash verification: PASS
+- Independent ZIP/dylib hash verification: PASS
 
 ### Immediate device acceptance
 
-1. Footer must show `0.5.8 · M5.6`.
-2. Runtime Slider: drag repeatedly; no freeze/crash during drag. Release should invoke once.
-3. Rebuild the Static Offset Number test with M5.6. Old M5.5-generated binaries do not contain RW value cells and must not be reused for this test.
-4. Static Number + Auto/MOV W case: changing value must not show RX permission errors.
-5. Static Slider FMOV case: integer values 1..10 should update through RW cell without executable-page writes.
+1. Footer must show `0.5.8 · M5.6.2`.
+2. Runtime Slider: drag repeatedly. Dragging alone must not freeze/crash and must not auto-invoke. Then press the Runtime card `执行` button once and verify the current slider value is used.
+3. Runtime-only build: create Runtime Method Calls with no complete Offset/Enabled row. Generation must follow Runtime-only mode and must not report a Static postprocess failure. Partial Offset drafts must not change the mode.
+4. Static MOV Number test: regenerate the target binary with M5.6.2, then change Number values. No RX permission error is acceptable.
+5. Static FMOV/F32 Number or Slider test: regenerate with M5.6.2 and verify customer value changes no longer remain at 0.
 6. Regress M5.5.1 Builder layout/persistence and M5.4 Unified Method Finder.
 
-### Important compatibility boundary
+### Compatibility boundary
 
-M5.6 dylib alone cannot retrofit RW value cells into an already-generated M5.5 UnityFramework. Static Number/Slider must be generated again with the M5.6 Builder/postprocess so the generated ON variant contains the LDR-to-RW-cell parameterization.
+Static Number/Slider tests must use a binary regenerated by M5.6.2. Existing M5.5/M5.6.1 generated targets can still contain executable-immediate variants and are not valid acceptance artifacts for RW Value Cell V1.
