@@ -55,20 +55,25 @@ The detailed audit is in `METHOD_FINDER_UI_AUDIT.md`.
 - Independent downloaded ZIP/dylib hash verification: PASS
 - Previous M5.3 HistoryFix was `1337776` bytes / `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`; M5.4 is a different binary.
 
-### Device acceptance required
+### Device acceptance status
 
-1. Open 方法查找 and confirm the title is `IL2CPP 方法查找 · Unified`; seeing M4.3 means the new final renderer is not active.
-2. Search at least two method names, return to Search, and confirm `搜索记录 · n/50` appears directly in the Unified page.
-3. Tap a history row; confirm only 方法名 is filled and no automatic search occurs.
-4. Manually press 搜索 and confirm the autofilled query executes normally.
-5. Confirm `/0-/8` candidates render argument rows correctly and overload filtering still works.
-6. Test/捕获 must still target the selected candidate; long-press receiver capture must remain functional.
-7. 创建方法 must still add the correct Runtime Action.
-8. Chain flow must regress cleanly: 链式调用 -> 完成链 -> 执行链; long-press 执行链 restarts authoring.
-9. Regress M5.3 Runtime Button/Switch/Number/Slider behavior and Static controls.
-10. Regress detail page, Return Capture, customer silent success/failure alert, and suffixless generated binary flow.
+- Initial device evidence received on 2026-09-24: the previously missing Unified/search-history UI is now visible on device.
+- This closes the specific blocker that motivated M5.4: the final Unified renderer is now reaching the real device UI and the history surface is no longer hidden behind the legacy renderer chain.
+- Remaining interaction/regression items below are **not** yet marked passed from this evidence alone.
+
+### Remaining device acceptance
+
+1. Tap a history row; confirm only 方法名 is filled and no automatic search occurs.
+2. Manually press 搜索 and confirm the autofilled query executes normally.
+3. Confirm `/0-/8` candidates render argument rows correctly and overload filtering still works.
+4. Test/捕获 must still target the selected candidate; long-press receiver capture must remain functional.
+5. 创建方法 must still add the correct Runtime Action.
+6. Chain flow must regress cleanly: 链式调用 -> 完成链 -> 执行链; long-press 执行链 restarts authoring.
+7. Regress M5.3 Runtime Button/Switch/Number/Slider behavior and Static controls.
+8. Regress detail page, Return Capture, customer silent success/failure alert, and suffixless generated binary flow.
 
 ### Next engineering step after device evidence
 
-- If Unified UI passes device acceptance, split mixed legacy installer files into explicit backend modules vs deprecated renderer modules and stop compiling obsolete renderer implementations in a later cleanup milestone.
+- Continue the interaction/regression checklist above.
+- After the Unified path is accepted beyond visibility, split mixed legacy installer files into explicit backend modules vs deprecated renderer modules and stop compiling obsolete renderer implementations in a later cleanup milestone.
 - Do not add any new Method Finder base-renderer swizzle. New features must be state/backend methods, explicit Unified renderer code, or narrowly scoped behavior decorators.
