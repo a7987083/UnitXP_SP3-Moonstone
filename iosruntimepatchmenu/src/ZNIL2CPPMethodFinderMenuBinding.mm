@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 
 #import "ZNDeveloperGate.h"
+#import "ZNPatchCore.h"
 
 extern "C" void ZNInstallIL2CPPMethodFinderSearchV2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred(void);
