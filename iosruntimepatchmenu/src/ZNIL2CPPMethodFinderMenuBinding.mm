@@ -48,6 +48,7 @@ extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM53ControlBindingDeferred(void);
 extern "C" void ZNInstallM55TypedControlBindingDeferred(void);
 extern "C" void ZNInstallM55StaticTypedBindingDeferred(void);
+extern "C" void ZNInstallM551RuntimeSliderStabilityDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -79,6 +80,7 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM55TypedControlBindingDeferred();
         ZNInstallM53ControlBindingDeferred();
         ZNInstallM55StaticTypedBindingDeferred();
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.5.1-recovery] M5.4 Builder baseline + persistent authoring + typed backends installed"];
+        ZNInstallM551RuntimeSliderStabilityDeferred();
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.5.1-recovery] Builder recovery + persistence + stable runtime slider installed"];
     });
 }
