@@ -1,13 +1,21 @@
 {
-  "schema_version": 18,
+  "schema_version": 19,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "m5.5-typed-control-binding-v2",
-  "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
+  "phase": "m5.5.1-recovery",
+  "phase_status": "source-ci-binary-artifact-verified-device-recovery-validation-pending",
   "branch": "feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2",
-  "runtime_product_head": "d4f8da77a7fef8db72bcd9d19a2323a39fd577d1",
-  "ci_validated_head": "3548cbc655f4347e03947d9dba0fb501f15b137e",
+  "ci_validated_head": "a40979aac1e98df9af84f5c67a09dcb356c62176",
+  "recovery": {
+    "m5_4_builder_baseline_restored": true,
+    "runtime_delete_button_moved_to_title_row": true,
+    "runtime_authoring_persistent": true,
+    "persistence_key": "zonoe.m5.5.authoring-actions.v1",
+    "restore_when_store_empty": true,
+    "save_on_mutation": ["create", "rename", "argument", "controlConfig", "immediateChain", "delete", "clear"],
+    "pre_m5_5_1_lost_memory_actions_auto_recoverable": false
+  },
   "value_types": ["Auto", "I32", "U32", "I64", "U64", "F32", "F64"],
   "control_types": ["Switch", "Button", "Number", "Slider"],
   "runtime_typed_controls": {
@@ -24,36 +32,24 @@
   "static_typed_controls": {
     "value_type_flag_bits": "11..13",
     "legacy_zero_decodes_auto": true,
-    "mov_backend": "verified MOVZ plus compatible MOVK",
     "mov_supported_types": ["I32", "U32", "I64", "U64"],
     "fmov_s_backend": "F32 scalar immediate exact only",
     "fmov_d_backend": "F64 scalar immediate exact only",
-    "auto_instruction_family_inference": true,
     "type_mismatch_fail_closed": true,
-    "exact_integer_value_text": true,
-    "slider_min": 1,
-    "slider_max": 10,
-    "slider_step": 1,
-    "custom_static_range_embedded": false,
-    "device_verified": false
+    "device_verified": false,
+    "authoring_ui_reintroduction_pending": true
   },
   "abi": {
     "static_patch_entry_bytes": 128,
     "runtime_method_call_entry_bytes": 64,
-    "abi_changed_in_m5_5": false
-  },
-  "m5_4_retained": {
-    "unified_final_renderer": true,
-    "search_history_device_visible": true,
-    "search_history_interaction_device_verified": false
+    "abi_changed_in_m5_5_1": false
   },
   "build": {
     "workflow": "Build Runtime Patch Menu v0.5.8 M5.5 Typed Control Binding V2",
-    "run_id": 35996840472,
-    "job_id": 107623672455,
+    "run_id": 36002343325,
+    "job_id": 107641806291,
     "result": "success",
     "compiled": true,
-    "source_contract_assertions": true,
     "binary_verified": true,
     "artifact_uploaded": true,
     "independent_artifact_hash_verified": true,
@@ -61,35 +57,21 @@
   },
   "artifact": {
     "name": "ZonoPatch-v0.5.8-M5.5-Typed-Control-Binding-V2",
-    "id": 10806284095,
-    "archive_size": 645984,
-    "archive_sha256": "9ec1d6ab1a484572b16c1eff57eb90a7d54836b9717ed9748296fcc66a4b86e9",
-    "dylib_name": "ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib",
-    "dylib_size": 1404656,
-    "dylib_sha256": "0dacef0f731d0a6b59e1446b08977d69a6eeb732096c761a9ed321be0214375a",
+    "id": 10808925953,
+    "archive_sha256": "f8c813ae0c9bd10b376c58e510f3767633866e803f55f396040caa9efb02eeac",
+    "dylib_size": 1404688,
+    "dylib_sha256": "bf3ffc1c75c27bae19a6d03a7e6dc93d5e23c9953143fb024267f8705d679453",
     "mach_o": "thin arm64 dynamically linked shared library"
   },
-  "known_boundaries": [
-    "Static custom Default/Min/Max/Step is not yet embedded into generated Static metadata; current Slider default is 1..10 step 1",
-    "Scalar FMOV immediate supports only its exact immediate set; non-representable F32/F64 values fail closed",
-    "MOVZ/MOVK large or negative integer values require sufficient halfword slots in the generated Enabled sequence",
-    "Static dynamic values still rely on executable-page transactional mutation and may be blocked on some signing/device models",
-    "M5.4 Unified/history visibility is device-confirmed but full interaction regression is still pending",
-    "M5.2 Chain Level 0 null-return question remains open"
-  ],
   "device_acceptance_pending": [
-    "Static Control Type and Value Type cycle independently",
-    "Static I32/U32 MOV W values",
-    "Static I64/U64 MOV X values with sufficient MOVK slots",
-    "Static F32 FMOV S and F64 FMOV D integer Slider values 1..10",
-    "Static mismatched/non-encodable values fail closed",
-    "Runtime Auto maps managed numeric types correctly",
-    "Runtime Number typed bounds and edit-end invoke",
-    "Runtime Slider integer quantization and release-once invoke",
-    "Runtime Default/Min/Max/Step range editor persistence/export",
-    "M5.4 Unified/History/Candidate/Receiver/Create/Chain regression"
+    "M5.4 Builder baseline content visible again",
+    "Runtime delete button spacing accepted",
+    "authoring actions survive kill/relaunch",
+    "control/value-type/range configs survive kill/relaunch",
+    "delete persists across relaunch",
+    "Static Value Type authoring UI reintroduced non-destructively after recovery acceptance"
   ],
-  "next_phase": "m5.5-device-acceptance",
-  "next_task": "Device-test Typed Control Binding V2 across Runtime and Static, then decide whether Static custom range metadata needs a generated extension table.",
+  "next_phase": "m5.5.1-device-recovery-acceptance",
+  "next_task": "Verify restored Builder layout and persistent Runtime authoring before adding any more authoring UI geometry.",
   "captured_at": "2026-09-24"
 }
