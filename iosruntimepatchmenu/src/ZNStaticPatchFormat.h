@@ -14,25 +14,30 @@
 #define ZN44_STATIC_VERSION_V1 1u
 #define ZN44_STATIC_VERSION_V2 2u
 #define ZN44_STATIC_VERSION_V3 ZN44_STATIC_VERSION_V2
-// Keep the legacy default on v1. ZNStaticBinaryBuilder.mm still uses this
-// alias. Owned-Segment Builder V3 writes ZN44_STATIC_VERSION_V3 explicitly,
-// which is ABI-compatible with V2.
 #define ZN44_STATIC_VERSION ZN44_STATIC_VERSION_V1
 #define ZN44_STATIC_MAX_ENTRIES 512u
 
-// Header flags are backward-compatible because older runtimes ignore them.
-// FEATURE_METADATA_V1 replaces title/group plaintext with ZNF1 metadata.
-// RVA_PROTECTION_V1 stores siteRVA/offRVA/onRVA in a reversible encoded form;
-// runtime decodes on demand and never writes plaintext values back to the
-// Static Entry. The 128-byte entry ABI remains unchanged.
 #define ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1 UINT32_C(0x00000001)
 #define ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1   UINT32_C(0x00000002)
 #define ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2 UINT32_C(0x00000004)
+#define ZN44_STATIC_HEADER_FLAG_VALUE_CELLS_V1      UINT32_C(0x00000008)
 
-// V2/V3 keep the v1 entry ABI/size (128 bytes). The former 12-byte reserved
-// tail is shared-site metadata so old generated binaries remain readable.
 #define ZN44_STATIC_ENTRY_FLAG_CANONICAL UINT32_C(0x00000001)
 #define ZN44_STATIC_ENTRY_FLAG_SHARED    UINT32_C(0x00000002)
+
+// M5.6 Runtime-safe typed Static values. Value cells live in owned __ZNDATA
+// segment tail and are loaded by build-time generated LDR-literal instructions.
+// Runtime updates only RW cells; executable pages are never changed.
+#define ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1 UINT32_C(0x00004000)
+#define ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_SHIFT 15u
+#define ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK UINT32_C(0x00038000)
+
+static inline uint32_t ZN44StaticValueCellTypeFlags(uint32_t type) {
+    return (type << ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_SHIFT) & ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK;
+}
+static inline uint32_t ZN44StaticValueCellTypeFromFlags(uint32_t flags) {
+    return (flags & ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK) >> ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_SHIFT;
+}
 
 typedef struct {
     uint64_t magic0;
@@ -41,15 +46,10 @@ typedef struct {
     uint32_t count;
     uint32_t entrySize;
     uint32_t flags;
-    // Protection V1 uses reserved[0..3] as nonce/tag/marker/seal only when the
-    // RVA protection flag is set. Legacy outputs leave them zero.
     uint64_t reserved[4];
 } ZN44StaticHeader;
 
 typedef struct {
-    // Runtime absolute pointer. File value is zero. In v2/v3 only the
-    // canonical entry for one physical site owns this pointer; all logical
-    // variants route through that canonical selectedTarget.
     uint64_t selectedTarget;
     uint64_t offRVA;
     uint64_t onRVA;
@@ -59,12 +59,9 @@ typedef struct {
     char title[48];
     char group[24];
     uint32_t enabledLength;
-
-    // v2/v3 metadata. v1 binaries contain zeros here and are treated as one
-    // physical site per entry.
-    uint32_t physicalID;      // 1-based physical-site id inside this header
-    uint32_t canonicalIndex;  // 0-based entry index that owns selectedTarget
-    uint32_t flags;           // ZN44_STATIC_ENTRY_FLAG_*
+    uint32_t physicalID;
+    uint32_t canonicalIndex;
+    uint32_t flags;
 } ZN44StaticEntry;
 
 #if defined(__cplusplus)
