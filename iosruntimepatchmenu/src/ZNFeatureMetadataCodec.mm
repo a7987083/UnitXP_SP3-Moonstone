@@ -8,20 +8,9 @@ static const uint8_t kZNFMVersion = 1;
 static const NSUInteger kZNFMNameCapacity = 57;
 
 // title/group are contiguous in ZN44StaticEntry: 48 + 24 bytes.
-// Layout inside that 72-byte region:
-//   [0]      = 0 (legacy title C-string sentinel)
-//   [1..2]   = marker A5 5A
-//   [3]      = codec version
-//   [4]      = flags (bit0 = explicit Feature group)
-//   [5..12]  = stable featureID, little-endian
-//   [13]     = UTF-8 display-name byte length (0..57)
-//   [14..47] = encoded payload bytes 0..33
-//   [48]     = 0 (legacy group C-string sentinel)
-//   [49..71] = encoded payload bytes 34..56
-//
-// M2.2 keeps this metadata layout and the 128-byte Static Entry ABI intact.
-// Generic Feature control type is stored in entry.flags bits 8..10. Legacy
-// generated binaries keep those bits zero and therefore remain Toggle.
+// Layout inside that 72-byte region remains ZNF1-compatible. M5.5 keeps the
+// existing metadata payload untouched and stores Value Type in entry.flags
+// bits 11..13. Legacy outputs decode those zero bits as Auto.
 
 static NSString *ZNFMTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -59,7 +48,6 @@ static uint8_t ZNFMKeyByte(uint64_t featureID, NSUInteger index) {
 static NSData *ZNFMUTF8Prefix(NSString *value, NSUInteger capacity) {
     NSData *full = [value dataUsingEncoding:NSUTF8StringEncoding];
     if (full.length <= capacity) return full ?: [NSData data];
-
     NSUInteger length = capacity;
     while (length > 0) {
         NSData *candidate = [full subdataWithRange:NSMakeRange(0, length)];
@@ -85,13 +73,9 @@ static uint64_t ZNFMFeatureID(NSString *target,
                               uint64_t siteRVA,
                               uint32_t patchID) {
     NSString *normalizedName = ZNFMNormalize(displayName);
-    NSString *identity = nil;
-    if (explicitGroup) {
-        identity = [NSString stringWithFormat:@"feature|%@", normalizedName];
-    } else {
-        identity = [NSString stringWithFormat:@"patch|%@|%016llx|%u|%@",
-                    ZNFMNormalize(target), siteRVA, patchID, normalizedName];
-    }
+    NSString *identity = explicitGroup
+        ? [NSString stringWithFormat:@"feature|%@", normalizedName]
+        : [NSString stringWithFormat:@"patch|%@|%016llx|%u|%@", ZNFMNormalize(target), siteRVA, patchID, normalizedName];
     NSData *data = [identity dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
     return ZNFMHash64(data);
 }
@@ -105,21 +89,17 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
     NSString *cleanTitle = ZNFMTrim(title);
     NSString *cleanGroup = ZNFMTrim(group);
     BOOL explicitGroup = cleanGroup.length && [cleanGroup caseInsensitiveCompare:@"Imported"] != NSOrderedSame;
-
     NSString *displayName = explicitGroup ? cleanGroup : cleanTitle;
-    if (!displayName.length || [displayName hasPrefix:@"Patch #"]) {
-        displayName = [NSString stringWithFormat:@"功能 #%u", entry->patchID];
-    }
+    if (!displayName.length || [displayName hasPrefix:@"Patch #"]) displayName = [NSString stringWithFormat:@"功能 #%u", entry->patchID];
 
     NSString *featureLookupName = explicitGroup ? cleanGroup : cleanTitle;
     ZNFeatureControlType controlType = ZNFeatureControlTypeForFeatureName(featureLookupName);
-    entry->flags = (entry->flags & ~ZN_FEATURE_CONTROL_FLAG_MASK) | ZNFeatureControlFlags(controlType);
+    ZNValueType valueType = ZNFeatureValueTypeForFeatureName(featureLookupName);
+    entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK)) |
+                   ZNFeatureControlFlags(controlType) |
+                   ZNFeatureValueTypeFlags(valueType);
 
-    uint64_t featureID = ZNFMFeatureID(target ?: @"",
-                                       displayName,
-                                       explicitGroup,
-                                       entry->siteRVA,
-                                       entry->patchID);
+    uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
     NSData *nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity);
     if (nameData.length > UINT8_MAX) return NO;
 
@@ -135,18 +115,14 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
     storage[48] = 0;
 
     const uint8_t *plain = (const uint8_t *)nameData.bytes;
-    for (NSUInteger i = 0; i < nameData.length; i++) {
-        ZNFMWritePayloadByte(storage, i, plain[i] ^ ZNFMKeyByte(featureID, i));
-    }
+    for (NSUInteger i = 0; i < nameData.length; i++) ZNFMWritePayloadByte(storage, i, plain[i] ^ ZNFMKeyByte(featureID, i));
     return YES;
 }
 
 NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry *entry) {
     if (!entry) return nil;
     const uint8_t *storage = (const uint8_t *)entry->title;
-    if (storage[0] != 0 || storage[48] != 0 ||
-        storage[1] != kZNFMMarker0 || storage[2] != kZNFMMarker1 ||
-        storage[3] != kZNFMVersion) return nil;
+    if (storage[0] != 0 || storage[48] != 0 || storage[1] != kZNFMMarker0 || storage[2] != kZNFMMarker1 || storage[3] != kZNFMVersion) return nil;
 
     uint64_t featureID = 0;
     memcpy(&featureID, storage + 5, sizeof(featureID));
@@ -155,14 +131,13 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
 
     NSMutableData *decoded = [NSMutableData dataWithLength:length];
     uint8_t *out = (uint8_t *)decoded.mutableBytes;
-    for (NSUInteger i = 0; i < length; i++) {
-        out[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
-    }
+    for (NSUInteger i = 0; i < length; i++) out[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
 
     NSString *name = [[NSString alloc] initWithData:decoded encoding:NSUTF8StringEncoding];
     if (!name.length) return nil;
     BOOL explicitGroup = (storage[4] & 0x01) != 0;
     ZNFeatureControlType controlType = ZNFeatureControlTypeFromFlags(entry->flags);
+    ZNValueType valueType = ZNFeatureValueTypeFromFlags(entry->flags);
     return @{
         @"featureID": @(featureID),
         @"title": name,
@@ -170,6 +145,8 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
         @"explicitGroup": @(explicitGroup),
         @"controlType": @(controlType),
         @"controlTypeName": ZNFeatureControlTypeName(controlType),
+        @"valueType": @(valueType),
+        @"valueTypeName": ZNValueTypeName(valueType),
         @"source": @"embedded-znf1"
     };
 }
