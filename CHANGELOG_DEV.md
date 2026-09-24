@@ -2,40 +2,51 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
-## 2026-09-24 — M5.2 Finder UX closure
+## 2026-09-24 — v0.5.8-dev M5.3 Control Binding V1
 
-Branch: `feature/runtime-patch-menu-v0.5.8-m5.2-immediate-chain-v2`
+Branch: `feature/runtime-patch-menu-v0.5.8-m5.3-control-binding-v1`
 
-CI-validated product head: `2d36ffcc333936e41809039e161baf52e24abba9`
+CI-validated product head: `b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f`
 
 实际修改：
 
-- 修复 Chain V2 创建后的 UI 断链：此前 `完成链` 只保存 metadata + render，没有后续 `执行链` 操作入口。
-- 新增 `ZNM52ChainExecuteButton.mm`。
-- Finder 当前方法未有 V2 chain 时保持 `链式调用`；存在已保存 V2 chain 时原按钮原位变为 `执行链`。
-- 单击 `执行链` 调用现有 M5.2 原子执行器并在开发/测试侧展示最终 return + chainTrace。
-- 长按 `执行链` 清空当前 action 的 Immediate Chain，并立即重新进入该方法的链式调用编辑器。
-- 新增 `ZNM52MethodSearchHistory.mm`。
-- 方法搜索关键词通过 NSUserDefaults 持久化；最多 50 条；大小写不敏感去重；最新置顶；超限删除最旧。
-- 搜索历史直接显示在搜索框下面；一行一条；独立 UIScrollView；点击历史项直接回填并重新搜索。
-- Makefile 和 Method Finder deferred install 顺序已接入两个新模块。
+- 从 M5.2 HistoryFix 绿色基线 `88ee27688ac5db067caded06da2feefb77323340` 创建 M5.3 分支。
+- 新增 `ZNM53ControlBinding.mm`，作为最外层 Control Binding。
+- Runtime 参数控件行为闭环：
+  - Button：原点击路径立即 invoke。
+  - Switch：`ValueChanged` 后立即 invoke。
+  - Number：编辑期间只更新值，结束编辑后立即 invoke。
+  - Slider：拖动期间只更新/量化值，TouchUp/Cancel 时执行一次最终 invoke。
+- Runtime 自动执行仍走现有 `zn51_runtimeExecute:`，因此继续复用参数合成、typed invoke、full signature、Immediate Chain 及 M5.1 Silent Customer Execution；成功静默、失败可见。
+- Static Button 从“只发 Notification”绑定到真实 `setEnabled:YES` 固定 Enabled variant。
+- Static Number/Slider 新增 ARM64 `MOVZ(+MOVK...)` 动态绑定：
+  - 从 Static Dispatch record 读取 Protection V2 ON entry；
+  - 解析碎片链中的 Enabled 指令地址；
+  - 要求首指令为 MOVZ，后续仅接受同宽度/同目标寄存器 MOVK；
+  - 按客户整数值改写 imm16 halfword；
+  - 缺少所需 MOVK 槽位或不是可识别序列时 fail closed；
+  - 通过 `ZNRuntimePatchExecutor` 做 expected-byte 校验、RX→RW、写入、read-back、失败回滚；
+  - 写入时临时关闭匹配 Static record，成功后重新启用，减少修改正在执行 ON variant 的风险。
+- Static Slider 采用 120ms generation debounce，避免每一个 ValueChanged 都写入。
+- Static V1 只接受非负整数；W 最大 UINT32 范围但仍受 MOVK 槽位限制；X 为保证 NSNumber/double 精确性限制到 `2^53-1`。
+- 未修改 Static 128-byte Entry ABI，也未修改 Runtime 64-byte Action ABI。
+- 版本标识更新为 `0.5.8 · M5.3` / `Control Binding · Runtime Auto Execute · Static Dynamic MOV`。
 
-CI 历史：
+CI：
 
-- Run `35944059425` / Job `107458000802`：Source Contract 通过；Build 在新 category selector 声明位置触发 `-Werror,-Wobjc-protocol-method-implementation`，已定位并修复。
-- Final Run `35944304515` / Job `107458736244`：Source Contract、arm64 Build、Binary Verify、Artifact Upload 全部 SUCCESS。
+- Run `35951498398` / Job `107480818078`：Source Contract、Dobby arm64、Build M5.3、Binary Verify、Artifact Upload 全部 SUCCESS。
 
 最终制品：
 
-- Artifact: `ZonoPatch-v0.5.8-M5.2-Immediate-Chain-V2`
-- Artifact ID: `10785804614`
-- Artifact ZIP size: `602942`
-- Artifact ZIP SHA256: `6596398f82a733fbe901be42e18960da3c4d212f479e7f73cf8253be7fbf210f`
-- Dylib: `ZonoPatch_v0.5.8_M5.2_Immediate_Chain_V2.dylib`
-- Dylib size: `1321136`
-- Dylib SHA256: `44eb45dd5643c8256bc0393c0117dc56a5b8836d2ef0a019a28cafb6a97d68d7`
+- Artifact: `ZonoPatch-v0.5.8-M5.3-Control-Binding-V1`
+- Artifact ID: `10788349821`
+- Artifact ZIP size: `610100`
+- Artifact ZIP SHA256: `80a2461b89ad5625d03d86407ad8ec5ea9854cde46422485d08e1037232fd777`
+- Dylib: `ZonoPatch_v0.5.8_M5.3_Control_Binding_V1.dylib`
+- Dylib size: `1337776`
+- Dylib SHA256: `e4ed0643ed7cf8aceb89f93f06c40f41442f4f12a64b1d8bcd7970765df7b98b`
 - Mach-O: thin arm64 dynamically linked shared library
-- Downloaded ZIP hash matches GitHub Artifact digest; dylib hash matches CI `SHA256.txt`.
+- 独立下载后 ZIP digest 与 GitHub Artifact digest 一致，dylib hash 与 CI `SHA256.txt` 一致。
 
 验证边界：
 
@@ -44,14 +55,15 @@ CI 历史：
 - arm64 compile/link/sign: YES
 - Binary Verify: YES
 - artifact independent hash verification: YES
-- `链式调用 -> 执行链` 真机状态切换: PENDING
-- 单击执行链 / 长按重建链: PENDING
-- 50 条持久化搜索历史 UI: PENDING
+- Runtime 四控件自动执行真机验证: PENDING
+- Static Button 真机绑定验证: PENDING
+- Static MOVZ/MOVK Number/Slider 真机动态值验证: PENDING
+- 非越狱/受限签名环境下 executable-page RX→RW 是否允许: PENDING；失败时应 fail closed
 - full regression: NO
 
 ## Historical anchors
 
-- M5.2 core multi-level-chain green product head: `2456f6ba4dfb659e3480db2e677452dad8516153`.
-- M5.1 Silent Customer Execution green product head: `29c33d9246fd9842107c443d3254aff23effd59e`.
-- M5.0 Managed-reference Return Chaining product head: `ec6ed852c24684cb92dbfc927afe16797eccbc0d`.
-- Method Finder V3 M2.2 device-accepted anchor: `19b912c840e7223adbc2c26ef80185c32b8eb77a`.
+- M5.2 HistoryFix baseline: `88ee27688ac5db067caded06da2feefb77323340`.
+- M5.2 core multi-level chain: `2456f6ba4dfb659e3480db2e677452dad8516153`.
+- M5.1 Silent Customer Execution: `29c33d9246fd9842107c443d3254aff23effd59e`.
+- M5.0 Managed-reference Return Chaining: `ec6ed852c24684cb92dbfc927afe16797eccbc0d`.
