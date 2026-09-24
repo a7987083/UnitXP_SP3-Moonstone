@@ -1,0 +1,116 @@
+name: Build Runtime Patch Menu v0.5.8 M5.5 Typed Control Binding V2
+
+on:
+  push:
+    branches:
+      - feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNValueTypeModel.h
+          test -f iosruntimepatchmenu/src/ZNValueTypeModel.mm
+          test -f iosruntimepatchmenu/src/ZNM55TypedControlBinding.mm
+          grep -q 'ZNValueTypeAuto' iosruntimepatchmenu/src/ZNValueTypeModel.h
+          grep -q 'ZNValueTypeI32' iosruntimepatchmenu/src/ZNValueTypeModel.h
+          grep -q 'ZNValueTypeU32' iosruntimepatchmenu/src/ZNValueTypeModel.h
+          grep -q 'ZNValueTypeI64' iosruntimepatchmenu/src/ZNValueTypeModel.h
+          grep -q 'ZNValueTypeU64' iosruntimepatchmenu/src/ZNValueTypeModel.h
+          grep -q 'ZNValueTypeF32' iosruntimepatchmenu/src/ZNValueTypeModel.h
+          grep -q 'ZNValueTypeF64' iosruntimepatchmenu/src/ZNValueTypeModel.h
+          grep -q 'ZN_FEATURE_VALUE_FLAG_MASK' iosruntimepatchmenu/src/ZNFeatureControlModel.h
+          grep -q 'ZNInstallM55TypedControlBindingDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'src/ZNM55TypedControlBinding.mm' iosruntimepatchmenu/Makefile
+          grep -q '0.5.8 · M5.5' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid cmake
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build pinned Dobby for iPhone arm64
+        run: |
+          set -euxo pipefail
+          mkdir -p vendor
+          git clone https://github.com/jmpews/Dobby.git vendor/Dobby
+          cd vendor/Dobby
+          git checkout 5dfc8546954ce3b3198132ab13fddb89ee92cdd7
+          sed -i '' '/^import pipes$/d' scripts/platform_builder.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('include/dobby.h')
+          s = p.read_text()
+          old = '''#ifdef __cplusplus
+          extern "C" {
+          #endif
+
+          #include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+          '''
+          new = '''#include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          '''
+          if old not in s:
+              raise SystemExit('unexpected Dobby header layout')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
+          test -f build/iphoneos/arm64/libdobby.a
+
+      - name: Build M5.5
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1
+          mkdir -p dist-m5.5
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.5/ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib
+          shasum -a 256 dist-m5.5/ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib | tee dist-m5.5/SHA256.txt
+
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out=iosruntimepatchmenu/dist-m5.5/ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib
+          file "$out" | grep -q 'arm64'
+          otool -L "$out" | tee /tmp/zono_m55_load_commands.txt
+          strings -a "$out" > /tmp/zono_m55_strings.txt
+          grep -q '\[m5.4-unified-ui\]' /tmp/zono_m55_strings.txt
+          grep -q '\[m5.5-typed\]' /tmp/zono_m55_strings.txt
+          grep -q 'znm55_cycleValueType:' /tmp/zono_m55_strings.txt
+          grep -q 'znm55_rangeLongPress:' /tmp/zono_m55_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m55_load_commands.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-v0.5.8-M5.5-Typed-Control-Binding-V2
+          path: |
+            iosruntimepatchmenu/dist-m5.5/ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib
+            iosruntimepatchmenu/dist-m5.5/SHA256.txt
+          if-no-files-found: error
