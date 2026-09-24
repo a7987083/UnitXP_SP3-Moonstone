@@ -4,6 +4,7 @@
 #include <math.h>
 
 #import "ZNIL2CPPInvokeEngine.h"
+#import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionRuntime.h"
 #import "ZNPatchCore.h"
