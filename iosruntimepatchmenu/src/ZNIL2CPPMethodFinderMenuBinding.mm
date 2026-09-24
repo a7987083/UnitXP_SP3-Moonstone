@@ -49,6 +49,7 @@ extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM55TypedControlBindingDeferred(void);
 extern "C" void ZNInstallM56StaticValueCellBindingDeferred(void);
 extern "C" void ZNInstallM57UnifiedRuntimeControlsDeferred(void);
+extern "C" void ZNInstallM57RuntimeOnlyBuilderGateDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -89,10 +90,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallMethodFinderUnifiedUIDeferred();
         ZNInstallM462CandidateBindingUIDeferred();ZNInstallM47ReceiverCaptureUIDeferred();ZNInstallM51RuntimeArgControlsImmediateChainDeferred();ZNInstallM52ChainStoreV2Deferred();ZNInstallM52ImmediateChainV2Deferred();ZNInstallM52ChainExecuteButtonDeferred();
 
-        // M5.5 is retained only for Builder-side Value Type / Range authoring.
-        // Its old Runtime Number/Slider selector wrappers are superseded below
-        // by one final M5.7 owner and are never called by the public selectors.
+        // M5.5 is retained for Builder-side Value Type / Range authoring. M5.7
+        // installs the Runtime-only gate after all Builder wrappers so the final
+        // button state follows the current Static-vs-Runtime mode contract.
         ZNInstallM55TypedControlBindingDeferred();
+        ZNInstallM57RuntimeOnlyBuilderGateDeferred();
 
         // Static/Offset Number+Slider has exactly one backend owner: RW value
         // cells. No M5.3 executable-page control binder is installed in M5.7.
@@ -103,6 +105,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         // binding, M5.5.1 slider stability, or M5.6.2 slider isolation.
         ZNInstallM57UnifiedRuntimeControlsDeferred();
 
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.7] unified controls installed: single Runtime event owner + single Static RW-cell backend; Number manual Execute; Slider release commit"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.7] unified controls installed: one Runtime owner + one Static RW-cell backend; Runtime-only Builder independent of Offset rows"];
     });
 }
