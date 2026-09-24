@@ -57,8 +57,6 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
 @implementation ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallBuilderUI)
 
 - (void)znrmc_renderOther {
-    // Installed before FeatureBuilderUI: after the later swap this selector
-    // invokes the complete existing Builder page, then appends Runtime Actions.
     [self znrmc_renderOther];
 
     NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
@@ -81,7 +79,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
 
     if (!actions.count) {
         UIView *empty = [self cardAtY:y height:54 width:width compact:NO];
-        UILabel *label = [self label:@"在“方法查找”选择 /0 或受支持的 /1 方法 → 创建方法。Static Patch ABI 保持不变。"
+        UILabel *label = [self label:@"在“方法查找”选择 /0 或受支持的方法 → 创建方法。制作数据会自动保存。"
                                     size:8.4
                                   weight:UIFontWeightRegular
                                    color:self.theme.secondaryTextColor];
@@ -94,47 +92,47 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
         for (NSUInteger i = 0; i < actions.count; i++) {
             ZNRuntimeMethodAction *action = actions[i];
             BOOL hasArgument = action.argumentCount == 1;
-            CGFloat cardH = hasArgument ? 108.0 : 72.0;
+            CGFloat cardH = hasArgument ? 116.0 : 76.0;
             UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
 
-            UITextField *name = ZNRMCBuilderTextField(CGRectMake(13, 7, card.bounds.size.width - 78, 27), self.theme);
+            UITextField *name = ZNRMCBuilderTextField(CGRectMake(13, 7, card.bounds.size.width - 82, 27), self.theme);
             name.tag = kZNRMCBuilderTitleTagBase + (NSInteger)i;
             name.text = action.title.length ? action.title : action.methodName;
             name.placeholder = action.methodName;
             [name addTarget:self action:@selector(znrmc_titleEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
             [card addSubview:name];
 
+            UIButton *deleteButton = [self zn40_button:@"删除"
+                                               selector:@selector(znrmc_deleteAuthoringAction:)
+                                                  frame:CGRectMake(card.bounds.size.width - 65, 7, 52, 27)];
+            deleteButton.tag = kZNRMCBuilderDeleteTagBase + (NSInteger)i;
+            [card addSubview:deleteButton];
+
             UILabel *identity = [self label:action.canonicalIdentity
                                         size:7.8
                                       weight:UIFontWeightRegular
                                        color:self.theme.secondaryTextColor];
-            identity.frame = CGRectMake(13, 39, card.bounds.size.width - 78, 24);
+            identity.frame = CGRectMake(13, 40, card.bounds.size.width - 26, 25);
             identity.numberOfLines = 2;
             identity.lineBreakMode = NSLineBreakByTruncatingMiddle;
             [card addSubview:identity];
 
-            UIButton *deleteButton = [self zn40_button:@"删除"
-                                               selector:@selector(znrmc_deleteAuthoringAction:)
-                                                  frame:CGRectMake(card.bounds.size.width - 65, hasArgument ? 37 : 19, 52, 31)];
-            deleteButton.tag = kZNRMCBuilderDeleteTagBase + (NSInteger)i;
-            [card addSubview:deleteButton];
-
             if (hasArgument) {
                 UILabel *argLabel = [self label:@"参数 1" size:8.2 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-                argLabel.frame = CGRectMake(13, 72, 44, 25);
+                argLabel.frame = CGRectMake(13, 77, 44, 27);
                 [card addSubview:argLabel];
 
-                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(59, 69, card.bounds.size.width - 72, 29), self.theme);
+                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(59, 75, card.bounds.size.width - 72, 31), self.theme);
                 argument.tag = kZNRMCBuilderArgumentTagBase + (NSInteger)i;
                 argument.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
-                argument.placeholder = @"/1 参数值";
+                argument.placeholder = @"参数值";
                 argument.font = [UIFont monospacedDigitSystemFontOfSize:9.6 weight:UIFontWeightMedium];
                 [argument addTarget:self action:@selector(znrmc_argumentEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
                 [card addSubview:argument];
             }
 
             [self.contentView addSubview:card];
-            y += cardH + 8.0;
+            y += cardH + 10.0;
         }
     }
     [self zn40_updateContentHeight:y];
@@ -190,7 +188,7 @@ extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void) {
         Method replacement = class_getInstanceMethod(cls, @selector(znrmc_renderOther));
         if (original && replacement) {
             method_exchangeImplementations(original, replacement);
-            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (/0 + /1)"];
+            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (recovery layout)"];
         }
     });
 }
