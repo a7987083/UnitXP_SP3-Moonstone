@@ -2,59 +2,73 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.5.1 Recovery**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.6 Stable Runtime Slider + Static RW Value Cell V1**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
 - Active branch: `feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2`
-- CI-validated head: `a40979aac1e98df9af84f5c67a09dcb356c62176`
-- CI Run: `36002343325` — SUCCESS
-- Job: `107641806291`
-- Artifact ID: `10808925953`
-- ZIP SHA256: `f8c813ae0c9bd10b376c58e510f3767633866e803f55f396040caa9efb02eeac`
-- Recovery dylib size: `1404688`
-- Recovery dylib SHA256: `bf3ffc1c75c27bae19a6d03a7e6dc93d5e23c9953143fb024267f8705d679453`
+- CI-validated head: `2d6351ac7e2652ae76e2ba2542118cc0beb2338e`
+- Run: `36004751812` — SUCCESS
+- Job: `107649917061`
+- Artifact ID: `10809323261`
+- ZIP SHA256: `fc1f0596f2f603a993d2249e9ab1c965e5ff38019fcda3d5d4a75a189ecf2c03`
+- Dylib size: `1421376`
+- Dylib SHA256: `191c93dea1fc43d504860abcfd047fcf15391c6ad74c39be383f299eaa7cf54c`
 
-## Recovery architecture
+## Device evidence / root causes
 
-- M5.4 Builder base geometry is restored as the authoritative production/authoring page baseline.
-- Runtime Method Call cards append after the existing Builder page.
-- Runtime Method Call `删除` is now placed in the title row, away from parameter controls.
-- Runtime authoring data is persistent from M5.5.1 onward via `NSUserDefaults` key `zonoe.m5.5.authoring-actions.v1`.
-- Persistent fields include method identity, arguments, managed signature, control configs, Value Type/Range fields and Immediate Chain.
-- Mutations that trigger save: create, rename, argument edit, control edit, chain edit, delete, clear.
-- Startup restore runs only if the in-memory store is empty.
+### Static Number/Slider
 
-## Critical historical boundary
+M5.5 device error:
+`写入完成但恢复 RX 权限失败: errno=13 (Permission denied)`.
 
-Before M5.5.1, `ZNRuntimeActionStore` was process-memory-only. Authoring actions already lost before this recovery build cannot be reconstructed automatically without a previous serialized artifact/log/action table. Do not infer truncated class/method identities from screenshots.
+Conclusion: runtime executable mutation is not supported on the current target environment. Do not reintroduce an RX->RW->RX typed-value path.
 
-## Typed Control backend retained
+M5.6 architecture:
 
 ```text
-Control Type:
-  Switch / Button / Number / Slider
-
-Value Type:
-  Auto / I32 / U32 / I64 / U64 / F32 / F64
+Builder
+MOVZ/MOVK or FMOV immediate
+        ↓ build-time rewrite
+LDR W/X/S/D from owned __ZNDATA value cell
+        ↓
+final signed binary
+        ↓ runtime
+atomic store to RW value cell only
+        ↓
+normal Static selectedTarget dispatch
 ```
 
-- Runtime Auto resolves from IL2CPP managed parameter types.
-- Runtime Range: Default / Min / Max / Step.
-- Static backend retains typed MOVZ/MOVK and scalar FMOV S/D adapters with fail-closed semantics.
-- Static Entry ABI remains 128 bytes; Runtime Action Entry ABI remains 64 bytes.
+Old M5.5-generated target binaries must be rebuilt with M5.6; the dylib cannot retrofit cells into already-installed executable code.
+
+### Runtime Slider
+
+M5.5 performed Runtime Action `refresh` on every `ValueChanged`; dragging can emit many events and caused device freeze/crash.
+
+M5.6:
+- drag: lightweight M5.1 cache only;
+- release/cancel: one refresh, one step quantization, one cache, one invoke;
+- no render during drag.
+
+## Retained architecture
+
+- M5.5.1 Builder baseline recovery.
+- Runtime authoring persistence key `zonoe.m5.5.authoring-actions.v1`.
+- Control Types: Switch / Button / Number / Slider.
+- Value Types: Auto / I32 / U32 / I64 / U64 / F32 / F64.
+- M5.4 Unified Method Finder remains final Search/Results/Detail renderer.
+- Static Entry ABI 128 bytes; Runtime Action Entry ABI 64 bytes.
 
 ## Immediate device checklist
 
-1. Footer must show `0.5.8 · M5.5.1`.
-2. Original M5.4 Builder content must be visible again before `Runtime Method Call`.
-3. `删除` must be in each Runtime card's title row with clear separation from parameter controls.
-4. Create 2 Runtime methods, modify their control/value type/range, kill/relaunch, verify both restore.
-5. Delete one, kill/relaunch, verify deletion persists.
-6. After recovery acceptance, reintroduce Static Value Type authoring UI only as a non-destructive overlay on the M5.4 baseline.
+1. Install M5.6 dylib; footer must show `0.5.8 · M5.6`.
+2. Runtime Slider: drag 1->10 repeatedly; no freeze/crash. Release should execute only once.
+3. Rebuild the Offset/Static test using M5.6 Builder.
+4. Use the same MOV-style Number/Auto case; changing Number should no longer report RX permission errors.
+5. Test FMOV Slider after regenerating with M5.6; values should be sourced from RW cells.
+6. Verify M5.5.1 authoring persistence and Builder spacing remain intact.
 
 ## Open boundaries
 
-- The already-lost pre-M5.5.1 in-memory authoring items are not automatically recoverable.
-- Static custom per-feature Range metadata is still not embedded.
-- Static executable-page transactional mutation may be restricted by target signing/device model.
-- M5.2 Chain Level 0 null-return investigation remains open.
+- M5.6 RW value-cell behavior is CI/binary verified but not yet device accepted.
+- Generated LDR literal requires cell within ±1MB; Builder fails closed if layout cannot satisfy it.
+- M5.2 Chain Level 0 null-return investigation remains separate.
