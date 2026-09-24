@@ -1,57 +1,59 @@
 {
-  "schema_version": 21,
+  "schema_version": 22,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "m5.6.2-runtime-static-recovery",
+  "phase": "m5.7-unified-control-runtime",
   "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
-  "branch": "fix/m5.6.2-runtime-slider-static-valuecell",
-  "ci_validated_head": "690ee9eb9af2f2431f8d8909fa9c1dd558ae77aa",
-  "device_evidence": {
-    "static_rx_restore_errno13_still_present_after_initial_m5_6": true,
-    "runtime_slider_drag_freeze_crash_still_present_after_initial_m5_6": true,
-    "static_auto_f32_customer_value_stuck_zero": true,
-    "runtime_only_misroute_possible_with_partial_static_rows": true
+  "branch": "refactor/m5.7-unified-control-runtime",
+  "ci_validated_product_head": "a31816422f3390a1e0b209bd0fe55e8f4b281710",
+  "control_contract": {
+    "switch": "change commits immediately",
+    "button": "click commits immediately",
+    "number": "typing saves only; Return/Done saves and dismisses keyboard; explicit Execute commits",
+    "slider": "ValueChanged updates/quantizes only; TouchUp commits exactly once"
   },
-  "audit_correction": {
-    "initial_m5_6_fully_rw_cell_claim_was_incorrect": true,
-    "m5_6_1_regression_restored_m5_3_exec_writer": true,
-    "m5_6_2_restores_build_and_runtime_rw_cell_ownership": true
+  "runtime_controls": {
+    "single_event_owner": "ZNM57UnifiedRuntimeControls",
+    "m5_3_auto_binding_installed": false,
+    "m5_5_1_slider_stability_installed": false,
+    "m5_6_2_slider_isolation_installed": false,
+    "legacy_runtime_feature_ui_installed": false,
+    "typed_runtime_customer_ui": "M5.1/M5.7",
+    "number_return_dismisses_keyboard": true,
+    "number_auto_execute_on_return": false,
+    "slider_auto_execute_on_release": true,
+    "slider_execute_during_drag": false,
+    "device_verified": false
   },
-  "runtime_only_gate": {
+  "static_controls": {
+    "ui_owner": "ZNFeatureRuntimeControlsV2",
+    "backend_owner": "ZNM56StaticValueCellBinder",
+    "number_manual_execute": true,
+    "number_return_dismisses_keyboard": true,
+    "slider_release_commit": true,
+    "runtime_executable_write": false,
+    "device_verified": false
+  },
+  "runtime_only": {
     "criterion": "runtime actions > 0 and complete static rows == 0",
     "complete_static_row": "offsetText.length > 0 && enabledText.length > 0",
-    "partial_static_rows_ignored_for_mode_selection": true,
-    "logs_partial_row_count": true
-  },
-  "runtime_slider_m5_6_2": {
-    "final_selector_owner": "ZNM562SliderIsolation",
-    "value_changed_refresh": false,
-    "value_changed_render": false,
-    "value_changed_invoke": false,
-    "value_changed_add_release_target": false,
-    "drag_behavior": "UI-only integer quantize/clamp",
-    "auto_invoke_enabled": false,
-    "manual_execute_uses_visible_slider_value": true,
+    "partial_static_rows_ignored": true,
+    "builder_button_independent_of_static_filled_count": true,
+    "suffixless_output": true,
+    "verifier_identification": "thin Mach-O magic/content",
+    "legacy_dot_znpatched_requirement_removed": true,
     "device_verified": false
   },
-  "static_value_cell_v1": {
+  "static_value_cell": {
     "postprocess_order": ["ZNF1", "RW Value Cell V1", "Static RVA Protection V1", "Ad-hoc Sign", "Suffixless Export"],
-    "build_time_parameterization": true,
-    "runtime_executable_write": false,
-    "runtime_value_storage": "owned __ZNDATA RW tail cells",
-    "integer_codegen": "LDR W/X literal replacing MOVZ(+MOVK)",
-    "float_codegen": "LDR S/D literal replacing scalar FMOV immediate",
-    "runtime_write": "atomic RW cell store only",
-    "single_runtime_owner": "ZNM56StaticValueCellBinder",
-    "legacy_static_observers_removed": ["ZNM53StaticControlBinder", "ZNM55StaticTypedBinder"],
-    "auto_f32_resolved_from_value_cell_flags": true,
-    "requires_regeneration_with_m5_6_2": true,
-    "device_verified": false
+    "runtime_storage": "owned __ZNDATA RW cells",
+    "integer_codegen": "LDR W/X replacing compatible MOVZ(+MOVK)",
+    "float_codegen": "LDR S/D replacing scalar FMOV immediate",
+    "requires_regenerated_target": true
   },
   "retained": {
-    "m5_5_1_builder_baseline_recovery": true,
-    "runtime_authoring_persistence": true,
+    "m5_5_1_authoring_persistence": true,
     "authoring_persistence_key": "zonoe.m5.5.authoring-actions.v1",
     "m5_4_unified_method_finder": true,
     "value_types": ["Auto", "I32", "U32", "I64", "U64", "F32", "F64"],
@@ -60,12 +62,12 @@
   "abi": {
     "static_patch_entry_bytes": 128,
     "runtime_method_call_entry_bytes": 64,
-    "abi_changed_in_m5_6_2": false
+    "abi_changed_in_m5_7": false
   },
   "build": {
-    "workflow": "Build Runtime Patch Menu v0.5.8 M5.6.2 Recovery",
-    "run_id": 36012593002,
-    "job_id": 107676813892,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M5.7 Unified Control Runtime",
+    "run_id": 36019982680,
+    "job_id": 107702118932,
     "result": "success",
     "compiled": true,
     "binary_verified": true,
@@ -73,24 +75,26 @@
     "independent_artifact_hash_verified": true
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-M5.6.2-Runtime-Static-Recovery",
-    "id": 10812584568,
-    "archive_sha256": "48662e7ffdc798d18358b443a6996214e3eb37e2a9fc005232e7afd7ab533aeb",
-    "dylib_name": "ZonoPatch_v0.5.8_M5.6.2_Runtime_Static_Recovery.dylib",
-    "dylib_size": 1421392,
-    "dylib_sha256": "d6657fdc723b1b1ca68637dac63ec66f3f95d3a0cade6f5066361215dd6588c7",
+    "name": "ZonoPatch-v0.5.8-M5.7-Unified-Control-Runtime",
+    "id": 10815968483,
+    "archive_sha256": "a369397db62835a98e5e1d66a2ca4dec7cc54d24137c3ffca7cc2449655fafd1",
+    "dylib_name": "ZonoPatch_v0.5.8_M5.7_Unified_Control_Runtime.dylib",
+    "dylib_size": 1438080,
+    "dylib_sha256": "252610a6bca9b09d8db2d52ac15607b5b977f69c1c726a986034e4b5b423ce8b",
     "mach_o": "thin arm64 dynamically linked shared library"
   },
   "device_acceptance_pending": [
-    "Runtime Slider drag UI-only path no longer freezes/crashes",
-    "Runtime explicit Execute with current slider value isolates underlying Invoke/receiver/ABI behavior",
-    "Runtime-only generation succeeds with no complete Static row and partial drafts",
-    "Static MOV Number regenerated by M5.6.2 no longer triggers RX permission denied",
-    "Static Auto->F32 regenerated by M5.6.2 no longer remains at zero",
-    "M5.5.1 Builder layout and authoring persistence regression",
+    "Runtime-only build reports success with zero complete Static rows",
+    "Runtime Number Return dismisses keyboard but does not invoke until Execute",
+    "Runtime Slider drag no longer freezes/crashes and release invokes once",
+    "only one Runtime customer action UI is visible",
+    "Static Number regenerated target applies only on inline Execute via RW cell",
+    "Static Slider regenerated target commits once on release via RW cell",
+    "Static Auto->F32 regenerated target no longer remains zero",
+    "M5.5.1 authoring persistence regression",
     "M5.4 Unified Method Finder regression"
   ],
-  "next_phase": "m5.6.2-device-isolation",
-  "next_task": "Install M5.6.2, regenerate Static targets, then separately test slider drag and explicit Execute to isolate UI from Invoke.",
+  "next_phase": "m5.7-device-acceptance",
+  "next_task": "Install M5.7 and validate Runtime-only generation plus unified Number/Slider interaction on Runtime and regenerated Static targets.",
   "captured_at": "2026-09-24"
 }
