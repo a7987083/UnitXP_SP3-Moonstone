@@ -1,95 +1,52 @@
 # ROADMAP
 
-## Current milestone — M5.5 Typed Control Binding V2
+## Current milestone — M5.5.1 Recovery
 
 Branch: `feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2`
 
-CI-validated head: `3548cbc655f4347e03947d9dba0fb501f15b137e`  
-Product-code head before final CI-only contract commit: `d4f8da77a7fef8db72bcd9d19a2323a39fd577d1`
+CI-validated head: `a40979aac1e98df9af84f5c67a09dcb356c62176`
 
-### Public control model
+### Recovery scope
 
-Customer-facing controls remain deliberately simple and backend-independent:
+- Restore the proven M5.4 Builder base geometry instead of replacing it with a four-column M5.5 layout.
+- Move Runtime Method Call `删除` to the title row and increase vertical separation from the parameter-control row.
+- Add persistent Runtime Method authoring state using `zonoe.m5.5.authoring-actions.v1`.
+- Persist title, method identity, arguments, managed parameter types, signature availability, argument controls, Value Type, Default/Min/Max/Step and Immediate Chain.
+- Restore saved authoring actions automatically when the in-memory store is empty at startup.
+- Save on create, rename, argument edit, control edit, Value Type/range edit, chain edit, delete and clear.
+- Important boundary: actions that had already existed only in memory before M5.5.1 and were lost on process restart cannot be reconstructed automatically without a previous serialized source/log/generated action table.
 
-- Switch
-- Button
-- Number
-- Slider
+### Root cause confirmed
 
-Numeric Value Type is a separate axis:
+`ZNRuntimeActionStore` had historically been an in-memory `NSMutableArray` only. Changing dylib/restarting the process therefore discarded authoring actions. M5.5 inherited that behavior. M5.5.1 adds explicit persistence.
 
-- Auto
-- I32
-- U32
-- I64
-- U64
-- F32
-- F64
-
-Runtime numeric configs additionally carry `Default / Min / Max / Step`.
-
-### Implemented in M5.5
-
-- Added `ZNValueTypeModel` as the shared Runtime/Static type vocabulary.
-- Runtime `Auto` resolves from IL2CPP managed parameter names (`Int32/UInt32/Int64/UInt64/Single/Double`).
-- Runtime Builder now has an independent Value Type button; `Auto` displays the resolved ABI recommendation when known.
-- Long-press Runtime Value Type opens the range editor for Default / Min / Max / Step.
-- Runtime Slider quantizes to configured `step` before the existing M5.3 release-to-invoke path. Default Slider policy is `1..10 / step 1`, including F32/F64 controls.
-- Runtime Number canonicalizes input using the selected/resolved Value Type before invocation.
-- Runtime action JSON control configs persist `valueType/default/min/max/step` without changing the 64-byte Runtime Action Entry ABI.
-- Static Builder now exposes `[Control Type] + [Value Type]` independently.
-- Static Value Type is encoded into unused entry.flags bits 11..13; legacy zero bits decode as Auto. Static Entry remains exactly 128 bytes.
-- Static Number preserves exact authored text (`valueText`) so U64 does not require a double round-trip before encoding.
-- Static Slider now uses integer customer values `1..10`, `step 1`.
-- Added `ZNM55StaticTypedBinding` and replaced the old M5.3 Static MOV-only notification observer while retaining M5.3 Runtime auto-execute behavior.
-- Static typed adapters:
-  - verified `MOVZ(+MOVK)` -> I32/U32/I64/U64;
-  - verified scalar `FMOV S,#imm` -> F32;
-  - verified scalar `FMOV D,#imm` -> F64;
-  - Auto chooses only from the verified instruction family;
-  - type/instruction mismatches fail closed;
-  - FMOV values not exactly representable by scalar immediate fail closed.
-- Scalar FMOV integer values 1..31 were independently checked against the immediate expansion; the current public Slider intentionally defaults to 1..10.
-- M5.4 Unified Method Finder and visible search history remain underneath M5.5.
-
-### ABI
-
-- `ZN44StaticEntry`: 128 bytes, unchanged.
-- `ZNRuntimeMethodCallEntry`: 64 bytes, unchanged.
-- Static control type remains flags bits 8..10.
-- Static Value Type uses flags bits 11..13.
-- Runtime typed/range configuration remains JSON through existing Runtime Action reserved[3].
-
-### Final CI / artifact
+### Recovery CI / artifact
 
 - Workflow: `Build Runtime Patch Menu v0.5.8 M5.5 Typed Control Binding V2`
-- Run: `35996840472`
-- Job: `107623672455`
+- Run: `36002343325`
+- Job: `107641806291`
 - Result: SUCCESS
-- Artifact: `ZonoPatch-v0.5.8-M5.5-Typed-Control-Binding-V2`
-- Artifact ID: `10806284095`
-- ZIP SHA256: `9ec1d6ab1a484572b16c1eff57eb90a7d54836b9717ed9748296fcc66a4b86e9`
-- Dylib: `ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib`
-- Dylib size: `1404656` bytes
-- Dylib SHA256: `0dacef0f731d0a6b59e1446b08977d69a6eeb732096c761a9ed321be0214375a`
+- Artifact ID: `10808925953`
+- ZIP SHA256: `f8c813ae0c9bd10b376c58e510f3767633866e803f55f396040caa9efb02eeac`
+- Recovery dylib size: `1404688` bytes
+- Recovery dylib SHA256: `bf3ffc1c75c27bae19a6d03a7e6dc93d5e23c9953143fb024267f8705d679453`
 - Mach-O: thin arm64 dylib
-- Independent downloaded ZIP/dylib hash verification: PASS
 
-### Device acceptance required
+### Immediate device acceptance
 
-1. Static Builder: verify Control Type and Value Type cycle independently through the expected options.
-2. Generate a Static I32/U32 MOVZ-compatible Number and confirm integer value changes the generated ON variant safely.
-3. Generate I64/U64 cases with sufficient MOVK halfword slots and verify exact large values; unsupported slot layouts must fail closed.
-4. Generate `FMOV S,#1.0` and `FMOV D,#1.0` compatible variants; select F32/F64 Slider and test integer values 1..10.
-5. Confirm unsupported FMOV values/type mismatches show `执行失败` and do not corrupt the variant.
-6. Runtime Method: confirm Auto resolves I32/U32/I64/U64/F32/F64 from the managed signature.
-7. Runtime Number: verify typed bounds and end-edit invoke.
-8. Runtime Slider: verify UI lands only on integer step values and release invokes once.
-9. Long-press Runtime Value Type and verify Default/Min/Max/Step survive Builder rendering and generated action export.
-10. Regress M5.4 Unified history, candidate binding, receiver capture, 创建方法 and Chain V2.
+1. Confirm footer reports `0.5.8 · M5.5.1`.
+2. Confirm the original M5.4 Builder content appears again before Runtime Method Call.
+3. Confirm Runtime Method Call `删除` is on the title row and no longer crowds parameter controls.
+4. Create two Runtime Method Calls, change control/value-type/range, kill and relaunch the game, and confirm both actions/configs restore.
+5. Delete one action, relaunch, and confirm the deletion persists.
+6. Only after recovery acceptance, reintroduce Static Value Type authoring as a non-destructive overlay on the M5.4 Builder baseline.
 
-### Next engineering work after device evidence
+## M5.5 Typed Control Binding V2 retained backend
 
-- Add persistent Static custom Range metadata if product testing shows fixed type defaults / Slider 1..10 are insufficient. Do not enlarge the 128-byte entry casually; use an owned metadata extension/table.
-- If target signing prevents executable-page RX→RW changes, move dynamic Static values to generated parameterized stubs + RW value cells.
-- After M5.4/M5.5 device regression, physically split legacy mixed UI/backend installers and remove obsolete Method Finder renderer sources from the build.
+- Public controls: Switch / Button / Number / Slider.
+- Value Types: Auto / I32 / U32 / I64 / U64 / F32 / F64.
+- Runtime Auto resolves from IL2CPP managed signatures.
+- Runtime configs carry Default / Min / Max / Step.
+- Static backend retains typed MOVZ/MOVK and scalar FMOV S/D adapters with fail-closed behavior.
+- Static Entry ABI remains 128 bytes; Runtime Action Entry ABI remains 64 bytes.
+- M5.4 Unified Method Finder remains the final Search / Results / Detail renderer.
