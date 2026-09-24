@@ -2,94 +2,122 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.3 Control Binding V1 + M4.3 Search History UI Fix**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.4 Unified Method Finder**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `feature/runtime-patch-menu-v0.5.8-m5.3-control-binding-v1`
-- CI-validated product head: `064d535918cacd0f40a220521af7cad18a3d42d9`
-- CI Run: `35960360188` — success
-- Job: `107507414304` — success
-- Artifact ID: `10792097181`
-- Artifact ZIP SHA256: `48a8eae15b567f10ec889861c89f1c03c1d6a79b72e43479abcbfbbe6c084acf`
-- Dylib size: `1337776`
-- Dylib SHA256: `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`
+- Active branch: `refactor/method-finder-ui-consolidation-m5.4`
+- CI-validated head: `8c6131b2628f1e8c980d8c71fc62ac0cdc8c5845`
+- Product-code head: `eff4f4d86c1851558e703addb89ed86578259a64`
+- Final CI Run: `35964757740` — success
+- Job: `107520782444` — success
+- Artifact ID: `10793662459`
+- Artifact ZIP SHA256: `b607318f0225a2b4e1203ca30a151913c22eeb79e13a0519f42b1f13d769af6b`
+- Dylib: `ZonoPatch_v0.5.8_M5.4_Unified_Method_Finder.dylib`
+- Dylib size: `1354480`
+- Dylib SHA256: `6804ca2f2a242337f8a81eb20125e5b0867bd59add02b9df0e28a35656f37ca2`
 - Format: thin arm64 Mach-O dylib
 
-## Search history current UX
+## Why the refactor was required
 
-The device uses `IL2CPP 方法查找 · M4.3`. The corrected history path is intentionally tied to that page:
+Repeated device failures of the search-history UI exposed a broader problem: Method Finder contained multiple generations of base UI and hotfixes installed on the same controller via repeated swizzles. Later layers walked already-rendered views, located buttons by visible title/order, removed targets and rebound events. A source/CI-successful feature could therefore be absent on device because it was not on the final IMP chain.
+
+See `METHOD_FINDER_UI_AUDIT.md` for the selector-level audit.
+
+## M5.4 runtime architecture
 
 ```text
-M4.3 main search card (y=9, h=170)
-↓
-搜索记录 · n/50   (insert y=187)
+V3 state/backend
+  query / page / candidates / selected / limit / status
+        ↓
+legacy resolver / ABI / invoke backends
+        ↓
+M5.4 Unified Search / Results / Detail renderer
+        ↓
+narrow behavior decorators only
+  M4.6.2 candidate binding
+  M4.7 receiver-capture gesture
+  M5.1/M5.2 chain create/execute/restart
+```
+
+Critical rule: `ZNMethodFinderUnifiedUI` does not call the previous renderer implementation. This cuts the old M4.3/M4.4/M4.7 base-renderer chain. Old modules remain compiled only because some installers also provide required backend/action behavior.
+
+The old M5.2 history installer is intentionally not called.
+
+## Unified Search
+
+The device should now show:
+
+```text
+IL2CPP 方法查找 · Unified
+
+方法名      [ ... ] [搜索]
+Assembly    [ ... ]
+最大结果     [ ... ]
+
+搜索记录 · n/50
 query A
 query B
 ...
-↓
-M4.3 status card / later content
 ```
 
-Rules:
+History contract:
 
-- history persists via NSUserDefaults
-- maximum 50 entries
+- NSUserDefaults key `zonoe.m52.method-search-history.v1`
+- maximum 50
 - newest first
 - case-insensitive dedupe
 - one row per query
-- independent vertical scrolling
-- repeated query moves to top
-- oldest is dropped after 50
-- **tap history row = autofill 方法名 only**
-- tapping a row does **not** run a search
-- user manually presses `搜索` after autofill
+- independent vertical scroll
+- tap row = fill 方法名 only
+- tap row does not execute search
+- manual 搜索 executes the filled query
 
-The old placement bug came from using `maxY(contentView)`, which included footer/other later views and could push the history below the visible Finder area. The current implementation inserts at the known M4.3 boundary and shifts subsequent main-content views down.
+If the device still shows `IL2CPP 方法查找 · M4.3`, the M5.4 final renderer is not active and that is a hard failure; do not add another history hook.
 
-## M5.3 Runtime Method controls
+## Unified Results
 
-```text
-Button  -> tap -> invoke now
-Switch  -> change -> invoke now
-Number  -> finish editing -> invoke now
-Slider  -> drag updates value -> release -> invoke once
-```
+- `/0-/8` typed argument rows are drawn directly from ABI metadata.
+- Existing argument-store keys are preserved so Invoke/Builder backends continue to read values.
+- `测试执行` remains compatible with the M4.6.2 explicit candidate binding decorator.
+- Receiver capture remains a long-press decorator on the bound Test button.
+- `创建方法` directly adds the selected candidate to `ZNRuntimeActionStore`.
+- M5.1/M5.2 chain decorators append/rebind `链式调用` / `执行链` on the final card.
 
-- Hidden/fixed arguments remain fixed.
-- Existing typed `/0-/8`, full-signature resolver, receiver selection, Return Capture and Immediate Chain remain underneath.
-- Customer success remains silent; failures still surface `执行失败`.
+## Unified Detail
 
-## M5.3 Static Offset controls
+Information-only detail page shows canonical identity, Assembly/Namespace/Class/Method, RVA, MethodInfo, Method Pointer, return type, parameters, and M4.5 owning-method metadata when present.
 
-- Switch: existing Static Dispatch OFF/ON.
-- Button: enable fixed Enabled variant.
-- Number/Slider V1: dynamic only for safely recognized ARM64 `MOVZ` + compatible `MOVK` generated ON instructions.
-- Unknown or unsupported encodings fail closed.
-- Runtime dynamic write uses expected-byte validation/read-back/rollback.
-- Targets that prohibit RX→RW executable-page mutation may reject Static Number/Slider V1; ordinary Static Switch/Button remain separate.
+## Retained product behavior
 
-## M5.2 features retained
+- M5.2 Immediate Chain V2, execute-chain state machine and long-press rebuild.
+- M5.1 customer success silent / failure visible behavior.
+- M5.3 Runtime Button/Switch/Number/Slider auto-execute.
+- M5.3 Static Switch/Button and fail-closed MOVZ(+MOVK) Number/Slider V1.
+- Runtime Action ABI 64 bytes; Static Entry ABI 128 bytes.
+- suffixless generated binaries.
 
-- Immediate Chain V2, root + up to 8 nodes
-- `链式调用 -> 执行链`; tap execute; long-press rebuild
-- System.String decode, per-level trace, exact signatures
-- suffixless generated binaries
+## CI history
+
+1. Run `35964177732`: compile error from missing logger declaration import only.
+2. Run `35964480222`: product built successfully; binary verify failed only on Chinese CFString `strings -a` assertion.
+3. Run `35964757740`: full green, including ASCII selector/defaults-key Binary Verify and Artifact Upload.
 
 ## Immediate device checklist
 
-1. On M4.3 search page, search two different names and return to search; confirm history is visible immediately below the main search card.
-2. Tap one history row; confirm only the 方法名 field changes and no search starts.
-3. Press `搜索`; confirm the autofilled query now searches normally.
-4. Restart/reopen menu; confirm history persists and dedupe/max-50 behavior remains.
-5. Regress Runtime Switch/Number/Slider/Button automatic execution.
-6. Regress Static Button and compatible MOVZ/MOVK dynamic Number/Slider.
-7. Regress Chain V2 and ordinary Static Switch.
+1. Confirm 方法查找 title is `IL2CPP 方法查找 · Unified`.
+2. Search 2+ names, return to Search and confirm history is visible.
+3. Tap history and confirm it only fills 方法名; no result-page jump.
+4. Press 搜索 manually and confirm normal search.
+5. Check `/0`, `/1`, `/2+` candidate rows and argument editing.
+6. Test/捕获 a candidate and long-press receiver capture.
+7. 创建方法 and verify correct Builder action.
+8. Verify 链式调用 -> 完成链 -> 执行链 and long-press 执行链 restart.
+9. Regress Runtime control auto-execute and Static controls.
+10. Check Detail and customer silent-success/failure behavior.
 
-## Pending evidence
+## Open issues
 
-- Corrected M4.3 history placement: source/CI/binary/artifact verified; device pending.
-- History tap autofill-only behavior: source/CI/binary/artifact verified; device pending.
-- Runtime control auto-execute: source/CI/binary verified; device pending.
-- Static Button binding: source/CI/binary verified; device pending.
-- Static dynamic MOVZ/MOVK: source/CI/binary verified; device pending.
-- M5.2 chain Level 0 `yo::wB()/0` previously produced `previous managed return is null`; receiver/real-null distinction remains open.
+- Device acceptance for the new Unified UI is still pending.
+- M5.2 chain test previously stopped before Level 1 with `previous managed return is null`; this remains a separate receiver/real-null investigation.
+- Static dynamic MOVZ/MOVK V1 may fail closed on signing/device models that prohibit executable-page RX→RW mutation.
+- Legacy renderer source files are still compiled in M5.4 because their installers mix backend and UI responsibilities. After device acceptance, a follow-up cleanup should physically split backend modules and remove obsolete renderer implementations from the build.
