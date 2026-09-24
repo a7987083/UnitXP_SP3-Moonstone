@@ -1,7 +1,6 @@
 #import "ZNGeneratedBinaryPostprocess.h"
 #import "ZNStaticMetadataPrivacy.h"
 #import "ZNStaticRVAProtection.h"
-#import "ZNStaticValueCellV1.h"
 #import "ZNAdhocMachOSigner.h"
 
 BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
@@ -21,7 +20,6 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
     NSString *folder = nil;
     NSUInteger totalEncodedNames = 0;
     NSUInteger totalProtectedRVAs = 0;
-    NSUInteger totalValueCells = 0;
     NSUInteger generatedTargets = 0;
 
     for (NSString *path in innerOutputs) {
@@ -36,17 +34,6 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             break;
         }
         totalEncodedNames += encodedNames;
-
-        // M5.6: Number/Slider code is parameterized while the output is still
-        // an unsigned build artifact. Generated ON variants load their value
-        // from an owned RW __ZNDATA tail cell, so runtime never writes RX code.
-        NSUInteger valueCells = 0;
-        NSString *cellError = nil;
-        if (!ZNStaticValueCellAugmentAtPath(path, &valueCells, &cellError)) {
-            failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, cellError ?: @"Static RW Value Cell V1 失败"];
-            break;
-        }
-        totalValueCells += valueCells;
 
         NSUInteger protectedRVAs = 0;
         NSString *rvaError = nil;
@@ -78,7 +65,6 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         item[@"output"] = finalPath;
         item[@"suffixlessExport"] = @YES;
         item[@"encodedFeatureMetadataEntries"] = @(encodedNames);
-        item[@"staticRWValueCellEntries"] = @(valueCells);
         item[@"protectedStaticRVAEntries"] = @(protectedRVAs);
         [signing addObject:item];
     }
@@ -103,9 +89,9 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         if (![object isKindOfClass:NSMutableDictionary.class]) continue;
 
         object[@"generatedBinaryPipeline"] = @{
-            @"mode": @"explicit-v0.5.6+m5.6-rw-value-cell",
+            @"mode": @"explicit-v0.5.6.1+static-number-regression",
             @"builder": @"Static Binary Builder V3",
-            @"postprocessOrder": @[@"Payload Layout V2 (Builder)", @"ZNF1", @"Static RW Value Cell V1", @"Static RVA Protection V1", @"Adhoc CodeDirectory", @"Suffixless Export"],
+            @"postprocessOrder": @[@"Payload Layout V2 (Builder)", @"ZNF1", @"Static RVA Protection V1", @"Adhoc CodeDirectory", @"Suffixless Export"],
             @"runtimeBuilderSwizzle": @NO,
             @"asyncLoadOrderDependency": @NO,
             @"legacyV1Compiled": @NO,
@@ -132,11 +118,10 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             @"staticEntryABIPreserved": @YES,
         };
         object[@"generatedBinaryProtection"] = @{
-            @"mode": @"payload-v2+rw-value-cell-v1+static-rva-protection-v1",
+            @"mode": @"payload-v2+static-rva-protection-v1",
             @"plainStaticRVAFieldsPresent": @NO,
             @"protectedFields": @[@"siteRVA", @"offRVA", @"onRVA"],
             @"protectedEntries": @(totalProtectedRVAs),
-            @"rwValueCellEntries": @(totalValueCells),
             @"perOutputNonce": @YES,
             @"integrityCheck": @YES,
             @"runtimeDecodesOnDemand": @YES,
@@ -145,8 +130,8 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             @"payloadProtectionV2": @YES,
             @"payloadLayout": @"fragmented-16-byte-slot-chain-v1",
             @"maxContiguousSourceInstructions": @1,
-            @"runtimeExecutableWrites": @NO,
-            @"runtimeTypedValueWrites": @"RW __ZNDATA cells only",
+            @"runtimeExecutableWrites": @YES,
+            @"runtimeTypedValueBackend": @"M5.3 device-proven MOVZ/MOVK regression path",
             @"directSiteBranchStillArchitectural": @YES,
         };
 
@@ -157,7 +142,7 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
 
     if (outputs) *outputs = [finalOutputs copy];
     if (report) {
-        *report = [NSString stringWithFormat:@"%@\nM5.6 Static Number/Slider 使用构建期参数化 + RW value cell；运行时不再修改 RX executable page。替换回 IPA 后仍需正常整包重签。", innerReport ?: @"Static Binary Builder V3 生成成功"];
+        *report = [NSString stringWithFormat:@"%@\nM5.6.1 回归修复：Static Number/Auto 恢复 M5.3 真机已验证 MOVZ/MOVK 动态值路径；M5.5 typed-static 与 M5.6 value-cell 不参与运行时绑定。替换回 IPA 后仍需正常整包重签。", innerReport ?: @"Static Binary Builder V3 生成成功"];
     }
     return YES;
 }
