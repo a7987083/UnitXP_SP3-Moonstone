@@ -2,162 +2,99 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.2 Immediate Chain V2**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.2 Immediate Chain V2 + Finder UX closure**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
 - Active branch: `feature/runtime-patch-menu-v0.5.8-m5.2-immediate-chain-v2`
-- CI-validated product head: `2456f6ba4dfb659e3480db2e677452dad8516153`
-- Final CI run: `35939364930` — success
-- Job: `107443621364` — success
-- Artifact ID: `10784551336`
-- Artifact ZIP SHA256: `334c56df627ff2a18cd8cf0572afd9848433808d1d9816d2c4c7c1c29a15dd3c`
-- Dylib size: `1304480`
-- Dylib SHA256: `84a9ff17e66ddb50c42893603b45123457d31ff3986655f07bc12748efef9d87`
+- CI-validated product head: `2d36ffcc333936e41809039e161baf52e24abba9`
+- Final CI run: `35944304515` — success
+- Job: `107458736244` — success
+- Artifact ID: `10785804614`
+- Artifact ZIP SHA256: `6596398f82a733fbe901be42e18960da3c4d212f479e7f73cf8253be7fbf210f`
+- Dylib size: `1321136`
+- Dylib SHA256: `44eb45dd5643c8256bc0393c0117dc56a5b8836d2ef0a019a28cafb6a97d68d7`
 - Format: thin arm64 Mach-O dylib
+
+## Current Finder chain UX
+
+The chain action uses one in-place button:
+
+```text
+No saved V2 chain:
+[链式调用]
+
+After 完成链 + page render:
+[执行链]
+```
+
+- Tap `执行链`: execute the saved Root -> Level 1 -> ... transaction through the existing M5.2 atomic chain engine. Developer/Method Finder side retains final return + per-level trace.
+- Long-press `执行链` (~0.65s): clear the existing Immediate Chain for that Runtime Action, switch the button back to `链式调用`, and immediately reopen chain authoring.
+- This developer Finder result dialog does not change the customer-menu rule: generated customer runtime success remains silent; errors remain visible.
+
+## Method search history UX
+
+Search history is persistent and intentionally simple:
+
+```text
+[ 方法名 / Class::Method / RVA ] [搜索]
+
+搜索记录 · n/50
+query A
+query B
+query C
+...
+```
+
+- directly below the search box
+- one row per search query
+- independent vertical scrolling
+- maximum 50 entries
+- newest first
+- case-insensitive deduplication; repeated query moves to top
+- over 50 removes oldest
+- persisted in NSUserDefaults
+- tapping a row re-runs that query
+- only query text is shown; no Class/RVA/result metadata is mixed into this list
+
+## Immediate Chain V2 core retained
+
+- version=2 `nodes[]`
+- root + up to 8 additional nodes
+- `/0-/8` typed args per node
+- exact parameter signatures
+- token and return-type guard when exports are available
+- M5.0 GCHandle / compatible receiver chaining
+- System.String decode via IL2CPP string APIs
+- per-level trace/log
+- null/non-managed stop
+- Runtime Action ABI still 64 bytes/version 1
 
 ## Validation boundary
 
-Do not conflate source, CI, binary and device verification.
-
-Current M5.2 state:
-
 - source implemented: YES
-- committed to GitHub: YES
-- arm64 CI compile/link/sign: YES
-- binary marker verification: YES
-- artifact upload + independent ZIP/dylib hash check: YES
-- customer silent-success behavior on device: PENDING
-- Immediate Chain V2 real-game behavior: PENDING
-- System.String real-game decode: PENDING
-- 3+ level managed receiver continuity: PENDING
+- committed: YES
+- arm64 compile/link/sign: YES
+- Binary Verify: YES
+- artifact + independent hash check: YES
+- device verification for button state change: PENDING
+- device verification for single-tap execution: PENDING
+- device verification for long-press restart: PENDING
+- device verification for 50-entry persistent history: PENDING
 - full regression: NO
-
-## Customer Runtime UX inherited from M5.1 Silent
-
-Customer-facing generated menu behavior:
-
-```text
-success -> silent
-failure -> 执行失败 alert
-```
-
-This applies to Runtime actions and Immediate Chain execution. Builder / Method Finder test execution remains a developer/debug surface and keeps return/debug information.
-
-## Immediate Chain V2 execution model
-
-Versioned metadata uses `immediateChain = { version:2, atomic:true, nodes:[...] }`.
-
-Execution:
-
-```text
-Root Runtime Action
-  -> managed return
-  -> Chain Node 1 /0-/8
-  -> managed return
-  -> Chain Node 2 /0-/8
-  -> ...
-```
-
-The entire chain executes in one transaction. There is no UI round-trip between levels and no persisted temporary object address/GCHandle.
-
-Each node stores stable managed identity data:
-
-```text
-Assembly
-Namespace
-Class
-Method
-Parameter Types
-argument values
-token (when available)
-return type (when available)
-```
-
-`MethodInfo*` and `MethodPointer` are current-process diagnostics only; do not serialize them as cross-launch identities because ASLR makes absolute addresses unstable.
-
-## Reused lower layers
-
-M5.2 intentionally delegates each node through existing layers:
-
-- M4.6 Full Signature resolver: exact overload resolution / fail closed
-- M4.7 typed invoke: `/0-/8`, primitive/String/basic supported value types; numeric zero uses real typed storage address
-- M4.8 Return Capture: primitive boxed return decoding
-- M5.0 Managed Return Chaining: GCHandle lifetime + compatible receiver injection
-- M5.1 per-argument control authoring and customer runtime controls
-- M5.1 Silent Customer Execution
-
-## M5.2 additions
-
-- up to 8 additional nodes after root
-- per-node `/0-/8` arguments
-- exact signature preflight before each node
-- token check when `il2cpp_method_get_token` exists
-- return-type guard when available
-- null/non-managed previous-return stop
-- best-effort managed exception class/message/stack detail
-- per-level trace/log with receiver/args/return/runtime pointers
-- System.String decode using `il2cpp_string_length` + `il2cpp_string_chars`
-
-## Authoring flow
-
-`链式调用` remains directly below `创建方法`.
-
-For the current target scenario:
-
-```text
-Root: yo::wB()/0
-
-Level 1:
-Class: yy
-Method: DY
-Parameter Types: K
-Args: 0
-
-Level 2:
-Class: ee
-Method: ToString
-Parameter Types: <blank>
-Args: <blank>
-```
-
-Repeat `DY` argument `1` for the second currency path. The actual returned values must be treated as device evidence only; no value is considered verified until observed on device.
-
-## Runtime Action ABI invariants
-
-`ZNRuntimeMethodCallEntry == 64` bytes and version remains 1.
-
-```text
-reserved[0] legacy /1 argument0
-reserved[1] Full Parameter Signature
-reserved[2] argument vector JSON
-reserved[3] M5.1 per-argument control JSON
-reserved[4] M5.1/M5.2 Immediate Chain JSON
-reserved[5] free
-```
-
-Static Patch entry remains `128` bytes.
-
-## Generated binary naming
-
-Final generated Mach-O output remains the original filename (`UnityFramework` etc.). Static Builder may use `.znpatched` internally only as a staging name.
 
 ## Immediate device checklist
 
-1. Confirm customer successful Button/Runtime action execution shows no completion alert.
-2. Force an invalid Runtime action and confirm only `执行失败` remains visible.
-3. Confirm Builder/Method Finder test execution still displays return/debug data.
-4. Create the 3-level `yo::wB() -> yy::DY(0) -> ee::ToString()` chain.
-5. Confirm Level 1 receives the root managed object automatically; customer never handles a raw address.
-6. Confirm final System.String is decoded as text, not only `object 0x...`.
-7. Repeat with `DY(1)`.
-8. Test null return: chain must stop before the next call without crash.
-9. Test a deliberately wrong signature/class and confirm fail-closed behavior.
-10. Regress Static Offset, Runtime `/0-/8`, per-argument controls, Immediate Chain V1 compatibility, and suffixless generated output.
+1. Search a method, create a V2 chain, press `完成链`, return to the result list and confirm its action reads `执行链`.
+2. Tap `执行链`; confirm the complete chain runs and developer/test side reports final return and trace.
+3. Long-press `执行链`; confirm the old chain is cleared and chain authoring opens immediately.
+4. Search at least 3 different method names; confirm history appears directly under the search box, one row each.
+5. Tap a history row and confirm that query is run again and moves to the top without duplication.
+6. Reopen/restart the menu and confirm history remains.
+7. Exceed 50 distinct queries and confirm only the newest 50 remain.
+8. Regress customer silent success, failure alert, ordinary Runtime `/0-/8`, per-argument controls and Static Offset.
 
 ## Known scope limits
 
-- Enum execution is typed by underlying primitive, but enum member-name dropdown authoring is not implemented.
-- Chain node editor currently uses CSV for Parameter Types/Args; argument strings containing commas are not a good fit for this V2 editor.
-- Arbitrary object arguments sourced from `Level N return` are not implemented; chaining currently uses previous managed return as receiver.
-- Generic object-reference args (other than existing String path), ref/out, pointer, and broad custom ValueType marshaling remain fail-closed according to existing ABI safety rules.
-- Real device proof for GCHandle lifetime across multiple levels is still required.
+- Finder chain-button matching currently uses the root Assembly/Namespace/Class/Method/argc identity; exact Chain node execution itself still uses full signatures. If multiple root overloads share the same name+argc, device testing should verify the expected action is selected.
+- Search-history panel placement follows the current V3 search layout and should be rechecked if that page geometry changes later.
+- Enum member-name dropdown, arbitrary Level-N object args, generic ref/out and broad custom ValueType support remain future work.
