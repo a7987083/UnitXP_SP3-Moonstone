@@ -1,72 +1,95 @@
 {
-  "schema_version": 17,
+  "schema_version": 18,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "m5.4-unified-method-finder-device-regression",
-  "phase_status": "unified-history-visible-on-device-interaction-regression-pending",
-  "branch": "refactor/method-finder-ui-consolidation-m5.4",
-  "runtime_product_head": "eff4f4d86c1851558e703addb89ed86578259a64",
-  "ci_validated_head": "8c6131b2628f1e8c980d8c71fc62ac0cdc8c5845",
-  "m5_4_architecture": {
-    "audit_file": "METHOD_FINDER_UI_AUDIT.md",
-    "unified_renderer_file": "iosruntimepatchmenu/src/ZNMethodFinderUnifiedUI.mm",
-    "single_final_search_renderer": true,
-    "single_final_results_renderer": true,
-    "single_final_detail_renderer": true,
-    "unified_renderer_calls_previous_renderer": false,
-    "legacy_renderer_chain_cut": true,
-    "legacy_files_still_compiled_for_mixed_backend_compatibility": true,
-    "old_m52_history_installer_called": false
+  "phase": "m5.5-typed-control-binding-v2",
+  "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
+  "branch": "feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2",
+  "runtime_product_head": "d4f8da77a7fef8db72bcd9d19a2323a39fd577d1",
+  "ci_validated_head": "3548cbc655f4347e03947d9dba0fb501f15b137e",
+  "value_types": ["Auto", "I32", "U32", "I64", "U64", "F32", "F64"],
+  "control_types": ["Switch", "Button", "Number", "Slider"],
+  "runtime_typed_controls": {
+    "auto_from_managed_signature": true,
+    "config_fields": ["enabled", "type", "valueType", "default", "min", "max", "step"],
+    "range_editor": "long-press Value Type",
+    "slider_default_min": 1,
+    "slider_default_max": 10,
+    "slider_default_step": 1,
+    "number_canonicalization_before_invoke": true,
+    "m5_3_auto_execute_retained": true,
+    "device_verified": false
   },
-  "search_history": {
-    "owned_by_unified_renderer": true,
-    "persistent_key": "zonoe.m52.method-search-history.v1",
-    "max_entries": 50,
-    "newest_first": true,
-    "case_insensitive_dedupe": true,
-    "one_row_per_query": true,
-    "scrollable": true,
-    "tap_behavior": "autofill method-name only",
-    "tap_auto_search": false,
-    "device_visible": true,
-    "tap_behavior_device_verified": false
+  "static_typed_controls": {
+    "value_type_flag_bits": "11..13",
+    "legacy_zero_decodes_auto": true,
+    "mov_backend": "verified MOVZ plus compatible MOVK",
+    "mov_supported_types": ["I32", "U32", "I64", "U64"],
+    "fmov_s_backend": "F32 scalar immediate exact only",
+    "fmov_d_backend": "F64 scalar immediate exact only",
+    "auto_instruction_family_inference": true,
+    "type_mismatch_fail_closed": true,
+    "exact_integer_value_text": true,
+    "slider_min": 1,
+    "slider_max": 10,
+    "slider_step": 1,
+    "custom_static_range_embedded": false,
+    "device_verified": false
   },
-  "device_evidence": {
-    "captured_at": "2026-09-24",
-    "unified_final_ui_visible": true,
-    "search_history_visible": true,
-    "prior_hidden_history_blocker_closed": true,
-    "full_device_acceptance": false
+  "abi": {
+    "static_patch_entry_bytes": 128,
+    "runtime_method_call_entry_bytes": 64,
+    "abi_changed_in_m5_5": false
+  },
+  "m5_4_retained": {
+    "unified_final_renderer": true,
+    "search_history_device_visible": true,
+    "search_history_interaction_device_verified": false
   },
   "build": {
-    "workflow": "Build Runtime Patch Menu v0.5.8 M5.4 Unified Method Finder",
-    "run_id": 35964757740,
-    "job_id": 107520782444,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M5.5 Typed Control Binding V2",
+    "run_id": 35996840472,
+    "job_id": 107623672455,
     "result": "success",
     "compiled": true,
+    "source_contract_assertions": true,
     "binary_verified": true,
     "artifact_uploaded": true,
-    "independent_artifact_hash_verified": true
+    "independent_artifact_hash_verified": true,
+    "device_verified": false
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-M5.4-Unified-Method-Finder",
-    "id": 10793662459,
-    "archive_sha256": "b607318f0225a2b4e1203ca30a151913c22eeb79e13a0519f42b1f13d769af6b",
-    "dylib_name": "ZonoPatch_v0.5.8_M5.4_Unified_Method_Finder.dylib",
-    "dylib_size": 1354480,
-    "dylib_sha256": "6804ca2f2a242337f8a81eb20125e5b0867bd59add02b9df0e28a35656f37ca2"
+    "name": "ZonoPatch-v0.5.8-M5.5-Typed-Control-Binding-V2",
+    "id": 10806284095,
+    "archive_size": 645984,
+    "archive_sha256": "9ec1d6ab1a484572b16c1eff57eb90a7d54836b9717ed9748296fcc66a4b86e9",
+    "dylib_name": "ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib",
+    "dylib_size": 1404656,
+    "dylib_sha256": "0dacef0f731d0a6b59e1446b08977d69a6eeb732096c761a9ed321be0214375a",
+    "mach_o": "thin arm64 dynamically linked shared library"
   },
-  "device_acceptance_pending": [
-    "history row tap fills 方法名 without auto-search",
-    "manual search after history autofill works",
-    "typed /0-/8 result rows and overload filter work",
-    "Test/candidate binding and receiver-capture long press work",
-    "创建方法 adds the correct Runtime Action",
-    "链式调用 -> 完成链 -> 执行链 and long-press restart regress cleanly",
-    "M5.3 Runtime controls and Static controls regress cleanly",
-    "Detail, Return Capture, silent-success/failure behavior and suffixless output regress cleanly"
+  "known_boundaries": [
+    "Static custom Default/Min/Max/Step is not yet embedded into generated Static metadata; current Slider default is 1..10 step 1",
+    "Scalar FMOV immediate supports only its exact immediate set; non-representable F32/F64 values fail closed",
+    "MOVZ/MOVK large or negative integer values require sufficient halfword slots in the generated Enabled sequence",
+    "Static dynamic values still rely on executable-page transactional mutation and may be blocked on some signing/device models",
+    "M5.4 Unified/history visibility is device-confirmed but full interaction regression is still pending",
+    "M5.2 Chain Level 0 null-return question remains open"
   ],
-  "next_phase": "m5.4-unified-method-finder-device-regression",
-  "next_task": "Continue device regression from history-row autofill/manual-search through candidate binding, receiver capture, Runtime Action creation and Chain behavior."
+  "device_acceptance_pending": [
+    "Static Control Type and Value Type cycle independently",
+    "Static I32/U32 MOV W values",
+    "Static I64/U64 MOV X values with sufficient MOVK slots",
+    "Static F32 FMOV S and F64 FMOV D integer Slider values 1..10",
+    "Static mismatched/non-encodable values fail closed",
+    "Runtime Auto maps managed numeric types correctly",
+    "Runtime Number typed bounds and edit-end invoke",
+    "Runtime Slider integer quantization and release-once invoke",
+    "Runtime Default/Min/Max/Step range editor persistence/export",
+    "M5.4 Unified/History/Candidate/Receiver/Create/Chain regression"
+  ],
+  "next_phase": "m5.5-device-acceptance",
+  "next_task": "Device-test Typed Control Binding V2 across Runtime and Static, then decide whether Static custom range metadata needs a generated extension table.",
+  "captured_at": "2026-09-24"
 }
