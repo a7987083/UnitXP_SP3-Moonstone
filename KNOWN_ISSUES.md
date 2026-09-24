@@ -2,26 +2,26 @@
 
 只记录当前未关闭问题、验证缺口和设计边界。
 
-## KI-M54-001 — Unified Method Finder 尚未真机验收
+## KI-M54-001 — Unified Method Finder 可见性已真机确认
 
 Severity: `HIGH`  
-Status: `IMPLEMENTED / CI+BINARY+ARTIFACT VERIFIED / DEVICE VERIFICATION PENDING`
+Status: `DEVICE VISIBILITY ACCEPTED / INTERACTION REGRESSION PENDING`
 
-M5.4 已新增 `ZNMethodFinderUnifiedUI.mm`，作为最终 Search / Results / Detail 基础渲染器，并明确不调用 previous renderer，从运行时切断旧 M4.3/M4.4/M4.7 base-renderer 链。真机必须首先确认页面标题为 `IL2CPP 方法查找 · Unified`。如果仍显示 M4.3，不应继续增加补丁层，应调查安装/IMP 路径。
+2026-09-24 用户真机反馈 M5.4 Unified/搜索历史界面“有了”。因此此前“最终 Unified renderer 未接管 / 搜索历史仍不可见”的核心阻塞项可关闭。当前剩余风险转为交互与后端行为回归，而不是基础页面是否出现。
 
 ## KI-M54-002 — 旧 Method Finder UI 源码仍在编译
 
 Severity: `MEDIUM`  
 Status: `INTENTIONAL TRANSITION BOUNDARY`
 
-M5.4 已将旧 renderer 从最终 UI 路径截断，但 M4.x/M5.x 若干 installer 同时混有 backend/action swizzle 与 UI wrapper，因此旧文件暂时仍编译并部分安装，以保留 resolver、Invoke、Builder、candidate binding、receiver capture、chain 等能力。真机验收通过后，应继续拆分 mixed installer，并从 Makefile / install graph 物理移除已废弃 renderer 实现。
+M5.4 已将旧 renderer 从最终 UI 路径截断，但 M4.x/M5.x 若干 installer 同时混有 backend/action swizzle 与 UI wrapper，因此旧文件暂时仍编译并部分安装，以保留 resolver、Invoke、Builder、candidate binding、receiver capture、chain 等能力。完整回归通过后，应继续拆分 mixed installer，并从 Makefile / install graph 物理移除已废弃 renderer 实现。
 
-## KI-M54-003 — Unified Search History 尚未真机验收
+## KI-M54-003 — Unified Search History 交互仍待真机验收
 
 Severity: `MEDIUM`  
-Status: `IMPLEMENTED IN UNIFIED RENDERER / DEVICE VERIFICATION PENDING`
+Status: `VISIBLE ON DEVICE / INTERACTION VERIFICATION PENDING`
 
-旧 `ZNInstallM52MethodSearchHistoryDeferred()` 已不再调用。历史记录现在由 Unified Search 本身渲染，不再依赖 post-render hook：最多 50 条、持久化、最新置顶、大小写不敏感去重、一行一个、独立滚动。点击历史仅回填 方法名，不自动搜索。需要真机验证显示、点击、重启持久化和第 51 条淘汰。
+搜索历史已经真机可见。仍需验证：点击历史仅回填 方法名、不自动搜索；手动点击搜索后执行正确查询；重启持久化；重复项去重；超过 50 条时淘汰最旧项。
 
 ## KI-M54-004 — Unified Results 行为装饰器需完整回归
 
