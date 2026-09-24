@@ -1,23 +1,61 @@
 {
-  "schema_version": 15,
+  "schema_version": 16,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "m5.3-control-binding-v1-history-ui-fix",
+  "phase": "m5.4-unified-method-finder",
   "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
-  "branch": "feature/runtime-patch-menu-v0.5.8-m5.3-control-binding-v1",
-  "runtime_product_head": "064d535918cacd0f40a220521af7cad18a3d42d9",
-  "ci_validated_head": "064d535918cacd0f40a220521af7cad18a3d42d9",
+  "branch": "refactor/method-finder-ui-consolidation-m5.4",
+  "runtime_product_head": "eff4f4d86c1851558e703addb89ed86578259a64",
+  "ci_validated_head": "8c6131b2628f1e8c980d8c71fc62ac0cdc8c5845",
   "baselines": {
     "sealed_v0_5_6_2": "86edac4d70ef467e9a58912768b6c6c72077842a",
     "method_finder_v3_m2_2_device_accepted": "19b912c840e7223adbc2c26ef80185c32b8eb77a",
     "m5_0_managed_return_chaining": "ec6ed852c24684cb92dbfc927afe16797eccbc0d",
     "m5_1_silent_customer_execution_green": "29c33d9246fd9842107c443d3254aff23effd59e",
     "m5_2_core_multi_level_chain_green": "2456f6ba4dfb659e3480db2e677452dad8516153",
-    "m5_2_historyfix_green": "88ee27688ac5db067caded06da2feefb77323340",
-    "m5_3_control_binding_initial_green": "b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f"
+    "m5_3_control_binding_initial_green": "b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f",
+    "m5_3_historyfix_device_reported_missing": "064d535918cacd0f40a220521af7cad18a3d42d9"
   },
-  "m5_3_scope": {
+  "m5_4_architecture": {
+    "audit_file": "METHOD_FINDER_UI_AUDIT.md",
+    "unified_renderer_file": "iosruntimepatchmenu/src/ZNMethodFinderUnifiedUI.mm",
+    "single_final_search_renderer": true,
+    "single_final_results_renderer": true,
+    "single_final_detail_renderer": true,
+    "unified_renderer_calls_previous_renderer": false,
+    "legacy_renderer_chain_cut": true,
+    "legacy_files_still_compiled_for_mixed_backend_compatibility": true,
+    "old_m52_history_installer_called": false,
+    "candidate_binding_decorator_after_unified": true,
+    "receiver_capture_decorator_after_unified": true,
+    "chain_decorators_after_unified": true,
+    "new_base_renderer_swizzles_allowed": false
+  },
+  "search_history": {
+    "owned_by_unified_renderer": true,
+    "persistent_key": "zonoe.m52.method-search-history.v1",
+    "max_entries": 50,
+    "newest_first": true,
+    "case_insensitive_dedupe": true,
+    "one_row_per_query": true,
+    "scrollable": true,
+    "tap_behavior": "autofill method-name only",
+    "tap_auto_search": false,
+    "device_verified": false
+  },
+  "unified_results": {
+    "typed_argument_rows_min": 0,
+    "typed_argument_rows_max": 8,
+    "abi_metadata_driven": true,
+    "legacy_argument_store_key_compatible": true,
+    "test_candidate_binding_retained": true,
+    "receiver_capture_retained": true,
+    "create_runtime_action_direct": true,
+    "chain_create_execute_restart_retained": true,
+    "device_verified": false
+  },
+  "m5_3_retained": {
     "runtime_button_immediate_invoke": true,
     "runtime_switch_change_immediate_invoke": true,
     "runtime_number_edit_end_immediate_invoke": true,
@@ -26,43 +64,19 @@
     "customer_failure_alert_preserved": true,
     "static_switch_existing_dispatch_retained": true,
     "static_button_fixed_enabled_binding": true,
-    "static_number_slider_dynamic_binding": "ARM64 MOVZ plus compatible MOVK V1",
-    "static_dynamic_fail_closed_unknown_enabled": true,
-    "static_dynamic_runtime_exec_page_write": true,
-    "device_verified": false
-  },
-  "search_history": {
-    "active_ui": "M4.3",
-    "persistent": true,
-    "max_entries": 50,
-    "newest_first": true,
-    "case_insensitive_dedupe": true,
-    "one_row_per_query": true,
-    "scrollable": true,
-    "fixed_insert_y": 187,
-    "placement_rule": "directly below M4.3 search card and before status/later content",
-    "tap_behavior": "autofill method-name only",
-    "tap_auto_search": false,
-    "visible_field_tag": 603001,
-    "device_verified": false
-  },
-  "m5_2_retained": {
-    "chain_schema_version": 2,
-    "max_additional_chain_nodes": 8,
-    "finder_execute_chain_state_machine": true,
-    "suffixless_generated_binary": true
+    "static_number_slider_dynamic_binding": "ARM64 MOVZ plus compatible MOVK V1"
   },
   "abi": {
     "static_patch_entry_bytes": 128,
     "runtime_method_call_entry_bytes": 64,
     "runtime_action_version": 1,
-    "abi_changed_in_m5_3": false
+    "abi_changed_in_m5_4": false
   },
   "build": {
     "system": "Theos",
-    "workflow": "Build Runtime Patch Menu v0.5.8 M5.3 Control Binding V1",
-    "run_id": 35960360188,
-    "job_id": 107507414304,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M5.4 Unified Method Finder",
+    "run_id": 35964757740,
+    "job_id": 107520782444,
     "result": "success",
     "compiled": true,
     "source_contract_assertions": true,
@@ -73,31 +87,36 @@
     "full_regression_verified": false
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-M5.3-Control-Binding-V1",
-    "id": 10792097181,
-    "archive_size": 610491,
-    "archive_sha256": "48a8eae15b567f10ec889861c89f1c03c1d6a79b72e43479abcbfbbe6c084acf",
-    "dylib_name": "ZonoPatch_v0.5.8_M5.3_Control_Binding_V1.dylib",
-    "dylib_size": 1337776,
-    "dylib_sha256": "bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc",
-    "mach_o": "thin arm64 dynamically linked shared library"
+    "name": "ZonoPatch-v0.5.8-M5.4-Unified-Method-Finder",
+    "id": 10793662459,
+    "archive_sha256": "b607318f0225a2b4e1203ca30a151913c22eeb79e13a0519f42b1f13d769af6b",
+    "dylib_name": "ZonoPatch_v0.5.8_M5.4_Unified_Method_Finder.dylib",
+    "dylib_size": 1354480,
+    "dylib_sha256": "6804ca2f2a242337f8a81eb20125e5b0867bd59add02b9df0e28a35656f37ca2",
+    "mach_o": "thin arm64 dynamically linked shared library",
+    "previous_m5_3_historyfix_size": 1337776,
+    "previous_m5_3_historyfix_sha256": "bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc",
+    "different_from_previous": true
   },
   "device_acceptance_pending": [
-    "M4.3 history panel is visible directly below the main search card",
-    "history row tap fills the visible 方法名 field and does not automatically search",
-    "manual 搜索 after history autofill executes the selected query",
-    "history persists, deduplicates and retains only newest 50 entries",
-    "Runtime Switch/Number/Slider/Button automatic execution",
-    "Static Button and compatible MOVZ/MOVK dynamic Number/Slider",
-    "M5.2 Chain V2 and suffixless output regress cleanly"
+    "Method Finder title is IL2CPP 方法查找 · Unified rather than M4.3",
+    "search history is visible in Unified Search",
+    "history row tap fills 方法名 without auto-search",
+    "manual search after history autofill works",
+    "typed /0-/8 result rows and overload filter work",
+    "Test/candidate binding and receiver-capture long press work",
+    "创建方法 adds the correct Runtime Action",
+    "链式调用 -> 完成链 -> 执行链 and long-press restart regress cleanly",
+    "M5.3 Runtime controls and Static controls regress cleanly",
+    "Detail, Return Capture, silent-success/failure behavior and suffixless output regress cleanly"
   ],
   "known_boundaries": [
-    "Static dynamic V1 only supports non-negative integer MOVZ plus compatible MOVK sequences",
-    "Static dynamic V1 may be blocked where RX-to-RW executable-page mutation is prohibited",
-    "search history layout is intentionally coupled to current M4.3 y=187 geometry",
-    "M5.2 chain device evidence still has an open Level 0 null-return/receiver-propagation question"
+    "M5.4 cuts the legacy renderer chain at runtime but legacy mixed UI/backend source files are still compiled until a later physical cleanup",
+    "device evidence is required before deleting legacy renderer source/install pieces",
+    "M5.2 chain still has an open Level 0 real-null versus receiver/return propagation issue",
+    "Static dynamic MOVZ/MOVK V1 may fail closed where executable-page RX-to-RW mutation is prohibited"
   ],
-  "next_phase": "m5.3-history-ui-device-acceptance",
-  "next_task": "Device-test corrected M4.3 history placement and autofill-only behavior, then continue the M5.3 control-binding regression matrix.",
+  "next_phase": "m5.4-unified-method-finder-device-acceptance",
+  "next_task": "Device-test the Unified renderer and retained behavior decorators; after acceptance, split mixed backend/UI legacy installers and remove obsolete renderer implementations from the build.",
   "captured_at": "2026-09-24"
 }
