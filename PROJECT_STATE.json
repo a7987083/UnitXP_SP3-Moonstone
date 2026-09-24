@@ -1,77 +1,80 @@
 {
-  "schema_version": 19,
+  "schema_version": 20,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "m5.5.1-recovery",
-  "phase_status": "source-ci-binary-artifact-verified-device-recovery-validation-pending",
+  "phase": "m5.6-rw-value-cell-slider-stability",
+  "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
   "branch": "feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2",
-  "ci_validated_head": "a40979aac1e98df9af84f5c67a09dcb356c62176",
-  "recovery": {
-    "m5_4_builder_baseline_restored": true,
-    "runtime_delete_button_moved_to_title_row": true,
-    "runtime_authoring_persistent": true,
-    "persistence_key": "zonoe.m5.5.authoring-actions.v1",
-    "restore_when_store_empty": true,
-    "save_on_mutation": ["create", "rename", "argument", "controlConfig", "immediateChain", "delete", "clear"],
-    "pre_m5_5_1_lost_memory_actions_auto_recoverable": false
+  "ci_validated_head": "2d6351ac7e2652ae76e2ba2542118cc0beb2338e",
+  "device_evidence": {
+    "static_m55_rx_restore_errno13": true,
+    "static_runtime_exec_write_architecture_rejected": true,
+    "runtime_slider_drag_freeze_crash": true
   },
-  "value_types": ["Auto", "I32", "U32", "I64", "U64", "F32", "F64"],
-  "control_types": ["Switch", "Button", "Number", "Slider"],
-  "runtime_typed_controls": {
-    "auto_from_managed_signature": true,
-    "config_fields": ["enabled", "type", "valueType", "default", "min", "max", "step"],
-    "range_editor": "long-press Value Type",
-    "slider_default_min": 1,
-    "slider_default_max": 10,
-    "slider_default_step": 1,
-    "number_canonicalization_before_invoke": true,
-    "m5_3_auto_execute_retained": true,
+  "runtime_slider_m5_6": {
+    "value_changed_refresh": false,
+    "value_changed_invoke": false,
+    "drag_behavior": "cache-only",
+    "release_refresh_count": 1,
+    "release_quantize": true,
+    "release_invoke_count": 1,
     "device_verified": false
   },
-  "static_typed_controls": {
-    "value_type_flag_bits": "11..13",
-    "legacy_zero_decodes_auto": true,
-    "mov_supported_types": ["I32", "U32", "I64", "U64"],
-    "fmov_s_backend": "F32 scalar immediate exact only",
-    "fmov_d_backend": "F64 scalar immediate exact only",
-    "type_mismatch_fail_closed": true,
-    "device_verified": false,
-    "authoring_ui_reintroduction_pending": true
+  "static_value_cell_v1": {
+    "build_time_parameterization": true,
+    "runtime_executable_write": false,
+    "runtime_value_storage": "owned __ZNDATA RW tail cells",
+    "integer_codegen": "LDR W/X literal replacing MOVZ(+MOVK); compatible MOVK NOPed at build time",
+    "float_codegen": "LDR S/D literal replacing scalar FMOV immediate",
+    "runtime_write": "atomic RW cell store only",
+    "normal_selected_target_dispatch_retained": true,
+    "old_m5_5_generated_binary_compatible": false,
+    "requires_regeneration_with_m5_6": true,
+    "device_verified": false
+  },
+  "retained": {
+    "m5_5_1_builder_baseline_recovery": true,
+    "runtime_authoring_persistence": true,
+    "authoring_persistence_key": "zonoe.m5.5.authoring-actions.v1",
+    "m5_4_unified_method_finder": true,
+    "value_types": ["Auto", "I32", "U32", "I64", "U64", "F32", "F64"],
+    "control_types": ["Switch", "Button", "Number", "Slider"]
   },
   "abi": {
     "static_patch_entry_bytes": 128,
     "runtime_method_call_entry_bytes": 64,
-    "abi_changed_in_m5_5_1": false
+    "abi_changed_in_m5_6": false
   },
   "build": {
-    "workflow": "Build Runtime Patch Menu v0.5.8 M5.5 Typed Control Binding V2",
-    "run_id": 36002343325,
-    "job_id": 107641806291,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M5.6 RW Value Cell",
+    "run_id": 36004751812,
+    "job_id": 107649917061,
     "result": "success",
     "compiled": true,
     "binary_verified": true,
     "artifact_uploaded": true,
-    "independent_artifact_hash_verified": true,
-    "device_verified": false
+    "independent_artifact_hash_verified": true
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-M5.5-Typed-Control-Binding-V2",
-    "id": 10808925953,
-    "archive_sha256": "f8c813ae0c9bd10b376c58e510f3767633866e803f55f396040caa9efb02eeac",
-    "dylib_size": 1404688,
-    "dylib_sha256": "bf3ffc1c75c27bae19a6d03a7e6dc93d5e23c9953143fb024267f8705d679453",
+    "name": "ZonoPatch-v0.5.8-M5.6-RW-Value-Cell",
+    "id": 10809323261,
+    "archive_sha256": "fc1f0596f2f603a993d2249e9ab1c965e5ff38019fcda3d5d4a75a189ecf2c03",
+    "dylib_name": "ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib",
+    "dylib_size": 1421376,
+    "dylib_sha256": "191c93dea1fc43d504860abcfd047fcf15391c6ad74c39be383f299eaa7cf54c",
     "mach_o": "thin arm64 dynamically linked shared library"
   },
   "device_acceptance_pending": [
-    "M5.4 Builder baseline content visible again",
-    "Runtime delete button spacing accepted",
-    "authoring actions survive kill/relaunch",
-    "control/value-type/range configs survive kill/relaunch",
-    "delete persists across relaunch",
-    "Static Value Type authoring UI reintroduced non-destructively after recovery acceptance"
+    "Runtime Slider drag no longer freezes/crashes",
+    "Runtime Slider release invokes once",
+    "rebuild Static target with M5.6 value cells",
+    "Static Number no longer triggers RX permission denied",
+    "Static FMOV Slider reads RW cell correctly",
+    "M5.5.1 Builder layout and authoring persistence regression",
+    "M5.4 Unified Method Finder regression"
   ],
-  "next_phase": "m5.5.1-device-recovery-acceptance",
-  "next_task": "Verify restored Builder layout and persistent Runtime authoring before adding any more authoring UI geometry.",
+  "next_phase": "m5.6-device-acceptance",
+  "next_task": "Install M5.6 and regenerate Static test binary, then verify the two device failures that motivated the milestone.",
   "captured_at": "2026-09-24"
 }
