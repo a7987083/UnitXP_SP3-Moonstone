@@ -47,9 +47,7 @@ extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM53ControlBindingDeferred(void);
 extern "C" void ZNInstallM55TypedControlBindingDeferred(void);
-extern "C" void ZNInstallM55StaticTypedBindingDeferred(void);
 extern "C" void ZNInstallM551RuntimeSliderStabilityDeferred(void);
-extern "C" void ZNInstallM56StaticValueCellBindingDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -79,10 +77,10 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallMethodFinderUnifiedUIDeferred();
         ZNInstallM462CandidateBindingUIDeferred();ZNInstallM47ReceiverCaptureUIDeferred();ZNInstallM51RuntimeArgControlsImmediateChainDeferred();ZNInstallM52ChainStoreV2Deferred();ZNInstallM52ImmediateChainV2Deferred();ZNInstallM52ChainExecuteButtonDeferred();
         ZNInstallM55TypedControlBindingDeferred();
+        // Regression policy: retain the first device-proven Static Number/Slider backend.
+        // M5.5 typed-static and M5.6 value-cell binders are intentionally not installed.
         ZNInstallM53ControlBindingDeferred();
-        ZNInstallM55StaticTypedBindingDeferred();
         ZNInstallM551RuntimeSliderStabilityDeferred();
-        ZNInstallM56StaticValueCellBindingDeferred();
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.6] Builder recovery + stable runtime slider + Static RW value-cell backend installed"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.6.1-regression] M5.3 device-proven Static Number backend restored; M5.5 typed-static disabled"];
     });
 }
