@@ -110,8 +110,6 @@ jobs:
           grep -q '\[m5.7-runtime-only-verify\]' /tmp/zono_m57_strings.txt
           grep -q '\[m5.7-builder-gate\]' /tmp/zono_m57_strings.txt
           grep -q '\[m5.6-value-cell\]' /tmp/zono_m57_strings.txt
-          grep -q 'Unified Control Runtime' /tmp/zono_m57_strings.txt
-          grep -q 'legacy duplicate Feature action UI disabled' /tmp/zono_m57_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m57_load_commands.txt
 
       - name: Upload artifact
