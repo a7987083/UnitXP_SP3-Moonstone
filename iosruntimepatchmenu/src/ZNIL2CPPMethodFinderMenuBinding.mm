@@ -45,6 +45,7 @@ extern "C" void ZNInstallM52ChainStoreV2Deferred(void);
 extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM53ControlBindingDeferred(void);
+extern "C" void ZNInstallM55TypedControlBindingDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -93,9 +94,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         Method symbolsReplacement = class_getInstanceMethod(cls, @selector(zn57mfb_baseSymbols));
         if (symbolsOriginal && symbolsReplacement) method_exchangeImplementations(symbolsOriginal, symbolsReplacement);
 
-        // Compatibility/state/backend generations. Some of these historically
-        // contain renderer wrappers; M5.4 installs a non-chaining Unified renderer
-        // afterwards so those old renderers are no longer on the final UI path.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
         ZNInstallIL2CPPMethodFinderV3Deferred();
         ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
@@ -121,9 +119,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM461PolishDeferred();
         ZNInstallM462InstanceSafetyDeferred();
 
-        // Install argument/invoke/return backends before Unified. Their old
-        // renderer wrappers become unreachable because Unified does not call the
-        // previous render implementation; non-render selector swaps remain active.
         ZNInstallM47MultiArgInvokeDeferred();
         ZNInstallM47MultiArgUIDeferred();
         ZNInstallM47BuilderArgsUIDeferred();
@@ -132,12 +127,8 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM49GenericInvokeEditableArgsDeferred();
         ZNInstallM50ManagedReturnChainingDeferred();
 
-        // Single Search / Results / Detail renderer.
         ZNInstallMethodFinderUnifiedUIDeferred();
 
-        // Narrow behavior decorators that require the final result controls.
-        // These are allowed to bind candidate/gestures/buttons but must not own
-        // the base Method Finder layout.
         ZNInstallM462CandidateBindingUIDeferred();
         ZNInstallM47ReceiverCaptureUIDeferred();
         ZNInstallM51RuntimeArgControlsImmediateChainDeferred();
@@ -145,10 +136,10 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM52ImmediateChainV2Deferred();
         ZNInstallM52ChainExecuteButtonDeferred();
 
-        // The old M5.2 search-history renderer hook is intentionally NOT installed.
-        // Search history is now owned directly by ZNMethodFinderUnifiedUI.
-
+        // M5.5 typed value canonicalization must sit inside the M5.3
+        // auto-execute wrapper: M5.3 calls the M5.5 handler first, then invokes.
+        ZNInstallM55TypedControlBindingDeferred();
         ZNInstallM53ControlBindingDeferred();
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.4-unified-ui] Method Finder install graph consolidated"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.5-typed] Unified Finder + Typed Control Binding V2 installed"];
     });
 }
