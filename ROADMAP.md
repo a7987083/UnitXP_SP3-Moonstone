@@ -1,79 +1,95 @@
 # ROADMAP
 
-## Current milestone — M5.4 Unified Method Finder
+## Current milestone — M5.5 Typed Control Binding V2
 
-Branch: `refactor/method-finder-ui-consolidation-m5.4`
+Branch: `feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2`
 
-CI-validated head: `8c6131b2628f1e8c980d8c71fc62ac0cdc8c5845`  
-Product-code head before CI-only verification change: `eff4f4d86c1851558e703addb89ed86578259a64`
+CI-validated head: `3548cbc655f4347e03947d9dba0fb501f15b137e`  
+Product-code head before final CI-only contract commit: `d4f8da77a7fef8db72bcd9d19a2323a39fd577d1`
 
-### Why M5.4 exists
+### Public control model
 
-Device testing showed that repeated M5.2/M5.3 search-history fixes compiled and installed but were not reliably visible. Architecture audit confirmed that Method Finder had accumulated multiple UI generations on one `ZNRuntimeMenuControllerV040`, with repeated `method_exchangeImplementations`, post-render view walking, title-based button discovery, and target rebinding. Runtime behavior depended on install order.
+Customer-facing controls remain deliberately simple and backend-independent:
 
-The detailed audit is in `METHOD_FINDER_UI_AUDIT.md`.
+- Switch
+- Button
+- Number
+- Slider
 
-### Implemented
+Numeric Value Type is a separate axis:
 
-- Added `ZNMethodFinderUnifiedUI.mm` as the single final Search / Results / Detail renderer.
-- Unified renderer intentionally does **not** call the previous renderer implementation, cutting the legacy renderer chain at runtime.
-- V3 query/candidate/page/limit/status state and existing resolver/invoke backends are retained.
-- Old M4.3/M4.4/M4.7 render wrappers remain compiled only for compatibility/backends but are buried below the Unified renderer and no longer own the final base layout.
-- Narrow post-render behavior decorators remain after Unified where required:
-  - M4.6.2 candidate binding for Test actions.
-  - M4.7 receiver-capture long press.
-  - M5.1/M5.2 chain create/execute/restart behavior.
-- Old `ZNInstallM52MethodSearchHistoryDeferred()` is no longer installed.
-- Search history is now part of the Unified Search renderer itself:
-  - same persistent key `zonoe.m52.method-search-history.v1`;
-  - maximum 50;
-  - newest first;
-  - case-insensitive dedupe;
-  - one row per query;
-  - independently scrollable;
-  - tapping a row only fills the 方法名 field and does not execute search.
-- Unified Results directly renders typed `/0-/8` argument rows rather than rendering older `/0-/1` cards and mutating them afterward.
-- Unified Detail directly renders method/ABI/ownership information.
-- M5.3 Runtime Control Binding, Static Control Binding, M5.2 Chain V2, Return Capture and customer silent-success behavior are retained below/around the new UI path.
-- Static Entry ABI remains 128 bytes; Runtime Action ABI remains 64 bytes.
+- Auto
+- I32
+- U32
+- I64
+- U64
+- F32
+- F64
 
-### CI history
+Runtime numeric configs additionally carry `Default / Min / Max / Step`.
 
-- Run `35964177732`: first compile failed in `ZNIL2CPPMethodFinderMenuBinding.mm` because the new install-graph log referenced `ZNRuntimeLogger` without importing `ZNPatchCore.h`; fixed without architecture change.
-- Run `35964480222`: arm64 Build/Link/Sign succeeded; Binary Verify failed only because `strings -a` cannot reliably match Chinese Objective-C CFString constants.
-- Final Run `35964757740` / Job `107520782444`: Source Contract, arm64 Build, Binary Verify and Artifact Upload all SUCCESS.
+### Implemented in M5.5
 
-### Final artifact
+- Added `ZNValueTypeModel` as the shared Runtime/Static type vocabulary.
+- Runtime `Auto` resolves from IL2CPP managed parameter names (`Int32/UInt32/Int64/UInt64/Single/Double`).
+- Runtime Builder now has an independent Value Type button; `Auto` displays the resolved ABI recommendation when known.
+- Long-press Runtime Value Type opens the range editor for Default / Min / Max / Step.
+- Runtime Slider quantizes to configured `step` before the existing M5.3 release-to-invoke path. Default Slider policy is `1..10 / step 1`, including F32/F64 controls.
+- Runtime Number canonicalizes input using the selected/resolved Value Type before invocation.
+- Runtime action JSON control configs persist `valueType/default/min/max/step` without changing the 64-byte Runtime Action Entry ABI.
+- Static Builder now exposes `[Control Type] + [Value Type]` independently.
+- Static Value Type is encoded into unused entry.flags bits 11..13; legacy zero bits decode as Auto. Static Entry remains exactly 128 bytes.
+- Static Number preserves exact authored text (`valueText`) so U64 does not require a double round-trip before encoding.
+- Static Slider now uses integer customer values `1..10`, `step 1`.
+- Added `ZNM55StaticTypedBinding` and replaced the old M5.3 Static MOV-only notification observer while retaining M5.3 Runtime auto-execute behavior.
+- Static typed adapters:
+  - verified `MOVZ(+MOVK)` -> I32/U32/I64/U64;
+  - verified scalar `FMOV S,#imm` -> F32;
+  - verified scalar `FMOV D,#imm` -> F64;
+  - Auto chooses only from the verified instruction family;
+  - type/instruction mismatches fail closed;
+  - FMOV values not exactly representable by scalar immediate fail closed.
+- Scalar FMOV integer values 1..31 were independently checked against the immediate expansion; the current public Slider intentionally defaults to 1..10.
+- M5.4 Unified Method Finder and visible search history remain underneath M5.5.
 
-- Artifact: `ZonoPatch-v0.5.8-M5.4-Unified-Method-Finder`
-- Artifact ID: `10793662459`
-- Artifact ZIP SHA256: `b607318f0225a2b4e1203ca30a151913c22eeb79e13a0519f42b1f13d769af6b`
-- Dylib: `ZonoPatch_v0.5.8_M5.4_Unified_Method_Finder.dylib`
-- Dylib size: `1354480` bytes
-- Dylib SHA256: `6804ca2f2a242337f8a81eb20125e5b0867bd59add02b9df0e28a35656f37ca2`
-- Mach-O: thin arm64 dynamically linked shared library
+### ABI
+
+- `ZN44StaticEntry`: 128 bytes, unchanged.
+- `ZNRuntimeMethodCallEntry`: 64 bytes, unchanged.
+- Static control type remains flags bits 8..10.
+- Static Value Type uses flags bits 11..13.
+- Runtime typed/range configuration remains JSON through existing Runtime Action reserved[3].
+
+### Final CI / artifact
+
+- Workflow: `Build Runtime Patch Menu v0.5.8 M5.5 Typed Control Binding V2`
+- Run: `35996840472`
+- Job: `107623672455`
+- Result: SUCCESS
+- Artifact: `ZonoPatch-v0.5.8-M5.5-Typed-Control-Binding-V2`
+- Artifact ID: `10806284095`
+- ZIP SHA256: `9ec1d6ab1a484572b16c1eff57eb90a7d54836b9717ed9748296fcc66a4b86e9`
+- Dylib: `ZonoPatch_v0.5.8_M5.5_Typed_Control_Binding_V2.dylib`
+- Dylib size: `1404656` bytes
+- Dylib SHA256: `0dacef0f731d0a6b59e1446b08977d69a6eeb732096c761a9ed321be0214375a`
+- Mach-O: thin arm64 dylib
 - Independent downloaded ZIP/dylib hash verification: PASS
-- Previous M5.3 HistoryFix was `1337776` bytes / `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`; M5.4 is a different binary.
 
-### Device acceptance status
+### Device acceptance required
 
-- Initial device evidence received on 2026-09-24: the previously missing Unified/search-history UI is now visible on device.
-- This closes the specific blocker that motivated M5.4: the final Unified renderer is now reaching the real device UI and the history surface is no longer hidden behind the legacy renderer chain.
-- Remaining interaction/regression items below are **not** yet marked passed from this evidence alone.
+1. Static Builder: verify Control Type and Value Type cycle independently through the expected options.
+2. Generate a Static I32/U32 MOVZ-compatible Number and confirm integer value changes the generated ON variant safely.
+3. Generate I64/U64 cases with sufficient MOVK halfword slots and verify exact large values; unsupported slot layouts must fail closed.
+4. Generate `FMOV S,#1.0` and `FMOV D,#1.0` compatible variants; select F32/F64 Slider and test integer values 1..10.
+5. Confirm unsupported FMOV values/type mismatches show `执行失败` and do not corrupt the variant.
+6. Runtime Method: confirm Auto resolves I32/U32/I64/U64/F32/F64 from the managed signature.
+7. Runtime Number: verify typed bounds and end-edit invoke.
+8. Runtime Slider: verify UI lands only on integer step values and release invokes once.
+9. Long-press Runtime Value Type and verify Default/Min/Max/Step survive Builder rendering and generated action export.
+10. Regress M5.4 Unified history, candidate binding, receiver capture, 创建方法 and Chain V2.
 
-### Remaining device acceptance
+### Next engineering work after device evidence
 
-1. Tap a history row; confirm only 方法名 is filled and no automatic search occurs.
-2. Manually press 搜索 and confirm the autofilled query executes normally.
-3. Confirm `/0-/8` candidates render argument rows correctly and overload filtering still works.
-4. Test/捕获 must still target the selected candidate; long-press receiver capture must remain functional.
-5. 创建方法 must still add the correct Runtime Action.
-6. Chain flow must regress cleanly: 链式调用 -> 完成链 -> 执行链; long-press 执行链 restarts authoring.
-7. Regress M5.3 Runtime Button/Switch/Number/Slider behavior and Static controls.
-8. Regress detail page, Return Capture, customer silent success/failure alert, and suffixless generated binary flow.
-
-### Next engineering step after device evidence
-
-- Continue the interaction/regression checklist above.
-- After the Unified path is accepted beyond visibility, split mixed legacy installer files into explicit backend modules vs deprecated renderer modules and stop compiling obsolete renderer implementations in a later cleanup milestone.
-- Do not add any new Method Finder base-renderer swizzle. New features must be state/backend methods, explicit Unified renderer code, or narrowly scoped behavior decorators.
+- Add persistent Static custom Range metadata if product testing shows fixed type defaults / Slider 1..10 are insufficient. Do not enlarge the 128-byte entry casually; use an owned metadata extension/table.
+- If target signing prevents executable-page RX→RW changes, move dynamic Static values to generated parameterized stubs + RW value cells.
+- After M5.4/M5.5 device regression, physically split legacy mixed UI/backend installers and remove obsolete Method Finder renderer sources from the build.
