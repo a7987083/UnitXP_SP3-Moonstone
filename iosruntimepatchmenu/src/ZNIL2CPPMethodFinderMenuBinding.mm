@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 #import "ZNDeveloperGate.h"
 #import "ZNPatchCore.h"
@@ -48,6 +49,8 @@ extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM53ControlBindingDeferred(void);
 extern "C" void ZNInstallM55TypedControlBindingDeferred(void);
 extern "C" void ZNInstallM551RuntimeSliderStabilityDeferred(void);
+extern "C" void ZNInstallM56StaticValueCellBindingDeferred(void);
+extern "C" void ZNInstallM562SliderIsolationDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -60,6 +63,17 @@ extern "C" void ZNInstallM551RuntimeSliderStabilityDeferred(void);
 - (NSArray<NSString *> *)zn57mfb_baseCategories {NSArray<NSString *> *base=[self zn57mfb_baseCategories];if([base containsObject:@"方法查找"]||![ZNDeveloperGate sharedGate].authorized)return base;NSMutableArray<NSString *> *items=[base mutableCopy];NSUInteger other=[items indexOfObject:@"其他"],settings=[items indexOfObject:@"设置"],insertion=items.count;if(other!=NSNotFound)insertion=MIN(other+1,items.count);else if(settings!=NSNotFound)insertion=settings;else if(items.count>0)insertion=1;[items insertObject:@"方法查找" atIndex:insertion];return items;}
 - (NSArray<NSString *> *)zn57mfb_baseSymbols {NSArray<NSString *> *base=[self zn57mfb_baseSymbols],*categories=[self zn40_baseCategories];if(base.count==categories.count)return base;NSUInteger finder=[categories indexOfObject:@"方法查找"];if(finder==NSNotFound||finder>base.count)return base;NSMutableArray<NSString *> *symbols=[base mutableCopy];[symbols insertObject:@"magnifyingglass" atIndex:finder];return symbols;}
 @end
+
+static void ZNM562RemoveLegacyStaticObservers(void) {
+    NSArray<NSString *> *classNames = @[@"ZNM53StaticControlBinder", @"ZNM55StaticTypedBinder"];
+    for (NSString *className in classNames) {
+        Class cls = NSClassFromString(className);
+        SEL sharedSel = NSSelectorFromString(@"shared");
+        if (!cls || ![cls respondsToSelector:sharedSel]) continue;
+        id binder = ((id(*)(id,SEL))objc_msgSend)((id)cls, sharedSel);
+        if (binder) [NSNotificationCenter.defaultCenter removeObserver:binder];
+    }
+}
 
 extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;dispatch_once(&onceToken,^{
@@ -76,11 +90,21 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM47MultiArgInvokeDeferred();ZNInstallM47MultiArgUIDeferred();ZNInstallM47BuilderArgsUIDeferred();ZNInstallM47VersionUIDeferred();ZNInstallM48ReturnCaptureDeferred();ZNInstallM49GenericInvokeEditableArgsDeferred();ZNInstallM50ManagedReturnChainingDeferred();
         ZNInstallMethodFinderUnifiedUIDeferred();
         ZNInstallM462CandidateBindingUIDeferred();ZNInstallM47ReceiverCaptureUIDeferred();ZNInstallM51RuntimeArgControlsImmediateChainDeferred();ZNInstallM52ChainStoreV2Deferred();ZNInstallM52ImmediateChainV2Deferred();ZNInstallM52ChainExecuteButtonDeferred();
+
+        // Keep M5.3 Runtime Number/Switch compatibility, but its Static observer
+        // is explicitly removed below. Static Number/Slider has exactly one owner:
+        // the M5.6 RW __ZNDATA value-cell binder.
         ZNInstallM55TypedControlBindingDeferred();
-        // Regression policy: retain the first device-proven Static Number/Slider backend.
-        // M5.5 typed-static and M5.6 value-cell binders are intentionally not installed.
         ZNInstallM53ControlBindingDeferred();
+        ZNM562RemoveLegacyStaticObservers();
+        ZNInstallM56StaticValueCellBindingDeferred();
+
+        // Install historical stability layer first, then replace the public
+        // ValueChanged selector with one final isolated owner. Dragging cannot
+        // refresh/invoke/render; explicit Execute reads the visible slider value.
         ZNInstallM551RuntimeSliderStabilityDeferred();
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.6.1-regression] M5.3 device-proven Static Number backend restored; M5.5 typed-static disabled"];
+        ZNInstallM562SliderIsolationDeferred();
+
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.6.2] runtime-only complete-row gate + RW value-cell owner + isolated Runtime slider installed"];
     });
 }
