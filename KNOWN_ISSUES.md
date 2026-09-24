@@ -2,84 +2,56 @@
 
 只记录当前未关闭问题、验证缺口和设计边界。
 
-## KI-M52-001 — M5.2 Immediate Chain V2 尚未真机验收
+## KI-M53-001 — Runtime 四控件自动执行尚未真机验收
 
 Severity: `HIGH`  
 Status: `IMPLEMENTED / CI+BINARY+ARTIFACT VERIFIED / DEVICE VERIFICATION PENDING`
 
-多级原子链、typed args、exact signature、GCHandle receiver、System.String decode、逐级 trace 已完成；真实对象生命周期和目标 Unity/IL2CPP 兼容性仍需真机证据。
+M5.3 已把 Runtime 参数控件绑定到真实 invoke：Button 点击、Switch 改值、Number 编辑结束、Slider 松手均会执行当前 Runtime Action。成功继续静默，失败继续弹 `执行失败`。需要真机确认事件触发次数、键盘结束编辑路径、Slider TouchUp 以及 M5.1 Silent swizzle 顺序。
 
-## KI-M52-010 — 完成链后的 `执行链` 状态机尚未真机验收
+## KI-M53-002 — Static Number/Slider V1 仅支持 MOVZ(+MOVK) 整数常量
 
 Severity: `HIGH`  
-Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
+Status: `IMPLEMENTED / FAIL-CLOSED OUTSIDE SUPPORTED ENCODING / DEVICE VERIFICATION PENDING`
 
-旧 M5.2 的 `完成链` 仅保存 metadata 并 render，没有可见执行入口。现已新增 Finder 原位状态机：无链时 `链式调用`，存在已保存 V2 chain 时显示 `执行链`；单击执行整条链；长按清空旧链并立即重新进入链式调用。需要真机验证按钮状态、tap target、long-press gesture 与页面重绘链路。
+V1 只处理 Protection V2 ON variant 中首指令为 ARM64 MOVZ、后续为同宽度/同目标寄存器兼容 MOVK 的 Enabled 前缀。客户值按 imm16 halfword 写入。负数、浮点、FMOV、ADD/SUB immediate、ORR immediate、任意 raw bytes 等均不会猜测编码，会直接失败。
 
-## KI-M52-011 — 方法搜索历史尚未真机验收
+## KI-M53-003 — Static dynamic V1 重新引入 executable-page runtime write
 
-Severity: `MEDIUM`  
-Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
+Severity: `HIGH`  
+Status: `ARCHITECTURAL LIMIT / DEVICE VERIFICATION REQUIRED`
 
-方法搜索关键词已通过 NSUserDefaults 持久化，并在搜索框下方显示独立滚动列表：一行一个、最多 50 条、最新置顶、大小写不敏感去重、点击重搜。需要真机验证布局、滚动、重启持久化以及第 51 条淘汰最旧记录。
+普通 Static Dispatch V3 的设计目标是运行期只改 RW `selectedTarget`，不改 executable page。M5.3 Number/Slider V1 为了让已生成 ON variant 的 MOVZ/MOVK 立即跟随客户数值，会通过现有 `ZNRuntimePatchExecutor` 对生成的 ON instruction page 做 expected-byte 校验后 RX→RW 写入、read-back、恢复保护。某些非越狱/签名环境可能禁止该操作；此时应 fail closed。若目标部署环境确实禁止，后续必须改为 Static Dynamic V2：构建时生成参数化 stub + RW value cell，客户只写 RW 数据。
 
-## KI-M52-012 — Finder 已保存链匹配根身份尚未使用完整参数类型
+## KI-M53-004 — Static Slider 当前 UI 范围仍是旧默认 0..10
 
 Severity: `MEDIUM`  
 Status: `KNOWN LIMITATION`
 
-`执行链` 按钮当前用 root Assembly + Namespace + Class + Method + argc 查找最近保存的 V2 action。Chain 节点真正执行仍使用完整参数签名 exact-resolve，但如果根方法存在“同名 + 同 argc”的多个重载，Finder 按钮可能需要进一步用 root parameterTypeNames 消歧。设备测试时应覆盖同 argc 重载场景。
+M5.3 绑定了现有 Slider 值，但尚未增加 Builder 侧 min/max/step 的 Static 专用配置。现有 Static slider UI 仍采用旧默认范围。后续应在确认动态后端可用于目标设备后，再持久化范围/步长元数据，避免先扩 ABI/UI 后发现运行模型不适用。
 
-## KI-M52-013 — 搜索历史面板位置依赖当前 V3 搜索页几何
+## KI-M53-005 — Static Button 语义为“启用固定 Enabled”，不是脉冲后自动恢复
 
 Severity: `LOW`  
-Status: `KNOWN MAINTENANCE COUPLING`
+Status: `BY DESIGN V1`
 
-历史面板插入在当前 V3 搜索卡与搜索选项卡之间，并移动后续视图。如果未来重构 Method Finder Search 页固定几何，需要同步复核插入位置。
+点击 Static Button 当前等价于启用对应固定 Enabled variant，不会自动 OFF。若未来需要 momentary/pulse 语义，应作为独立控制模式定义，不能隐式定时恢复。
 
-## KI-M52-002 — Customer Silent Execution 尚未真机验收
+## KI-M52-001 — M5.2 Immediate Chain V2 真机链路仍有开放问题
 
 Severity: `HIGH`  
-Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
+Status: `PARTIAL DEVICE EVIDENCE / INVESTIGATION OPEN`
 
-客户侧成功 Runtime / Button / Immediate Chain 执行应静默；失败仍显示 `执行失败`；Builder / Method Finder 测试执行保留返回与调试信息。
+用户已真机确认 `执行链` 按钮可见并进入 M5.2 执行器；一次执行在 Level 1 前停止：`previous managed return is null`。当前仍需区分 Root `yo::wB()/0` 真实返回 null 与 Chain 路径 receiver/return 继承丢失。System.String decode、多级 receiver 连续性仍未完整真机验收。
 
-## KI-M52-003 — System.String decode 依赖目标 IL2CPP exports
-
-Severity: `MEDIUM`  
-Status: `BEST-EFFORT / DEVICE VERIFICATION PENDING`
-
-依赖 `il2cpp_string_length` + `il2cpp_string_chars`；若目标没有对应 exports，保持原 Return Capture 表示而不是伪造字符串。
-
-## KI-M52-004 — Enum 名称/值下拉 UI 未实现
+## KI-M52-011 — 方法搜索历史 HistoryFix 尚缺最终真机证据
 
 Severity: `MEDIUM`  
-Status: `KNOWN LIMITATION`
+Status: `SOURCE/CI/BINARY VERIFIED / DEVICE CONFIRMATION PENDING`
 
-enum 已按 underlying primitive typed invoke；当前仍需要填写数值。
+最初历史模块错误绑定 V3 selector，而当前设备实际显示 `IL2CPP 方法查找 · M4.3`。HistoryFix `88ee2768...` 已改为绑定 `znm43_renderSearchAtWidth:` / `znm43_startSearch:`，最多 50 条、持久化、独立滚动、一行一个。需要真机最终确认显示/点击/重启持久化。
 
-## KI-M52-005 — Chain V2 参数编辑器当前为 CSV
-
-Severity: `MEDIUM`  
-Status: `KNOWN LIMITATION`
-
-后续应改成按 argc 自动展开的逐参数 typed rows。
-
-## KI-M52-006 — 任意 Level 返回对象作为参数尚未实现
-
-Severity: `MEDIUM`  
-Status: `KNOWN LIMITATION`
-
-当前上一层 managed return 自动成为下一层 receiver；尚不支持 `arg[n] = Level N return`。
-
-## KI-M52-007 — ref/out / pointer / 通用 ObjectReference / 复杂 ValueType 仍 fail closed
-
-Severity: `MEDIUM`  
-Status: `BY DESIGN / FAIL CLOSED`
-
-需要后续基于 metadata-driven marshaling 单独实现和验证。
-
-## KI-M52-009 — Suffixless generated binary 缺真实生成物验收
+## KI-M52-009 — Suffixless generated binary 缺真实生成物完整验收
 
 Severity: `HIGH`  
 Status: `SOURCE+CI COMPILE VERIFIED / FIXTURE+DEVICE PENDING`
@@ -88,6 +60,7 @@ Status: `SOURCE+CI COMPILE VERIFIED / FIXTURE+DEVICE PENDING`
 
 ## Legacy open validation gaps
 
-- M5.1 per-argument Switch/Button/Number/Slider 仍缺完整真机矩阵验证。
+- Enum member-name dropdown尚未实现。
+- Chain V2 typed per-node rows、任意 Level-N object arg、ref/out、复杂 ValueType 仍未实现。
 - M5.0 managed object lifetime / class compatibility 在不同 Unity/IL2CPP 版本仍需设备证据。
 - Protection V1/V2 真实 staging -> final IPA 冷启动证据仍未自动关闭。
