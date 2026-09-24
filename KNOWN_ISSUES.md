@@ -2,54 +2,54 @@
 
 只记录当前未关闭问题、验证缺口和设计边界。
 
+## KI-M56-001 — Static M5.5 executable-page typed update 已被真机否定
+
+Severity: `HIGH`  
+Status: `ROOT CAUSE CONFIRMED / ARCHITECTURE REPLACED / M5.6 DEVICE VALIDATION PENDING`
+
+真机 Static Number/Auto 返回：`写入完成但恢复 RX 权限失败: errno=13 (Permission denied)`。因此旧 M5.5 运行时修改 ON variant executable page 的方案不再视为可接受路径。M5.6 已替换为 build-time LDR parameterization + owned `__ZNDATA` RW value cell；运行时只写数据页。需要重新生成目标二进制后真机验收。
+
+## KI-M56-002 — Runtime Slider M5.5 拖动卡死/闪退
+
+Severity: `HIGH`  
+Status: `ROOT CAUSE FIXED IN SOURCE/CI / DEVICE VALIDATION PENDING`
+
+M5.5 typed wrapper 在每次 Slider `ValueChanged` 中执行 `ZNRuntimeActionRuntime refresh`，拖动时高频触发。M5.6 将拖动热路径改回 cache-only，并在松手时只做一次 refresh + quantize + cache + invoke。需真机确认不再卡死/闪退且不会重复调用。
+
+## KI-M56-003 — M5.6 Static value cell 需要重新生成目标二进制
+
+Severity: `HIGH`  
+Status: `EXPECTED MIGRATION BOUNDARY`
+
+旧 M5.5 生成物的 ON variant 仍是 MOV/FMOV 指令，没有 LDR-to-cell 参数化。仅替换 M5.6 dylib 不会自动改造旧 UnityFramework。Static Number/Slider 验收必须使用 M5.6 Builder 重新生成并替回 IPA。
+
+## KI-M56-004 — Value Cell LDR literal 有 ±1MB 距离约束
+
+Severity: `MEDIUM`  
+Status: `FAIL-CLOSED BY DESIGN`
+
+ARM64 LDR literal 只有 imm19*4 距离。M5.6 Builder 如果 generated source fragment 到 owned `__ZNDATA` cell 超出 ±1MB，会直接生成失败，不回退到 runtime executable write。
+
 ## KI-M551-001 — 旧 Runtime authoring 条目在 M5.5.1 前未持久化
 
-Severity: `HIGH`  
-Status: `ROOT CAUSE FIXED FOR FUTURE DATA / HISTORICAL LOSS NOT AUTO-RECOVERABLE`
+Severity: `MEDIUM`  
+Status: `FUTURE LOSS FIXED / HISTORICAL LOSS NOT AUTO-RECOVERABLE`
 
-历史 `ZNRuntimeActionStore` 仅使用进程内 `NSMutableArray`。换 dylib、杀进程、重启会丢失制作页 Runtime Method Call authoring 条目。M5.5.1 新增 `zonoe.m5.5.authoring-actions.v1` 持久化并在 Store 为空时启动恢复。已经在修复前丢失、且没有旧序列化源/日志/生成 action table 的条目无法可靠自动复原。
+M5.5.1 起通过 `zonoe.m5.5.authoring-actions.v1` 持久化。修复前已经丢失且没有旧序列化源/日志/action table 的条目无法可靠恢复。
 
-## KI-M551-002 — M5.5.1 Builder 恢复仍待真机确认
-
-Severity: `HIGH`  
-Status: `SOURCE / CI / BINARY / ARTIFACT VERIFIED / DEVICE PENDING`
-
-M5.5.1 已恢复 M5.4 Builder 基础布局，并把 Runtime Method Call `删除` 移到标题行右上，参数区下移并增加卡片间距。需要真机确认原 Builder 内容重新出现、控件不重叠、滚动高度正确。
-
-## KI-M551-003 — Static Value Type authoring UI 暂缓重新叠加
+## KI-M551-002 — Builder Recovery 仍需完整真机回归
 
 Severity: `MEDIUM`  
-Status: `INTENTIONAL RECOVERY BOUNDARY`
+Status: `CI VERIFIED / DEVICE REGRESSION PENDING`
 
-为避免再次破坏制作页基线，M5.5.1 先恢复 M5.4 Builder 几何。Static typed backend 仍保留，但 Static Value Type 的制作页入口应在恢复版真机接受后以非破坏性 overlay/long-press 方式重新加入，不再把原三列布局直接替换成四列。
+需继续确认 M5.4 Builder 基线、删除按钮间距、Runtime authoring 重启恢复在 M5.6 没有回归。
 
-## KI-M55-002 — Static F32/F64 仅支持可精确编码的 scalar FMOV immediate
-
-Severity: `MEDIUM`  
-Status: `BY DESIGN / FAIL-CLOSED`
-
-scalar `FMOV S,#imm` / `FMOV D,#imm` 只接受可精确编码值，不做近似。当前默认整数 Slider `1..10 / step 1` 属于可精确表示的常用范围。
-
-## KI-M55-003 — Static 大整数依赖 MOVK 槽位
-
-Severity: `MEDIUM`  
-Status: `BY DESIGN / FAIL-CLOSED`
-
-I32/U32/I64/U64 使用原 Enabled ON variant 内已有 `MOVZ(+MOVK)` 槽位。缺少所需 halfword 槽位时拒绝执行，不覆盖未知后续指令。
-
-## KI-M55-005 — Static dynamic 仍涉及 executable-page runtime write
-
-Severity: `HIGH`  
-Status: `ARCHITECTURAL LIMIT / DEVICE VERIFICATION REQUIRED`
-
-typed adapter 仍通过 transactional RX→RW 写入生成 ON variant。受限设备/签名模型可能拒绝；若真实环境阻止，应迁移 build-time parameterized stub + RW value cell。
-
-## KI-M54-003 — Unified Search History 交互仍待真机验收
+## KI-M54-003 — Unified Search History 交互仍待完整验收
 
 Severity: `MEDIUM`  
 Status: `VISIBLE ON DEVICE / INTERACTION PENDING`
 
-Unified/search-history 已真机可见；点击历史仅回填、不自动搜索、持久化/去重/50 条淘汰仍需完整验收。
+Unified/search-history 已真机可见；历史点击仅回填、手动搜索、持久化/去重/50 条淘汰仍需完整验收。
 
 ## KI-M54-004 — Unified Results 行为装饰器需完整回归
 
