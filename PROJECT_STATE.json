@@ -1,36 +1,52 @@
 {
-  "schema_version": 20,
+  "schema_version": 21,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "m5.6-rw-value-cell-slider-stability",
+  "phase": "m5.6.2-runtime-static-recovery",
   "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
-  "branch": "feature/runtime-patch-menu-v0.5.8-m5.5-typed-control-binding-v2",
-  "ci_validated_head": "2d6351ac7e2652ae76e2ba2542118cc0beb2338e",
+  "branch": "fix/m5.6.2-runtime-slider-static-valuecell",
+  "ci_validated_head": "690ee9eb9af2f2431f8d8909fa9c1dd558ae77aa",
   "device_evidence": {
-    "static_m55_rx_restore_errno13": true,
-    "static_runtime_exec_write_architecture_rejected": true,
-    "runtime_slider_drag_freeze_crash": true
+    "static_rx_restore_errno13_still_present_after_initial_m5_6": true,
+    "runtime_slider_drag_freeze_crash_still_present_after_initial_m5_6": true,
+    "static_auto_f32_customer_value_stuck_zero": true,
+    "runtime_only_misroute_possible_with_partial_static_rows": true
   },
-  "runtime_slider_m5_6": {
+  "audit_correction": {
+    "initial_m5_6_fully_rw_cell_claim_was_incorrect": true,
+    "m5_6_1_regression_restored_m5_3_exec_writer": true,
+    "m5_6_2_restores_build_and_runtime_rw_cell_ownership": true
+  },
+  "runtime_only_gate": {
+    "criterion": "runtime actions > 0 and complete static rows == 0",
+    "complete_static_row": "offsetText.length > 0 && enabledText.length > 0",
+    "partial_static_rows_ignored_for_mode_selection": true,
+    "logs_partial_row_count": true
+  },
+  "runtime_slider_m5_6_2": {
+    "final_selector_owner": "ZNM562SliderIsolation",
     "value_changed_refresh": false,
+    "value_changed_render": false,
     "value_changed_invoke": false,
-    "drag_behavior": "cache-only",
-    "release_refresh_count": 1,
-    "release_quantize": true,
-    "release_invoke_count": 1,
+    "value_changed_add_release_target": false,
+    "drag_behavior": "UI-only integer quantize/clamp",
+    "auto_invoke_enabled": false,
+    "manual_execute_uses_visible_slider_value": true,
     "device_verified": false
   },
   "static_value_cell_v1": {
+    "postprocess_order": ["ZNF1", "RW Value Cell V1", "Static RVA Protection V1", "Ad-hoc Sign", "Suffixless Export"],
     "build_time_parameterization": true,
     "runtime_executable_write": false,
     "runtime_value_storage": "owned __ZNDATA RW tail cells",
-    "integer_codegen": "LDR W/X literal replacing MOVZ(+MOVK); compatible MOVK NOPed at build time",
+    "integer_codegen": "LDR W/X literal replacing MOVZ(+MOVK)",
     "float_codegen": "LDR S/D literal replacing scalar FMOV immediate",
     "runtime_write": "atomic RW cell store only",
-    "normal_selected_target_dispatch_retained": true,
-    "old_m5_5_generated_binary_compatible": false,
-    "requires_regeneration_with_m5_6": true,
+    "single_runtime_owner": "ZNM56StaticValueCellBinder",
+    "legacy_static_observers_removed": ["ZNM53StaticControlBinder", "ZNM55StaticTypedBinder"],
+    "auto_f32_resolved_from_value_cell_flags": true,
+    "requires_regeneration_with_m5_6_2": true,
     "device_verified": false
   },
   "retained": {
@@ -44,12 +60,12 @@
   "abi": {
     "static_patch_entry_bytes": 128,
     "runtime_method_call_entry_bytes": 64,
-    "abi_changed_in_m5_6": false
+    "abi_changed_in_m5_6_2": false
   },
   "build": {
-    "workflow": "Build Runtime Patch Menu v0.5.8 M5.6 RW Value Cell",
-    "run_id": 36004751812,
-    "job_id": 107649917061,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M5.6.2 Recovery",
+    "run_id": 36012593002,
+    "job_id": 107676813892,
     "result": "success",
     "compiled": true,
     "binary_verified": true,
@@ -57,24 +73,24 @@
     "independent_artifact_hash_verified": true
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-M5.6-RW-Value-Cell",
-    "id": 10809323261,
-    "archive_sha256": "fc1f0596f2f603a993d2249e9ab1c965e5ff38019fcda3d5d4a75a189ecf2c03",
-    "dylib_name": "ZonoPatch_v0.5.8_M5.6_RW_Value_Cell.dylib",
-    "dylib_size": 1421376,
-    "dylib_sha256": "191c93dea1fc43d504860abcfd047fcf15391c6ad74c39be383f299eaa7cf54c",
+    "name": "ZonoPatch-v0.5.8-M5.6.2-Runtime-Static-Recovery",
+    "id": 10812584568,
+    "archive_sha256": "48662e7ffdc798d18358b443a6996214e3eb37e2a9fc005232e7afd7ab533aeb",
+    "dylib_name": "ZonoPatch_v0.5.8_M5.6.2_Runtime_Static_Recovery.dylib",
+    "dylib_size": 1421392,
+    "dylib_sha256": "d6657fdc723b1b1ca68637dac63ec66f3f95d3a0cade6f5066361215dd6588c7",
     "mach_o": "thin arm64 dynamically linked shared library"
   },
   "device_acceptance_pending": [
-    "Runtime Slider drag no longer freezes/crashes",
-    "Runtime Slider release invokes once",
-    "rebuild Static target with M5.6 value cells",
-    "Static Number no longer triggers RX permission denied",
-    "Static FMOV Slider reads RW cell correctly",
+    "Runtime Slider drag UI-only path no longer freezes/crashes",
+    "Runtime explicit Execute with current slider value isolates underlying Invoke/receiver/ABI behavior",
+    "Runtime-only generation succeeds with no complete Static row and partial drafts",
+    "Static MOV Number regenerated by M5.6.2 no longer triggers RX permission denied",
+    "Static Auto->F32 regenerated by M5.6.2 no longer remains at zero",
     "M5.5.1 Builder layout and authoring persistence regression",
     "M5.4 Unified Method Finder regression"
   ],
-  "next_phase": "m5.6-device-acceptance",
-  "next_task": "Install M5.6 and regenerate Static test binary, then verify the two device failures that motivated the milestone.",
+  "next_phase": "m5.6.2-device-isolation",
+  "next_task": "Install M5.6.2, regenerate Static targets, then separately test slider drag and explicit Execute to isolate UI from Invoke.",
   "captured_at": "2026-09-24"
 }
