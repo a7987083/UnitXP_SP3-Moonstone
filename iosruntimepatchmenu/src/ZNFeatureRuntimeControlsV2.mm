@@ -15,6 +15,7 @@ static const NSInteger kZN65ToggleTagBase = 450000;
 static const NSInteger kZN65NumberTagBase = 469000;
 static const NSInteger kZN65ActionTagBase = 470000;
 static const NSInteger kZN65SliderTagBase = 471000;
+static const NSInteger kZN65NumberExecuteTagBase = 472000;
 
 @interface ZNStaticPatchRecord (ZNFeatureRuntimeControlEntry)
 @property(nonatomic,assign) ZN44StaticEntry *entry;
@@ -45,23 +46,138 @@ static double ZN65StoredValue(NSDictionary *feature,double fallback){id stored=[
 static NSString *ZN65StoredText(NSDictionary *feature,NSString *fallback){id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZN65PreferenceKey(feature,@"valueText")];return [stored isKindOfClass:NSString.class]&&[(NSString *)stored length]?(NSString *)stored:(fallback?:@"1");}
 static NSDictionary *ZN65EventInfo(NSDictionary *feature,NSNumber *value,NSString *valueText){NSMutableDictionary *info=[@{@"featureID":feature[@"featureID"]?:@0,@"title":feature[@"title"]?:@"功能",@"controlType":feature[@"controlType"]?:@(ZNFeatureControlTypeSwitch),@"valueType":feature[@"valueType"]?:@(ZNValueTypeAuto),@"key":feature[@"key"]?:@""} mutableCopy];if(value)info[@"value"]=value;if(valueText.length)info[@"valueText"]=valueText;return info;}
 
+static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
+    NSString *trim = ZN65Trim(text);
+    if (!trim.length) trim = @"0";
+    [NSUserDefaults.standardUserDefaults setObject:trim forKey:ZN65PreferenceKey(feature,@"valueText")];
+    NSDecimalNumber *n = [NSDecimalNumber decimalNumberWithString:trim locale:@{NSLocaleDecimalSeparator:@"."}];
+    if (![n isEqualToNumber:NSDecimalNumber.notANumber]) [NSUserDefaults.standardUserDefaults setDouble:n.doubleValue forKey:ZN65PreferenceKey(feature,@"value")];
+}
+
 @interface ZNRuntimeMenuControllerV040 (ZNFeatureRuntimeControlsV2)
-- (void)zn65fc_renderFull; - (void)zn65fc_renderCompact; - (void)zn65fc_numberChanged:(UITextField *)field; - (void)zn65fc_actionTapped:(UIButton *)button; - (void)zn65fc_sliderChanged:(UISlider *)slider;
+- (void)zn65fc_renderFull;
+- (void)zn65fc_renderCompact;
+- (void)zn65fc_numberChanged:(UITextField *)field;
+- (void)zn65fc_numberReturn:(UITextField *)field;
+- (void)zn65fc_numberExecute:(UIButton *)button;
+- (void)zn65fc_actionTapped:(UIButton *)button;
+- (void)zn65fc_sliderChanged:(UISlider *)slider;
+- (void)zn65fc_sliderCommitted:(UISlider *)slider;
 @end
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureRuntimeControlsV2)
 - (void)zn65fc_decorateCompact:(BOOL)compact {
-    NSArray *features=ZN65FeatureGroups();for(NSUInteger i=0;i<features.count;i++){NSDictionary *feature=features[i];ZNFeatureControlType type=(ZNFeatureControlType)[feature[@"controlType"] unsignedIntValue];if(type==ZNFeatureControlTypeSwitch)continue;UIView *old=[self.contentView viewWithTag:kZN65ToggleTagBase+(NSInteger)i],*card=old.superview;if(!old||!card)continue;CGRect oldFrame=old.frame;[old removeFromSuperview];ZNValueType valueType=(ZNValueType)[feature[@"valueType"] integerValue];
-        if(type==ZNFeatureControlTypeNumber){CGFloat width=compact?72:78;UITextField *field=[[UITextField alloc]initWithFrame:CGRectMake(CGRectGetWidth(card.bounds)-width-(compact?9:12),oldFrame.origin.y,width,oldFrame.size.height)];field.tag=kZN65NumberTagBase+(NSInteger)i;double stored=ZN65StoredValue(feature,1);NSString *fallback=ZNValueTypeIsInteger(valueType)||valueType==ZNValueTypeAuto?[NSString stringWithFormat:@"%.0f",stored]:[NSString stringWithFormat:@"%.6g",stored];field.text=ZN65StoredText(feature,fallback);field.textAlignment=NSTextAlignmentCenter;field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;field.textColor=self.theme.primaryTextColor;field.backgroundColor=[self.theme.controlColor colorWithAlphaComponent:.82];field.font=[UIFont systemFontOfSize:(compact?9:9.6) weight:UIFontWeightSemibold];field.layer.cornerRadius=7;field.layer.borderWidth=1;field.layer.borderColor=self.theme.borderColor.CGColor;[field addTarget:self action:@selector(zn65fc_numberChanged:) forControlEvents:UIControlEventEditingDidEnd|UIControlEventEditingDidEndOnExit];field.accessibilityLabel=[NSString stringWithFormat:@"%@ 数值 %@",feature[@"title"]?:@"功能",ZNValueTypeName(valueType)];[card addSubview:field];
-        }else if(type==ZNFeatureControlTypeButton){UIButton *button=[self zn40_button:@"执行" selector:@selector(zn65fc_actionTapped:) frame:oldFrame];button.tag=kZN65ActionTagBase+(NSInteger)i;[card addSubview:button];
-        }else if(type==ZNFeatureControlTypeSlider){CGFloat width=compact?88:112;UISlider *slider=[[UISlider alloc]initWithFrame:CGRectMake(CGRectGetWidth(card.bounds)-width-(compact?7:10),oldFrame.origin.y,width,oldFrame.size.height)];slider.tag=kZN65SliderTagBase+(NSInteger)i;slider.minimumValue=1;slider.maximumValue=10;slider.value=(float)MIN(10.0,MAX(1.0,round(ZN65StoredValue(feature,1))));slider.minimumTrackTintColor=self.theme.accentColor;[slider addTarget:self action:@selector(zn65fc_sliderChanged:) forControlEvents:UIControlEventValueChanged];slider.accessibilityLabel=[NSString stringWithFormat:@"%@ 滑块 %@ 1-10 step 1",feature[@"title"]?:@"功能",ZNValueTypeName(valueType)];[card addSubview:slider];}
+    NSArray *features=ZN65FeatureGroups();
+    for(NSUInteger i=0;i<features.count;i++){
+        NSDictionary *feature=features[i];
+        ZNFeatureControlType type=(ZNFeatureControlType)[feature[@"controlType"] unsignedIntValue];
+        if(type==ZNFeatureControlTypeSwitch)continue;
+        UIView *old=[self.contentView viewWithTag:kZN65ToggleTagBase+(NSInteger)i],*card=old.superview;
+        if(!old||!card)continue;
+        CGRect oldFrame=old.frame;
+        [old removeFromSuperview];
+        ZNValueType valueType=(ZNValueType)[feature[@"valueType"] integerValue];
+
+        if(type==ZNFeatureControlTypeNumber){
+            CGFloat executeW=compact?46:52;
+            CGFloat gap=4;
+            CGFloat totalW=compact?118:136;
+            CGFloat x=CGRectGetWidth(card.bounds)-totalW-(compact?7:10);
+            UITextField *field=[[UITextField alloc]initWithFrame:CGRectMake(x,oldFrame.origin.y,totalW-executeW-gap,oldFrame.size.height)];
+            field.tag=kZN65NumberTagBase+(NSInteger)i;
+            double stored=ZN65StoredValue(feature,1);
+            NSString *fallback=ZNValueTypeIsInteger(valueType)||valueType==ZNValueTypeAuto?[NSString stringWithFormat:@"%.0f",stored]:[NSString stringWithFormat:@"%.6g",stored];
+            field.text=ZN65StoredText(feature,fallback);
+            field.textAlignment=NSTextAlignmentCenter;
+            field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;
+            field.returnKeyType=UIReturnKeyDone;
+            field.textColor=self.theme.primaryTextColor;
+            field.backgroundColor=[self.theme.controlColor colorWithAlphaComponent:.82];
+            field.font=[UIFont systemFontOfSize:(compact?9:9.6) weight:UIFontWeightSemibold];
+            field.layer.cornerRadius=7;field.layer.borderWidth=1;field.layer.borderColor=self.theme.borderColor.CGColor;
+            [field addTarget:self action:@selector(zn65fc_numberChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
+            [field addTarget:self action:@selector(zn65fc_numberReturn:) forControlEvents:UIControlEventEditingDidEndOnExit];
+            field.accessibilityLabel=[NSString stringWithFormat:@"%@ 数值 %@",feature[@"title"]?:@"功能",ZNValueTypeName(valueType)];
+            [card addSubview:field];
+            UIButton *execute=[self zn40_button:@"执行" selector:@selector(zn65fc_numberExecute:) frame:CGRectMake(CGRectGetMaxX(field.frame)+gap,oldFrame.origin.y,executeW,oldFrame.size.height)];
+            execute.tag=kZN65NumberExecuteTagBase+(NSInteger)i;
+            execute.titleLabel.font=[UIFont systemFontOfSize:(compact?8.2:8.8) weight:UIFontWeightSemibold];
+            [card addSubview:execute];
+        }else if(type==ZNFeatureControlTypeButton){
+            UIButton *button=[self zn40_button:@"执行" selector:@selector(zn65fc_actionTapped:) frame:oldFrame];button.tag=kZN65ActionTagBase+(NSInteger)i;[card addSubview:button];
+        }else if(type==ZNFeatureControlTypeSlider){
+            CGFloat width=compact?88:112;
+            UISlider *slider=[[UISlider alloc]initWithFrame:CGRectMake(CGRectGetWidth(card.bounds)-width-(compact?7:10),oldFrame.origin.y,width,oldFrame.size.height)];
+            slider.tag=kZN65SliderTagBase+(NSInteger)i;slider.minimumValue=1;slider.maximumValue=10;slider.value=(float)MIN(10.0,MAX(1.0,round(ZN65StoredValue(feature,1))));slider.minimumTrackTintColor=self.theme.accentColor;
+            [slider addTarget:self action:@selector(zn65fc_sliderChanged:) forControlEvents:UIControlEventValueChanged];
+            [slider addTarget:self action:@selector(zn65fc_sliderCommitted:) forControlEvents:(UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel)];
+            slider.accessibilityLabel=[NSString stringWithFormat:@"%@ 滑块 %@ 1-10 step 1",feature[@"title"]?:@"功能",ZNValueTypeName(valueType)];
+            [card addSubview:slider];
+        }
     }
 }
 - (void)zn65fc_renderFull{[self zn65fc_renderFull];[self zn65fc_decorateCompact:NO];}
 - (void)zn65fc_renderCompact{[self zn65fc_renderCompact];[self zn65fc_decorateCompact:YES];}
+
 - (void)zn65fc_numberChanged:(UITextField *)field {
-    NSInteger index=field.tag-kZN65NumberTagBase;NSArray *features=ZN65FeatureGroups();if(index<0||(NSUInteger)index>=features.count)return;NSDictionary *feature=features[(NSUInteger)index];ZNValueType type=(ZNValueType)[feature[@"valueType"] integerValue];if(type==ZNValueTypeAuto)type=ZNValueTypeI32;NSDictionary *range=ZNDefaultRangeForValueType(type,NO);NSString *err=nil,*canonical=ZNCanonicalValueString(field.text,type,range[@"min"],range[@"max"],range[@"step"],&err);if(!canonical){field.text=ZN65StoredText(feature,@"1");[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m5.5-typed] static number rejected: %@",err?:@"invalid"]];return;}[NSUserDefaults.standardUserDefaults setObject:canonical forKey:ZN65PreferenceKey(feature,@"valueText")];[NSUserDefaults.standardUserDefaults setDouble:canonical.doubleValue forKey:ZN65PreferenceKey(feature,@"value")];field.text=canonical;[NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureNumberValueDidChangeNotification object:self userInfo:ZN65EventInfo(feature,@(canonical.doubleValue),canonical)];
+    NSInteger index=field.tag-kZN65NumberTagBase;
+    NSArray *features=ZN65FeatureGroups();
+    if(index<0||(NSUInteger)index>=features.count)return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    ZN65StoreNumberText(feature,field.text);
 }
-- (void)zn65fc_actionTapped:(UIButton *)button {NSInteger index=button.tag-kZN65ActionTagBase;NSArray *features=ZN65FeatureGroups();if(index<0||(NSUInteger)index>=features.count)return;NSDictionary *feature=features[(NSUInteger)index];[NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureActionRequestedNotification object:self userInfo:ZN65EventInfo(feature,nil,nil)];}
-- (void)zn65fc_sliderChanged:(UISlider *)slider {NSInteger index=slider.tag-kZN65SliderTagBase;NSArray *features=ZN65FeatureGroups();if(index<0||(NSUInteger)index>=features.count)return;NSDictionary *feature=features[(NSUInteger)index];double value=MAX(1.0,MIN(10.0,round(slider.value)));slider.value=(float)value;NSString *text=[NSString stringWithFormat:@"%.0f",value];[NSUserDefaults.standardUserDefaults setDouble:value forKey:ZN65PreferenceKey(feature,@"value")];[NSUserDefaults.standardUserDefaults setObject:text forKey:ZN65PreferenceKey(feature,@"valueText")];[NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureSliderValueDidChangeNotification object:self userInfo:ZN65EventInfo(feature,@(value),text)];}
+
+- (void)zn65fc_numberReturn:(UITextField *)field {
+    [self zn65fc_numberChanged:field];
+    [field resignFirstResponder];
+}
+
+- (void)zn65fc_numberExecute:(UIButton *)button {
+    NSInteger index=button.tag-kZN65NumberExecuteTagBase;
+    NSArray *features=ZN65FeatureGroups();
+    if(index<0||(NSUInteger)index>=features.count)return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    NSString *text=ZN65StoredText(feature,@"0");
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureNumberValueDidChangeNotification object:self userInfo:ZN65EventInfo(feature,@(text.doubleValue),text)];
+}
+
+- (void)zn65fc_actionTapped:(UIButton *)button {
+    NSInteger index=button.tag-kZN65ActionTagBase;
+    NSArray *features=ZN65FeatureGroups();
+    if(index<0||(NSUInteger)index>=features.count)return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureActionRequestedNotification object:self userInfo:ZN65EventInfo(feature,nil,nil)];
+}
+
+- (void)zn65fc_sliderChanged:(UISlider *)slider {
+    NSInteger index=slider.tag-kZN65SliderTagBase;
+    NSArray *features=ZN65FeatureGroups();
+    if(index<0||(NSUInteger)index>=features.count)return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    double value=MAX(1.0,MIN(10.0,round(slider.value)));
+    slider.value=(float)value;
+    NSString *text=[NSString stringWithFormat:@"%.0f",value];
+    [NSUserDefaults.standardUserDefaults setDouble:value forKey:ZN65PreferenceKey(feature,@"value")];
+    [NSUserDefaults.standardUserDefaults setObject:text forKey:ZN65PreferenceKey(feature,@"valueText")];
+}
+
+- (void)zn65fc_sliderCommitted:(UISlider *)slider {
+    [self zn65fc_sliderChanged:slider];
+    NSInteger index=slider.tag-kZN65SliderTagBase;
+    NSArray *features=ZN65FeatureGroups();
+    if(index<0||(NSUInteger)index>=features.count)return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    double value=MAX(1.0,MIN(10.0,round(slider.value)));
+    NSString *text=[NSString stringWithFormat:@"%.0f",value];
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureSliderValueDidChangeNotification object:self userInfo:ZN65EventInfo(feature,@(value),text)];
+}
 @end
-extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void){static dispatch_once_t onceToken;dispatch_once(&onceToken,^{Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;Method a=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsFull)),b=class_getInstanceMethod(cls,@selector(zn65fc_renderFull));if(a&&b)method_exchangeImplementations(a,b);Method c=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsCompact)),d=class_getInstanceMethod(cls,@selector(zn65fc_renderCompact));if(c&&d)method_exchangeImplementations(c,d);});}
+
+extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void){
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken,^{
+        Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;
+        Method a=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsFull)),b=class_getInstanceMethod(cls,@selector(zn65fc_renderFull));if(a&&b)method_exchangeImplementations(a,b);
+        Method c=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsCompact)),d=class_getInstanceMethod(cls,@selector(zn65fc_renderCompact));if(c&&d)method_exchangeImplementations(c,d);
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.7-controls] Static Number=save+Return dismiss+manual Execute; Slider=save while drag+single commit on release"];
+    });
+}
