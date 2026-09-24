@@ -1,58 +1,74 @@
 # ROADMAP
 
-## Current milestone — M5.3 Control Binding V1 + M4.3 Search History UI Fix
+## Current milestone — M5.4 Unified Method Finder
 
-Branch: `feature/runtime-patch-menu-v0.5.8-m5.3-control-binding-v1`
+Branch: `refactor/method-finder-ui-consolidation-m5.4`
 
-CI-validated product head: `064d535918cacd0f40a220521af7cad18a3d42d9`
+CI-validated head: `8c6131b2628f1e8c980d8c71fc62ac0cdc8c5845`  
+Product-code head before CI-only verification change: `eff4f4d86c1851558e703addb89ed86578259a64`
 
-Implemented:
+### Why M5.4 exists
 
-- M5.2 Immediate Chain V2, `执行链` state machine, customer silent-success behavior and 50-entry persistent search-history storage are retained.
-- M4.3 search-history display bug fixed: the old implementation used `maxY(contentView)` and could place history below footer/other views. History is now inserted at the known M4.3 boundary immediately below the 170pt search card (`y=187`), and later M4.3 content is shifted down.
-- Search history remains newest-first, case-insensitive deduplicated, persistent, one row per query, independently scrollable, capped at 50.
-- Tapping a search-history row now **only autofills the 方法名 field**. It updates both the Finder query model and the visible query field (`tag 603001`) and does **not** automatically start a search.
-- Runtime per-argument controls are behavior-bound:
-  - Button: tap invokes immediately.
-  - Switch: value change invokes immediately.
-  - Number: editing completion invokes immediately.
-  - Slider: drag updates value; touch release commits one invoke.
-- Runtime invoke keeps hidden fixed args + exposed live values and reuses typed `/0-/8`, full-signature resolution, receiver handling and Immediate Chain.
-- Successful customer Runtime execution stays silent; failures still show `执行失败`; Builder/Finder test surfaces keep return/debug output.
-- Static Switch keeps existing Static Dispatch behavior.
-- Static Button enables the existing fixed Enabled variant.
-- Static Number/Slider V1 binds customer values only for verified ARM64 `MOVZ` + compatible `MOVK` generated ON variants; unknown encodings fail closed.
-- Static dynamic writes use expected-byte verification/read-back/rollback through `ZNRuntimePatchExecutor`.
-- Static Dispatch Entry ABI remains 128 bytes; Runtime Action Entry ABI remains 64 bytes.
+Device testing showed that repeated M5.2/M5.3 search-history fixes compiled and installed but were not reliably visible. Architecture audit confirmed that Method Finder had accumulated multiple UI generations on one `ZNRuntimeMenuControllerV040`, with repeated `method_exchangeImplementations`, post-render view walking, title-based button discovery, and target rebinding. Runtime behavior depended on install order.
 
-CI/build status:
+The detailed audit is in `METHOD_FINDER_UI_AUDIT.md`.
 
-- History UI Fix Run `35960360188`: SUCCESS
-- Job `107507414304`: SUCCESS
-- Artifact ID `10792097181`
-- Artifact ZIP SHA256 `48a8eae15b567f10ec889861c89f1c03c1d6a79b72e43479abcbfbbe6c084acf`
-- Dylib SHA256 `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`
-- Dylib size `1337776` bytes
-- Mach-O: thin arm64 dylib
-- Independent ZIP/dylib hash verification: PASS
+### Implemented
 
-Device acceptance required:
+- Added `ZNMethodFinderUnifiedUI.mm` as the single final Search / Results / Detail renderer.
+- Unified renderer intentionally does **not** call the previous renderer implementation, cutting the legacy renderer chain at runtime.
+- V3 query/candidate/page/limit/status state and existing resolver/invoke backends are retained.
+- Old M4.3/M4.4/M4.7 render wrappers remain compiled only for compatibility/backends but are buried below the Unified renderer and no longer own the final base layout.
+- Narrow post-render behavior decorators remain after Unified where required:
+  - M4.6.2 candidate binding for Test actions.
+  - M4.7 receiver-capture long press.
+  - M5.1/M5.2 chain create/execute/restart behavior.
+- Old `ZNInstallM52MethodSearchHistoryDeferred()` is no longer installed.
+- Search history is now part of the Unified Search renderer itself:
+  - same persistent key `zonoe.m52.method-search-history.v1`;
+  - maximum 50;
+  - newest first;
+  - case-insensitive dedupe;
+  - one row per query;
+  - independently scrollable;
+  - tapping a row only fills the 方法名 field and does not execute search.
+- Unified Results directly renders typed `/0-/8` argument rows rather than rendering older `/0-/1` cards and mutating them afterward.
+- Unified Detail directly renders method/ABI/ownership information.
+- M5.3 Runtime Control Binding, Static Control Binding, M5.2 Chain V2, Return Capture and customer silent-success behavior are retained below/around the new UI path.
+- Static Entry ABI remains 128 bytes; Runtime Action ABI remains 64 bytes.
 
-1. Search at least two method names and return to M4.3 search page; confirm `搜索记录 · n/50` appears directly below the main search card and above the status card.
-2. Tap a history row; confirm the value is copied into the visible `方法名` field and **no search starts automatically**.
-3. Manually press `搜索` after autofill; confirm the selected history query searches normally.
-4. Reopen/restart the menu and confirm history persists; repeated queries deduplicate and move to the top; only newest 50 remain.
-5. Runtime Switch/Number/Slider/Button auto-execute regression.
-6. Static Button and compatible MOVZ/MOVK Number/Slider regression.
-7. Regress Chain V2, ordinary Static Switch, Runtime `/0-/8`, and suffixless generated binaries.
+### CI history
 
-Known architectural boundary:
+- Run `35964177732`: first compile failed in `ZNIL2CPPMethodFinderMenuBinding.mm` because the new install-graph log referenced `ZNRuntimeLogger` without importing `ZNPatchCore.h`; fixed without architecture change.
+- Run `35964480222`: arm64 Build/Link/Sign succeeded; Binary Verify failed only because `strings -a` cannot reliably match Chinese Objective-C CFString constants.
+- Final Run `35964757740` / Job `107520782444`: Source Contract, arm64 Build, Binary Verify and Artifact Upload all SUCCESS.
 
-- Static dynamic V1 changes generated executable ON-variant instructions through the transactional Runtime Patch executor. On targets that prohibit RX→RW executable-page mutation, this path may fail closed. Future Static Dynamic V2 should use generated RW value cells + parameterized stubs.
-- Static V1 intentionally does not reinterpret arbitrary Enabled bytes as Int32/Float or guess instruction semantics.
+### Final artifact
 
-Next engineering work after device evidence:
+- Artifact: `ZonoPatch-v0.5.8-M5.4-Unified-Method-Finder`
+- Artifact ID: `10793662459`
+- Artifact ZIP SHA256: `b607318f0225a2b4e1203ca30a151913c22eeb79e13a0519f42b1f13d769af6b`
+- Dylib: `ZonoPatch_v0.5.8_M5.4_Unified_Method_Finder.dylib`
+- Dylib size: `1354480` bytes
+- Dylib SHA256: `6804ca2f2a242337f8a81eb20125e5b0867bd59add02b9df0e28a35656f37ca2`
+- Mach-O: thin arm64 dynamically linked shared library
+- Independent downloaded ZIP/dylib hash verification: PASS
+- Previous M5.3 HistoryFix was `1337776` bytes / `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`; M5.4 is a different binary.
 
-- Accept/reject the corrected M4.3 search-history placement and autofill-only interaction on device.
-- If executable-page mutation is blocked, implement Static Dynamic V2 with RW value cells + generated parameterized stubs.
-- Continue Chain typed-row/enum/object-source work after the control-binding regression matrix is accepted.
+### Device acceptance required
+
+1. Open 方法查找 and confirm the title is `IL2CPP 方法查找 · Unified`; seeing M4.3 means the new final renderer is not active.
+2. Search at least two method names, return to Search, and confirm `搜索记录 · n/50` appears directly in the Unified page.
+3. Tap a history row; confirm only 方法名 is filled and no automatic search occurs.
+4. Manually press 搜索 and confirm the autofilled query executes normally.
+5. Confirm `/0-/8` candidates render argument rows correctly and overload filtering still works.
+6. Test/捕获 must still target the selected candidate; long-press receiver capture must remain functional.
+7. 创建方法 must still add the correct Runtime Action.
+8. Chain flow must regress cleanly: 链式调用 -> 完成链 -> 执行链; long-press 执行链 restarts authoring.
+9. Regress M5.3 Runtime Button/Switch/Number/Slider behavior and Static controls.
+10. Regress detail page, Return Capture, customer silent success/failure alert, and suffixless generated binary flow.
+
+### Next engineering step after device evidence
+
+- If Unified UI passes device acceptance, split mixed legacy installer files into explicit backend modules vs deprecated renderer modules and stop compiling obsolete renderer implementations in a later cleanup milestone.
+- Do not add any new Method Finder base-renderer swizzle. New features must be state/backend methods, explicit Unified renderer code, or narrowly scoped behavior decorators.
