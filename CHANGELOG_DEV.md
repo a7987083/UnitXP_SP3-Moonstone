@@ -2,49 +2,35 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
-## 2026-09-24 — v0.5.8-dev M5.3 Control Binding V1
+## 2026-09-24 — M5.3 M4.3 Search History UI Fix
 
 Branch: `feature/runtime-patch-menu-v0.5.8-m5.3-control-binding-v1`
 
-CI-validated product head: `b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f`
+CI-validated product head: `064d535918cacd0f40a220521af7cad18a3d42d9`
 
 实际修改：
 
-- 从 M5.2 HistoryFix 绿色基线 `88ee27688ac5db067caded06da2feefb77323340` 创建 M5.3 分支。
-- 新增 `ZNM53ControlBinding.mm`，作为最外层 Control Binding。
-- Runtime 参数控件行为闭环：
-  - Button：原点击路径立即 invoke。
-  - Switch：`ValueChanged` 后立即 invoke。
-  - Number：编辑期间只更新值，结束编辑后立即 invoke。
-  - Slider：拖动期间只更新/量化值，TouchUp/Cancel 时执行一次最终 invoke。
-- Runtime 自动执行仍走现有 `zn51_runtimeExecute:`，因此继续复用参数合成、typed invoke、full signature、Immediate Chain 及 M5.1 Silent Customer Execution；成功静默、失败可见。
-- Static Button 从“只发 Notification”绑定到真实 `setEnabled:YES` 固定 Enabled variant。
-- Static Number/Slider 新增 ARM64 `MOVZ(+MOVK...)` 动态绑定：
-  - 从 Static Dispatch record 读取 Protection V2 ON entry；
-  - 解析碎片链中的 Enabled 指令地址；
-  - 要求首指令为 MOVZ，后续仅接受同宽度/同目标寄存器 MOVK；
-  - 按客户整数值改写 imm16 halfword；
-  - 缺少所需 MOVK 槽位或不是可识别序列时 fail closed；
-  - 通过 `ZNRuntimePatchExecutor` 做 expected-byte 校验、RX→RW、写入、read-back、失败回滚；
-  - 写入时临时关闭匹配 Static record，成功后重新启用，减少修改正在执行 ON variant 的风险。
-- Static Slider 采用 120ms generation debounce，避免每一个 ValueChanged 都写入。
-- Static V1 只接受非负整数；W 最大 UINT32 范围但仍受 MOVK 槽位限制；X 为保证 NSNumber/double 精确性限制到 `2^53-1`。
-- 未修改 Static 128-byte Entry ABI，也未修改 Runtime 64-byte Action ABI。
-- 版本标识更新为 `0.5.8 · M5.3` / `Control Binding · Runtime Auto Execute · Static Dynamic MOV`。
+- 修复 M5.3 真机 M4.3 方法查找页“搜索历史存在但看不到”的布局问题。
+- 根因：`ZNM52MethodSearchHistory.mm` 旧实现使用 `maxY(contentView)+8` 放置历史卡片；`contentView` 同时包含更靠下的 footer/其他视图，因此历史被追加到可视 Finder 区域之后。
+- 新实现使用 M4.3 已确认的固定搜索页几何：主搜索卡 `y=9 / h=170`，历史卡固定插入 `y=187`，原状态卡及其后的主内容整体向下位移。
+- 搜索历史继续使用 NSUserDefaults 持久化，最多 50 条、最新置顶、大小写不敏感去重、一行一个、独立滚动。
+- 历史点击交互按最新要求修改：点击只把历史值写回 Finder query model 和可见方法名输入框（V3/M4.3 query field tag `603001`），不再自动调用 `znm43_startSearch:`。
+- 用户仍需手动点击右侧 `搜索` 才执行查询。
+- 未修改 M5.3 Runtime Control Binding、Static Dynamic MOV、Immediate Chain V2 逻辑。
 
 CI：
 
-- Run `35951498398` / Job `107480818078`：Source Contract、Dobby arm64、Build M5.3、Binary Verify、Artifact Upload 全部 SUCCESS。
+- Run `35960360188` / Job `107507414304`：Source Contract、Dobby arm64、Build M5.3、Binary Verify、Artifact Upload 全部 SUCCESS。
 
 最终制品：
 
 - Artifact: `ZonoPatch-v0.5.8-M5.3-Control-Binding-V1`
-- Artifact ID: `10788349821`
-- Artifact ZIP size: `610100`
-- Artifact ZIP SHA256: `80a2461b89ad5625d03d86407ad8ec5ea9854cde46422485d08e1037232fd777`
+- Artifact ID: `10792097181`
+- Artifact ZIP size: `610491`
+- Artifact ZIP SHA256: `48a8eae15b567f10ec889861c89f1c03c1d6a79b72e43479abcbfbbe6c084acf`
 - Dylib: `ZonoPatch_v0.5.8_M5.3_Control_Binding_V1.dylib`
 - Dylib size: `1337776`
-- Dylib SHA256: `e4ed0643ed7cf8aceb89f93f06c40f41442f4f12a64b1d8bcd7970765df7b98b`
+- Dylib SHA256: `bd7ca8773dca7e26ef989821c3aea3a5454cffc94d6cf0039ddb35cbb7dff1dc`
 - Mach-O: thin arm64 dynamically linked shared library
 - 独立下载后 ZIP digest 与 GitHub Artifact digest 一致，dylib hash 与 CI `SHA256.txt` 一致。
 
@@ -55,11 +41,19 @@ CI：
 - arm64 compile/link/sign: YES
 - Binary Verify: YES
 - artifact independent hash verification: YES
+- M4.3 历史卡片新位置真机验证: PENDING
+- 历史点击仅回填、不自动搜索真机验证: PENDING
 - Runtime 四控件自动执行真机验证: PENDING
-- Static Button 真机绑定验证: PENDING
-- Static MOVZ/MOVK Number/Slider 真机动态值验证: PENDING
-- 非越狱/受限签名环境下 executable-page RX→RW 是否允许: PENDING；失败时应 fail closed
+- Static Button / MOVZ+MOVK 动态值真机验证: PENDING
 - full regression: NO
+
+## 2026-09-24 — v0.5.8-dev M5.3 Control Binding V1
+
+- 基线：M5.2 HistoryFix `88ee27688ac5db067caded06da2feefb77323340`。
+- 新增 `ZNM53ControlBinding.mm`。
+- Runtime Button/Switch/Number/Slider 完成真实 invoke 绑定；成功静默、失败可见。
+- Static Button 绑定固定 Enabled；Static Number/Slider V1 对 Protection V2 ON variant 的 ARM64 MOVZ(+MOVK) immediate 做 fail-closed 动态绑定。
+- 初始绿色产品 HEAD：`b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f`；Run `35951498398` / Job `107480818078`。
 
 ## Historical anchors
 
