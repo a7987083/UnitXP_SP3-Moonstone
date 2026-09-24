@@ -2,68 +2,75 @@
 
 只记录当前未关闭问题、验证缺口和设计边界。
 
-## KI-M54-001 — Unified Method Finder 可见性已真机确认
+## KI-M55-001 — Typed Control Binding V2 尚未真机验收
 
 Severity: `HIGH`  
-Status: `DEVICE VISIBILITY ACCEPTED / INTERACTION REGRESSION PENDING`
+Status: `SOURCE / CI / BINARY / ARTIFACT VERIFIED / DEVICE PENDING`
 
-2026-09-24 用户真机反馈 M5.4 Unified/搜索历史界面“有了”。因此此前“最终 Unified renderer 未接管 / 搜索历史仍不可见”的核心阻塞项可关闭。当前剩余风险转为交互与后端行为回归，而不是基础页面是否出现。
+M5.5 已实现统一 Value Type：`Auto/I32/U32/I64/U64/F32/F64`，Runtime 与 Static 共用同一公共类型模型；arm64 构建、Binary Verify 和 Artifact 独立 hash 均通过。仍需真机验证 Builder 交互、Runtime invoke 和 Static 编码后端。
+
+## KI-M55-002 — Static F32/F64 仅支持可精确编码的 scalar FMOV immediate
+
+Severity: `MEDIUM`  
+Status: `BY DESIGN / FAIL-CLOSED`
+
+M5.5 可识别 scalar `FMOV S,#imm` 与 `FMOV D,#imm` 并分别绑定 F32/F64，但不会近似任意 float/double。目标值若不在 scalar FMOV immediate 可表达集合中，直接 `执行失败`，不会盲改。当前 Slider 默认 `1..10 / step 1`；这些整数属于可精确表示的常用范围。
+
+## KI-M55-003 — Static 大整数依赖 MOVK 槽位
+
+Severity: `MEDIUM`  
+Status: `BY DESIGN / FAIL-CLOSED`
+
+I32/U32/I64/U64 使用已生成 Protection V2 ON variant 内的 `MOVZ(+MOVK)` 序列。若目标值需要某个 16-bit halfword，但原 Enabled 序列没有对应 MOVK 槽位，则拒绝执行。不会自行覆盖后续 RET/其他指令来“凑”常量。
+
+## KI-M55-004 — Static 自定义 Range 尚未进入生成物 metadata
+
+Severity: `MEDIUM`  
+Status: `KNOWN LIMITATION`
+
+Runtime 已支持 Default/Min/Max/Step 编辑和 JSON 导出；Static 目前只持久化 Control Type + Value Type。Static Slider 采用固定产品默认 `1..10 / step 1`，Number 使用 Value Type 默认范围。若需要每个 Static Feature 自定义 Range，应增加 owned metadata extension/table，而不是随意扩大或破坏 128-byte Static Entry ABI。
+
+## KI-M55-005 — Static dynamic 仍涉及 executable-page runtime write
+
+Severity: `HIGH`  
+Status: `ARCHITECTURAL LIMIT / DEVICE VERIFICATION REQUIRED`
+
+M5.5 typed adapter 仍通过 `ZNRuntimePatchExecutor` 修改生成的 ON variant 指令，并使用 expected-byte/read-back/rollback。某些签名/设备模型可能禁止 RX→RW executable-page mutation；此时必须 fail closed。若真实目标环境阻止，应迁移到 build-time parameterized stub + RW value cell。
+
+## KI-M55-006 — Runtime 手工 Value Type 不改变真实 IL2CPP 方法 ABI
+
+Severity: `MEDIUM`  
+Status: `SEMANTIC BOUNDARY`
+
+Runtime Action 的真实调用 ABI 仍来自方法签名。`Auto` 是推荐路径；手工选择 I32/U32/I64/U64/F32/F64 目前负责客户值校验/范围语义，并不会把 `System.Int32` 方法参数重新解释成 `System.Single`。真机验收时应优先使用 Auto 或与方法签名一致的显式类型。
 
 ## KI-M54-002 — 旧 Method Finder UI 源码仍在编译
 
 Severity: `MEDIUM`  
 Status: `INTENTIONAL TRANSITION BOUNDARY`
 
-M5.4 已将旧 renderer 从最终 UI 路径截断，但 M4.x/M5.x 若干 installer 同时混有 backend/action swizzle 与 UI wrapper，因此旧文件暂时仍编译并部分安装，以保留 resolver、Invoke、Builder、candidate binding、receiver capture、chain 等能力。完整回归通过后，应继续拆分 mixed installer，并从 Makefile / install graph 物理移除已废弃 renderer 实现。
+M5.4 已切断旧 base renderer 最终 UI 路径，但若干历史 installer 同时混有 backend/action 行为，所以旧源文件仍部分编译。M5.4/M5.5 完整回归后再拆 mixed installer 并物理删除 obsolete renderer。
 
 ## KI-M54-003 — Unified Search History 交互仍待真机验收
 
 Severity: `MEDIUM`  
-Status: `VISIBLE ON DEVICE / INTERACTION VERIFICATION PENDING`
+Status: `VISIBLE ON DEVICE / INTERACTION PENDING`
 
-搜索历史已经真机可见。仍需验证：点击历史仅回填 方法名、不自动搜索；手动点击搜索后执行正确查询；重启持久化；重复项去重；超过 50 条时淘汰最旧项。
+用户已确认 Unified/search-history UI 真机可见。仍需验证：点击历史仅回填方法名、不自动搜索；手动搜索；重启持久化；去重；最大 50 条。
 
 ## KI-M54-004 — Unified Results 行为装饰器需完整回归
 
 Severity: `HIGH`  
-Status: `SOURCE/CI/BINARY VERIFIED / DEVICE REGRESSION PENDING`
+Status: `DEVICE REGRESSION PENDING`
 
-Unified Results 直接渲染 `/0-/8` typed arg rows。M4.6.2 candidate binding、M4.7 receiver-capture long press、M5.1/M5.2 chain create/execute/restart 仍作为窄行为装饰器包在 Unified 外层。需要真机确认 Test 不串 candidate、receiver gesture 正确、创建方法和链按钮状态机无回归。
-
-## KI-M53-001 — Runtime 四控件自动执行尚未真机完整验收
-
-Severity: `HIGH`  
-Status: `IMPLEMENTED / CI+BINARY VERIFIED / DEVICE VERIFICATION PENDING`
-
-M5.3 将 Runtime Button/Switch/Number/Slider 绑定到真实 invoke：Button 点击、Switch 改值、Number 编辑结束、Slider 松手执行。成功静默，失败显示 `执行失败`。M5.4 未改其后端，但 UI 架构变更后仍需回归。
-
-## KI-M53-002 — Static Number/Slider V1 仅支持 MOVZ(+MOVK) 整数常量
-
-Severity: `HIGH`  
-Status: `IMPLEMENTED / FAIL-CLOSED OUTSIDE SUPPORTED ENCODING / DEVICE VERIFICATION PENDING`
-
-V1 仅处理可验证 ARM64 MOVZ + compatible MOVK immediate。负数、浮点、FMOV、ADD/SUB/ORR immediate、任意 raw bytes 均不猜测编码。
-
-## KI-M53-003 — Static dynamic V1 需要 executable-page runtime write
-
-Severity: `HIGH`  
-Status: `ARCHITECTURAL LIMIT / DEVICE VERIFICATION REQUIRED`
-
-Static Number/Slider V1 会对生成 ON variant instruction page 做 transactional RX→RW 写入。受限签名/非越狱环境可能拒绝；此时必须 fail closed。若目标设备不允许，下一代应使用构建期 parameterized stub + RW value cell，而不是弱化保护或盲写。
-
-## KI-M53-004 — Static Slider 范围仍使用旧默认值
-
-Severity: `MEDIUM`  
-Status: `KNOWN LIMITATION`
-
-Builder 尚未增加 Static 专用 min/max/step 元数据。应在动态后端目标设备验收后再扩展。
+需继续验证 `/0-/8`、candidate binding、Test/捕获、receiver long-press、创建方法、链按钮状态机。
 
 ## KI-M52-001 — Immediate Chain V2 Level 0 返回问题仍开放
 
 Severity: `HIGH`  
 Status: `PARTIAL DEVICE EVIDENCE / INVESTIGATION OPEN`
 
-用户已真机确认 `执行链` 入口存在并进入执行器，但一次链执行在 Level 1 前停止：`previous managed return is null`。仍需区分 `yo::wB()/0` 真实返回 null 与 Root receiver/return propagation 丢失。M5.4 UI 重构不解决这一后端问题。
+此前一次 `执行链` 在 Level 1 前停止：`previous managed return is null`。仍需区分 Root 方法真实返回 null 与 receiver/return propagation 问题。
 
 ## KI-M52-009 — Suffixless generated binary 缺完整真机验收
 
@@ -71,10 +78,3 @@ Severity: `HIGH`
 Status: `SOURCE+CI COMPILE VERIFIED / FIXTURE+DEVICE PENDING`
 
 真实 UnityFramework Builder 输出、替回 IPA、签名、安装、冷启动仍需完整设备证据。
-
-## Legacy open validation gaps
-
-- Enum member-name dropdown 尚未实现。
-- Chain V2 typed per-node rows、任意 Level-N object arg、ref/out、复杂 ValueType 仍未实现。
-- M5.0 managed object lifetime / class compatibility 在不同 Unity/IL2CPP 版本仍需设备证据。
-- Protection V1/V2 真实 staging -> final IPA 冷启动证据仍未自动关闭。
