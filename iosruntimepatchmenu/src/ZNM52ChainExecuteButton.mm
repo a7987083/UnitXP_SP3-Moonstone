@@ -13,12 +13,15 @@ static const void *kZNM52XIndexKey = &kZNM52XIndexKey;
 @property(nonatomic,strong) UIView *contentView;
 @property(nonatomic,strong) UIWindow *hostWindow;
 - (void)zn60v3_renderResultsAtWidth:(CGFloat)width;
-- (void)zn52x_renderResultsAtWidth:(CGFloat)width;
 - (NSArray<NSDictionary *> *)zn60v3_candidates;
 - (NSInteger)znm42_filter;
 - (void)zn60v3_setStatus:(NSString *)status;
 - (void)renderPage;
 - (void)zn52_chainTapped:(UIButton *)sender;
+@end
+
+@interface ZNRuntimeMenuControllerV040 (ZNM52ChainExecuteButton)
+- (void)zn52x_renderResultsAtWidth:(CGFloat)width;
 - (void)zn52x_executeChainTapped:(UIButton *)sender;
 - (void)zn52x_restartChainLongPress:(UILongPressGestureRecognizer *)gesture;
 @end
