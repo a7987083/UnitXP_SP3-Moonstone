@@ -9,13 +9,6 @@
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNPatchCore.h"
 
-// ZonoPatch v0.5.6.2 Builder mode gate.
-//
-// IMPORTANT: workspace.filledCount is intentionally NOT used to decide whether
-// the output is Static/Mixed. filledCount counts a row when either Offset OR
-// Enabled has text, so a stale/half-edited Builder row can incorrectly divert a
-// Runtime-only build into Static V3 postprocess. A Static intent is considered
-// real only when both Offset and Enabled are present.
 static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
                                            NSUInteger *partialRows) {
     NSUInteger complete = 0;
@@ -30,6 +23,45 @@ static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
     return complete;
 }
 
+static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutputs,
+                                                NSString **report,
+                                                NSString **error) {
+    NSString *unity = nil;
+    for (NSString *path in builderOutputs ?: @[]) {
+        NSString *name = path.lastPathComponent.lowercaseString;
+        if ([name containsString:@"unityframework"] &&
+            ![name hasSuffix:@".znpatched"] &&
+            [NSFileManager.defaultManager fileExistsAtPath:path]) {
+            unity = path;
+            break;
+        }
+    }
+    if (!unity.length) return ZNRuntimeActionAugmentGeneratedOutputsM46(builderOutputs, report, error);
+
+    NSString *alias = [unity stringByAppendingString:@".znpatched"];
+    [NSFileManager.defaultManager removeItemAtPath:alias error:nil];
+    NSError *linkError = nil;
+    if (![NSFileManager.defaultManager linkItemAtPath:unity toPath:alias error:&linkError]) {
+        if (error) *error = [NSString stringWithFormat:@"M5.8.1 Runtime-only Full Signature alias 创建失败：%@", linkError.localizedDescription ?: @"unknown"];
+        return NO;
+    }
+
+    NSMutableArray<NSString *> *bridged = [builderOutputs mutableCopy] ?: [NSMutableArray array];
+    [bridged addObject:alias];
+    NSString *innerReport = nil;
+    NSString *innerError = nil;
+    BOOL ok = ZNRuntimeActionAugmentGeneratedOutputsM46(bridged, &innerReport, &innerError);
+    [NSFileManager.defaultManager removeItemAtPath:alias error:nil];
+
+    if (!ok) {
+        if (error) *error = innerError ?: @"M4.6 Full Signature 写入失败";
+        return NO;
+    }
+    if (report) *report = innerReport.length ? [innerReport stringByAppendingString:@" · M5.8.1 suffixless hard-link bridge"] : @"M5.8.1 Runtime-only Full Signature 完成";
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.1-runtimeonly-signature] suffixless=%@ alias=%@ success", unity.lastPathComponent, alias.lastPathComponent]];
+    return YES;
+}
+
 @implementation ZNStaticBinaryBuilder
 
 + (BOOL)buildWorkspace:(ZNBinaryPatchWorkspace *)workspace
@@ -42,7 +74,7 @@ static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
     BOOL runtimeOnly = actions.count > 0 && completeStaticRows == 0;
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
-        @"[builder-mode-m5.6.2] runtime=%lu completeStatic=%lu partialStatic=%lu mode=%@",
+        @"[builder-mode-m5.8.1] runtime=%lu completeStatic=%lu partialStatic=%lu mode=%@",
         (unsigned long)actions.count,
         (unsigned long)completeStaticRows,
         (unsigned long)partialStaticRows,
@@ -53,18 +85,12 @@ static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
     NSString *builderError = nil;
 
     if (runtimeOnly) {
-        if (!ZNRuntimeOnlyBinaryBuilderBuildWorkspace(workspace,
-                                                      &builderOutputs,
-                                                      &builderReport,
-                                                      &builderError)) {
+        if (!ZNRuntimeOnlyBinaryBuilderBuildWorkspace(workspace, &builderOutputs, &builderReport, &builderError)) {
             if (error) *error = builderError ?: @"Runtime-only Builder 生成失败";
             return NO;
         }
     } else {
-        if (!ZNStaticBinaryBuilderV3BuildWorkspace(workspace,
-                                                   &builderOutputs,
-                                                   &builderReport,
-                                                   &builderError)) {
+        if (!ZNStaticBinaryBuilderV3BuildWorkspace(workspace, &builderOutputs, &builderReport, &builderError)) {
             if (error) *error = builderError ?: @"Static Binary Builder V3 生成失败";
             return NO;
         }
@@ -72,18 +98,17 @@ static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
 
     NSString *actionReport = nil;
     NSString *actionError = nil;
-    if (!ZNRuntimeActionEmbedIntoGeneratedOutputs(builderOutputs ?: @[],
-                                                  &actionReport,
-                                                  &actionError)) {
+    if (!ZNRuntimeActionEmbedIntoGeneratedOutputs(builderOutputs ?: @[], &actionReport, &actionError)) {
         if (error) *error = actionError ?: @"Runtime Method Call 写入失败";
         return NO;
     }
 
     NSString *signatureReport = nil;
     NSString *signatureError = nil;
-    if (!ZNRuntimeActionAugmentGeneratedOutputsM46(builderOutputs ?: @[],
-                                                   &signatureReport,
-                                                   &signatureError)) {
+    BOOL signatureOK = runtimeOnly
+        ? ZNM581AugmentRuntimeOnlySignatures(builderOutputs ?: @[], &signatureReport, &signatureError)
+        : ZNRuntimeActionAugmentGeneratedOutputsM46(builderOutputs ?: @[], &signatureReport, &signatureError);
+    if (!signatureOK) {
         if (error) *error = signatureError ?: @"M4.6 Full Method Signature 写入失败";
         return NO;
     }
@@ -91,37 +116,20 @@ static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
     NSString *verificationReport = nil;
     if (runtimeOnly) {
         NSString *verificationError = nil;
-        if (!ZNM462VerifyRuntimeOnlyOutputs(builderOutputs ?: @[],
-                                            actions.count,
-                                            &verificationReport,
-                                            &verificationError)) {
+        if (!ZNM462VerifyRuntimeOnlyOutputs(builderOutputs ?: @[], actions.count, &verificationReport, &verificationError)) {
             if (error) *error = verificationError ?: @"M4.6.2 Runtime-only Verify 失败";
             return NO;
         }
     }
 
     NSString *combinedReport = builderReport ?: @"";
-    if (actionReport.length) {
-        combinedReport = combinedReport.length
-            ? [combinedReport stringByAppendingFormat:@"\n%@", actionReport]
-            : actionReport;
-    }
-    if (signatureReport.length) {
-        combinedReport = combinedReport.length
-            ? [combinedReport stringByAppendingFormat:@"\n%@", signatureReport]
-            : signatureReport;
-    }
-    if (verificationReport.length) {
-        combinedReport = combinedReport.length
-            ? [combinedReport stringByAppendingFormat:@"\n%@", verificationReport]
-            : verificationReport;
+    for (NSString *piece in @[actionReport ?: @"", signatureReport ?: @"", verificationReport ?: @""]) {
+        if (!piece.length) continue;
+        combinedReport = combinedReport.length ? [combinedReport stringByAppendingFormat:@"\n%@", piece] : piece;
     }
     if (runtimeOnly && partialStaticRows) {
-        NSString *ignored = [NSString stringWithFormat:@"M5.6.2 Runtime-only：忽略 %lu 个未完整填写的 Offset/Enabled 草稿行。",
-                             (unsigned long)partialStaticRows];
-        combinedReport = combinedReport.length
-            ? [combinedReport stringByAppendingFormat:@"\n%@", ignored]
-            : ignored;
+        NSString *ignored = [NSString stringWithFormat:@"M5.8.1 Runtime-only：忽略 %lu 个未完整填写的 Offset/Enabled 草稿行。", (unsigned long)partialStaticRows];
+        combinedReport = combinedReport.length ? [combinedReport stringByAppendingFormat:@"\n%@", ignored] : ignored;
     }
 
     NSString *postprocessError = nil;
@@ -134,7 +142,7 @@ static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
     }
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ completeStatic=%lu partialStatic=%lu runtime=%lu",
-                                         runtimeOnly ? @"runtime-only-m4.6.2-verified" : @"static/mixed-v3",
+                                         runtimeOnly ? @"runtime-only-m5.8.1" : @"static/mixed-v3",
                                          (unsigned long)completeStaticRows,
                                          (unsigned long)partialStaticRows,
                                          (unsigned long)actions.count]];
