@@ -149,6 +149,12 @@ static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
 }
 
 - (void)zn65fc_sliderChanged:(UISlider *)slider {
+    // M5.8 drag hot path: UIKit alone moves the thumb. No runtime refresh,
+    // persistence, value rewrite, notification, render, or backend call.
+    (void)slider;
+}
+
+- (void)zn65fc_sliderCommitted:(UISlider *)slider {
     NSInteger index=slider.tag-kZN65SliderTagBase;
     NSArray *features=ZN65FeatureGroups();
     if(index<0||(NSUInteger)index>=features.count)return;
@@ -158,16 +164,6 @@ static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
     NSString *text=[NSString stringWithFormat:@"%.0f",value];
     [NSUserDefaults.standardUserDefaults setDouble:value forKey:ZN65PreferenceKey(feature,@"value")];
     [NSUserDefaults.standardUserDefaults setObject:text forKey:ZN65PreferenceKey(feature,@"valueText")];
-}
-
-- (void)zn65fc_sliderCommitted:(UISlider *)slider {
-    [self zn65fc_sliderChanged:slider];
-    NSInteger index=slider.tag-kZN65SliderTagBase;
-    NSArray *features=ZN65FeatureGroups();
-    if(index<0||(NSUInteger)index>=features.count)return;
-    NSDictionary *feature=features[(NSUInteger)index];
-    double value=MAX(1.0,MIN(10.0,round(slider.value)));
-    NSString *text=[NSString stringWithFormat:@"%.0f",value];
     [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureSliderValueDidChangeNotification object:self userInfo:ZN65EventInfo(feature,@(value),text)];
 }
 @end
@@ -178,6 +174,6 @@ extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void){
         Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;
         Method a=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsFull)),b=class_getInstanceMethod(cls,@selector(zn65fc_renderFull));if(a&&b)method_exchangeImplementations(a,b);
         Method c=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsCompact)),d=class_getInstanceMethod(cls,@selector(zn65fc_renderCompact));if(c&&d)method_exchangeImplementations(c,d);
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.7-controls] Static Number=save+Return dismiss+manual Execute; Slider=save while drag+single commit on release"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.8-control] Static Number=save/Return-dismiss/manual Execute; Slider=zero-side-effect drag/single release commit"];
     });
 }
