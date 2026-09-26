@@ -22,9 +22,11 @@ jobs:
           grep -q '0.5.8 · M5.8' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNInstallM58UnifiedControlRuntimeDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           grep -q 'src/ZNM58UnifiedControlRuntime.mm' iosruntimepatchmenu/Makefile
-          grep -q 'M5.5 retained as Builder-only' iosruntimepatchmenu/src/ZNM55TypedControlBinding.mm
+          grep -q 'single Builder typed/gate decorator' iosruntimepatchmenu/src/ZNM55TypedControlBinding.mm
           ! grep -q 'znm55_runtimeSliderChanged' iosruntimepatchmenu/src/ZNM55TypedControlBinding.mm
           ! grep -q 'znm55_runtimeNumberChanged' iosruntimepatchmenu/src/ZNM55TypedControlBinding.mm
+          ! grep -q 'ZNInstallM57RuntimeOnlyBuilderGateDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          ! grep -q 'src/ZNM57RuntimeOnlyBuilderGate.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNRuntimeMethodCallFeatureUI.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNM51SilentCustomerExecution.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNM53ControlBinding.mm' iosruntimepatchmenu/Makefile
