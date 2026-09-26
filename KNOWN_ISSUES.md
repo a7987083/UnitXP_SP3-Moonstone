@@ -2,40 +2,47 @@
 
 只记录当前未关闭问题、验证缺口和设计边界。
 
-## KI-M57-001 — Runtime Slider 多 owner / 双 UI 已在 M5.7 收敛，真机待验收
+## KI-M58-001 — Runtime Slider 历史卡死：M5.8 已物理去重，真机待验收
+
+Severity: `HIGH`  
+Status: `SOURCE/CI/BINARY CLEANUP COMPLETE / DEVICE PENDING`
+
+M5.7 真机仍在未点执行、仅拖动 Slider 时卡死。M5.8 审计确认历史上 Runtime Slider 经历 M5.1/M5.5/M5.3/M5.5.1/M5.6.2/M5.7 多代 ownership；此外 M5.7 ValueChanged 仍会反写 slider.value 并在事件派发中动态 addTarget。M5.8 改由 `ZNM58UnifiedControlRuntime` 自己创建客户 Runtime 控件；Slider 的 ValueChanged handler 为零副作用，release target 在控件创建时一次性绑定。相关 legacy owner 已从 Makefile 物理移除。需要真机确认拖动不再卡死/闪退。
+
+## KI-M58-002 — Static Slider 旧拖动热路径过重
 
 Severity: `HIGH`  
 Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
 
-审计确认历史上同时存在多层 Runtime Slider handler（M5.1/M5.3/M5.5/M5.5.1/M5.6.2）以及独立 Static Feature Slider `ValueChanged` 通知路径；同时旧 `ZNRuntimeMethodCallFeatureUI` 和 M5.1 typed Runtime cards 构成两套客户 Runtime UI。M5.7 停止安装 M5.3/M5.5.1/M5.6.2 control owner 和旧 Runtime Feature UI，最终 Runtime 事件只由 `ZNM57UnifiedRuntimeControls` 拥有。需要真机确认拖动不再卡死/闪退且 release 只执行一次。
+旧 `ZNFeatureRuntimeControlsV2` 在每次 ValueChanged 中调用 `ZN65FeatureGroups()`，继而触发 `ZNStaticDispatchRuntime refresh`、遍历 records、写 NSUserDefaults 并反写 slider.value。M5.8 已将 ValueChanged 改成 no-op；所有量化/持久化/notification/backend commit 移到 release。需使用 M5.8-regenerated target 真机验证。
 
-## KI-M57-002 — Number 统一为 Return 收键盘、手动 Execute
-
-Severity: `HIGH`  
-Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
-
-Runtime 与 Static/Offset Number 均已改为输入只更新值；Return/Done 保存并 `resignFirstResponder`，不得因此执行。Runtime 使用卡片 `执行`；Static/Offset Number 使用 inline `执行`。需真机确认 Return 确实收起键盘且功能在 Execute 前不生效。
-
-## KI-M57-003 — Runtime-only 实际生成但 UI 报失败
+## KI-M58-003 — Builder renderer 仍有多层包装
 
 Severity: `HIGH`  
-Status: `ROOT CAUSE FIXED / DEVICE PENDING`
+Status: `PHASE 2 OPEN`
 
-Runtime-only 从 M5.1 起保持原始 Mach-O 文件名，无 `.znpatched` 后缀；旧 `ZNM462RuntimeOnlyVerifier` 仍只扫描 `.znpatched`，导致 Mach-O 实际生成成功后 verifier 返回“没有输出”。M5.7 改为按 thin Mach-O magic/内容识别 suffixless 输出。同时新增 Runtime-only Builder gate，使 Runtime Actions + 0 完整 Static 行时无需普通 Offset 即可启用生成。需真机确认最终 UI 报告成功。
+M5.8 Phase 1 已把 standalone Runtime-only gate 合并进 M5.5 authoring decorator，但 Builder 仍存在 `ZNRuntimeMethodCallBuilderUI -> M5.1 argument decorator -> M5.5 typed/gate decorator` 的历史 renderer 链。下一阶段应重构成一个 Builder renderer + backend data model，而不是继续增加 swizzle。
 
-## KI-M57-004 — Static Number/Slider RW Value Cell 仍需当前版本重生成后真机验收
-
-Severity: `HIGH`  
-Status: `CI/BINARY VERIFIED / DEVICE PENDING`
-
-Static typed backend 保持 `ZNF1 -> RW Value Cell -> RVA Protection -> Sign`。Number 只在 inline Execute 提交；Slider 只在 release 提交。旧 M5.5/M5.6.1 generated target 不是有效测试对象，必须使用当前 Builder 重生成。
-
-## KI-M57-005 — Static Auto->F32 历史 value=0 问题待 M5.7 重生成验证
+## KI-M58-004 — Method Finder 历史 installer 尚未物理清理
 
 Severity: `HIGH`  
-Status: `PATH FIXED / DEVICE PENDING`
+Status: `PHASE 2 OPEN`
 
-此前 Auto->F32 UI/metadata 与最终 backend 不一致，客户端数值始终表现为 0。当前路径要求 FMOV build-time parameterization -> LDR S/D -> F32/F64 RW cell，且只有 M5.6 value-cell binder 是 Static typed backend owner。需用 M5.7 重生成目标并测试 1/5/10。
+M5.4 Unified renderer 已真机可见，但总安装链仍保留 M4.3/M4.3 Polish/M4.4.x/M4.5/M4.6/M4.7 等历史层，其中部分为必要 backend/behavior decorator，部分 UI 已 superseded。M5.8 Phase 2 需逐一拆分 backend 与 renderer，删除不再需要的 UI ownership；在此之前不得宣称 Method Finder 架构已完全清理。
+
+## KI-M58-005 — Static Number/Slider 验收必须重新生成目标
+
+Severity: `HIGH`  
+Status: `EXPECTED MIGRATION BOUNDARY`
+
+Static typed backend继续使用 `ZNF1 -> RW Value Cell -> RVA Protection -> Sign`。旧 M5.5/M5.6.x 生成物不能用于判断 M5.8 Static Slider/Number 行为。必须用 M5.8 Builder 重新生成目标后测试 Number Execute、Slider release 和 Auto->F32。
+
+## KI-M58-006 — Runtime-only 最终 UI 成功状态仍待真机
+
+Severity: `MEDIUM`  
+Status: `SOURCE/CI FIXED / DEVICE PENDING`
+
+Runtime-only suffixless verifier 已按 Mach-O 内容识别，Builder gate 已合并进 M5.5 authoring decorator。仍需真机确认在没有完整 Offset+Enabled 行时生成按钮可用且最终 UI 不再“文件已生成但提示失败”。
 
 ## KI-M56-004 — Value Cell LDR literal ±1MB 距离限制
 
