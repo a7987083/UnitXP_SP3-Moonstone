@@ -1,6 +1,5 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 
 #import "ZNDeveloperGate.h"
 #import "ZNPatchCore.h"
@@ -48,63 +47,43 @@ extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM55TypedControlBindingDeferred(void);
 extern "C" void ZNInstallM56StaticValueCellBindingDeferred(void);
-extern "C" void ZNInstallM57UnifiedRuntimeControlsDeferred(void);
 extern "C" void ZNInstallM57RuntimeOnlyBuilderGateDeferred(void);
+extern "C" void ZNInstallM58UnifiedControlRuntimeDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
 @end
 @interface ZNRuntimeMenuControllerV040 (ZNIL2CPPMethodFinderMenuBinding)
-- (NSArray<NSString *> *)zn57mfb_baseCategories;
-- (NSArray<NSString *> *)zn57mfb_baseSymbols;
+- (NSArray<NSString *> *)zn58mfb_baseCategories;
+- (NSArray<NSString *> *)zn58mfb_baseSymbols;
 @end
 @implementation ZNRuntimeMenuControllerV040 (ZNIL2CPPMethodFinderMenuBinding)
-- (NSArray<NSString *> *)zn57mfb_baseCategories {NSArray<NSString *> *base=[self zn57mfb_baseCategories];if([base containsObject:@"方法查找"]||![ZNDeveloperGate sharedGate].authorized)return base;NSMutableArray<NSString *> *items=[base mutableCopy];NSUInteger other=[items indexOfObject:@"其他"],settings=[items indexOfObject:@"设置"],insertion=items.count;if(other!=NSNotFound)insertion=MIN(other+1,items.count);else if(settings!=NSNotFound)insertion=settings;else if(items.count>0)insertion=1;[items insertObject:@"方法查找" atIndex:insertion];return items;}
-- (NSArray<NSString *> *)zn57mfb_baseSymbols {NSArray<NSString *> *base=[self zn57mfb_baseSymbols],*categories=[self zn40_baseCategories];if(base.count==categories.count)return base;NSUInteger finder=[categories indexOfObject:@"方法查找"];if(finder==NSNotFound||finder>base.count)return base;NSMutableArray<NSString *> *symbols=[base mutableCopy];[symbols insertObject:@"magnifyingglass" atIndex:finder];return symbols;}
+- (NSArray<NSString *> *)zn58mfb_baseCategories {NSArray<NSString *> *base=[self zn58mfb_baseCategories];if([base containsObject:@"方法查找"]||![ZNDeveloperGate sharedGate].authorized)return base;NSMutableArray<NSString *> *items=[base mutableCopy];NSUInteger other=[items indexOfObject:@"其他"],settings=[items indexOfObject:@"设置"],insertion=items.count;if(other!=NSNotFound)insertion=MIN(other+1,items.count);else if(settings!=NSNotFound)insertion=settings;else if(items.count>0)insertion=1;[items insertObject:@"方法查找" atIndex:insertion];return items;}
+- (NSArray<NSString *> *)zn58mfb_baseSymbols {NSArray<NSString *> *base=[self zn58mfb_baseSymbols],*categories=[self zn40_baseCategories];if(base.count==categories.count)return base;NSUInteger finder=[categories indexOfObject:@"方法查找"];if(finder==NSNotFound||finder>base.count)return base;NSMutableArray<NSString *> *symbols=[base mutableCopy];[symbols insertObject:@"magnifyingglass" atIndex:finder];return symbols;}
 @end
-
-static void ZNM57RemoveLegacyStaticObservers(void) {
-    NSArray<NSString *> *classNames = @[@"ZNM53StaticControlBinder", @"ZNM55StaticTypedBinder"];
-    for (NSString *className in classNames) {
-        Class cls = NSClassFromString(className);
-        SEL sharedSel = NSSelectorFromString(@"shared");
-        if (!cls || ![cls respondsToSelector:sharedSel]) continue;
-        id binder = ((id(*)(id,SEL))objc_msgSend)((id)cls, sharedSel);
-        if (binder) [NSNotificationCenter.defaultCenter removeObserver:binder];
-    }
-}
 
 extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
     static dispatch_once_t onceToken;dispatch_once(&onceToken,^{
         ZNInstallIL2CPPMethodFinderSearchV2Deferred();ZNInstallIL2CPPMethodFinderZeroVMAddrFixDeferred();
         Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;
-        Method a=class_getInstanceMethod(cls,@selector(zn40_baseCategories)),b=class_getInstanceMethod(cls,@selector(zn57mfb_baseCategories));if(a&&b)method_exchangeImplementations(a,b);
-        Method c=class_getInstanceMethod(cls,@selector(zn40_baseSymbols)),d=class_getInstanceMethod(cls,@selector(zn57mfb_baseSymbols));if(c&&d)method_exchangeImplementations(c,d);
+        Method a=class_getInstanceMethod(cls,@selector(zn40_baseCategories)),b=class_getInstanceMethod(cls,@selector(zn58mfb_baseCategories));if(a&&b)method_exchangeImplementations(a,b);
+        Method c=class_getInstanceMethod(cls,@selector(zn40_baseSymbols)),d=class_getInstanceMethod(cls,@selector(zn58mfb_baseSymbols));if(c&&d)method_exchangeImplementations(c,d);
+
         ZNInstallIL2CPPMethodFinderUXV2Deferred();ZNInstallIL2CPPMethodFinderV3Deferred();ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();ZNInstallIL2CPPMethodFinderM2Deferred();ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();ZNInstallIL2CPPABIDetailUIDeferred();
         ZNInstallFeatureBuilderControlsV2Deferred();ZNInstallFeatureRuntimeControlsV2Deferred();ZNInstallOffsetResolverV2Deferred();ZNInstallBinaryPatchWorkspaceAddressV2Deferred();ZNInstallRuntimeMenuModalShellDeferred();
-        ZNInstallRuntimeMethodCallDeferred();
-        ZNInstallM551AuthoringPersistenceDeferred();
-        ZNInstallUXFixesV2Deferred();
+        ZNInstallRuntimeMethodCallDeferred();ZNInstallM551AuthoringPersistenceDeferred();ZNInstallUXFixesV2Deferred();
         ZNInstallMethodFinderM43UIDeferred();ZNInstallMethodFinderM43PolishDeferred();ZNInstallInstanceSelectionV2UIDeferred();ZNInstallM441HotfixDeferred();ZNInstallM442SearchRestoreDeferred();ZNInstallM45AddressOwningMethodDeferred();ZNInstallM46SignatureExecutionDeferred();ZNInstallM46FullSignatureUIDeferred();ZNInstallM461PolishDeferred();ZNInstallM462InstanceSafetyDeferred();
         ZNInstallM47MultiArgInvokeDeferred();ZNInstallM47MultiArgUIDeferred();ZNInstallM47BuilderArgsUIDeferred();ZNInstallM47VersionUIDeferred();ZNInstallM48ReturnCaptureDeferred();ZNInstallM49GenericInvokeEditableArgsDeferred();ZNInstallM50ManagedReturnChainingDeferred();
-        ZNInstallMethodFinderUnifiedUIDeferred();
-        ZNInstallM462CandidateBindingUIDeferred();ZNInstallM47ReceiverCaptureUIDeferred();ZNInstallM51RuntimeArgControlsImmediateChainDeferred();ZNInstallM52ChainStoreV2Deferred();ZNInstallM52ImmediateChainV2Deferred();ZNInstallM52ChainExecuteButtonDeferred();
+        ZNInstallMethodFinderUnifiedUIDeferred();ZNInstallM462CandidateBindingUIDeferred();ZNInstallM47ReceiverCaptureUIDeferred();ZNInstallM51RuntimeArgControlsImmediateChainDeferred();ZNInstallM52ChainStoreV2Deferred();ZNInstallM52ImmediateChainV2Deferred();ZNInstallM52ChainExecuteButtonDeferred();
 
-        // M5.5 is retained for Builder-side Value Type / Range authoring. M5.7
-        // installs the Runtime-only gate after all Builder wrappers so the final
-        // button state follows the current Static-vs-Runtime mode contract.
+        // Authoring only: no Runtime customer-control swizzles live in M5.5.
         ZNInstallM55TypedControlBindingDeferred();
         ZNInstallM57RuntimeOnlyBuilderGateDeferred();
 
-        // Static/Offset Number+Slider has exactly one backend owner: RW value
-        // cells. No M5.3 executable-page control binder is installed in M5.7.
-        ZNM57RemoveLegacyStaticObservers();
+        // One Static typed-value backend and one Runtime customer-control renderer.
         ZNInstallM56StaticValueCellBindingDeferred();
+        ZNInstallM58UnifiedControlRuntimeDeferred();
 
-        // Final public Runtime control ownership. Do not install M5.3 automatic
-        // binding, M5.5.1 slider stability, or M5.6.2 slider isolation.
-        ZNInstallM57UnifiedRuntimeControlsDeferred();
-
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.7] unified controls installed: one Runtime owner + one Static RW-cell backend; Runtime-only Builder independent of Offset rows"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.8] control cleanup installed: M5.5 authoring-only + M5.6 Static RW backend + M5.8 single Runtime renderer"];
     });
 }
