@@ -1,22 +1,22 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
-#include <math.h>
 
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
-#import "ZNRuntimeActionRuntime.h"
 #import "ZNTheme.h"
 #import "ZNValueTypeModel.h"
 #import "ZNPatchCore.h"
+
+// M5.8 ownership rule:
+// M5.5 is AUTHORING ONLY. It may decorate the Builder with Value Type / Range,
+// but it must never own customer Runtime Number/Slider events.
 
 static const NSInteger kZNM55Arg1Tag = 674000;
 static const NSInteger kZNM55MultiArgTag = 690000;
 static const NSInteger kZNM55CheckTag = 812000;
 static const NSInteger kZNM55ControlTag = 813000;
 static const NSInteger kZNM55ValueTag = 815000;
-static const NSInteger kZNM55FieldTag = 797000;
-static const NSInteger kZNM55SliderTag = 799000;
 static const void *kZNM55ActionKey = &kZNM55ActionKey;
 static const void *kZNM55ArgKey = &kZNM55ArgKey;
 
@@ -27,8 +27,6 @@ static const void *kZNM55ArgKey = &kZNM55ArgKey;
 - (UIButton *)zn40_button:(NSString *)title selector:(SEL)selector frame:(CGRect)frame;
 - (void)renderPage;
 - (void)zn50b_renderOther;
-- (void)zn51_runtimeNumberChanged:(UITextField *)field;
-- (void)zn51_runtimeSliderChanged:(UISlider *)slider;
 @end
 
 static UIViewController *ZNM55Top(UIWindow *window) {
@@ -44,19 +42,10 @@ static ZNValueType ZNM55ResolvedType(ZNRuntimeMethodAction *action, NSUInteger a
     return ZNValueTypeForManagedTypeName(managed);
 }
 
-static ZNValueType ZNM55ResolvedRecordType(ZNRuntimeMethodActionRecord *record, NSUInteger arg, NSDictionary *cfg) {
-    ZNValueType authored = ZNValueTypeFromKey([cfg[@"valueType"] isKindOfClass:NSString.class] ? cfg[@"valueType"] : @"auto");
-    if (authored != ZNValueTypeAuto) return authored;
-    NSString *managed = arg < record.parameterTypeNames.count ? record.parameterTypeNames[arg] : @"";
-    return ZNValueTypeForManagedTypeName(managed);
-}
-
 @interface ZNRuntimeMenuControllerV040 (ZNM55Typed)
 - (void)znm55_builderRender;
 - (void)znm55_cycleValueType:(UIButton *)sender;
 - (void)znm55_rangeLongPress:(UILongPressGestureRecognizer *)gesture;
-- (void)znm55_runtimeNumberChanged:(UITextField *)field;
-- (void)znm55_runtimeSliderChanged:(UISlider *)slider;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM55Typed)
@@ -166,38 +155,15 @@ static ZNValueType ZNM55ResolvedRecordType(ZNRuntimeMethodActionRecord *record, 
     }]];
     [top presentViewController:alert animated:YES completion:nil];
 }
-
-- (void)znm55_runtimeNumberChanged:(UITextField *)field {
-    NSInteger slot = field.tag - kZNM55FieldTag;
-    if (slot >= 0 && !field.isEditing) {
-        NSUInteger recordIndex = (NSUInteger)slot / ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
-        NSUInteger arg = (NSUInteger)slot % ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
-        ZNRuntimeActionRuntime *runtime=[ZNRuntimeActionRuntime sharedRuntime]; [runtime refresh];
-        if (recordIndex < runtime.records.count) {
-            ZNRuntimeMethodActionRecord *record=runtime.records[recordIndex];
-            if (arg < record.argumentCount && record.argumentControlConfigs.count==record.argumentCount) {
-                NSDictionary *cfg=record.argumentControlConfigs[arg]; ZNValueType type=ZNM55ResolvedRecordType(record,arg,cfg);
-                if(type!=ZNValueTypeAuto){NSString *err=nil;NSString *canonical=ZNCanonicalValueString(field.text,type,cfg[@"min"],cfg[@"max"],cfg[@"step"],&err);if(canonical.length)field.text=canonical;else{field.text=[cfg[@"default"] description]?:@"1";[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m5.5-typed] number fallback %@",err?:@"invalid"]];}}
-            }
-        }
-    }
-    [self znm55_runtimeNumberChanged:field];
-}
-
-- (void)znm55_runtimeSliderChanged:(UISlider *)slider {
-    NSInteger slot=slider.tag-kZNM55SliderTag;
-    if(slot>=0){NSUInteger recordIndex=(NSUInteger)slot/ZN_RUNTIME_ACTION_MAX_ARGUMENTS;NSUInteger arg=(NSUInteger)slot%ZN_RUNTIME_ACTION_MAX_ARGUMENTS;ZNRuntimeActionRuntime *runtime=[ZNRuntimeActionRuntime sharedRuntime];[runtime refresh];if(recordIndex<runtime.records.count){ZNRuntimeMethodActionRecord *record=runtime.records[recordIndex];if(arg<record.argumentCount&&record.argumentControlConfigs.count==record.argumentCount){NSDictionary *cfg=record.argumentControlConfigs[arg];double step=[cfg[@"step"] doubleValue];double min=[cfg[@"min"] doubleValue];if(step<=0||!isfinite(step))step=1.0;double q=min+round(((double)slider.value-min)/step)*step;q=MAX((double)slider.minimumValue,MIN((double)slider.maximumValue,q));slider.value=(float)q;}}}
-    [self znm55_runtimeSliderChanged:slider];
-}
 @end
 
 extern "C" void ZNInstallM55TypedControlBindingDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040"); if(!cls)return;
-        Method b0=class_getInstanceMethod(cls,@selector(zn50b_renderOther)); Method b1=class_getInstanceMethod(cls,@selector(znm55_builderRender)); if(b0&&b1)method_exchangeImplementations(b0,b1);
-        Method n0=class_getInstanceMethod(cls,@selector(zn51_runtimeNumberChanged:)); Method n1=class_getInstanceMethod(cls,@selector(znm55_runtimeNumberChanged:)); if(n0&&n1)method_exchangeImplementations(n0,n1);
-        Method s0=class_getInstanceMethod(cls,@selector(zn51_runtimeSliderChanged:)); Method s1=class_getInstanceMethod(cls,@selector(znm55_runtimeSliderChanged:)); if(s0&&s1)method_exchangeImplementations(s0,s1);
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.5-typed] Value Type + range editor + integer-step slider installed"];
+        Method b0=class_getInstanceMethod(cls,@selector(zn50b_renderOther));
+        Method b1=class_getInstanceMethod(cls,@selector(znm55_builderRender));
+        if(b0&&b1)method_exchangeImplementations(b0,b1);
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8-authoring] M5.5 retained as Builder-only Value Type + Range editor; no Runtime control swizzles"];
     });
 }
