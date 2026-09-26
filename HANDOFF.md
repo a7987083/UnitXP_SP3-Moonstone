@@ -2,67 +2,88 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.7 Unified Control Runtime**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.8 Control Architecture Cleanup · Phase 1**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `refactor/m5.7-unified-control-runtime`
-- CI-validated product head: `a31816422f3390a1e0b209bd0fe55e8f4b281710`
-- Run: `36019982680` — SUCCESS
-- Job: `107702118932`
-- Artifact ID: `10815968483`
-- ZIP SHA256: `a369397db62835a98e5e1d66a2ca4dec7cc54d24137c3ffca7cc2449655fafd1`
-- Dylib size: `1438080`
-- Dylib SHA256: `252610a6bca9b09d8db2d52ac15607b5b977f69c1c726a986034e4b5b423ce8b`
+- Active branch: `refactor/m5.8-control-architecture-cleanup`
+- CI-validated product head: `ddc77b5803fdb1093bf0e89d246ed97d0d406d75`
+- Run: `36232977858` — SUCCESS
+- Job: `108379494581`
+- Artifact ID: `10903556469`
+- ZIP SHA256: `d3431040c47df6d6322566f4139604d6a1d82fae03e4914df0f2ea842b260f0d`
+- Dylib size: `1404720`
+- Dylib SHA256: `b0cbfae1b253c97714affa14deb5cd29b9ce48ee996f054ab080e81e2a70c827`
 
-## M5.7 control architecture
+## Why M5.8
 
-Customer controls have one interaction contract for both Static/Offset and Runtime Method backends:
+M5.7 device testing still showed Runtime Slider freezing during drag before Execute. Re-audit confirmed the problem was architectural rather than one bad Invoke: Runtime controls retained multiple historical implementations, Static had a separate slider hot path, Builder was wrapped repeatedly, and multiple disabled control modules were still linked into the product.
 
-```text
-Switch  -> change commits immediately
-Button  -> click commits immediately
-Number  -> typing only saves; Return/Done saves + dismisses keyboard; Execute commits
-Slider  -> drag only updates value; TouchUp commits exactly once
-```
+## Phase 1 architecture
 
-### Runtime Method
+### Runtime customer controls
 
-- Final event owner: `ZNM57UnifiedRuntimeControls`.
-- M5.3 auto-execute, M5.5.1 slider release handler and M5.6.2 isolation are not installed.
-- The historical M4.2 `ZNRuntimeMethodCallFeatureUI` is not installed; M5.1/M5.7 typed Runtime cards are the sole customer Runtime UI.
-- Number `执行` and Slider release both reuse the existing silent customer execution path, which reads the currently visible control value before invoking IL2CPP.
+`ZNM58UnifiedControlRuntime` is the sole Runtime customer renderer for Number / Slider / Switch / Button.
 
-### Static / Offset
+- controls created by M5.8 bind only M5.8 selectors;
+- Slider `ValueChanged` is intentionally zero-side-effect;
+- Slider release targets are attached once at control creation;
+- release quantizes once and invokes once;
+- Number typing is UI-only;
+- Return/Done only dismisses the keyboard;
+- Number applies only through explicit `执行`;
+- Switch commits immediately;
+- customer success is silent; failure remains visible;
+- no constructor swizzle is required for silent execution.
 
-- UI owner: `ZNFeatureRuntimeControlsV2` with M5.7 semantics.
-- Backend owner: `ZNM56StaticValueCellBinder` only.
-- Number input no longer posts apply notifications on keyboard confirmation; inline `执行` posts one commit.
-- Slider `ValueChanged` only stores/quantizes; release posts one commit.
-- Generated typed variants remain RW-value-cell based; runtime executable-page writes are not part of the accepted path.
+### Static / Offset controls
 
-## Runtime-only build correction
+- UI remains `ZNFeatureRuntimeControlsV2` for Phase 1.
+- Static Slider `ValueChanged` is now zero-side-effect.
+- The historical drag path that refreshed `ZNStaticDispatchRuntime`, iterated records, wrote NSUserDefaults and rewrote `slider.value` on each ValueChanged has been removed.
+- Release alone quantizes/saves and posts one commit.
+- Static typed backend owner remains `ZNM56StaticValueCellBinder` using RW `__ZNDATA` cells.
 
-Two historical bugs were independent:
+### Builder authoring
 
-1. Builder UI required `workspace.filledCount > 0`, effectively requiring a Static row before `生成新二进制` could be enabled.
-2. Runtime-only output has been suffixless since M5.1, but the verifier still skipped anything without `.znpatched`, so the Mach-O could be successfully generated and then falsely reported as failed.
+`ZNM55TypedControlBinding` is Builder-only:
 
-M5.7 adds `ZNM57RuntimeOnlyBuilderGate` and verifies actual Mach-O files by magic/content. Runtime Actions with zero complete Static rows are a first-class build mode; partial Offset drafts do not block it.
+- Value Type / Range authoring retained;
+- no Runtime Number/Slider swizzles;
+- Runtime-only build-button gate merged into the same decorator;
+- standalone `ZNM57RuntimeOnlyBuilderGate` removed from final product.
+
+## Legacy modules physically removed from M5.8 product
+
+- `ZNRuntimeMethodCallFeatureUI.mm`
+- `ZNM51SilentCustomerExecution.mm`
+- `ZNM53ControlBinding.mm`
+- `ZNM55StaticTypedBinding.mm`
+- `ZNM551RuntimeSliderStability.mm`
+- `ZNM562SliderIsolation.mm`
+- `ZNM57UnifiedRuntimeControls.mm`
+- `ZNM57RuntimeOnlyBuilderGate.mm`
+
+These modules are not merely uninstalled; they are absent from the M5.8 Makefile/final dylib.
 
 ## Immediate device checklist
 
-1. Footer: `0.5.8 · M5.7`.
-2. Runtime-only with zero complete Offset+Enabled rows: build button available and final result reports success.
-3. Runtime Number: type value -> Return closes keyboard -> no effect yet -> tap `执行` -> effect once.
-4. Runtime Slider: drag repeatedly -> no freeze/crash -> release automatically invokes once.
-5. Verify only one Runtime customer card set exists.
-6. Regenerate a Static Number target with M5.7: type -> Return closes keyboard/no apply -> inline `执行` applies once through RW cell.
-7. Regenerate a Static Slider target: dragging is UI-only; release applies once through RW cell.
-8. Regress M5.5.1 authoring persistence and M5.4 Unified Method Finder.
+1. Footer must show `0.5.8 · M5.8`.
+2. Runtime Slider: drag continuously before release. It must remain responsive and must not freeze/crash. Release should commit once.
+3. Runtime Number: type a value -> Return closes keyboard -> no effect yet -> tap `执行` -> one execution.
+4. Verify only one Runtime customer action/control card set is visible.
+5. Runtime-only generation with Runtime Actions and zero complete Static rows must end as success.
+6. Static Slider/Number acceptance requires a target regenerated with the M5.8 Builder; Slider drag must remain responsive and release commit once via RW cell.
+7. Regress authoring persistence and M5.4 Unified Method Finder.
+
+## Phase 2 still open
+
+- Consolidate the remaining Builder renderer chain (`ZNRuntimeMethodCallBuilderUI -> M5.1 argument decorator -> M5.5 authoring/gate`) into one renderer.
+- Physically clean remaining historical Method Finder installers while preserving backend-only behavior decorators.
+- Do not claim the full architecture cleanup complete until Phase 2 and device acceptance are done.
 
 ## Compatibility boundaries
 
-- Static Number/Slider acceptance must use a target regenerated with the current RW-value-cell Builder.
+- Static Number/Slider tests must use an M5.8-regenerated target.
 - Value-cell LDR literal remains ±1MB and fails closed when layout cannot satisfy it.
 - Static Entry ABI remains 128 bytes; Runtime Action Entry ABI remains 64 bytes.
 - M5.2 Chain Level 0 null-return investigation remains separate.
