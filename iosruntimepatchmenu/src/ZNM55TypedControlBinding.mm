@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
+#import "ZNBinaryPatchWorkspace.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNTheme.h"
@@ -9,8 +10,8 @@
 #import "ZNPatchCore.h"
 
 // M5.8 ownership rule:
-// M5.5 is AUTHORING ONLY. It may decorate the Builder with Value Type / Range,
-// but it must never own customer Runtime Number/Slider events.
+// M5.5 is AUTHORING ONLY. It decorates the Builder with Value Type / Range and
+// owns the Runtime-only build-button gate. It never owns customer Runtime events.
 
 static const NSInteger kZNM55Arg1Tag = 674000;
 static const NSInteger kZNM55MultiArgTag = 690000;
@@ -40,6 +41,26 @@ static ZNValueType ZNM55ResolvedType(ZNRuntimeMethodAction *action, NSUInteger a
     if (authored != ZNValueTypeAuto) return authored;
     NSString *managed = arg < action.parameterTypeNames.count ? action.parameterTypeNames[arg] : @"";
     return ZNValueTypeForManagedTypeName(managed);
+}
+
+static NSUInteger ZNM55CompleteStaticRows(void) {
+    NSUInteger count = 0;
+    for (ZNBinaryPatchRow *row in [ZNBinaryPatchWorkspace sharedWorkspace].rows ?: @[]) {
+        if (row.offsetText.length > 0 && row.enabledText.length > 0) count++;
+    }
+    return count;
+}
+
+static UIButton *ZNM55FindBuildButton(UIView *root) {
+    for (UIView *view in root.subviews ?: @[]) {
+        if ([view isKindOfClass:UIButton.class]) {
+            NSString *title = [(UIButton *)view titleForState:UIControlStateNormal] ?: @"";
+            if ([title isEqualToString:@"生成新二进制"] || [title isEqualToString:@"正在生成…"]) return (UIButton *)view;
+        }
+        UIButton *nested = ZNM55FindBuildButton(view);
+        if (nested) return nested;
+    }
+    return nil;
 }
 
 @interface ZNRuntimeMenuControllerV040 (ZNM55Typed)
@@ -96,6 +117,19 @@ static ZNValueType ZNM55ResolvedType(ZNRuntimeMethodAction *action, NSUInteger a
             [valueButton addGestureRecognizer:longPress];
             [card addSubview:valueButton];
         }
+    }
+
+    // Runtime-only build gate lives in the same Builder decorator. No extra
+    // zn50b_renderOther swizzle is needed in M5.8.
+    UIButton *build = ZNM55FindBuildButton(self.contentView);
+    if (build) {
+        ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+        NSUInteger completeStatic = ZNM55CompleteStaticRows();
+        BOOL runtimeOnlyReady = actions.count > 0 && completeStatic == 0;
+        BOOL staticReady = completeStatic > 0 && workspace.filledCount == completeStatic && workspace.validatedCount == completeStatic;
+        build.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && (runtimeOnlyReady || staticReady);
+        build.alpha = build.enabled ? 1.0 : 0.5;
+        build.accessibilityHint = runtimeOnlyReady ? @"Runtime-only：无需 Static Offset Patch" : nil;
     }
 }
 
@@ -164,6 +198,6 @@ extern "C" void ZNInstallM55TypedControlBindingDeferred(void) {
         Method b0=class_getInstanceMethod(cls,@selector(zn50b_renderOther));
         Method b1=class_getInstanceMethod(cls,@selector(znm55_builderRender));
         if(b0&&b1)method_exchangeImplementations(b0,b1);
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8-authoring] M5.5 retained as Builder-only Value Type + Range editor; no Runtime control swizzles"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8-authoring] single Builder typed/gate decorator installed; no customer Runtime control swizzles"];
     });
 }
