@@ -1,48 +1,67 @@
 {
-  "schema_version": 22,
+  "schema_version": 23,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "phase": "m5.7-unified-control-runtime",
+  "phase": "m5.8-control-architecture-cleanup-phase1",
   "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
-  "branch": "refactor/m5.7-unified-control-runtime",
-  "ci_validated_product_head": "a31816422f3390a1e0b209bd0fe55e8f4b281710",
+  "branch": "refactor/m5.8-control-architecture-cleanup",
+  "ci_validated_product_head": "ddc77b5803fdb1093bf0e89d246ed97d0d406d75",
+  "audit": {
+    "confirmed_duplicate_problem_classes": 7,
+    "phase1_goal": "remove historical control ownership and make slider drag zero-side-effect",
+    "phase2_required": true
+  },
   "control_contract": {
     "switch": "change commits immediately",
     "button": "click commits immediately",
-    "number": "typing saves only; Return/Done saves and dismisses keyboard; explicit Execute commits",
-    "slider": "ValueChanged updates/quantizes only; TouchUp commits exactly once"
+    "number": "typing is UI-only; Return/Done dismisses keyboard; explicit Execute commits",
+    "slider": "ValueChanged has zero side effects; release quantizes and commits exactly once"
   },
   "runtime_controls": {
-    "single_event_owner": "ZNM57UnifiedRuntimeControls",
-    "m5_3_auto_binding_installed": false,
-    "m5_5_1_slider_stability_installed": false,
-    "m5_6_2_slider_isolation_installed": false,
-    "legacy_runtime_feature_ui_installed": false,
-    "typed_runtime_customer_ui": "M5.1/M5.7",
+    "renderer_owner": "ZNM58UnifiedControlRuntime",
+    "controls_bind_only_m5_8_selectors": true,
+    "slider_value_changed_side_effects": false,
+    "slider_targets_bound_at_creation": true,
+    "slider_release_commit": true,
     "number_return_dismisses_keyboard": true,
     "number_auto_execute_on_return": false,
-    "slider_auto_execute_on_release": true,
-    "slider_execute_during_drag": false,
+    "success_silent": true,
+    "failure_visible": true,
     "device_verified": false
   },
   "static_controls": {
     "ui_owner": "ZNFeatureRuntimeControlsV2",
-    "backend_owner": "ZNM56StaticValueCellBinder",
-    "number_manual_execute": true,
-    "number_return_dismisses_keyboard": true,
+    "slider_value_changed_side_effects": false,
     "slider_release_commit": true,
+    "number_manual_execute": true,
+    "backend_owner": "ZNM56StaticValueCellBinder",
     "runtime_executable_write": false,
     "device_verified": false
   },
+  "builder": {
+    "typed_and_runtime_only_gate_owner": "ZNM55TypedControlBinding",
+    "m5_5_customer_runtime_swizzles": false,
+    "standalone_m5_7_runtime_only_gate": false,
+    "remaining_renderer_chain": ["ZNRuntimeMethodCallBuilderUI", "M5.1 argument decorator", "M5.5 authoring/gate decorator"],
+    "phase2_consolidation_pending": true
+  },
+  "legacy_modules_removed_from_product": [
+    "ZNRuntimeMethodCallFeatureUI.mm",
+    "ZNM51SilentCustomerExecution.mm",
+    "ZNM53ControlBinding.mm",
+    "ZNM55StaticTypedBinding.mm",
+    "ZNM551RuntimeSliderStability.mm",
+    "ZNM562SliderIsolation.mm",
+    "ZNM57UnifiedRuntimeControls.mm",
+    "ZNM57RuntimeOnlyBuilderGate.mm"
+  ],
   "runtime_only": {
     "criterion": "runtime actions > 0 and complete static rows == 0",
     "complete_static_row": "offsetText.length > 0 && enabledText.length > 0",
     "partial_static_rows_ignored": true,
-    "builder_button_independent_of_static_filled_count": true,
-    "suffixless_output": true,
-    "verifier_identification": "thin Mach-O magic/content",
-    "legacy_dot_znpatched_requirement_removed": true,
+    "builder_gate_merged_into_authoring_decorator": true,
+    "suffixless_output_verified_by_macho_content": true,
     "device_verified": false
   },
   "static_value_cell": {
@@ -52,22 +71,26 @@
     "float_codegen": "LDR S/D replacing scalar FMOV immediate",
     "requires_regenerated_target": true
   },
+  "method_finder_cleanup": {
+    "m5_4_unified_renderer_retained": true,
+    "historical_installer_cleanup_complete": false,
+    "phase2_pending": true
+  },
   "retained": {
     "m5_5_1_authoring_persistence": true,
     "authoring_persistence_key": "zonoe.m5.5.authoring-actions.v1",
-    "m5_4_unified_method_finder": true,
     "value_types": ["Auto", "I32", "U32", "I64", "U64", "F32", "F64"],
     "control_types": ["Switch", "Button", "Number", "Slider"]
   },
   "abi": {
     "static_patch_entry_bytes": 128,
     "runtime_method_call_entry_bytes": 64,
-    "abi_changed_in_m5_7": false
+    "abi_changed_in_m5_8": false
   },
   "build": {
-    "workflow": "Build Runtime Patch Menu v0.5.8 M5.7 Unified Control Runtime",
-    "run_id": 36019982680,
-    "job_id": 107702118932,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M5.8 Control Cleanup",
+    "run_id": 36232977858,
+    "job_id": 108379494581,
     "result": "success",
     "compiled": true,
     "binary_verified": true,
@@ -75,26 +98,26 @@
     "independent_artifact_hash_verified": true
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-M5.7-Unified-Control-Runtime",
-    "id": 10815968483,
-    "archive_sha256": "a369397db62835a98e5e1d66a2ca4dec7cc54d24137c3ffca7cc2449655fafd1",
-    "dylib_name": "ZonoPatch_v0.5.8_M5.7_Unified_Control_Runtime.dylib",
-    "dylib_size": 1438080,
-    "dylib_sha256": "252610a6bca9b09d8db2d52ac15607b5b977f69c1c726a986034e4b5b423ce8b",
+    "name": "ZonoPatch-v0.5.8-M5.8-Control-Architecture-Cleanup",
+    "id": 10903556469,
+    "archive_sha256": "d3431040c47df6d6322566f4139604d6a1d82fae03e4914df0f2ea842b260f0d",
+    "dylib_name": "ZonoPatch_v0.5.8_M5.8_Control_Architecture_Cleanup.dylib",
+    "dylib_size": 1404720,
+    "dylib_sha256": "b0cbfae1b253c97714affa14deb5cd29b9ce48ee996f054ab080e81e2a70c827",
     "mach_o": "thin arm64 dynamically linked shared library"
   },
   "device_acceptance_pending": [
-    "Runtime-only build reports success with zero complete Static rows",
-    "Runtime Number Return dismisses keyboard but does not invoke until Execute",
-    "Runtime Slider drag no longer freezes/crashes and release invokes once",
-    "only one Runtime customer action UI is visible",
-    "Static Number regenerated target applies only on inline Execute via RW cell",
-    "Static Slider regenerated target commits once on release via RW cell",
-    "Static Auto->F32 regenerated target no longer remains zero",
-    "M5.5.1 authoring persistence regression",
+    "Runtime Slider drag no longer freezes/crashes with zero-side-effect ValueChanged",
+    "Runtime Slider release invokes exactly once",
+    "Runtime Number Return dismisses keyboard and does not invoke until Execute",
+    "only one Runtime customer control surface is visible",
+    "Runtime-only generation reports success with zero complete Static rows",
+    "Static Slider regenerated target stays responsive during drag and commits once on release",
+    "Static Number regenerated target applies only on explicit Execute via RW cell",
+    "authoring persistence regression",
     "M5.4 Unified Method Finder regression"
   ],
-  "next_phase": "m5.7-device-acceptance",
-  "next_task": "Install M5.7 and validate Runtime-only generation plus unified Number/Slider interaction on Runtime and regenerated Static targets.",
-  "captured_at": "2026-09-24"
+  "next_phase": "m5.8-phase1-device-acceptance",
+  "next_task": "Install M5.8 and validate Runtime Slider drag first; if stable, continue release/Number/Runtime-only and regenerated Static acceptance before Phase 2 renderer cleanup.",
+  "captured_at": "2026-09-26"
 }
