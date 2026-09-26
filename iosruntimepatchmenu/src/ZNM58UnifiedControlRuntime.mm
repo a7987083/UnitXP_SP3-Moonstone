@@ -4,16 +4,12 @@
 #include <math.h>
 
 #import "ZNIL2CPPInvokeEngine.h"
+#import "ZNRangeControl.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionRuntime.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
-
-// M5.8 Runtime customer controls are rendered and owned here as one unit.
-// No historical Runtime control selector is used by controls created here.
-// Slider ValueChanged is deliberately zero-side-effect. Quantization + execute
-// happens only on TouchUp/TouchCancel, with all targets attached at creation.
 
 static const NSInteger kZNM58CardTag   = 895000;
 static const NSInteger kZNM58ExecTag   = 896000;
@@ -68,8 +64,7 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
 - (void)znm58_numberChanged:(UITextField *)field;
 - (void)znm58_numberReturn:(UITextField *)field;
 - (void)znm58_switchChanged:(UISwitch *)control;
-- (void)znm58_sliderChanged:(UISlider *)control;
-- (void)znm58_sliderCommitted:(UISlider *)control;
+- (void)znm58_sliderCommitted:(ZNRangeControl *)control;
 - (void)znm58_execute:(UIButton *)sender;
 @end
 
@@ -84,20 +79,48 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
     }
 }
 
+- (void)znm581_removeStaticEmptyStateIfRuntimeExists:(NSArray *)records {
+    if (!records.count) return;
+    for (UIView *view in [self.contentView.subviews copy]) {
+        __block BOOL emptyState = NO;
+        void (^scan)(UIView *) = ^(UIView *root) {
+            NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+            while (stack.count && !emptyState) {
+                UIView *node = stack.lastObject;
+                [stack removeLastObject];
+                if ([node isKindOfClass:UILabel.class] && [((UILabel *)node).text isEqualToString:@"暂无功能"]) {
+                    emptyState = YES;
+                    break;
+                }
+                [stack addObjectsFromArray:node.subviews ?: @[]];
+            }
+        };
+        scan(view);
+        if (emptyState) [view removeFromSuperview];
+    }
+}
+
 - (void)znm58_renderRuntime:(BOOL)compact {
     ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
     [runtime refresh];
     [self znm58_removeCards];
 
+    NSArray<ZNRuntimeMethodActionRecord *> *records = runtime.records ?: @[];
+    [self znm581_removeStaticEmptyStateIfRuntimeExists:records];
+
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = ZNM58MaxY(self.contentView) + (compact ? 6.0 : 8.0);
-    NSArray<ZNRuntimeMethodActionRecord *> *records = runtime.records ?: @[];
 
     for (NSUInteger i = 0; i < records.count; i++) {
         ZNRuntimeMethodActionRecord *record = records[i];
         NSArray<NSDictionary *> *configs = record.argumentControlConfigs.count == record.argumentCount ? record.argumentControlConfigs : @[];
         NSUInteger exposed = 0;
-        for (NSDictionary *cfg in configs) if ([cfg[@"enabled"] boolValue]) exposed++;
+        BOOL needsManualExecute = (record.argumentCount == 0);
+        for (NSDictionary *cfg in configs) {
+            if (![cfg[@"enabled"] boolValue]) continue;
+            exposed++;
+            if (ZNRuntimeArgumentControlTypeFromKey(cfg[@"type"]) == ZNRuntimeArgumentControlTypeNumber) needsManualExecute = YES;
+        }
 
         CGFloat rowH = 34.0, baseH = compact ? 42.0 : 48.0;
         CGFloat height = baseH + exposed * rowH;
@@ -108,12 +131,14 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
                                 size:(compact ? 10.5 : 11.2)
                               weight:UIFontWeightSemibold
                                color:self.theme.primaryTextColor];
-        name.frame = CGRectMake(compact ? 9 : 13, 8, card.bounds.size.width - 92, 24);
+        name.frame = CGRectMake(compact ? 9 : 13, 8, card.bounds.size.width - (needsManualExecute ? 92 : 26), 24);
         [card addSubview:name];
 
-        UIButton *execute = [self zn40_button:@"执行" selector:@selector(znm58_execute:) frame:CGRectMake(card.bounds.size.width - 76, 7, 64, 29)];
-        execute.tag = kZNM58ExecTag + (NSInteger)i;
-        [card addSubview:execute];
+        if (needsManualExecute) {
+            UIButton *execute = [self zn40_button:@"执行" selector:@selector(znm58_execute:) frame:CGRectMake(card.bounds.size.width - 76, 7, 64, 29)];
+            execute.tag = kZNM58ExecTag + (NSInteger)i;
+            [card addSubview:execute];
+        }
 
         CGFloat rowY = baseH;
         for (NSUInteger arg = 0; arg < record.argumentCount; arg++) {
@@ -138,18 +163,19 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
                 control.center = CGPointMake(card.bounds.size.width - 38, rowY + 14);
                 [card addSubview:control];
             } else if (controlType == ZNRuntimeArgumentControlTypeSlider) {
-                UISlider *control = [[UISlider alloc] initWithFrame:CGRectMake(96, rowY, card.bounds.size.width - 109, 28)];
+                ZNRangeControl *control = [[ZNRangeControl alloc] initWithFrame:CGRectMake(96, rowY, card.bounds.size.width - 109, 28)];
                 double min = [cfg[@"min"] doubleValue];
                 double max = [cfg[@"max"] doubleValue];
                 if (!isfinite(min)) min = 1.0;
                 if (!isfinite(max) || max <= min) max = min + 9.0;
-                control.minimumValue = (float)min;
-                control.maximumValue = (float)max;
-                control.value = (float)MAX(min, MIN(max, defaultValue.doubleValue));
+                control.minimumValue = min;
+                control.maximumValue = max;
+                control.value = MAX(min, MIN(max, defaultValue.doubleValue));
+                control.minimumTrackTintColor = self.theme.accentColor;
+                control.maximumTrackTintColor = [self.theme.trackColor colorWithAlphaComponent:.75];
+                control.thumbTintColor = self.theme.primaryTextColor;
                 control.tag = kZNM58SliderTag + slot;
-                // Bind the complete event table exactly once, at creation.
-                [control addTarget:self action:@selector(znm58_sliderChanged:) forControlEvents:UIControlEventValueChanged];
-                [control addTarget:self action:@selector(znm58_sliderCommitted:) forControlEvents:(UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel)];
+                [control addTarget:self action:@selector(znm58_sliderCommitted:) forControlEvents:UIControlEventPrimaryActionTriggered];
                 [card addSubview:control];
             } else if (controlType == ZNRuntimeArgumentControlTypeButton) {
                 UIButton *button = [self zn40_button:@"触发" selector:@selector(znm58_execute:) frame:CGRectMake(card.bounds.size.width - 70, rowY, 58, 28)];
@@ -181,14 +207,8 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
     [self zn40_updateContentHeight:y];
 }
 
-- (void)znm58_numberChanged:(UITextField *)field {
-    // UI-only editing. The Execute path reads the visible field directly.
-    (void)field;
-}
-
-- (void)znm58_numberReturn:(UITextField *)field {
-    [field resignFirstResponder];
-}
+- (void)znm58_numberChanged:(UITextField *)field { (void)field; }
+- (void)znm58_numberReturn:(UITextField *)field { [field resignFirstResponder]; }
 
 - (void)znm58_switchChanged:(UISwitch *)control {
     NSInteger slot = control.tag - kZNM58SwitchTag;
@@ -199,13 +219,7 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
     [self znm58_execute:proxy];
 }
 
-- (void)znm58_sliderChanged:(UISlider *)control {
-    // Intentionally empty: while UIKit dispatches ValueChanged, do not mutate
-    // value, targets, metadata, preferences, Runtime tables, or invoke IL2CPP.
-    (void)control;
-}
-
-- (void)znm58_sliderCommitted:(UISlider *)control {
+- (void)znm58_sliderCommitted:(ZNRangeControl *)control {
     NSInteger slot = control.tag - kZNM58SliderTag;
     if (slot < 0) return;
     NSUInteger recordIndex = (NSUInteger)slot / ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
@@ -216,8 +230,7 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
     if (recordIndex >= runtime.records.count) return;
     ZNRuntimeMethodActionRecord *record = runtime.records[recordIndex];
     NSDictionary *cfg = record.argumentControlConfigs.count == record.argumentCount && arg < record.argumentCount ? record.argumentControlConfigs[arg] : @{};
-    double q = ZNM58Quantize(control.value, cfg, control.minimumValue, control.maximumValue);
-    control.value = (float)q;
+    control.value = ZNM58Quantize(control.value, cfg, control.minimumValue, control.maximumValue);
 
     UIButton *proxy = [UIButton buttonWithType:UIButtonTypeCustom];
     proxy.tag = kZNM58ExecTag + (NSInteger)recordIndex;
@@ -232,8 +245,8 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
         if ([v isKindOfClass:UISwitch.class]) return ((UISwitch *)v).on ? @"true" : @"false";
     } else if (type == ZNRuntimeArgumentControlTypeSlider) {
         UIView *v = [self.contentView viewWithTag:kZNM58SliderTag + slot];
-        if ([v isKindOfClass:UISlider.class]) {
-            UISlider *s = (UISlider *)v;
+        if ([v isKindOfClass:ZNRangeControl.class]) {
+            ZNRangeControl *s = (ZNRangeControl *)v;
             double q = ZNM58Quantize(s.value, cfg, s.minimumValue, s.maximumValue);
             return [NSString stringWithFormat:@"%.17g", q];
         }
@@ -282,8 +295,8 @@ static double ZNM58Quantize(double value, NSDictionary *cfg, double fallbackMin,
     NSString *error = nil;
     NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&error];
     if (result) {
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8-control] %@ SUCCESS", action.canonicalIdentity ?: @"?"]];
-        return; // Customer success stays silent.
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.1-control] %@ SUCCESS", action.canonicalIdentity ?: @"?"]];
+        return;
     }
 
     UIViewController *top = ZNM58Top(self.hostWindow);
@@ -302,6 +315,6 @@ extern "C" void ZNInstallM58UnifiedControlRuntimeDeferred(void) {
         Method current = class_getInstanceMethod(cls, @selector(zn51_renderRuntime:));
         Method unified = class_getInstanceMethod(cls, @selector(znm58_renderRuntime:));
         if (current && unified) method_setImplementation(current, method_getImplementation(unified));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8-control] Runtime renderer single-owner installed; Slider ValueChanged zero-side-effect; targets bound once at creation"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8.1-control] standalone range control + runtime-only empty-state suppression installed"];
     });
 }
