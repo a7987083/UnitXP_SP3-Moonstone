@@ -2,55 +2,53 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
-## 2026-09-24 — M5.7 Unified Control Runtime
+## 2026-09-26 — M5.8 Control Architecture Cleanup Phase 1
 
-### 真机反馈 / 根因
+### 真机反馈
 
-- Runtime Slider 在 M5.6.2 仍一拖就卡死/闪退。审计确认 Runtime 控件曾存在 M5.1 -> M5.5 -> M5.3 -> M5.5.1 -> M5.6.2 的多层 selector/event ownership；Static Feature Slider 又有独立的 `ValueChanged -> notification` 路径。
-- 发现历史 `ZNRuntimeMethodCallFeatureUI` 与 M5.1 typed Runtime cards 同时存在，客户侧实际存在两套 Runtime action UI。
-- Runtime-only 在没有普通 Offset 时，Mach-O 实际已生成但最后提示失败。根因是 `ZNM462RuntimeOnlyVerifier` 仍只接受 `.znpatched`，而 Runtime-only 从 M5.1 起已经保持原始、无后缀 Mach-O 文件名。
-- 旧 Builder 的生成按钮条件仍要求 `workspace.filledCount > 0`，使 Runtime-only UI 仍依赖 Static Offset-era 状态。
+- M5.7 Runtime Slider 仍在“未点执行、仅拖动”时卡死。
+- 因此可排除 Execute 按钮本身是唯一触发点，重新审计整个 UI/control ownership。
+
+### 重新审计结果
+
+确认至少 7 类重复/叠层问题：Runtime control 多代实现、Slider 热路径副作用、Static/Runtime 两套 control framework、Builder 多层 renderer wrapper、Method Finder 历史层未物理清理、legacy control 文件仍编译、Runtime-only 判定分散。
 
 ### 实际修改
 
-- 新增 `ZNM57UnifiedRuntimeControls.mm`，最终直接拥有 Runtime Number/Switch/Slider selectors，不 forward 到历史 M5.3/M5.5/M5.5.1/M5.6.2 控件 handler。
-- Runtime Number：输入只保留当前值；Return/Done 收起键盘，不执行；卡片 `执行` 才调用。
-- Runtime Slider：拖动仅整数化/更新 UI；TouchUpInside/Outside 自动提交一次，使用现有 silent Execute 读取当前 Slider 值并 Invoke 一次。
-- Runtime Switch：切换后立即提交一次。
-- `ZNFeatureRuntimeControlsV2.mm`：Static Number 改为输入只保存，Return 收键盘，新增 inline `执行`；Static Slider 的 `ValueChanged` 不再发通知，只在 release 发一次 commit notification。
-- `ZNRuntimeMethodCallBootstrap.mm`：停止安装历史 `ZNRuntimeMethodCallFeatureUI`，只保留 Finder/Builder 后端和 M5.1/M5.7 typed Runtime 客户卡。
-- `ZNIL2CPPMethodFinderMenuBinding.mm`：不再安装 `ZNInstallM53ControlBindingDeferred`、`ZNInstallM551RuntimeSliderStabilityDeferred`、`ZNInstallM562SliderIsolationDeferred`；Static 仅保留 RW value-cell backend，Runtime 仅保留 M5.7 owner。
-- `ZNM462RuntimeOnlyVerifier.mm`：改为按 Mach-O magic/内容识别 suffixless Runtime-only 输出，不再要求 `.znpatched`。
-- 新增 `ZNM57RuntimeOnlyBuilderGate.mm`：Runtime Actions > 0 且无完整 Static (`Offset && Enabled`) 时直接允许生成；partial Offset drafts 不阻塞。
-- Static `ZNF1 -> RW Value Cell -> RVA Protection -> Ad-hoc Sign` 继续保留。
+- 新增 `ZNM58UnifiedControlRuntime.mm`：Runtime customer Number/Slider/Switch/Button 由单一 renderer 创建，控件不再绑定 M5.1/M5.5/M5.7 历史 handler。
+- Runtime Slider 创建时一次性绑定 `ValueChanged` 与 release target；`ValueChanged` 函数体零副作用，release 才量化并 Invoke 一次。
+- Runtime Number Return/Done 只 `resignFirstResponder`；执行仅由卡片 `执行` 触发。
+- Runtime silent-success/failure-visible 逻辑并入 M5.8 execute，不再依赖 `ZNM51SilentCustomerExecution` constructor swizzle。
+- `ZNM55TypedControlBinding.mm` 删除 Runtime Number/Slider swizzle，只保留 Builder Value Type / Range authoring。
+- Runtime-only build-button gate合并进 M5.5 authoring decorator，移除独立 `ZNM57RuntimeOnlyBuilderGate` wrapper。
+- `ZNFeatureRuntimeControlsV2.mm`：Static Slider 的 `ValueChanged` 改成 no-op；旧路径中的 Static runtime refresh、NSUserDefaults write、slider.value rewrite 全部移动到 release commit。
+- Makefile 物理移除 8 个 legacy control/UI owner：`ZNRuntimeMethodCallFeatureUI`、`ZNM51SilentCustomerExecution`、`ZNM53ControlBinding`、`ZNM55StaticTypedBinding`、`ZNM551RuntimeSliderStability`、`ZNM562SliderIsolation`、`ZNM57UnifiedRuntimeControls`、`ZNM57RuntimeOnlyBuilderGate`。
+- Static RW Value Cell backend 保留；128-byte Static Entry / 64-byte Runtime Action ABI 不变。
 
 ### CI / Artifact
 
-- Workflow `Build Runtime Patch Menu v0.5.8 M5.7 Unified Control Runtime`
-- Run `36019982680` / Job `107702118932`: Source Contract、Dobby arm64、Build M5.7、Binary Verify、Artifact Upload 全部 SUCCESS。
-- Artifact ID `10815968483`。
-- ZIP SHA256 `a369397db62835a98e5e1d66a2ca4dec7cc54d24137c3ffca7cc2449655fafd1`。
-- Dylib size `1438080` bytes。
-- Dylib SHA256 `252610a6bca9b09d8db2d52ac15607b5b977f69c1c726a986034e4b5b423ce8b`。
+- Workflow `Build Runtime Patch Menu v0.5.8 M5.8 Control Cleanup`
+- Run `36232977858` / Job `108379494581`: Source Contract、Dobby arm64、Build M5.8、Binary Verify、Artifact Upload 全部 SUCCESS。
+- Artifact ID `10903556469`。
+- ZIP SHA256 `d3431040c47df6d6322566f4139604d6a1d82fae03e4914df0f2ea842b260f0d`。
+- Dylib size `1404720` bytes。
+- Dylib SHA256 `b0cbfae1b253c97714affa14deb5cd29b9ce48ee996f054ab080e81e2a70c827`。
 - Mach-O thin arm64；独立 ZIP/dylib hash 校验通过。
 
 ### 验证边界
 
 - Source/build/binary/artifact: PASS。
-- Runtime-only suffixless generation final UI status: DEVICE PENDING。
+- Runtime Slider zero-side-effect drag: DEVICE PENDING。
+- Runtime Slider single release commit: DEVICE PENDING。
 - Runtime Number Return-dismiss/manual Execute: DEVICE PENDING。
-- Runtime Slider release-only single commit / no freeze: DEVICE PENDING。
-- Static Number/Slider unified interaction + RW cell: DEVICE PENDING；需用当前 Builder 重生成目标。
-
-## Superseded attempts
-
-- M5.6.2: Run `36012593002`, artifact `10812584568`; superseded by M5.7 control consolidation.
-- M5.6 initial: Run `36004751812`; later audit showed intended RW-cell path was not the only active path.
-- M5.5.1 Recovery: Run `36002343325`; authoring persistence remains retained.
+- Static Slider zero-side-effect drag / single RW-cell release commit: DEVICE PENDING。
+- Runtime-only suffixless generation final UI status: DEVICE PENDING。
+- Builder renderer/Method Finder 进一步物理清理：Phase 2，尚未完成。
 
 ## Historical anchors
 
-- M5.5 Typed Control initial: Run `35996840472`.
+- M5.7 Unified Control Runtime: Run `36019982680`.
+- M5.6.2 Runtime/Static Recovery: Run `36012593002`.
+- M5.5.1 Recovery: Run `36002343325`.
 - M5.4 Unified Method Finder: Run `35964757740`.
-- M5.3 Control Binding: `b2e4bfa6ea66d9b64cc27149a413a01146ba0a8f`.
 - M5.2 Chain V2: `2456f6ba4dfb659e3480db2e677452dad8516153`.
