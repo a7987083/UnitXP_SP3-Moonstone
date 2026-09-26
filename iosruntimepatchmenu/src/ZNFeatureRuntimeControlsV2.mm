@@ -5,6 +5,7 @@
 
 #import "ZNFeatureControlModel.h"
 #import "ZNFeatureMetadataCodec.h"
+#import "ZNRangeControl.h"
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
 #import "ZNTheme.h"
@@ -61,8 +62,7 @@ static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
 - (void)zn65fc_numberReturn:(UITextField *)field;
 - (void)zn65fc_numberExecute:(UIButton *)button;
 - (void)zn65fc_actionTapped:(UIButton *)button;
-- (void)zn65fc_sliderChanged:(UISlider *)slider;
-- (void)zn65fc_sliderCommitted:(UISlider *)slider;
+- (void)zn65fc_sliderCommitted:(ZNRangeControl *)slider;
 @end
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureRuntimeControlsV2)
 - (void)zn65fc_decorateCompact:(BOOL)compact {
@@ -106,10 +106,13 @@ static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
             UIButton *button=[self zn40_button:@"执行" selector:@selector(zn65fc_actionTapped:) frame:oldFrame];button.tag=kZN65ActionTagBase+(NSInteger)i;[card addSubview:button];
         }else if(type==ZNFeatureControlTypeSlider){
             CGFloat width=compact?88:112;
-            UISlider *slider=[[UISlider alloc]initWithFrame:CGRectMake(CGRectGetWidth(card.bounds)-width-(compact?7:10),oldFrame.origin.y,width,oldFrame.size.height)];
-            slider.tag=kZN65SliderTagBase+(NSInteger)i;slider.minimumValue=1;slider.maximumValue=10;slider.value=(float)MIN(10.0,MAX(1.0,round(ZN65StoredValue(feature,1))));slider.minimumTrackTintColor=self.theme.accentColor;
-            [slider addTarget:self action:@selector(zn65fc_sliderChanged:) forControlEvents:UIControlEventValueChanged];
-            [slider addTarget:self action:@selector(zn65fc_sliderCommitted:) forControlEvents:(UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel)];
+            ZNRangeControl *slider=[[ZNRangeControl alloc]initWithFrame:CGRectMake(CGRectGetWidth(card.bounds)-width-(compact?7:10),oldFrame.origin.y,width,oldFrame.size.height)];
+            slider.tag=kZN65SliderTagBase+(NSInteger)i;
+            slider.minimumValue=1;slider.maximumValue=10;slider.value=MIN(10.0,MAX(1.0,round(ZN65StoredValue(feature,1))));
+            slider.minimumTrackTintColor=self.theme.accentColor;
+            slider.maximumTrackTintColor=[self.theme.trackColor colorWithAlphaComponent:.75];
+            slider.thumbTintColor=self.theme.primaryTextColor;
+            [slider addTarget:self action:@selector(zn65fc_sliderCommitted:) forControlEvents:UIControlEventPrimaryActionTriggered];
             slider.accessibilityLabel=[NSString stringWithFormat:@"%@ 滑块 %@ 1-10 step 1",feature[@"title"]?:@"功能",ZNValueTypeName(valueType)];
             [card addSubview:slider];
         }
@@ -148,19 +151,13 @@ static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
     [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureActionRequestedNotification object:self userInfo:ZN65EventInfo(feature,nil,nil)];
 }
 
-- (void)zn65fc_sliderChanged:(UISlider *)slider {
-    // M5.8 drag hot path: UIKit alone moves the thumb. No runtime refresh,
-    // persistence, value rewrite, notification, render, or backend call.
-    (void)slider;
-}
-
-- (void)zn65fc_sliderCommitted:(UISlider *)slider {
+- (void)zn65fc_sliderCommitted:(ZNRangeControl *)slider {
     NSInteger index=slider.tag-kZN65SliderTagBase;
     NSArray *features=ZN65FeatureGroups();
     if(index<0||(NSUInteger)index>=features.count)return;
     NSDictionary *feature=features[(NSUInteger)index];
     double value=MAX(1.0,MIN(10.0,round(slider.value)));
-    slider.value=(float)value;
+    slider.value=value;
     NSString *text=[NSString stringWithFormat:@"%.0f",value];
     [NSUserDefaults.standardUserDefaults setDouble:value forKey:ZN65PreferenceKey(feature,@"value")];
     [NSUserDefaults.standardUserDefaults setObject:text forKey:ZN65PreferenceKey(feature,@"valueText")];
@@ -174,6 +171,6 @@ extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void){
         Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;
         Method a=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsFull)),b=class_getInstanceMethod(cls,@selector(zn65fc_renderFull));if(a&&b)method_exchangeImplementations(a,b);
         Method c=class_getInstanceMethod(cls,@selector(zn50_renderFeatureGroupsCompact)),d=class_getInstanceMethod(cls,@selector(zn65fc_renderCompact));if(c&&d)method_exchangeImplementations(c,d);
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.8-control] Static Number=save/Return-dismiss/manual Execute; Slider=zero-side-effect drag/single release commit"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.8.1-control] Static Number manual Execute; Slider standalone range/single release commit"];
     });
 }
