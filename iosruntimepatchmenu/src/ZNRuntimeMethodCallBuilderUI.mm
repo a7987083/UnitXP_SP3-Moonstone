@@ -51,6 +51,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
 - (void)znrmc_clearAuthoringActions:(id)sender;
 - (void)znrmc_deleteAuthoringAction:(UIButton *)sender;
 - (void)znrmc_titleEditingEnded:(UITextField *)field;
+- (void)znrmc_argumentEditingChanged:(UITextField *)field;
 - (void)znrmc_argumentEditingEnded:(UITextField *)field;
 @end
 
@@ -127,6 +128,9 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
                 argument.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
                 argument.placeholder = @"参数值";
                 argument.font = [UIFont monospacedDigitSystemFontOfSize:9.6 weight:UIFontWeightMedium];
+                // M5.8.3: keep the model current while typing. This is required
+                // for Slider authoring because the value at build time is its max.
+                [argument addTarget:self action:@selector(znrmc_argumentEditingChanged:) forControlEvents:UIControlEventEditingChanged];
                 [argument addTarget:self action:@selector(znrmc_argumentEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
                 [card addSubview:argument];
             }
@@ -162,13 +166,19 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
     [field resignFirstResponder];
 }
 
-- (void)znrmc_argumentEditingEnded:(UITextField *)field {
+- (void)znrmc_argumentEditingChanged:(UITextField *)field {
     NSInteger index = field.tag - kZNRMCBuilderArgumentTagBase;
     if (index < 0) return;
     NSString *error = nil;
     if (![[ZNRuntimeActionStore sharedStore] updateArgumentValues:@[field.text ?: @""] atIndex:(NSUInteger)index error:&error]) {
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] argument update failed: %@", error ?: @"unknown"]];
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.3-authoring] live argument update failed: %@", error ?: @"unknown"]];
     }
+}
+
+- (void)znrmc_argumentEditingEnded:(UITextField *)field {
+    [self znrmc_argumentEditingChanged:field];
+    NSInteger index = field.tag - kZNRMCBuilderArgumentTagBase;
+    if (index < 0) return;
     NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
     if ((NSUInteger)index < actions.count) {
         ZNRuntimeMethodAction *action = actions[(NSUInteger)index];
@@ -188,7 +198,7 @@ extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void) {
         Method replacement = class_getInstanceMethod(cls, @selector(znrmc_renderOther));
         if (original && replacement) {
             method_exchangeImplementations(original, replacement);
-            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (recovery layout)"];
+            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (M5.8.3 live argument sync)"];
         }
     });
 }
