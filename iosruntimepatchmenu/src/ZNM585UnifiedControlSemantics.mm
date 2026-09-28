@@ -2,7 +2,6 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <mach/mach.h>
-#import <mach/mach_vm.h>
 #include <math.h>
 #include <string.h>
 
@@ -98,8 +97,8 @@ static BOOL ZNM585ParseRVA(NSString *text, uint64_t *out) {
 static NSData *ZNM585ReadValueTemplate(NSString *target, uint64_t rva, NSString **error) {
     uintptr_t address=[[ZNModuleManager sharedManager] runtimeAddressForModule:target rva:rva];
     if (!address) { if(error)*error=@"Offset 无法解析到运行时地址"; return nil; }
-    uint8_t bytes[16]={0}; mach_vm_size_t copied=0;
-    kern_return_t kr=mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)address, sizeof(bytes), (mach_vm_address_t)bytes, &copied);
+    uint8_t bytes[16]={0}; vm_size_t copied=0;
+    kern_return_t kr=vm_read_overwrite(mach_task_self(), (vm_address_t)address, sizeof(bytes), (vm_address_t)bytes, &copied);
     if (kr!=KERN_SUCCESS || copied<4) { if(error)*error=[NSString stringWithFormat:@"读取 Offset 原始指令失败 kr=%d",kr]; return nil; }
     uint32_t first=ZNM585Read32(bytes);
     NSUInteger length=0;
