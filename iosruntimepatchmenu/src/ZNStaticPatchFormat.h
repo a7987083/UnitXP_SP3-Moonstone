@@ -24,6 +24,10 @@
 
 #define ZN44_STATIC_ENTRY_FLAG_CANONICAL UINT32_C(0x00000001)
 #define ZN44_STATIC_ENTRY_FLAG_SHARED    UINT32_C(0x00000002)
+// M5.9.1: Number/Slider entries whose value is applied by a runtime Offset
+// instrument instead of rewriting the source instruction into a Value Cell.
+// Bit 2 was unused in the 128-byte entry ABI and is preserved by ZNF1 metadata.
+#define ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1 UINT32_C(0x00000004)
 
 // M5.6 Runtime-safe typed Static values. Value cells live in owned __ZNDATA
 // segment tail and are loaded by build-time generated LDR-literal instructions.
