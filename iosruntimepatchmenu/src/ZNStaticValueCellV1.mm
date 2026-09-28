@@ -78,6 +78,7 @@ BOOL ZNStaticValueCellAugmentAtPath(NSString *path,NSUInteger *convertedEntries,
             ZN44StaticEntry *entry=&entries[e];
             ZNFeatureControlType control=ZNFeatureControlTypeFromFlags(entry->flags);
             if(control!=ZNFeatureControlTypeNumber&&control!=ZNFeatureControlTypeSlider)continue;
+            if(entry->flags&ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1)continue;
             if(!entry->enabledLength||(entry->enabledLength&3u)){local=[NSString stringWithFormat:@"Patch #%u Enabled 长度无效",entry->patchID];break;}
             NSUInteger count=entry->enabledLength/4u;if(!count||count>32){local=[NSString stringWithFormat:@"Patch #%u Enabled 指令数无效",entry->patchID];break;}
             std::vector<ZNVCLocation> locations;locations.reserve(count);uint64_t fragment=entry->onRVA;
