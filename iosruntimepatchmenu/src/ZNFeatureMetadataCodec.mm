@@ -102,10 +102,14 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
     uint32_t sliderMaxFlags = controlType == ZNFeatureControlTypeSlider
         ? ZNM585SliderMaximumFlagsForFeatureName(featureLookupName)
         : 0;
-    entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK | kZNFM585SliderMaxMask)) |
+    uint32_t hookFlag = (controlType == ZNFeatureControlTypeSlider || controlType == ZNFeatureControlTypeNumber)
+        ? ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1
+        : 0;
+    entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK | kZNFM585SliderMaxMask | ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1)) |
                    ZNFeatureControlFlags(controlType) |
                    ZNFeatureValueTypeFlags(valueType) |
-                   sliderMaxFlags;
+                   sliderMaxFlags |
+                   hookFlag;
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
     NSData *nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity);
@@ -157,6 +161,7 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
         @"valueType": @(valueType),
         @"valueTypeName": ZNValueTypeName(valueType),
         @"sliderMax": @(sliderMax),
+        @"offsetHook": @((entry->flags & ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1) != 0),
         @"source": @"embedded-znf1"
     };
 }
