@@ -87,7 +87,8 @@ jobs:
           otool -L "$out" | tee /tmp/zono_m620_load_commands.txt
           strings -a "$out" > /tmp/zono_m620_strings.txt
           grep -q '\[m6.2\]' /tmp/zono_m620_strings.txt
-          grep -q '说明（显示给用户）' /tmp/zono_m620_strings.txt
+          grep -q 'm6.2.runtime-descriptions.v1' /tmp/zono_m620_strings.txt
+          grep -q 'm6.2.static-descriptions.v1' /tmp/zono_m620_strings.txt
           grep -q 'duplicate parameter labels hidden' /tmp/zono_m620_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m620_load_commands.txt
       - name: Upload artifact
