@@ -112,18 +112,21 @@
     (void)event;
     [self zn_suspendScrollIfNeeded];
     [self zn_updateFromTouch:touch];
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
     return YES;
 }
 
 - (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
     (void)event;
     [self zn_updateFromTouch:touch];
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
     return YES;
 }
 
 - (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
     (void)event;
     if (touch) [self zn_updateFromTouch:touch];
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
     [self zn_restoreScrollIfNeeded];
     [self sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
 }
