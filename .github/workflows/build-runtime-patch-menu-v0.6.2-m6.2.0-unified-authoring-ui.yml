@@ -15,6 +15,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: UI architecture contract — single renderer only
+        run: |
+          set -euxo pipefail
+          python3 iosruntimepatchmenu/tools/validate_single_ui_renderer.py
       - name: Source contract assertions
         run: |
           set -euxo pipefail
