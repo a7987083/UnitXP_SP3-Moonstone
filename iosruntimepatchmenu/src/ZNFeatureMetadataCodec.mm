@@ -6,11 +6,15 @@ static const uint8_t kZNFMMarker0 = 0xA5;
 static const uint8_t kZNFMMarker1 = 0x5A;
 static const uint8_t kZNFMVersion = 1;
 static const NSUInteger kZNFMNameCapacity = 57;
+static const uint32_t kZNFM585SliderMaxMask = UINT32_C(0xFFFC0000);
+static const uint32_t kZNFM585SliderMaxShift = 18u;
+extern "C" uint32_t ZNM585SliderMaximumFlagsForFeatureName(NSString *featureName);
 
 // title/group are contiguous in ZN44StaticEntry: 48 + 24 bytes.
 // Layout inside that 72-byte region remains ZNF1-compatible. M5.5 keeps the
 // existing metadata payload untouched and stores Value Type in entry.flags
-// bits 11..13. Legacy outputs decode those zero bits as Auto.
+// bits 11..13. M5.8.5 uses previously-unused flags bits 18..31 for an integer
+// Static Slider authored maximum (1..16383), preserving the 128-byte ABI.
 
 static NSString *ZNFMTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -95,9 +99,13 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
     NSString *featureLookupName = explicitGroup ? cleanGroup : cleanTitle;
     ZNFeatureControlType controlType = ZNFeatureControlTypeForFeatureName(featureLookupName);
     ZNValueType valueType = ZNFeatureValueTypeForFeatureName(featureLookupName);
-    entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK)) |
+    uint32_t sliderMaxFlags = controlType == ZNFeatureControlTypeSlider
+        ? ZNM585SliderMaximumFlagsForFeatureName(featureLookupName)
+        : 0;
+    entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK | kZNFM585SliderMaxMask)) |
                    ZNFeatureControlFlags(controlType) |
-                   ZNFeatureValueTypeFlags(valueType);
+                   ZNFeatureValueTypeFlags(valueType) |
+                   sliderMaxFlags;
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
     NSData *nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity);
@@ -138,6 +146,7 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
     BOOL explicitGroup = (storage[4] & 0x01) != 0;
     ZNFeatureControlType controlType = ZNFeatureControlTypeFromFlags(entry->flags);
     ZNValueType valueType = ZNFeatureValueTypeFromFlags(entry->flags);
+    uint32_t sliderMax = (entry->flags & kZNFM585SliderMaxMask) >> kZNFM585SliderMaxShift;
     return @{
         @"featureID": @(featureID),
         @"title": name,
@@ -147,6 +156,7 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
         @"controlTypeName": ZNFeatureControlTypeName(controlType),
         @"valueType": @(valueType),
         @"valueTypeName": ZNValueTypeName(valueType),
+        @"sliderMax": @(sliderMax),
         @"source": @"embedded-znf1"
     };
 }
