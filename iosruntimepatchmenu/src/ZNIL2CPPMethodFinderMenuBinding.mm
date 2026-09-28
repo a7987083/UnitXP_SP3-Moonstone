@@ -41,6 +41,7 @@ extern "C" void ZNInstallM52ChainStoreV2Deferred(void);
 extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 extern "C" void ZNInstallM52MethodSearchHistoryDeferred(void);
 extern "C" void ZNInstallM592OffsetAuthoringPersistenceDeferred(void);
+extern "C" void ZNInstallM640AuthoringValidationBridgeDeferred(void);
 extern "C" void ZNInstallM610UnifiedFeatureModelDeferred(void);
 extern "C" void ZNInstallM630SingleUnifiedRendererDeferred(void);
 
@@ -89,7 +90,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         Method d = class_getInstanceMethod(cls, @selector(zn58mfb_baseSymbols));
         if (c && d) method_exchangeImplementations(c, d);
 
-        // Separate Method Finder / diagnostic pages may keep their own UI.
         ZNInstallIL2CPPMethodFinderUXV2Deferred();
         ZNInstallIL2CPPMethodFinderV3Deferred();
         ZNInstallIL2CPPMethodFinderPatchBridgeV3Deferred();
@@ -126,15 +126,11 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM52ImmediateChainV2Deferred();
         ZNInstallM52MethodSearchHistoryDeferred();
 
-        // Non-UI authoring/model services retained.
         ZNInstallM592OffsetAuthoringPersistenceDeferred();
+        ZNInstallM640AuthoringValidationBridgeDeferred();
         ZNInstallM610UnifiedFeatureModelDeferred();
-
-        // M6.3 hard rule: exactly one customer Feature renderer is activated.
-        // Historical FeatureRuntimeControls/M58/M584/M585/M590/M600/M620 UI
-        // installers are deliberately NOT called here.
         ZNInstallM630SingleUnifiedRendererDeferred();
 
-        [[ZNRuntimeLogger sharedLogger] log:@"[m6.3] single UI install chain active; old stacked Feature renderers disabled"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m6.4] single UI install chain active; unified authoring regressions fixed"];
     });
 }
