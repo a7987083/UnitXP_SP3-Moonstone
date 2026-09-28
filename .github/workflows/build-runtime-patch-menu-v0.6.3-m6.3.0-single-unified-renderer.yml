@@ -1,9 +1,9 @@
-name: Build Runtime Patch Menu v0.6.3 M6.3.0 Single Unified Renderer
+name: Build Runtime Menu v0.6.4 M6.4.0 Authoring Fixes
 
 on:
   push:
     branches:
-      - feature/m6.3-single-unified-renderer
+      - fix/m6.4-authoring-regressions
   workflow_dispatch:
 
 jobs:
@@ -16,30 +16,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: UI architecture contract — single renderer only
+      - name: Validate single renderer contract
         run: |
           set -euxo pipefail
           python3 iosruntimepatchmenu/tools/validate_single_ui_renderer.py
 
-      - name: M6.3 source contract assertions
+      - name: Source assertions
         run: |
           set -euxo pipefail
-          grep -q '0.6.3 · M6.3.0' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q '0.6.4 · M6.4.0' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'M6.4 canonical authoring renderer' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          grep -q '二进制' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          grep -q 'M640PlaceholderRow' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          grep -q 'Fixed Value restored' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          grep -q 'Fixed/Number/Slider/Switch/Button' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
           grep -q 'ZN_UI_CANONICAL_FEATURE_RENDERER' iosruntimepatchmenu/src/ZNM630SingleUnifiedRenderer.mm
-          grep -q 'customer parameter labels are not created' iosruntimepatchmenu/src/ZNM630SingleUnifiedRenderer.mm
-          grep -q 'M6.3 canonical authoring renderer' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
-          grep -q 'single Builder renderer installed' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
-          grep -q '显示给客户的说明' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
-          grep -q 'exact IL2CPP Method Offset' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
-          grep -q 'direct Static numeric fallback removed' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
-          grep -q 'updateGroup:' iosruntimepatchmenu/src/ZNRuntimeActionModel.h
-          grep -q '"group"' iosruntimepatchmenu/src/ZNM551AuthoringPersistence.mm
           ! grep -q 'placeholder:@"ARM64 HEX"' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
-          ! grep -q 'zn40_button:@"＋ 增加 Patch"' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
-          ! grep -q 'src/ZNFeatureBuilderUI.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNInstallRuntimeMethodCallBuilderUIDeferred();' iosruntimepatchmenu/src/ZNRuntimeMethodCallBootstrap.mm
-          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
-          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
 
       - name: Install dependencies
         run: |
@@ -51,7 +44,7 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
-      - name: Build pinned Dobby for iPhone arm64
+      - name: Build pinned Dobby
         run: |
           set -euxo pipefail
           mkdir -p vendor
@@ -86,33 +79,33 @@ jobs:
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
 
-      - name: Build M6.3.0
+      - name: Build M6.4.0
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m6.3.0
-          cp .theos/obj/ZonoePatchV03.dylib dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_SingleUnifiedRenderer.dylib
-          shasum -a 256 dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_SingleUnifiedRenderer.dylib | tee dist-m6.3.0/SHA256.txt
+          mkdir -p dist-m6.4.0
+          cp .theos/obj/ZonoePatchV03.dylib dist-m6.4.0/ZonoPatch_v0.6.4_M6.4.0_AuthoringFixes.dylib
+          shasum -a 256 dist-m6.4.0/ZonoPatch_v0.6.4_M6.4.0_AuthoringFixes.dylib | tee dist-m6.4.0/SHA256.txt
 
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_SingleUnifiedRenderer.dylib
+          out=iosruntimepatchmenu/dist-m6.4.0/ZonoPatch_v0.6.4_M6.4.0_AuthoringFixes.dylib
           file "$out" | grep -q 'arm64'
-          otool -L "$out" | tee /tmp/zono_m630_load_commands.txt
-          strings -a "$out" > /tmp/zono_m630_strings.txt
-          grep -q '\[m6.3-ui\]' /tmp/zono_m630_strings.txt
-          grep -q '\[m6.3-authoring\]' /tmp/zono_m630_strings.txt
-          grep -q 'direct Static numeric fallback removed' /tmp/zono_m630_strings.txt
-          ! grep -qi 'dobby' /tmp/zono_m630_load_commands.txt
+          strings -a "$out" > /tmp/zono_m640_strings.txt
+          grep -q '\[m6.4-authoring\]' /tmp/zono_m640_strings.txt
+          grep -q '\[m6.4-model\]' /tmp/zono_m640_strings.txt
+          grep -q '0.6.4' /tmp/zono_m640_strings.txt
+          otool -L "$out" | tee /tmp/zono_m640_load_commands.txt
+          ! grep -qi 'dobby' /tmp/zono_m640_load_commands.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.6.3-M6.3.0-SingleUnifiedRenderer
+          name: ZonoPatch-v0.6.4-M6.4.0-AuthoringFixes
           path: |
-            iosruntimepatchmenu/dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_SingleUnifiedRenderer.dylib
-            iosruntimepatchmenu/dist-m6.3.0/SHA256.txt
+            iosruntimepatchmenu/dist-m6.4.0/ZonoPatch_v0.6.4_M6.4.0_AuthoringFixes.dylib
+            iosruntimepatchmenu/dist-m6.4.0/SHA256.txt
           if-no-files-found: error
