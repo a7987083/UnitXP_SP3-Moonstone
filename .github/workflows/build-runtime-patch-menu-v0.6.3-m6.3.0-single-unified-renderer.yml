@@ -97,7 +97,8 @@ jobs:
           strings -a "$out" > /tmp/zono_m640_strings.txt
           grep -q '\[m6.4-authoring\]' /tmp/zono_m640_strings.txt
           grep -q '\[m6.4-model\]' /tmp/zono_m640_strings.txt
-          grep -q '0.6.4' /tmp/zono_m640_strings.txt
+          grep -q 'zonoe.m6.4.offset-control.v1' /tmp/zono_m640_strings.txt
+          grep -q 'zonoe.m6.4.offset-fixed-value.v1' /tmp/zono_m640_strings.txt
           otool -L "$out" | tee /tmp/zono_m640_load_commands.txt
           ! grep -qi 'dobby' /tmp/zono_m640_load_commands.txt
 
