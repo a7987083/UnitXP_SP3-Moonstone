@@ -27,14 +27,16 @@ jobs:
           grep -q '0.6.3 · M6.3.0' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZN_UI_CANONICAL_FEATURE_RENDERER' iosruntimepatchmenu/src/ZNM630SingleUnifiedRenderer.mm
           grep -q 'customer parameter labels are not created' iosruntimepatchmenu/src/ZNM630SingleUnifiedRenderer.mm
-          grep -q 'single Builder renderer installed' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
-          grep -q '显示给客户的说明' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
-          grep -q 'exact IL2CPP Method Offset' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
+          grep -q 'M6.3 canonical authoring renderer' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          grep -q 'single Builder renderer installed' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          grep -q '显示给客户的说明' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          grep -q 'exact IL2CPP Method Offset' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
           grep -q 'direct Static numeric fallback removed' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
           grep -q 'updateGroup:' iosruntimepatchmenu/src/ZNRuntimeActionModel.h
           grep -q '"group"' iosruntimepatchmenu/src/ZNM551AuthoringPersistence.mm
-          ! grep -q 'placeholder:@"ARM64 HEX"' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
-          ! grep -q 'zn40_button:@"＋ 增加 Patch"' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
+          ! grep -q 'placeholder:@"ARM64 HEX"' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          ! grep -q 'zn40_button:@"＋ 增加 Patch"' iosruntimepatchmenu/src/ZNM630UnifiedAuthoringRenderer.mm
+          ! grep -q 'src/ZNFeatureBuilderUI.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNInstallRuntimeMethodCallBuilderUIDeferred();' iosruntimepatchmenu/src/ZNRuntimeMethodCallBootstrap.mm
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
