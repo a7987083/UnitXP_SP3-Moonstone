@@ -4,7 +4,7 @@
 #import "ZNValueTypeModel.h"
 #import "ZNPatchCore.h"
 
-static NSString *ZNRMATrim(NSString *value) { return [value ?: @""] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; }
+static NSString *ZNRMATrim(NSString *value) { return [(value ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; }
 static uint32_t ZNRMAFNV1a32(NSString *text) {
     NSData *data=[text dataUsingEncoding:NSUTF8StringEncoding]?:[NSData data]; const uint8_t *bytes=(const uint8_t *)data.bytes; uint32_t h=UINT32_C(2166136261);
     for(NSUInteger i=0;i<data.length;i++){h^=bytes[i];h*=UINT32_C(16777619);} return h?:1u;
