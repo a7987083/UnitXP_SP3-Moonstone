@@ -2,33 +2,40 @@
 
 只记录当前未关闭问题、验证缺口和设计边界。
 
-## KI-M582-001 — Runtime 重复卡片已做显示层折叠，真机待验收
+## KI-M583-001 — Slider authored max 待真机验收
 
 Severity: `HIGH`  
 Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
 
-M5.8.1 真机截图出现同名 `set_MoveSpeed` / `CheatSetExp` 重复卡片。M5.8.2 没有新增第二套 UI，而是在唯一的 `ZNM58UnifiedControlRuntime` 中按 `title + canonicalIdentity` 折叠重复显示，优先保留 exposed controls 更完整的 record。不同 title 的同方法 action 不会被合并。需真机确认没有误合并业务上不同的功能。
+M5.8.3 规定仅 Slider 在生成时必须填写参数值。生成前 Pipeline 会校验该值为 finite 且 `>0`，并写入 `min=0 / max=<authored value> / step=1 / default=<authored value>`。需真机验证输入 `31` 后最终生成菜单的 Slider 最大值严格为 `31`，并验证空值/非法值会阻止生成。
 
-## KI-M582-002 — Runtime 固定参数 action 执行入口待真机验收
-
-Severity: `HIGH`  
-Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
-
-`argumentCount > 0` 但所有 control config 均未 exposed 的 action 在 M5.8.1 不显示 `执行`。M5.8.2 对 `exposed == 0` 强制显示 `执行`；需真机确认固定参数值按生成表执行且无额外 UI 层。
-
-## KI-M582-003 — Runtime Slider 当前值显示与拖动稳定性待真机验收
+## KI-M583-002 — 同方法不同 Action 的显示身份待真机验收
 
 Severity: `HIGH`  
 Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
 
-M5.8.2 的 `ZNRangeControl` 在 tracking 中发送 `UIControlEventValueChanged`，Runtime renderer 仅用于量化和更新同一 row 的数值 label，不执行 IL2CPP Invoke；release 仍使用 `UIControlEventPrimaryActionTriggered` 单次执行。需真机确认持续拖动不卡死、label 与实际执行值一致、release 只执行一次。
+M5.8.2 的 `title + canonicalIdentity` UI 折叠会误吞 Fixed / Number / Slider 独立 Builder actions。M5.8.3 已删除该二次 UI 去重；精确记录去重继续由 `ZNRuntimeActionRuntime` 负责。需真机确认同一 IL2CPP 方法的 Fixed、Number、Slider 都能同时显示和执行。
 
-## KI-M582-004 — Runtime-only 客户值持久化待重启验收
+## KI-M583-003 — Fixed / Number 生成与执行回归待验收
 
 Severity: `HIGH`  
 Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
 
-M5.5.1 `zonoe.m5.5.authoring-actions.v1` 只覆盖 Builder 的 `ZNRuntimeActionStore`，不能覆盖从生成 dylib `__ZNDATA` 解析出的 Runtime records。M5.8.2 新增独立运行时值 key `zonoe.m5.8.2.runtime-values.v1`，按 `actionID + canonicalIdentity` 保存 argumentValues。需真机验证 Slider/Number/Switch 提交后重启 App 能恢复。
+用户明确只有 Slider 必须生成时填写。M5.8.3 未给 Number / Fixed / Switch / Button 增加生成时必填要求。需真机确认 Fixed 显示 `执行`、Number 显示输入框 + `执行`，且不被同方法 Slider 隐藏。
+
+## KI-M582-003 — Runtime Slider 拖动稳定性与实时数值仍需回归
+
+Severity: `HIGH`  
+Status: `DEVICE PARTIAL / REGRESSION PENDING`
+
+用户已确认 M5.8.2 Slider 可以拖动并显示数值。M5.8.3 保留相同 `ZNRangeControl` 热路径：ValueChanged 仅更新 UI，release 单次 Invoke。需在新版本回归无卡死/崩溃。
+
+## KI-M582-004 — Runtime-only 客户值持久化重启验收
+
+Severity: `HIGH`  
+Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
+
+持久化 key 继续使用 `zonoe.m5.8.2.runtime-values.v1`，身份为 `actionID + canonicalIdentity`，以保持 M5.8.2 → M5.8.3 兼容。需真机验证 Slider/Number/Switch 提交后重启 App 能恢复。
 
 ## KI-M58-002 — Static Slider 旧拖动热路径修复仍待真机
 
@@ -42,14 +49,14 @@ Static typed controls 仍需使用 M5.8+ 重新生成目标验证 Slider drag/re
 Severity: `HIGH`  
 Status: `PHASE 2 OPEN`
 
-Builder 仍存在 `ZNRuntimeMethodCallBuilderUI -> M5.1 argument decorator -> M5.5 authoring/gate decorator` 历史链。下一阶段必须做 consolidation，禁止继续增加新的 renderer/swizzle 层。
+Builder 仍存在历史 renderer/decorator 链。M5.8.3 没有增加新的 renderer 层。后续 consolidation 必须保持当前已验证行为并禁止继续叠新的 UI owner。
 
 ## KI-M58-004 — Method Finder 历史 installer 尚未物理清理
 
 Severity: `HIGH`  
 Status: `PHASE 2 OPEN`
 
-M5.4 Unified renderer 已存在，但历史 backend/behavior decorator 仍需逐层审计和清理；必须保持现有行为回归通过后才能删除。
+M5.4 Unified renderer 已存在，但历史 backend/behavior decorator 仍需逐层审计和清理；必须在 Runtime/Builder 回归稳定后处理。
 
 ## KI-M56-004 — Value Cell LDR literal ±1MB 距离限制
 

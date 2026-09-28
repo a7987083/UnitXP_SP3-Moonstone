@@ -2,52 +2,64 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.8.2 Single Runtime UI + Runtime Value Persistence**.
+ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.8.3 Slider Authored Max + Action Identity**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `fix/m5.8.2-single-runtime-ui-persistence`
-- Baseline: M5.8.1 `bdda071fe30b8b18dec1f791ad9f65cca402e4a3`
-- Implementation CI anchor: `a8ffddf8eaee32a74d0be10dcae2cff6801b3e39`
-- Run: `36361545700` — SUCCESS
-- Job: `108739561193`
-- Artifact ID: `10945494700`
-- ZIP SHA256: `ec8deb778aee9431e7ddb903443f23fd2ea6423db649e378f17413ae82028239`
-- Dylib: `ZonoPatch_v0.5.8_M5.8.2_SingleRuntimeUI_Persistence.dylib`
-- Dylib size: `1404800`
-- Dylib SHA256: `93cab80c56ada110f08f4f536633f0e1087f8132b9a7d830c182d3a4bc697572`
+- Active branch: `fix/m5.8.3-slider-max-action-identity`
+- Baseline: M5.8.2 `59eebc1d21c7a6894f27a5480bf8100bbf4f2094`
+- Business-code CI anchor: `8fcdb5af93e2cf8884f2e5189acad3acf744abcc`
+- Run: `36364086245` — SUCCESS
+- Job: `108746902686`
+- Artifact ID: `10947010903`
+- Artifact digest: `sha256:344f603bc385d8d86e044b37709ce14f76282c366fdaa49cf71ee2889f0b30cc`
+- Dylib: `ZonoPatch_v0.5.8_M5.8.3_SliderMax_ActionIdentity.dylib`
 
-## Why M5.8.2
+## Why M5.8.3
 
-M5.8.1 device screenshot showed duplicated same-method cards, fixed-value actions without Execute, Slider without a visible current value, and no runtime-only customer-value persistence across restarts. The persistence gap is distinct from M5.5.1 authoring persistence: generated Runtime records are parsed from loaded dylib `__ZNDATA`, not from `ZNRuntimeActionStore`.
+M5.8.2 device feedback confirmed Slider interaction/value display works, but exposed two authoring/identity bugs: an authored Slider value such as `31` did not become `max=31`, and display-layer dedupe merged distinct Fixed/Number/Slider Builder actions targeting the same IL2CPP method.
 
 ## Runtime customer architecture
 
-`ZNM58UnifiedControlRuntime` remains the only Runtime customer renderer. M5.8.2 does not add another controller or nested renderer.
+`ZNM58UnifiedControlRuntime` remains the only Runtime customer renderer. No new UI/controller/nested renderer was added.
 
-- duplicate visible cards collapse by `title + canonicalIdentity`;
-- richer exposed-control record wins when duplicates exist;
-- execution tags retain original `runtime.records` indexes;
-- `exposed == 0` fixed-value actions show `执行`;
-- Slider has one in-row current-value label;
-- `ZNRangeControl` sends ValueChanged while tracking;
-- ValueChanged only updates/quantizes the visible value and never invokes;
-- release (`PrimaryActionTriggered`) invokes once;
-- current Runtime argument values persist under `zonoe.m5.8.2.runtime-values.v1` keyed by `actionID + canonicalIdentity`;
-- saved values restore when the menu is rendered again/restarted.
+- UI-level title/method collapse was removed.
+- `ZNRuntimeActionRuntime` remains the exact embedded-record dedupe owner.
+- Separate Builder actions targeting the same method stay separate.
+- Fixed actions retain `执行`.
+- Number actions retain input + `执行`.
+- Slider keeps live in-row value display and release-only invoke.
+- Runtime value persistence remains `zonoe.m5.8.2.runtime-values.v1`, preserving values across the M5.8.2 → M5.8.3 upgrade.
+
+## Slider authoring contract
+
+Only Slider is generation-time value-required.
+
+- Builder argument field live-syncs during EditingChanged.
+- Before Runtime Action embedding, every enabled Slider validates the current authored value.
+- Missing / invalid / non-finite / `<= 0` value fails generation.
+- Valid Slider metadata becomes `min=0`, `max=<authored value>`, `step=1`, `default=<authored value>`.
+- Number / Fixed / Switch / Button have no new pre-generation value requirement.
+
+## CI history
+
+- Run `36363946557`: build succeeded; Binary Verify failed only because CI searched a Chinese Objective-C NSString with `strings -a`.
+- Commit `8fcdb5af93e2cf8884f2e5189acad3acf744abcc` changed only the verification marker to ASCII.
+- Run `36364086245`: Build / Binary Verify / Artifact Upload all SUCCESS.
 
 ## Immediate device checklist
 
-1. Footer shows `0.5.8 · M5.8.2`.
-2. Verify duplicate `set_MoveSpeed` / `CheatSetExp` cards collapse to one visible card each where title+method identity match.
-3. Verify fixed-value cards expose `执行`.
-4. Drag Slider continuously: current value label must track the quantized value; no freeze/crash; release commits once.
-5. Change Slider/Number/Switch, commit/execute, restart app, and verify the last value is restored.
-6. Regress Runtime-only generation and confirm M5.5.1 authoring persistence is unaffected.
-7. Regress M5.4 Unified Method Finder and M5.8 regenerated Static controls.
+1. Footer `0.5.8 · M5.8.3`.
+2. Slider authored with `31` has maximum exactly `31`.
+3. Empty/invalid Slider value is rejected at generation.
+4. Number/Fixed can generate without a mandatory authored value.
+5. Same-method Fixed + Number + Slider actions all appear; none are collapsed by title/method identity.
+6. Fixed shows `执行`; Number shows input + `执行`.
+7. Slider value label follows drag; drag itself does not Invoke; release invokes once.
+8. Persisted Runtime values restore after restart.
 
 ## Open boundaries
 
-- Device validation is still pending; CI success is not device success.
-- Display-level duplicate collapse intentionally uses title+canonical identity. Different titles for the same method remain separate actions.
-- Static Number/Slider behavior still requires an M5.8+ regenerated target.
-- M5.8 Phase 2 Builder/Method Finder architecture cleanup remains open; do not add another renderer layer.
+- M5.8.3 device validation is pending; CI success is not device success.
+- Slider currently uses authored max as its generated default/initial value as well. Change this only if product behavior is explicitly revised.
+- Static controls still need regression on a freshly generated M5.8+ target.
+- Builder renderer / Method Finder Phase 2 consolidation remains open. Do not add another renderer layer.

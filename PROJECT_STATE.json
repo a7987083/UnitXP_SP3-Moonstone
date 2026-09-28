@@ -1,67 +1,74 @@
 {
-  "schema_version": 24,
+  "schema_version": 25,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.8-dev",
-  "milestone": "M5.8.2",
-  "phase": "single-runtime-ui-runtime-value-persistence",
+  "milestone": "M5.8.3",
+  "phase": "slider-authored-max-action-identity",
   "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
-  "branch": "fix/m5.8.2-single-runtime-ui-persistence",
-  "baseline": "bdda071fe30b8b18dec1f791ad9f65cca402e4a3",
-  "implementation_ci_anchor": "a8ffddf8eaee32a74d0be10dcae2cff6801b3e39",
+  "branch": "fix/m5.8.3-slider-max-action-identity",
+  "baseline": "59eebc1d21c7a6894f27a5480bf8100bbf4f2094",
+  "business_code_ci_anchor": "8fcdb5af93e2cf8884f2e5189acad3acf744abcc",
   "runtime_controls": {
     "renderer_owner": "ZNM58UnifiedControlRuntime",
     "additional_runtime_renderer_added": false,
-    "duplicate_visible_card_key": "title + canonicalIdentity",
-    "duplicate_preference": "record with richer enabled control config",
+    "ui_level_title_method_collapse": false,
+    "exact_record_dedupe_owner": "ZNRuntimeActionRuntime",
+    "distinct_same_method_builder_actions_preserved": true,
     "fixed_action_execute_when_exposed_zero": true,
     "slider_live_value_label": true,
     "slider_value_changed_invokes": false,
     "slider_release_invokes_once": true,
     "runtime_value_persistence_key": "zonoe.m5.8.2.runtime-values.v1",
     "runtime_value_identity": "actionID + canonicalIdentity",
-    "restore_persisted_values_on_render": true,
     "device_verified": false
   },
-  "authoring_persistence": {
-    "key": "zonoe.m5.5.authoring-actions.v1",
-    "scope": "Builder ZNRuntimeActionStore",
-    "unchanged": true
+  "slider_authoring": {
+    "only_slider_requires_generation_value": true,
+    "builder_argument_live_sync": true,
+    "required_value": "finite > 0",
+    "generated_min": 0,
+    "generated_max": "authored argument value",
+    "generated_step": 1,
+    "generated_default": "authored argument value",
+    "number_fixed_switch_button_new_value_requirement": false
   },
   "abi": {
     "static_patch_entry_bytes": 128,
     "runtime_method_call_entry_bytes": 64,
-    "changed_in_m5_8_2": false
+    "changed_in_m5_8_3": false
   },
   "build": {
-    "workflow": "Build Runtime Patch Menu v0.5.8 M5.8.2 Single Runtime UI Persistence",
-    "run_id": 36361545700,
-    "job_id": 108739561193,
+    "workflow": "Build Runtime Patch Menu v0.5.8 M5.8.3 Slider Max Action Identity",
+    "first_run_id": 36363946557,
+    "first_run_build_result": "success",
+    "first_run_failure": "binary verify false negative: strings -a cannot reliably assert Chinese Objective-C NSString",
+    "final_business_code_run_id": 36364086245,
+    "job_id": 108746902686,
     "result": "success",
     "compiled": true,
     "binary_verified": true,
     "artifact_uploaded": true
   },
   "artifact": {
-    "name": "ZonoPatch-v0.5.8-M5.8.2-SingleRuntimeUI-Persistence",
-    "id": 10945494700,
-    "archive_sha256": "ec8deb778aee9431e7ddb903443f23fd2ea6423db649e378f17413ae82028239",
-    "dylib_name": "ZonoPatch_v0.5.8_M5.8.2_SingleRuntimeUI_Persistence.dylib",
-    "dylib_size": 1404800,
-    "dylib_sha256": "93cab80c56ada110f08f4f536633f0e1087f8132b9a7d830c182d3a4bc697572"
+    "name": "ZonoPatch-v0.5.8-M5.8.3-SliderMax-ActionIdentity",
+    "id": 10947010903,
+    "archive_digest": "sha256:344f603bc385d8d86e044b37709ce14f76282c366fdaa49cf71ee2889f0b30cc",
+    "dylib_name": "ZonoPatch_v0.5.8_M5.8.3_SliderMax_ActionIdentity.dylib"
   },
   "device_acceptance_pending": [
-    "only one visible card per duplicated same-title same-canonical Runtime action",
-    "fixed-value Runtime actions show Execute",
-    "Slider live value label tracks quantized drag value",
-    "Runtime Slider drag remains responsive and release invokes once",
-    "Runtime Slider Number Switch values restore after app restart",
+    "Slider authored with 31 has maximum exactly 31",
+    "empty or invalid Slider value is rejected at generation",
+    "Number and Fixed do not require authored value at generation",
+    "same-method Fixed Number Slider actions all remain visible",
+    "fixed action Execute works",
+    "Number input plus Execute works",
+    "Slider live value and single release invoke regression",
+    "runtime value persistence after restart",
     "Runtime-only generation regression",
-    "M5.5.1 Builder authoring persistence regression",
-    "M5.4 Unified Method Finder regression",
-    "M5.8 regenerated Static control regression"
+    "Static controls regression"
   ],
-  "next_phase": "m5.8.2-device-acceptance",
-  "next_task": "Install M5.8.2 and validate single Runtime surface, fixed Execute, live Slider value and restart persistence before any further renderer cleanup.",
+  "next_phase": "m5.8.3-device-acceptance",
+  "next_task": "Install M5.8.3 and validate Slider authored max plus distinct same-method Fixed/Number/Slider actions before Phase 2 cleanup.",
   "captured_at": "2026-09-28"
 }
