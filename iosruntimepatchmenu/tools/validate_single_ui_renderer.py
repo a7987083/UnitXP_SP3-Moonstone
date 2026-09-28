@@ -28,11 +28,7 @@ FORBIDDEN_ACTIVE_INSTALLERS = (
     "ZNInstallM620UnifiedAuthoringUIDeferred();",
 )
 
-PROTECTED_SELECTORS = (
-    "zn51_renderRuntime:",
-    "zn50b_renderOther",
-    "renderPage",
-)
+PROTECTED_SELECTORS = ("zn51_renderRuntime:", "zn50b_renderOther", "renderPage")
 
 
 def compiled_sources() -> list[Path]:
@@ -60,20 +56,15 @@ def main() -> int:
 
     canonical = [p for p, text in contents.items() if CANONICAL_MARKER in text]
     if len(canonical) != 1:
-        errors.append(
-            f"expected exactly one compiled canonical Feature renderer marked {CANONICAL_MARKER}; "
-            f"found {len(canonical)}: {[rel(p) for p in canonical]}"
-        )
+        errors.append(f"expected exactly one compiled canonical Feature renderer marked {CANONICAL_MARKER}; found {len(canonical)}: {[rel(p) for p in canonical]}")
     elif canonical[0].name != "ZNM630SingleUnifiedRenderer.mm":
         errors.append(f"unexpected canonical renderer owner: {rel(canonical[0])}")
 
     binding = MENU_BINDING.read_text(encoding="utf-8")
     if binding.count(CANONICAL_INSTALL) != 1:
         errors.append(f"canonical renderer must be installed exactly once via {CANONICAL_INSTALL}")
-
     for installer in FORBIDDEN_ACTIVE_INSTALLERS:
-        active = re.findall(rf"(?<!void\s){re.escape(installer)}", binding)
-        if active:
+        if re.findall(rf"(?<!void\s){re.escape(installer)}", binding):
             errors.append(f"forbidden layered UI installer is active in menu binding: {installer}")
 
     bootstrap = RUNTIME_BOOTSTRAP.read_text(encoding="utf-8")
@@ -84,9 +75,11 @@ def main() -> int:
         errors.append(f"canonical Builder is not compiled: {rel(BUILDER)}")
     builder = BUILDER.read_text(encoding="utf-8")
     required_builder_markers = (
-        "M6.3 canonical authoring renderer",
+        "M6.4 canonical authoring renderer",
         "single Builder renderer installed",
-        "说明",
+        "二进制",
+        "M640PlaceholderRow",
+        "Fixed Value restored",
         "exact IL2CPP Method Offset",
     )
     for marker in required_builder_markers:
@@ -110,9 +103,9 @@ def main() -> int:
             errors.append(f"constructor bypasses single-renderer install chain in {rel(path)}: {touched}")
 
     if any(p.name == "ZNM620UnifiedAuthoringUI.mm" for p in sources):
-        errors.append("ZNM620UnifiedAuthoringUI.mm must not be compiled in M6.3")
+        errors.append("ZNM620UnifiedAuthoringUI.mm must not be compiled")
     if any(p.name == "ZNFeatureBuilderUI.mm" for p in sources):
-        errors.append("legacy ZNFeatureBuilderUI.mm must not be compiled in M6.3")
+        errors.append("legacy ZNFeatureBuilderUI.mm must not be compiled")
 
     if errors:
         print("UI ARCHITECTURE CONTRACT: FAIL", file=sys.stderr)
