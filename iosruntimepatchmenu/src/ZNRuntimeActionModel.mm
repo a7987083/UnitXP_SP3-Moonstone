@@ -4,7 +4,7 @@
 #import "ZNValueTypeModel.h"
 #import "ZNPatchCore.h"
 
-static NSString *ZNRMATrim(NSString *value) { return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; }
+static NSString *ZNRMATrim(NSString *value) { return [value ?: @""] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; }
 static uint32_t ZNRMAFNV1a32(NSString *text) {
     NSData *data=[text dataUsingEncoding:NSUTF8StringEncoding]?:[NSData data]; const uint8_t *bytes=(const uint8_t *)data.bytes; uint32_t h=UINT32_C(2166136261);
     for(NSUInteger i=0;i<data.length;i++){h^=bytes[i];h*=UINT32_C(16777619);} return h?:1u;
@@ -59,6 +59,7 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m5.5-typed] add id=%u %@ types=%@",action.actionID,action.canonicalIdentity,action.parameterTypeNames]];return [action copy];
 }
 - (BOOL)updateTitle:(NSString *)title atIndex:(NSUInteger)index error:(NSString **)error {NSString *trimmed=ZNRMATrim(title);@synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}ZNRuntimeMethodAction *action=self.mutableActions[index];action.title=trimmed.length?trimmed:action.methodName;return YES;}}
+- (BOOL)updateGroup:(NSString *)group atIndex:(NSUInteger)index error:(NSString **)error {NSString *trimmed=ZNRMATrim(group);@synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}ZNRuntimeMethodAction *action=self.mutableActions[index];action.group=trimmed;return YES;}}
 - (BOOL)updateArgumentValues:(NSArray<NSString *> *)argumentValues atIndex:(NSUInteger)index error:(NSString **)error {@synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}ZNRuntimeMethodAction *action=self.mutableActions[index];NSArray<NSString *> *values=argumentValues?:@[];if(action.argumentCount==0)values=@[];if(action.argumentCount>0&&values.count!=action.argumentCount){if(error)*error=@"参数数量不匹配";return NO;}action.argumentValues=[values copy];return YES;}}
 - (BOOL)updateArgumentControlConfigs:(NSArray<NSDictionary<NSString *,id> *> *)configs atIndex:(NSUInteger)index error:(NSString **)error {
     @synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}ZNRuntimeMethodAction *action=self.mutableActions[index];if(configs.count!=action.argumentCount){if(error)*error=@"参数控件配置数量必须等于 argc";return NO;}NSMutableArray *clean=[NSMutableArray arrayWithCapacity:configs.count];
