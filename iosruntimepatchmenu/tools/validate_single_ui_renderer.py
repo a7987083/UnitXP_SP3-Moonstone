@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "iosruntimepatchmenu"
 MAKEFILE = PROJECT / "Makefile"
 MENU_BINDING = PROJECT / "src/ZNIL2CPPMethodFinderMenuBinding.mm"
+RUNTIME_BOOTSTRAP = PROJECT / "src/ZNRuntimeMethodCallBootstrap.mm"
+BUILDER = PROJECT / "src/ZNFeatureBuilderUI.mm"
 CANONICAL_MARKER = "ZN_UI_CANONICAL_FEATURE_RENDERER"
 CANONICAL_INSTALL = "ZNInstallM630SingleUnifiedRendererDeferred();"
 
@@ -70,10 +72,33 @@ def main() -> int:
         errors.append(f"canonical renderer must be installed exactly once via {CANONICAL_INSTALL}")
 
     for installer in FORBIDDEN_ACTIVE_INSTALLERS:
-        # Declarations are allowed; active call inside the installer body is not.
         active = re.findall(rf"(?<!void\s){re.escape(installer)}", binding)
         if active:
             errors.append(f"forbidden layered UI installer is active in menu binding: {installer}")
+
+    bootstrap = RUNTIME_BOOTSTRAP.read_text(encoding="utf-8")
+    if re.search(r"(?<!void\s)ZNInstallRuntimeMethodCallBuilderUIDeferred\(\);", bootstrap):
+        errors.append("RuntimeMethodCallBootstrap still activates the historical second Builder renderer")
+
+    builder = BUILDER.read_text(encoding="utf-8")
+    required_builder_markers = (
+        "M6.3 canonical authoring surface",
+        "single Builder renderer installed",
+        "说明",
+        "exact IL2CPP Method Offset",
+    )
+    for marker in required_builder_markers:
+        if marker not in builder:
+            errors.append(f"canonical Builder is missing marker: {marker}")
+
+    forbidden_builder_patterns = {
+        'raw ARM64 HEX field': 'placeholder:@"ARM64 HEX"',
+        'multi-Patch creation button': 'zn40_button:@"＋ 增加 Patch"',
+        'Enabled raw patch label': 'label:@"Enabled"',
+    }
+    for label, pattern in forbidden_builder_patterns.items():
+        if pattern in builder:
+            errors.append(f"canonical Builder still exposes {label}")
 
     # A constructor can bypass the explicit install chain. Any compiled file that
     # both auto-installs and touches protected Feature selectors is release-blocking.
@@ -84,7 +109,6 @@ def main() -> int:
         if touched:
             errors.append(f"constructor bypasses single-renderer install chain in {rel(path)}: {touched}")
 
-    # M6.2's post-processing source must not be compiled because it has a constructor.
     if any(p.name == "ZNM620UnifiedAuthoringUI.mm" for p in sources):
         errors.append("ZNM620UnifiedAuthoringUI.mm must not be compiled in M6.3")
 
@@ -92,10 +116,10 @@ def main() -> int:
         print("UI ARCHITECTURE CONTRACT: FAIL", file=sys.stderr)
         for item in errors:
             print(f" - {item}", file=sys.stderr)
-        print("Collapse the active Feature UI to the canonical renderer; do not add a post-processing layer.", file=sys.stderr)
+        print("Collapse customer + authoring UI to canonical renderers; never patch UI with another post-processing layer.", file=sys.stderr)
         return 1
 
-    print(f"UI ARCHITECTURE CONTRACT: PASS canonical={rel(canonical[0])}")
+    print(f"UI ARCHITECTURE CONTRACT: PASS canonical={rel(canonical[0])}; authoring={rel(BUILDER)}")
     return 0
 
 
