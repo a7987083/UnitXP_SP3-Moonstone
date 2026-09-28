@@ -90,7 +90,7 @@ jobs:
           otool -L "$out" | tee /tmp/zono_m584_load_commands.txt
           strings -a "$out" > /tmp/zono_m584_strings.txt
           grep -q '\[m5.8.4-layout\]' /tmp/zono_m584_strings.txt
-          grep -q 'Scheme A Layout' /tmp/zono_m584_strings.txt
+          grep -q 'zonoe.m5.8.2.runtime-values.v1' /tmp/zono_m584_strings.txt
           grep -q 'slider values validated; authored value -> max' /tmp/zono_m584_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m584_load_commands.txt
       - name: Upload artifact
