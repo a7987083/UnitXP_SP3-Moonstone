@@ -228,6 +228,8 @@ static BOOL ZNM591InstallOrUpdate(uintptr_t address,ZNValueType type,uint64_t ra
 
 @interface ZNM56StaticValueCellBinder : NSObject
 - (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
+@end
+@interface ZNM56StaticValueCellBinder (ZNM591OffsetHook)
 - (BOOL)znm591_applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
 @end
 @implementation ZNM56StaticValueCellBinder (ZNM591OffsetHook)
