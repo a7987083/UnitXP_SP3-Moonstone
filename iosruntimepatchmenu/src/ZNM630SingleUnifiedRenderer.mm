@@ -5,6 +5,7 @@
 
 #import "ZNRangeControl.h"
 #import "ZNRuntimeActionFormat.h"
+#import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionRuntime.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
@@ -39,7 +40,7 @@ static NSString * const kZNM630RuntimeValuesKey = @"zonoe.m5.8.2.runtime-values.
 @end
 
 static NSString *ZNM630Trim(NSString *value) {
-    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return [(value ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
 
 static NSString *ZNM630RecordKey(ZNRuntimeMethodActionRecord *record) {
@@ -79,7 +80,6 @@ static NSString *ZNM630ValueText(double value, NSDictionary *cfg) {
 @implementation ZNRuntimeMenuControllerV040 (ZNM630SingleRenderer)
 
 - (void)znm630_renderRuntime:(BOOL)compact {
-    // Canonical ownership: remove only our own previous cards and render once.
     for (UIView *view in [self.contentView.subviews copy]) {
         if (view.tag >= kZNM630CardTag && view.tag < kZNM630CardTag + 512) [view removeFromSuperview];
     }
@@ -126,8 +126,6 @@ static NSString *ZNM630ValueText(double value, NSDictionary *cfg) {
         name.lineBreakMode = NSLineBreakByTruncatingTail;
         [card addSubview:name];
 
-        // Description is the only customer-facing subtitle. Parameter/type text
-        // remains in metadata and is never created as a UILabel here.
         NSString *description = ZNM630Trim(record.group);
         if ([description caseInsensitiveCompare:@"Runtime Methods"] == NSOrderedSame) description = @"";
         if (description.length) {
