@@ -10,7 +10,7 @@ PROJECT = ROOT / "iosruntimepatchmenu"
 MAKEFILE = PROJECT / "Makefile"
 MENU_BINDING = PROJECT / "src/ZNIL2CPPMethodFinderMenuBinding.mm"
 RUNTIME_BOOTSTRAP = PROJECT / "src/ZNRuntimeMethodCallBootstrap.mm"
-BUILDER = PROJECT / "src/ZNFeatureBuilderUI.mm"
+BUILDER = PROJECT / "src/ZNM630UnifiedAuthoringRenderer.mm"
 CANONICAL_MARKER = "ZN_UI_CANONICAL_FEATURE_RENDERER"
 CANONICAL_INSTALL = "ZNInstallM630SingleUnifiedRendererDeferred();"
 
@@ -80,9 +80,11 @@ def main() -> int:
     if re.search(r"(?<!void\s)ZNInstallRuntimeMethodCallBuilderUIDeferred\(\);", bootstrap):
         errors.append("RuntimeMethodCallBootstrap still activates the historical second Builder renderer")
 
+    if BUILDER not in sources:
+        errors.append(f"canonical Builder is not compiled: {rel(BUILDER)}")
     builder = BUILDER.read_text(encoding="utf-8")
     required_builder_markers = (
-        "M6.3 canonical authoring surface",
+        "M6.3 canonical authoring renderer",
         "single Builder renderer installed",
         "说明",
         "exact IL2CPP Method Offset",
@@ -100,8 +102,6 @@ def main() -> int:
         if pattern in builder:
             errors.append(f"canonical Builder still exposes {label}")
 
-    # A constructor can bypass the explicit install chain. Any compiled file that
-    # both auto-installs and touches protected Feature selectors is release-blocking.
     for path, text in contents.items():
         if "__attribute__((constructor))" not in text:
             continue
@@ -111,6 +111,8 @@ def main() -> int:
 
     if any(p.name == "ZNM620UnifiedAuthoringUI.mm" for p in sources):
         errors.append("ZNM620UnifiedAuthoringUI.mm must not be compiled in M6.3")
+    if any(p.name == "ZNFeatureBuilderUI.mm" for p in sources):
+        errors.append("legacy ZNFeatureBuilderUI.mm must not be compiled in M6.3")
 
     if errors:
         print("UI ARCHITECTURE CONTRACT: FAIL", file=sys.stderr)
