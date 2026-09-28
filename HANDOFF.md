@@ -1,65 +1,44 @@
 # HANDOFF
 
+## NON-NEGOTIABLE UI ARCHITECTURE RULE
+
+The customer Feature surface MUST use exactly one canonical renderer.
+
+- No stacked/nested/multi-layer Feature renderers.
+- No multiple swizzles of the same customer Feature render selector.
+- No "render first, then later layer moves/hides/renames/rebuilds the same cards" pattern.
+- No second Feature `contentView`, second Feature scroll view, second Feature controller, overlay hierarchy, or delayed post-processing UI installer.
+- Runtime / Offset / legacy Static compatibility data must be normalized before rendering and then rendered once.
+- Legacy UI source may remain only when it is inactive for the customer Feature surface.
+- Any UI hotfix that needs another renderer layer is invalid.
+
+This is enforced by `iosruntimepatchmenu/tools/validate_single_ui_renderer.py` and documented in `iosruntimepatchmenu/docs/UI_ARCHITECTURE_CONTRACT.md`. CI must fail before compilation when this contract is violated. There is no hotfix exception.
+
+Current M6.2 source is known to violate this rule because historical Runtime UI swizzles remain active. M6.3 must first collapse them into one canonical renderer marked exactly `ZN_UI_CANONICAL_FEATURE_RENDERER`; only then may the build pass the UI architecture gate.
+
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.8.3 Slider Authored Max + Action Identity**.
+ZonoPatch Runtime Patch Menu — moving from M6.2 to **M6.3 Single Unified Renderer**.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `fix/m5.8.3-slider-max-action-identity`
-- Baseline: M5.8.2 `59eebc1d21c7a6894f27a5480bf8100bbf4f2094`
-- Business-code CI anchor: `8fcdb5af93e2cf8884f2e5189acad3acf744abcc`
-- Run: `36364086245` — SUCCESS
-- Job: `108746902686`
-- Artifact ID: `10947010903`
-- Artifact digest: `sha256:344f603bc385d8d86e044b37709ce14f76282c366fdaa49cf71ee2889f0b30cc`
-- Dylib: `ZonoPatch_v0.5.8_M5.8.3_SliderMax_ActionIdentity.dylib`
+- Active branch at contract introduction: `feature/m6.2-unified-authoring-ui`
+- M6.2 device feedback: Description authoring changed, but customer menu still displayed duplicate parameter text because the final customer Feature surface still had multiple historical renderer/swizzle layers.
+- Product decision: remove new-authoring raw ARM64 HEX Patch/Enabled entry; preserve legacy Static binary read/compatibility only.
 
-## Why M5.8.3
+## Preserved behavior
 
-M5.8.2 device feedback confirmed Slider interaction/value display works, but exposed two authoring/identity bugs: an authored Slider value such as `31` did not become `max=31`, and display-layer dedupe merged distinct Fixed/Number/Slider Builder actions targeting the same IL2CPP method.
+- Runtime Action semantics remain canonical.
+- Offset that resolves to an exact IL2CPP method should converge to the Runtime backend.
+- Slider authored max semantics remain `min=0`, `max=<authored value>`, `step=1`.
+- Runtime and Static binary ABI compatibility must remain readable unless explicitly migrated.
 
-## Runtime customer architecture
+## Immediate next phase
 
-`ZNM58UnifiedControlRuntime` remains the only Runtime customer renderer. No new UI/controller/nested renderer was added.
+M6.3 — Single Unified Renderer:
 
-- UI-level title/method collapse was removed.
-- `ZNRuntimeActionRuntime` remains the exact embedded-record dedupe owner.
-- Separate Builder actions targeting the same method stay separate.
-- Fixed actions retain `执行`.
-- Number actions retain input + `执行`.
-- Slider keeps live in-row value display and release-only invoke.
-- Runtime value persistence remains `zonoe.m5.8.2.runtime-values.v1`, preserving values across the M5.8.2 → M5.8.3 upgrade.
-
-## Slider authoring contract
-
-Only Slider is generation-time value-required.
-
-- Builder argument field live-syncs during EditingChanged.
-- Before Runtime Action embedding, every enabled Slider validates the current authored value.
-- Missing / invalid / non-finite / `<= 0` value fails generation.
-- Valid Slider metadata becomes `min=0`, `max=<authored value>`, `step=1`, `default=<authored value>`.
-- Number / Fixed / Switch / Button have no new pre-generation value requirement.
-
-## CI history
-
-- Run `36363946557`: build succeeded; Binary Verify failed only because CI searched a Chinese Objective-C NSString with `strings -a`.
-- Commit `8fcdb5af93e2cf8884f2e5189acad3acf744abcc` changed only the verification marker to ASCII.
-- Run `36364086245`: Build / Binary Verify / Artifact Upload all SUCCESS.
-
-## Immediate device checklist
-
-1. Footer `0.5.8 · M5.8.3`.
-2. Slider authored with `31` has maximum exactly `31`.
-3. Empty/invalid Slider value is rejected at generation.
-4. Number/Fixed can generate without a mandatory authored value.
-5. Same-method Fixed + Number + Slider actions all appear; none are collapsed by title/method identity.
-6. Fixed shows `执行`; Number shows input + `执行`.
-7. Slider value label follows drag; drag itself does not Invoke; release invokes once.
-8. Persisted Runtime values restore after restart.
-
-## Open boundaries
-
-- M5.8.3 device validation is pending; CI success is not device success.
-- Slider currently uses authored max as its generated default/initial value as well. Change this only if product behavior is explicitly revised.
-- Static controls still need regression on a freshly generated M5.8+ target.
-- Builder renderer / Method Finder Phase 2 consolidation remains open. Do not add another renderer layer.
+1. Remove/disable historical customer Feature UI layers from the active install chain.
+2. Introduce exactly one canonical Feature renderer owner.
+3. Normalize Runtime + compatible legacy Static records into one presentation model before rendering.
+4. Render customer cards directly as `功能名 + 说明 + 控件`; do not create parameter labels and hide them later.
+5. Remove new-authoring raw Patch/Enabled UI while keeping legacy Static binary compatibility.
+6. Make the single-renderer CI gate pass before build, binary verification, artifact publication, or device release.
