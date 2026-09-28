@@ -2,6 +2,42 @@
 
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
+## 2026-09-28 — M5.8.2 Single Runtime UI + Runtime Value Persistence
+
+### 真机反馈
+
+- M5.8.1 截图显示同名 Runtime action 出现重复卡片，例如 `set_MoveSpeed` / `CheatSetExp`。
+- 固定参数 action（argumentCount>0 但无 exposed control）没有 `执行` 按钮。
+- Runtime Slider 没有显示拖动后的当前值。
+- Runtime-only 客户控件当前值没有独立运行时持久化；M5.5.1 的 authoring persistence 只覆盖 Builder store，不能覆盖从生成 dylib `__ZNDATA` 解析出的 Runtime records。
+
+### 实际修改
+
+- 新分支 `fix/m5.8.2-single-runtime-ui-persistence`，基线 `bdda071fe30b8b18dec1f791ad9f65cca402e4a3`。
+- 继续沿用唯一的 `ZNM58UnifiedControlRuntime` renderer，不新增第二套 Runtime UI/controller。
+- Runtime 卡片按 `title + canonicalIdentity` 做显示层折叠，重复条目优先保留 exposed controls 更完整的一条；执行 tag 仍指向原始 `runtime.records` index，避免过滤后索引错位。
+- `exposed == 0` 的固定参数 action 强制显示 `执行` 按钮。
+- `ZNRangeControl` 在 begin/continue/end tracking 发送 `UIControlEventValueChanged`；M5.8.2 只用它更新同一 row 的数值 label，不触发 Invoke。
+- Slider row 新增实时当前值 label；release 仍通过 `UIControlEventPrimaryActionTriggered` 单次执行。
+- 新增 Runtime-only 客户值持久化 key `zonoe.m5.8.2.runtime-values.v1`，按 `actionID + canonicalIdentity` 保存 argumentValues；重新打开菜单时优先恢复持久化值。
+- Switch/Slider/Number/Fixed 在真正执行前统一保存当前 argumentValues；不修改 Runtime Action 64-byte ABI。
+- Footer 版本更新为 `0.5.8 · M5.8.2`。
+
+### CI / Artifact
+
+- Workflow `Build Runtime Patch Menu v0.5.8 M5.8.2 Single Runtime UI Persistence`
+- Run `36361545700` / Job `108739561193`: Source Contract、Dobby arm64、Build、Binary Verify、Artifact Upload 全部 SUCCESS。
+- HEAD `a8ffddf8eaee32a74d0be10dcae2cff6801b3e39`。
+- Artifact ID `10945494700`。
+- ZIP SHA256 `ec8deb778aee9431e7ddb903443f23fd2ea6423db649e378f17413ae82028239`。
+- Dylib `ZonoPatch_v0.5.8_M5.8.2_SingleRuntimeUI_Persistence.dylib`，size `1404800` bytes，SHA256 `93cab80c56ada110f08f4f536633f0e1087f8132b9a7d830c182d3a4bc697572`。
+
+### 验证边界
+
+- Source/build/binary/artifact: PASS。
+- 仅一套 Runtime UI、重复卡片折叠、固定项执行按钮、Slider 实时数值、重启恢复值：DEVICE PENDING。
+- M5.8.1/M5.8 的历史 Runtime Slider 稳定性仍需本版真机回归。
+
 ## 2026-09-26 — M5.8 Control Architecture Cleanup Phase 1
 
 ### 真机反馈
