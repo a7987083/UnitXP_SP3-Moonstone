@@ -92,37 +92,6 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     [NSUserDefaults.standardUserDefaults setObject:root forKey:kZNM582RuntimeValuesKey];
 }
 
-static NSUInteger ZNM582ControlScore(ZNRuntimeMethodActionRecord *record) {
-    NSUInteger enabled = 0;
-    for (NSDictionary *cfg in record.argumentControlConfigs ?: @[]) if ([cfg[@"enabled"] boolValue]) enabled++;
-    return enabled * 100 + record.argumentControlConfigs.count * 10 + record.argumentCount;
-}
-
-static NSArray<NSNumber *> *ZNM582DisplayRecordIndexes(NSArray<ZNRuntimeMethodActionRecord *> *records) {
-    NSMutableArray<NSString *> *order = [NSMutableArray array];
-    NSMutableDictionary<NSString *, NSNumber *> *chosen = [NSMutableDictionary dictionary];
-    NSMutableDictionary<NSString *, NSNumber *> *scores = [NSMutableDictionary dictionary];
-    for (NSUInteger i = 0; i < records.count; i++) {
-        ZNRuntimeMethodActionRecord *record = records[i];
-        NSString *title = (record.title.length ? record.title : record.methodName).lowercaseString ?: @"";
-        NSString *identity = record.canonicalIdentity ?: @"";
-        NSString *key = [NSString stringWithFormat:@"%@|%@", title, identity];
-        NSUInteger score = ZNM582ControlScore(record);
-        NSNumber *old = chosen[key];
-        if (!old) {
-            [order addObject:key];
-            chosen[key] = @(i);
-            scores[key] = @(score);
-        } else if (score > [scores[key] unsignedIntegerValue]) {
-            chosen[key] = @(i);
-            scores[key] = @(score);
-        }
-    }
-    NSMutableArray<NSNumber *> *indexes = [NSMutableArray arrayWithCapacity:order.count];
-    for (NSString *key in order) [indexes addObject:chosen[key]];
-    return indexes;
-}
-
 @interface ZNRuntimeMenuControllerV040 (ZNM58UnifiedControlRuntime)
 - (void)znm58_renderRuntime:(BOOL)compact;
 - (void)znm58_numberChanged:(UITextField *)field;
@@ -167,19 +136,17 @@ static NSArray<NSNumber *> *ZNM582DisplayRecordIndexes(NSArray<ZNRuntimeMethodAc
     [runtime refresh];
     [self znm58_removeCards];
 
+    // RuntimeActionRuntime already de-duplicates exact embedded records using
+    // actionID + canonical identity + argument values. Do not collapse again by
+    // method/title here: separate Builder actions may intentionally target the
+    // same IL2CPP method with Fixed / Number / Slider controls.
     NSArray<ZNRuntimeMethodActionRecord *> *records = runtime.records ?: @[];
     [self znm581_removeStaticEmptyStateIfRuntimeExists:records];
-    NSArray<NSNumber *> *displayIndexes = ZNM582DisplayRecordIndexes(records);
-    if (displayIndexes.count != records.count) {
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.2-control] collapsed duplicate cards %lu -> %lu", (unsigned long)records.count, (unsigned long)displayIndexes.count]];
-    }
 
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = ZNM58MaxY(self.contentView) + (compact ? 6.0 : 8.0);
 
-    for (NSNumber *indexNumber in displayIndexes) {
-        NSUInteger i = indexNumber.unsignedIntegerValue;
-        if (i >= records.count) continue;
+    for (NSUInteger i = 0; i < records.count; i++) {
         ZNRuntimeMethodActionRecord *record = records[i];
         NSArray<NSDictionary *> *configs = record.argumentControlConfigs.count == record.argumentCount ? record.argumentControlConfigs : @[];
         NSArray<NSString *> *storedValues = ZNM582StoredValues(record);
@@ -235,8 +202,8 @@ static NSArray<NSNumber *> *ZNM582DisplayRecordIndexes(NSArray<ZNRuntimeMethodAc
             } else if (controlType == ZNRuntimeArgumentControlTypeSlider) {
                 double min = [cfg[@"min"] doubleValue];
                 double max = [cfg[@"max"] doubleValue];
-                if (!isfinite(min)) min = 1.0;
-                if (!isfinite(max) || max <= min) max = min + 9.0;
+                if (!isfinite(min)) min = 0.0;
+                if (!isfinite(max) || max <= min) max = min + 1.0;
                 CGFloat valueW = 46.0;
                 CGFloat sliderW = MAX(70.0, card.bounds.size.width - 109.0 - valueW - 5.0);
                 ZNRangeControl *control = [[ZNRangeControl alloc] initWithFrame:CGRectMake(96, rowY, sliderW, 28)];
@@ -384,7 +351,7 @@ static NSArray<NSNumber *> *ZNM582DisplayRecordIndexes(NSArray<ZNRuntimeMethodAc
     NSString *error = nil;
     NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&error];
     if (result) {
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.2-control] %@ SUCCESS persisted=%@", action.canonicalIdentity ?: @"?", values ?: @[]]];
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.3-control] %@ SUCCESS persisted=%@", action.canonicalIdentity ?: @"?", values ?: @[]]];
         return;
     }
 
@@ -404,6 +371,6 @@ extern "C" void ZNInstallM58UnifiedControlRuntimeDeferred(void) {
         Method current = class_getInstanceMethod(cls, @selector(zn51_renderRuntime:));
         Method unified = class_getInstanceMethod(cls, @selector(znm58_renderRuntime:));
         if (current && unified) method_setImplementation(current, method_getImplementation(unified));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8.2-control] single runtime renderer + duplicate collapse + live slider value + runtime value persistence installed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8.3-control] single runtime renderer + actionID identity + live slider value + runtime value persistence installed"];
     });
 }
