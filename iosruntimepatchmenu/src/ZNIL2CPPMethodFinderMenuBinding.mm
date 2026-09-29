@@ -43,7 +43,7 @@ extern "C" void ZNInstallM52MethodSearchHistoryDeferred(void);
 extern "C" void ZNInstallM592OffsetAuthoringPersistenceDeferred(void);
 extern "C" void ZNInstallM640AuthoringValidationBridgeDeferred(void);
 extern "C" void ZNInstallM610UnifiedFeatureModelDeferred(void);
-extern "C" void ZNInstallM630SingleUnifiedRendererDeferred(void);
+extern "C" void ZNInstallM641UnifiedClientRendererDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 - (NSArray<NSString *> *)zn40_baseCategories;
@@ -129,8 +129,8 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM592OffsetAuthoringPersistenceDeferred();
         ZNInstallM640AuthoringValidationBridgeDeferred();
         ZNInstallM610UnifiedFeatureModelDeferred();
-        ZNInstallM630SingleUnifiedRendererDeferred();
+        ZNInstallM641UnifiedClientRendererDeferred();
 
-        [[ZNRuntimeLogger sharedLogger] log:@"[m6.4] single UI install chain active; unified authoring regressions fixed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m6.4.1] one client Feature renderer active; Static + Runtime normalized before render"];
     });
 }
