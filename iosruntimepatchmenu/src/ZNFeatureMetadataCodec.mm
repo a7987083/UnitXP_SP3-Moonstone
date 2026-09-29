@@ -8,13 +8,13 @@ static const uint8_t kZNFMVersion = 1;
 static const NSUInteger kZNFMNameCapacity = 57;
 static const uint32_t kZNFM585SliderMaxMask = UINT32_C(0xFFFC0000);
 static const uint32_t kZNFM585SliderMaxShift = 18u;
+static NSString * const kZNFM641BackendPrefix = @"zonoe.m6.4.1.backend.v1";
 extern "C" uint32_t ZNM585SliderMaximumFlagsForFeatureName(NSString *featureName);
 
 // title/group are contiguous in ZN44StaticEntry: 48 + 24 bytes.
-// Layout inside that 72-byte region remains ZNF1-compatible. M5.5 keeps the
-// existing metadata payload untouched and stores Value Type in entry.flags
-// bits 11..13. M5.8.5 uses previously-unused flags bits 18..31 for an integer
-// Static Slider authored maximum (1..16383), preserving the 128-byte ABI.
+// ZNF1 payload stays ABI-compatible. M6.4.1 optionally stores
+// "displayName<US>description" inside the existing encrypted payload area.
+// Old payloads without the separator continue to decode unchanged.
 
 static NSString *ZNFMTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -23,6 +23,10 @@ static NSString *ZNFMTrim(NSString *value) {
 static NSString *ZNFMNormalize(NSString *value) {
     NSString *trimmed = ZNFMTrim(value);
     return [[trimmed precomposedStringWithCanonicalMapping] lowercaseString];
+}
+
+static NSString *ZNFMBackendKey(NSString *featureName) {
+    return [NSString stringWithFormat:@"%@.%@", kZNFM641BackendPrefix, ZNFMTrim(featureName).lowercaseString];
 }
 
 static uint64_t ZNFMHash64(NSData *data) {
@@ -95,6 +99,7 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
     BOOL explicitGroup = cleanGroup.length && [cleanGroup caseInsensitiveCompare:@"Imported"] != NSOrderedSame;
     NSString *displayName = explicitGroup ? cleanGroup : cleanTitle;
     if (!displayName.length || [displayName hasPrefix:@"Patch #"]) displayName = [NSString stringWithFormat:@"功能 #%u", entry->patchID];
+    NSString *description = explicitGroup ? cleanTitle : @"";
 
     NSString *featureLookupName = explicitGroup ? cleanGroup : cleanTitle;
     ZNFeatureControlType controlType = ZNFeatureControlTypeForFeatureName(featureLookupName);
@@ -102,7 +107,9 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
     uint32_t sliderMaxFlags = controlType == ZNFeatureControlTypeSlider
         ? ZNM585SliderMaximumFlagsForFeatureName(featureLookupName)
         : 0;
-    uint32_t hookFlag = (controlType == ZNFeatureControlTypeSlider || controlType == ZNFeatureControlTypeNumber)
+    NSString *backend = [NSUserDefaults.standardUserDefaults stringForKey:ZNFMBackendKey(featureLookupName)];
+    BOOL explicitStatic = [backend isEqualToString:@"static"];
+    uint32_t hookFlag = (!explicitStatic && (controlType == ZNFeatureControlTypeSlider || controlType == ZNFeatureControlTypeNumber))
         ? ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1
         : 0;
     entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK | kZNFM585SliderMaxMask | ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1)) |
@@ -112,7 +119,8 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
                    hookFlag;
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
-    NSData *nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity);
+    NSString *payloadText = description.length ? [NSString stringWithFormat:@"%@\x1F%@", displayName, description] : displayName;
+    NSData *nameData = ZNFMUTF8Prefix(payloadText, kZNFMNameCapacity);
     if (nameData.length > UINT8_MAX) return NO;
 
     uint8_t *storage = (uint8_t *)entry->title;
@@ -145,7 +153,11 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
     uint8_t *out = (uint8_t *)decoded.mutableBytes;
     for (NSUInteger i = 0; i < length; i++) out[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
 
-    NSString *name = [[NSString alloc] initWithData:decoded encoding:NSUTF8StringEncoding];
+    NSString *payload = [[NSString alloc] initWithData:decoded encoding:NSUTF8StringEncoding];
+    if (!payload.length) return nil;
+    NSArray<NSString *> *parts = [payload componentsSeparatedByString:@"\x1F"];
+    NSString *name = parts.firstObject ?: @"";
+    NSString *description = parts.count > 1 ? [[parts subarrayWithRange:NSMakeRange(1, parts.count - 1)] componentsJoinedByString:@"\x1F"] : @"";
     if (!name.length) return nil;
     BOOL explicitGroup = (storage[4] & 0x01) != 0;
     ZNFeatureControlType controlType = ZNFeatureControlTypeFromFlags(entry->flags);
@@ -154,6 +166,7 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
     return @{
         @"featureID": @(featureID),
         @"title": name,
+        @"description": description ?: @"",
         @"group": explicitGroup ? name : @"Imported",
         @"explicitGroup": @(explicitGroup),
         @"controlType": @(controlType),
