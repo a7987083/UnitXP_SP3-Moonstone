@@ -26,8 +26,12 @@ jobs:
           set -euxo pipefail
           grep -q '0.6.4.1 · M6.4.1' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'M6.4.1 canonical authoring renderer' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
-          grep -q 'Backend 与控件独立' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
-          grep -q 'Patch HEX' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
+          grep -q '普通 Patch' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
+          grep -q '＋ 增加普通 Patch' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
+          grep -q 'Runtime / IL2CPP' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
+          grep -q '＋ 增加 Runtime 功能' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
+          ! grep -q 'Backend ·' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
+          ! grep -q '执行方式 ·' iosruntimepatchmenu/src/ZNM641UnifiedAuthoringRenderer.mm
           grep -q 'ZN_UI_CANONICAL_FEATURE_RENDERER' iosruntimepatchmenu/src/ZNM641UnifiedClientRenderer.mm
           grep -q 'one customer Feature renderer owns BOTH Static and Runtime records' iosruntimepatchmenu/src/ZNM641UnifiedClientRenderer.mm
           grep -q 'backend-only Number/Slider Value Cell semantics installed' iosruntimepatchmenu/src/ZNM641StaticControlBackend.mm
