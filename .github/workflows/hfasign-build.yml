@@ -1,9 +1,9 @@
 name: Build HFASign v3 alpha
-# alphaone13 is alphaone12 + additive source/UI cleanup; keep the canonical production build pipeline intact.
+# alphaone14 is alphaone13 + persisted UDID callback setting + resilient shared-file Inbox recovery.
 
 on:
   push:
-    branches: [feature/zonoe-v3.0.0-alphaone13]
+    branches: [feature/zonoe-v3.0.0-alphaone14]
     paths: ["HFASign/**", ".github/workflows/hfasign-build.yml"]
   workflow_dispatch:
 
@@ -153,8 +153,8 @@ jobs:
             tail -n 1200 HFASign/build.log 2>&1 || true
           } > HFASign/BUILD_ERROR.txt 2>&1
           git add -f HFASign/BUILD_ERROR.txt
-          git commit -m "Publish zonoe alphaone13 build diagnostics [skip ci]" || true
-          git push origin HEAD:feature/zonoe-v3.0.0-alphaone13 || true
+          git commit -m "Publish zonoe alphaone14 build diagnostics [skip ci]" || true
+          git push origin HEAD:feature/zonoe-v3.0.0-alphaone14 || true
 
       - name: Package TrollStore IPA
         run: |
@@ -170,9 +170,9 @@ jobs:
           mkdir -p HFASign/dist/stage/Payload
           cp -R "$app" HFASign/dist/stage/Payload/HFASign.app
           cd HFASign/dist/stage
-          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone13_TrollStore.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ../zonoe_v3.0.0-alphaone14_TrollStore.ipa
           cd ..
-          shasum -a 256 zonoe_v3.0.0-alphaone13_TrollStore.ipa > SHA256SUMS.txt
+          shasum -a 256 zonoe_v3.0.0-alphaone14_TrollStore.ipa > SHA256SUMS.txt
 
       - name: Verify product metadata and feature regression
         run: |
@@ -181,9 +181,9 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" | grep -qx zonoe
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" | grep -qx com.hfa.sign
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" | grep -qx 3.0.0
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 113
-          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone13
-          strings "$plist" | grep -q alphaone13
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" | grep -qx 114
+          /usr/libexec/PlistBuddy -c 'Print :ZonoeReleaseVersion' "$plist" | grep -qx v3.0.0-alphaone14
+          strings "$plist" | grep -q alphaone14
 
           ! grep -q '软件源公告' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
           ! grep -q 'repositoryNotice(for:' HFASignBuild/Ksign/Views/Sources/Apps/SourceAppsView.swift
@@ -215,6 +215,13 @@ jobs:
           grep -q 'Button("复制 UDID")' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
           grep -q '"重新获取"' HFASignBuild/Ksign/Views/Settings/SettingsView.swift
           ! grep -q 'contextMenuConfigurationForRowAt' HFASignBuild/Ksign/Views/Sources/Apps/UIKit/SourceAppsTableRepresentableView.swift
+
+          grep -Fq 'ZonoeUDIDCallbackSection(isEnabled: $options.zonoeUDIDCallbackEnabled)' HFASignBuild/Ksign/Views/Signing/Shared/SigningOptionsView.swift
+          grep -Fq 'ZonoeUDIDCallbackSection(isEnabled: $_temporaryOptions.zonoeUDIDCallbackEnabled)' HFASignBuild/Ksign/Views/Signing/SigningView.swift
+          grep -q 'func recoverPendingInboxItems()' HFASignBuild/Ksign/Utilities/SharedImportCoordinator.swift
+          grep -q 'private func claimImportSource(_ url: URL) -> Bool' HFASignBuild/Ksign/Utilities/SharedImportCoordinator.swift
+          grep -q 'private func consumeInboxSourceIfNeeded(_ url: URL)' HFASignBuild/Ksign/Utilities/SharedImportCoordinator.swift
+          test "$(grep -c 'SharedImportCoordinator.shared.recoverPendingInboxItems()' HFASignBuild/Ksign/FeatherApp.swift)" -ge 2
           git -C HFASignBuild diff --check
 
       - name: Publish SHA256 metadata
@@ -222,28 +229,28 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           mkdir -p HFASign/dist
-          cp HFASign/dist/SHA256SUMS.txt HFASign/dist/SHA256SUMS-alphaone13.txt
-          git add -f HFASign/dist/SHA256SUMS-alphaone13.txt
-          git commit -m "Publish zonoe alphaone13 SHA256 [skip ci]" || true
-          git push origin HEAD:feature/zonoe-v3.0.0-alphaone13 || true
+          cp HFASign/dist/SHA256SUMS.txt HFASign/dist/SHA256SUMS-alphaone14.txt
+          git add -f HFASign/dist/SHA256SUMS-alphaone14.txt
+          git commit -m "Publish zonoe alphaone14 SHA256 [skip ci]" || true
+          git push origin HEAD:feature/zonoe-v3.0.0-alphaone14 || true
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete v3.0.0-alphaone13 --cleanup-tag -y || true
-          gh release create v3.0.0-alphaone13 \
-            HFASign/dist/zonoe_v3.0.0-alphaone13_TrollStore.ipa \
+          gh release delete v3.0.0-alphaone14 --cleanup-tag -y || true
+          gh release create v3.0.0-alphaone14 \
+            HFASign/dist/zonoe_v3.0.0-alphaone14_TrollStore.ipa \
             HFASign/dist/SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
-            --title "zonoe v3.0.0-alphaone13" \
-            --notes "alphaone13: remove source announcement and automatic source recognition, use native system alerts for source add and unlock-code entry, while preserving the alphaone12 canonical build/release pipeline."
+            --title "zonoe v3.0.0-alphaone14" \
+            --notes "alphaone14: restore the zonoe UDID callback control to persisted signing settings and add resilient Documents/Inbox recovery for files shared into zonoe, while preserving the alphaone13 behavior and iOS 13 compatibility."
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zonoe-v3.0.0-alphaone13-TrollStore
+          name: zonoe-v3.0.0-alphaone14-TrollStore
           path: |
-            HFASign/dist/zonoe_v3.0.0-alphaone13_TrollStore.ipa
+            HFASign/dist/zonoe_v3.0.0-alphaone14_TrollStore.ipa
             HFASign/dist/SHA256SUMS.txt
           if-no-files-found: error
