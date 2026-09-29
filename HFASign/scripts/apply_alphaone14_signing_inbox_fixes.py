@@ -25,11 +25,7 @@ pos = settings.find(experimental)
 require(pos >= 0, "alphaone14: experimental signing section not found")
 line_start = settings.rfind("\n", 0, pos) + 1
 indent = settings[line_start:pos]
-settings = (
-    settings[:line_start]
-    + indent + setting_line + "\n\n"
-    + settings[line_start:]
-)
+settings = settings[:line_start] + indent + setting_line + "\n\n" + settings[line_start:]
 settings_path.write_text(settings)
 
 
@@ -54,49 +50,18 @@ state_new = '''    private let fileManager = FileManager.default
 require(coordinator.count(state_old) == 1, "alphaone14: SharedImportCoordinator state anchor mismatch")
 coordinator = coordinator.replace(state_old, state_new, 1)
 
-receive_anchor = '''    func receive(_ url: URL) {
-        let accessed = url.startAccessingSecurityScopedResource()
+# Claim after the historical certificate-ZIP fast path. That path owns its own
+# asynchronous prompt/lifecycle and must not leave our in-flight claim stuck.
+ipa_entry = '''        if ext == "ipa" || ext == "tipa" {
 '''
-receive_replacement = '''    func receive(_ url: URL) {
-        guard claimImportSource(url) else { return }
-        let accessed = url.startAccessingSecurityScopedResource()
-'''
-require(coordinator.count(receive_anchor) == 1, "alphaone14: receive entry anchor mismatch")
-coordinator = coordinator.replace(receive_anchor, receive_replacement, 1)
-
-stage_failure_old = '''        } catch {
-            if accessed { url.stopAccessingSecurityScopedResource() }
-            progress.fail("导入失败：\\(error.localizedDescription)")
-            return
-        }
-'''
-stage_failure_new = '''        } catch {
-            if accessed { url.stopAccessingSecurityScopedResource() }
-            finishImportSource(url)
-            progress.fail("导入失败：\\(error.localizedDescription)")
-            return
-        }
-'''
-require(coordinator.count(stage_failure_old) == 1, "alphaone14: staging failure anchor mismatch")
-coordinator = coordinator.replace(stage_failure_old, stage_failure_new, 1)
-
-recent_duplicate_old = '''        if let lastImport,
-           lastImport.path == url.absoluteString,
-           Date().timeIntervalSince(lastImport.date) < 2 {
+ipa_entry_new = '''        guard claimImportSource(url) else {
             try? fileManager.removeItem(at: stagedURL)
             return
         }
+        if ext == "ipa" || ext == "tipa" {
 '''
-recent_duplicate_new = '''        if let lastImport,
-           lastImport.path == url.absoluteString,
-           Date().timeIntervalSince(lastImport.date) < 2 {
-            try? fileManager.removeItem(at: stagedURL)
-            finishImportSource(url)
-            return
-        }
-'''
-require(coordinator.count(recent_duplicate_old) == 1, "alphaone14: recent duplicate anchor mismatch")
-coordinator = coordinator.replace(recent_duplicate_old, recent_duplicate_new, 1)
+require(coordinator.count(ipa_entry) == 1, "alphaone14: IPA entry anchor mismatch")
+coordinator = coordinator.replace(ipa_entry, ipa_entry_new, 1)
 
 ipa_callback_old = '''            DownloadManager.shared.handlePachageFile(url: stagedURL, dl: download) { error in
                 try? self.fileManager.removeItem(at: stagedURL)
@@ -165,50 +130,39 @@ copy_call_new = '''        resolveConflict(for: destination) { choice in
 require(coordinator.count(copy_call_old) == 1, "alphaone14: copied-file completion anchor mismatch")
 coordinator = coordinator.replace(copy_call_old, copy_call_new, 1)
 
-copy_function_old = '''    private func copy(_ source: URL, to destination: URL, completion: @escaping () -> Void) {
+# The body of copy() evolved in alpha7 (notification + destination text), so only
+# patch the stable control-flow anchors instead of matching the entire function.
+copy_start_old = '''    private func copy(_ source: URL, to destination: URL, completion: @escaping () -> Void) {
         progress.begin("正在导入文件", detail: source.lastPathComponent)
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                if source.hasDirectoryPath {
-                    try self.fileManager.copyItem(at: source, to: destination)
-                } else {
-                    try self.copyFileWithProgress(source, to: destination)
-                }
-                let location = ["dylib", "framework", "deb", "bundle"].contains(source.pathExtension.lowercased())
-                    ? "插件目录"
-                    : "文件区 / Imports"
-                self.progress.finish(detail: "已保存到\\(location)")
-            } catch {
-                self.progress.fail("导入失败：\\(error.localizedDescription)")
-            }
-            completion()
-        }
-    }
 '''
-copy_function_new = '''    private func copy(_ source: URL, to destination: URL, completion: @escaping (Bool) -> Void) {
+copy_start_new = '''    private func copy(_ source: URL, to destination: URL, completion: @escaping (Bool) -> Void) {
         progress.begin("正在导入文件", detail: source.lastPathComponent)
         DispatchQueue.global(qos: .userInitiated).async {
             var succeeded = false
             do {
-                if source.hasDirectoryPath {
-                    try self.fileManager.copyItem(at: source, to: destination)
-                } else {
+'''
+require(coordinator.count(copy_start_old) == 1, "alphaone14: copy function start anchor mismatch")
+coordinator = coordinator.replace(copy_start_old, copy_start_new, 1)
+
+copy_success_old = '''                } else {
+                    try self.copyFileWithProgress(source, to: destination)
+                }
+                let location = ["dylib", "framework", "deb", "bundle"].contains(source.pathExtension.lowercased())
+'''
+copy_success_new = '''                } else {
                     try self.copyFileWithProgress(source, to: destination)
                 }
                 succeeded = true
                 let location = ["dylib", "framework", "deb", "bundle"].contains(source.pathExtension.lowercased())
-                    ? "插件目录"
-                    : "文件区 / Imports"
-                self.progress.finish(detail: "已保存到\\(location)")
-            } catch {
-                self.progress.fail("导入失败：\\(error.localizedDescription)")
-            }
-            completion(succeeded)
-        }
-    }
 '''
-require(coordinator.count(copy_function_old) == 1, "alphaone14: copy function anchor mismatch")
-coordinator = coordinator.replace(copy_function_old, copy_function_new, 1)
+require(coordinator.count(copy_success_old) == 1, "alphaone14: copy success anchor mismatch")
+coordinator = coordinator.replace(copy_success_old, copy_success_new, 1)
+
+completion_old = "            completion()\n"
+require(coordinator.count(completion_old) == 1, "alphaone14: copy completion anchor mismatch")
+coordinator = coordinator.replace(completion_old, "            completion(succeeded)\n", 1)
 
 recover_helpers = '''
     func recoverPendingInboxItems() {
@@ -225,7 +179,7 @@ recover_helpers = '''
     }
 
     private func isRecoverableInboxItem(_ url: URL) -> Bool {
-        if url.hasDirectoryPath { return true }
+        if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { return true }
         let supported: Set<String> = [
             "ipa", "tipa", "zip", "dylib", "framework", "bundle", "deb",
             "p12", "pfx", "mobileprovision", "provisionprofile"
