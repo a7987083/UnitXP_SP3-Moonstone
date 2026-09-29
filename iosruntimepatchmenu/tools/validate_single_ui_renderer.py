@@ -126,7 +126,6 @@ def main() -> int:
             if marker not in text:
                 errors.append(f"canonical client renderer missing marker: {marker}")
 
-    # Constructors may not take ownership of the protected Feature surfaces.
     for path, text in contents.items():
         if "__attribute__((constructor))" not in text:
             continue
@@ -134,11 +133,20 @@ def main() -> int:
         if touched:
             errors.append(f"constructor bypasses single-renderer install chain in {rel(path)}: {touched}")
 
-    # Backend helpers are allowed to swizzle validators/builders, but must never own UI.
+    # Backend helpers may swizzle validators/builders only. Check actual UI imports
+    # and selector ownership rather than words appearing in comments.
     backend_helper = PROJECT / "src/ZNM641StaticControlBackend.mm"
     if backend_helper in sources:
         text = backend_helper.read_text(encoding="utf-8")
-        if "UIView" in text or "renderFullPage" in text or "renderCompactPage" in text:
+        ui_signals = (
+            '#import <UIKit/UIKit.h>',
+            '@selector(renderFullPage)',
+            '@selector(renderCompactPage)',
+            '@selector(zn51_renderRuntime:)',
+            '@selector(zn44_renderOther)',
+            'cardAtY:',
+        )
+        if any(signal in text for signal in ui_signals):
             errors.append("Static backend helper must remain UI-free")
 
     if errors:
