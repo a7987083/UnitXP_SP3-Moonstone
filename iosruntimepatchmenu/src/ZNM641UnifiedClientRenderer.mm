@@ -7,6 +7,7 @@
 #import "ZNFeatureMetadataCodec.h"
 #import "ZNRangeControl.h"
 #import "ZNRuntimeActionFormat.h"
+#import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionRuntime.h"
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
@@ -70,8 +71,8 @@ static NSArray<NSDictionary *> *M641StaticFeatures(void){
     ZNStaticDispatchRuntime *rt=[ZNStaticDispatchRuntime sharedRuntime];[rt refresh];
     NSMutableArray *order=[NSMutableArray array];NSMutableDictionary *members=[NSMutableDictionary dictionary],*meta=[NSMutableDictionary dictionary];
     for(ZNStaticPatchRecord *r in rt.records){
-        NSDictionary *m=M641StaticMeta(r);NSString *group=M641Trim(m[@"group"]),*title=M641Trim(m[@"title"]);uint64_t fid=[m[@"featureID"] unsignedLongLongValue];BOOL explicit=[m[@"explicitGroup"] boolValue]||(group.length&&[group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame);NSString *key=fid?[NSString stringWithFormat:@"id:%016llx",fid]:(explicit?[@"group:" stringByAppendingString:group.lowercaseString]:[NSString stringWithFormat:@"patch:%@:%u",r.target.lowercaseString?:@"",r.patchID]);
-        if(!members[key]){members[key]=[NSMutableArray array];ZNFeatureControlType ct=r.entry?ZNFeatureControlTypeFromFlags(r.entry->flags):ZNFeatureControlTypeSwitch;ZNValueType vt=r.entry?ZNFeatureValueTypeFromFlags(r.entry->flags):ZNValueTypeAuto;NSString *display=explicit&&group.length?group:(title.length?title:@"功能");NSString *desc=(explicit&&title.length&&[title caseInsensitiveCompare:display]!=NSOrderedSame)?title:@"";meta[key]=[@{@"key":key,@"featureID":@(fid),@"title":display,@"description":desc,@"controlType":@(ct),@"valueType":@(vt)} mutableCopy];[order addObject:key];}
+        NSDictionary *m=M641StaticMeta(r);NSString *group=M641Trim(m[@"group"]),*title=M641Trim(m[@"title"]);uint64_t fid=[m[@"featureID"] unsignedLongLongValue];BOOL explicitGroup=[m[@"explicitGroup"] boolValue]||(group.length&&[group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame);NSString *key=fid?[NSString stringWithFormat:@"id:%016llx",fid]:(explicitGroup?[@"group:" stringByAppendingString:group.lowercaseString]:[NSString stringWithFormat:@"patch:%@:%u",r.target.lowercaseString?:@"",r.patchID]);
+        if(!members[key]){members[key]=[NSMutableArray array];ZNFeatureControlType ct=r.entry?ZNFeatureControlTypeFromFlags(r.entry->flags):ZNFeatureControlTypeSwitch;ZNValueType vt=r.entry?ZNFeatureValueTypeFromFlags(r.entry->flags):ZNValueTypeAuto;NSString *display=explicitGroup&&group.length?group:(title.length?title:@"功能");NSString *desc=(explicitGroup&&title.length&&[title caseInsensitiveCompare:display]!=NSOrderedSame)?title:@"";meta[key]=[@{@"key":key,@"featureID":@(fid),@"title":display,@"description":desc,@"controlType":@(ct),@"valueType":@(vt)} mutableCopy];[order addObject:key];}
         [members[key] addObject:r];
     }
     NSMutableArray *out=[NSMutableArray array];for(NSString *key in order){NSMutableDictionary *d=[meta[key] mutableCopy];d[@"records"]=[members[key] copy];[out addObject:[d copy]];}return out;
