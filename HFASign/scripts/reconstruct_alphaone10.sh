@@ -37,6 +37,28 @@ python3 "${HFASIGN_DIR}/scripts/apply_alphaone14_signing_inbox_fixes.py"
 
 git -C "${BUILD_DIR}" diff --check
 git -C "${BUILD_DIR}" submodule update --init --recursive
+
+# IDeviceKit's wrapper manifest pins iOS 15 even though its binary IDevice
+# dependency supports iOS 12. Keep zonoe's established iOS 13 deployment target
+# by lowering only the locally reconstructed wrapper package; do not rewrite the
+# pinned submodule commit or dependency version.
+python3 - "${BUILD_DIR}/IDeviceKit/Package.swift" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = ".iOS(.v15)"
+new = ".iOS(.v13)"
+count = text.count(old)
+if count != 1:
+    raise SystemExit(f"IDeviceKit iOS13 compat: expected one {old}, found {count}")
+path.write_text(text.replace(old, new, 1))
+PY
+
+grep -Fq '.iOS(.v13)' "${BUILD_DIR}/IDeviceKit/Package.swift"
+git -C "${BUILD_DIR}/IDeviceKit" diff --check
+
 git -C "${BUILD_DIR}/Zsign" apply "${HFASIGN_DIR}/patches/0017-Fix-Zsign-removeProvision-semantics.patch"
 
 echo "Reconstructed zonoe v3.0.0-alphaone14 from frozen alphaone10 baseline + additive alphaone11/alphaone12/alphaone13/alphaone14 transforms + iOS 13 compatibility"
