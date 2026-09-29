@@ -92,15 +92,25 @@ def main() -> int:
     builder = BUILDER.read_text(encoding="utf-8")
     required_builder_markers = (
         "M6.4.1 canonical authoring renderer",
-        "Backend 与控件独立",
-        "Runtime Method",
-        "Static Patch",
-        "Patch HEX",
-        "＋ 增加功能",
+        "Exactly one Builder renderer owns `其他`",
+        "普通 Patch: 名称 + 说明 + Offset + Patch",
+        "Runtime / IL2CPP",
+        "＋ 增加普通 Patch",
+        "＋ 增加 Runtime 功能",
+        "Patch",
     )
     for marker in required_builder_markers:
         if marker not in builder:
             errors.append(f"canonical Builder is missing marker: {marker}")
+
+    forbidden_builder_ui = (
+        "Backend ·",
+        "执行方式 ·",
+        "＋ 增加功能",
+    )
+    for marker in forbidden_builder_ui:
+        if marker in builder:
+            errors.append(f"split Builder regressed to mixed authoring UI: {marker}")
 
     if any(p.name == "ZNM630UnifiedAuthoringRenderer.mm" for p in sources):
         errors.append("M6.3/M6.4 authoring renderer must not be compiled")
@@ -133,8 +143,6 @@ def main() -> int:
         if touched:
             errors.append(f"constructor bypasses single-renderer install chain in {rel(path)}: {touched}")
 
-    # Backend helpers may swizzle validators/builders only. Check actual UI imports
-    # and selector ownership rather than words appearing in comments.
     backend_helper = PROJECT / "src/ZNM641StaticControlBackend.mm"
     if backend_helper in sources:
         text = backend_helper.read_text(encoding="utf-8")
