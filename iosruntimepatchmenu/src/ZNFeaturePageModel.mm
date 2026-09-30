@@ -13,6 +13,7 @@
     if (!self) return nil;
     _identifier = @"";
     _title = @"";
+    _descriptionText = @"";
     _source = ZNFeaturePageSourceStaticOffset;
     _controlType = ZNFeatureControlTypeSwitch;
     _valueType = ZNValueTypeAuto;
