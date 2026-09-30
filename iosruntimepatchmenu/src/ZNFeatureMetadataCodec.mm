@@ -1,20 +1,36 @@
 #import "ZNFeatureMetadataCodec.h"
 #import "ZNFeatureControlModel.h"
+#import "ZNFeatureDescriptionStore.h"
 #include <string.h>
 
 static const uint8_t kZNFMMarker0 = 0xA5;
 static const uint8_t kZNFMMarker1 = 0x5A;
-static const uint8_t kZNFMVersion = 1;
+static const uint8_t kZNFMVersionV1 = 1;
+static const uint8_t kZNFMVersionV2 = 2;
 static const NSUInteger kZNFMNameCapacity = 57;
+static const NSUInteger kZNFMDescriptionPreferredCapacity = 24;
 static const uint32_t kZNFM585SliderMaxMask = UINT32_C(0xFFFC0000);
 static const uint32_t kZNFM585SliderMaxShift = 18u;
 extern "C" uint32_t ZNM585SliderMaximumFlagsForFeatureName(NSString *featureName);
 
 // title/group are contiguous in ZN44StaticEntry: 48 + 24 bytes.
-// Layout inside that 72-byte region remains ZNF1-compatible. M5.5 keeps the
-// existing metadata payload untouched and stores Value Type in entry.flags
-// bits 11..13. M5.8.5 uses previously-unused flags bits 18..31 for an integer
-// Static Slider authored maximum (1..16383), preserving the 128-byte ABI.
+// Layout inside that 72-byte region remains 128-byte-entry ABI compatible.
+//
+// V1:
+//   storage[4] bit0 = explicit group
+//   storage[13]     = name byte length
+//   payload         = name
+//
+// V2:
+//   storage[4] bit0     = explicit group
+//   storage[4] bits1..7 = description byte length (0..63)
+//   storage[13]         = name byte length
+//   payload             = name || description
+//
+// V2 therefore adds a short customer-facing description without growing
+// ZN44StaticEntry. Existing V1 binaries continue to decode unchanged.
+// M5.5 keeps Value Type in entry.flags bits 11..13. M5.8.5 uses bits 18..31
+// for Static Slider maximum and M5.9.1 uses bit2 for native Offset hook mode.
 
 static NSString *ZNFMTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -112,41 +128,78 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
                    hookFlag;
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
-    NSData *nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity);
-    if (nameData.length > UINT8_MAX) return NO;
+    NSString *descriptionText = ZNFeatureDescriptionForName(featureLookupName.length ? featureLookupName : displayName);
+
+    // Keep Feature name useful even when a description exists. Description is
+    // intentionally short in V2 because it shares the existing 57-byte payload.
+    NSData *descriptionData = ZNFMUTF8Prefix(descriptionText, kZNFMDescriptionPreferredCapacity);
+    NSUInteger nameCapacity = kZNFMNameCapacity - descriptionData.length;
+    NSData *nameData = ZNFMUTF8Prefix(displayName, nameCapacity);
+    if (nameData.length == 0) {
+        // Do not sacrifice the display name to a description. Drop description
+        // and retry with the full V1 name capacity.
+        descriptionData = [NSData data];
+        nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity);
+    }
+    if (nameData.length > UINT8_MAX || descriptionData.length > 63 || nameData.length + descriptionData.length > kZNFMNameCapacity) return NO;
 
     uint8_t *storage = (uint8_t *)entry->title;
     memset(storage, 0, sizeof(entry->title) + sizeof(entry->group));
     storage[0] = 0;
     storage[1] = kZNFMMarker0;
     storage[2] = kZNFMMarker1;
-    storage[3] = kZNFMVersion;
-    storage[4] = explicitGroup ? 0x01 : 0x00;
+    storage[3] = descriptionData.length ? kZNFMVersionV2 : kZNFMVersionV1;
+    storage[4] = (explicitGroup ? 0x01 : 0x00) | ((uint8_t)descriptionData.length << 1);
     memcpy(storage + 5, &featureID, sizeof(featureID));
     storage[13] = (uint8_t)nameData.length;
     storage[48] = 0;
 
-    const uint8_t *plain = (const uint8_t *)nameData.bytes;
-    for (NSUInteger i = 0; i < nameData.length; i++) ZNFMWritePayloadByte(storage, i, plain[i] ^ ZNFMKeyByte(featureID, i));
+    const uint8_t *nameBytes = (const uint8_t *)nameData.bytes;
+    for (NSUInteger i = 0; i < nameData.length; i++) {
+        ZNFMWritePayloadByte(storage, i, nameBytes[i] ^ ZNFMKeyByte(featureID, i));
+    }
+    const uint8_t *descriptionBytes = (const uint8_t *)descriptionData.bytes;
+    for (NSUInteger i = 0; i < descriptionData.length; i++) {
+        NSUInteger payloadIndex = nameData.length + i;
+        ZNFMWritePayloadByte(storage, payloadIndex, descriptionBytes[i] ^ ZNFMKeyByte(featureID, payloadIndex));
+    }
     return YES;
 }
 
 NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry *entry) {
     if (!entry) return nil;
     const uint8_t *storage = (const uint8_t *)entry->title;
-    if (storage[0] != 0 || storage[48] != 0 || storage[1] != kZNFMMarker0 || storage[2] != kZNFMMarker1 || storage[3] != kZNFMVersion) return nil;
+    uint8_t version = storage[3];
+    if (storage[0] != 0 || storage[48] != 0 || storage[1] != kZNFMMarker0 || storage[2] != kZNFMMarker1 ||
+        (version != kZNFMVersionV1 && version != kZNFMVersionV2)) return nil;
 
     uint64_t featureID = 0;
     memcpy(&featureID, storage + 5, sizeof(featureID));
-    uint8_t length = storage[13];
-    if (!featureID || length > kZNFMNameCapacity) return nil;
+    uint8_t nameLength = storage[13];
+    uint8_t descriptionLength = version >= kZNFMVersionV2 ? (storage[4] >> 1) : 0;
+    if (!featureID || nameLength > kZNFMNameCapacity || descriptionLength > 63 ||
+        (NSUInteger)nameLength + (NSUInteger)descriptionLength > kZNFMNameCapacity) return nil;
 
-    NSMutableData *decoded = [NSMutableData dataWithLength:length];
-    uint8_t *out = (uint8_t *)decoded.mutableBytes;
-    for (NSUInteger i = 0; i < length; i++) out[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
-
-    NSString *name = [[NSString alloc] initWithData:decoded encoding:NSUTF8StringEncoding];
+    NSMutableData *decodedName = [NSMutableData dataWithLength:nameLength];
+    uint8_t *nameOut = (uint8_t *)decodedName.mutableBytes;
+    for (NSUInteger i = 0; i < nameLength; i++) {
+        nameOut[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
+    }
+    NSString *name = [[NSString alloc] initWithData:decodedName encoding:NSUTF8StringEncoding];
     if (!name.length) return nil;
+
+    NSString *descriptionText = @"";
+    if (descriptionLength) {
+        NSMutableData *decodedDescription = [NSMutableData dataWithLength:descriptionLength];
+        uint8_t *descriptionOut = (uint8_t *)decodedDescription.mutableBytes;
+        for (NSUInteger i = 0; i < descriptionLength; i++) {
+            NSUInteger payloadIndex = nameLength + i;
+            descriptionOut[i] = ZNFMReadPayloadByte(storage, payloadIndex) ^ ZNFMKeyByte(featureID, payloadIndex);
+        }
+        NSString *decoded = [[NSString alloc] initWithData:decodedDescription encoding:NSUTF8StringEncoding];
+        if (decoded.length) descriptionText = decoded;
+    }
+
     BOOL explicitGroup = (storage[4] & 0x01) != 0;
     ZNFeatureControlType controlType = ZNFeatureControlTypeFromFlags(entry->flags);
     ZNValueType valueType = ZNFeatureValueTypeFromFlags(entry->flags);
@@ -156,12 +209,13 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
         @"title": name,
         @"group": explicitGroup ? name : @"Imported",
         @"explicitGroup": @(explicitGroup),
+        @"description": descriptionText ?: @"",
         @"controlType": @(controlType),
         @"controlTypeName": ZNFeatureControlTypeName(controlType),
         @"valueType": @(valueType),
         @"valueTypeName": ZNValueTypeName(valueType),
         @"sliderMax": @(sliderMax),
         @"offsetHook": @((entry->flags & ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1) != 0),
-        @"source": @"embedded-znf1"
+        @"source": version >= kZNFMVersionV2 ? @"embedded-znf2" : @"embedded-znf1"
     };
 }
