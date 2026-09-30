@@ -1,9 +1,9 @@
-name: Build Runtime Patch Menu v0.5.9 M5.9.2 Offset Persistence Validation Bypass
+name: Build Runtime Patch Menu v0.5.9 M5.9.2 Architecture Rebuild
 
 on:
   push:
     branches:
-      - fix/m5.9.2-offset-persistence-validation-bypass
+      - feature/m5.9.2-architecture-rebuild-v1
   workflow_dispatch:
 
 jobs:
@@ -19,16 +19,25 @@ jobs:
         run: |
           set -euxo pipefail
           grep -q '0.5.9 · M5.9.2' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q 'ZNM592OffsetAuthoringPersistence.mm' iosruntimepatchmenu/Makefile
-          grep -q 'ZNInstallM592OffsetAuthoringPersistenceDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
-          grep -q 'zonoe.m5.9.2.offset-authoring.v1' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
-          grep -q 'bypassed legacy MOV/FMOV gate' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
-          grep -q 'row.enabledText=ZNM592Hex(data)' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
-          grep -q 'no second UI hierarchy' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
-          grep -q 'ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
-          grep -q 'DobbyInstrument' iosruntimepatchmenu/src/ZNM591OffsetHookControls.mm
+          grep -q 'ZNFeaturePageModel.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZNFeaturePageUI.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZN_UI_CANONICAL_FEATURE_RENDERER' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
+          grep -q 'ZNInstallCanonicalFeaturePageDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'render path has no discovery refresh' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
+          grep -q 'ZNFeaturePageSourceStaticOffset' iosruntimepatchmenu/src/ZNFeaturePageModel.h
+          grep -q 'ZNFeaturePageSourceRuntimeIL2CPP' iosruntimepatchmenu/src/ZNFeaturePageModel.h
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('iosruntimepatchmenu/src/ZNFeaturePageUI.mm').read_text()
+          body=s[s.index('- (void)znfr_render:(BOOL)compact'):s.index('- (void)znfr_renderFull')]
+          assert '[runtime refresh]' not in body
+          assert '[[ZNRuntimeActionRuntime sharedRuntime] refresh]' not in body
+          assert '[[ZNStaticDispatchRuntime sharedRuntime] refresh]' not in body
+          assert 'CGFloat width = CGRectGetWidth(self.contentView.bounds), y =' in body
+          print('canonical Feature render contract OK')
+          PY
       - name: Install dependencies
         run: |
           brew update
@@ -71,32 +80,31 @@ jobs:
           PY
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
-      - name: Build M5.9.2
+      - name: Build M5.9.2 Architecture Rebuild
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m5.9.2
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.9.2/ZonoPatch_v0.5.9_M5.9.2_OffsetPersistenceBypass.dylib
-          shasum -a 256 dist-m5.9.2/ZonoPatch_v0.5.9_M5.9.2_OffsetPersistenceBypass.dylib | tee dist-m5.9.2/SHA256.txt
+          mkdir -p dist-m5.9.2-rebuild
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.9.2-rebuild/ZonoPatch_v0.5.9_M5.9.2_UIRebuild.dylib
+          shasum -a 256 dist-m5.9.2-rebuild/ZonoPatch_v0.5.9_M5.9.2_UIRebuild.dylib | tee dist-m5.9.2-rebuild/SHA256.txt
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m5.9.2/ZonoPatch_v0.5.9_M5.9.2_OffsetPersistenceBypass.dylib
+          out=iosruntimepatchmenu/dist-m5.9.2-rebuild/ZonoPatch_v0.5.9_M5.9.2_UIRebuild.dylib
           file "$out" | grep -q 'arm64'
-          otool -L "$out" | tee /tmp/zono_m592_load_commands.txt
-          strings -a "$out" > /tmp/zono_m592_strings.txt
-          grep -q '\[m5.9.2\]' /tmp/zono_m592_strings.txt
-          grep -q 'Offset authoring persistence + preflight validation bypass installed' /tmp/zono_m592_strings.txt
-          grep -q 'm5.9.2-offset-persist' /tmp/zono_m592_strings.txt
-          grep -q 'm5.9.2-validate' /tmp/zono_m592_strings.txt
-          ! grep -qi 'dobby' /tmp/zono_m592_load_commands.txt
+          otool -L "$out" | tee /tmp/zono_m592_rebuild_load_commands.txt
+          strings -a "$out" > /tmp/zono_m592_rebuild_strings.txt
+          grep -q 'canonical renderer bound' /tmp/zono_m592_rebuild_strings.txt
+          grep -q 'snapshot published' /tmp/zono_m592_rebuild_strings.txt
+          grep -q 'm5.9.2-offset-persist' /tmp/zono_m592_rebuild_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m592_rebuild_load_commands.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.9-M5.9.2-OffsetPersistenceBypass
+          name: ZonoPatch-v0.5.9-M5.9.2-UIRebuild
           path: |
-            iosruntimepatchmenu/dist-m5.9.2/ZonoPatch_v0.5.9_M5.9.2_OffsetPersistenceBypass.dylib
-            iosruntimepatchmenu/dist-m5.9.2/SHA256.txt
+            iosruntimepatchmenu/dist-m5.9.2-rebuild/ZonoPatch_v0.5.9_M5.9.2_UIRebuild.dylib
+            iosruntimepatchmenu/dist-m5.9.2-rebuild/SHA256.txt
           if-no-files-found: error
