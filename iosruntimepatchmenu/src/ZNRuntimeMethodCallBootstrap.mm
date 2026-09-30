@@ -3,23 +3,16 @@
 #import "ZNPatchCore.h"
 
 extern "C" void ZNInstallRuntimeMethodCallFinderUIDeferred(void);
-extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void);
 extern "C" void ZNInstallMethodFinderM42UIDeferred(void);
 
 extern "C" void ZNInstallRuntimeMethodCallDeferred(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // Finder + Builder authoring remain part of the Runtime Method backend.
+        // Runtime backend + Finder stay active. Builder authoring UI is rendered
+        // exclusively by M5.9.2's canonical unified Other-page renderer.
         ZNInstallRuntimeMethodCallFinderUIDeferred();
-        ZNInstallRuntimeMethodCallBuilderUIDeferred();
-
-        // M5.7 intentionally does NOT install the historical
-        // ZNRuntimeMethodCallFeatureUI. That older layer appended a second
-        // customer-facing "method + Execute" card before M5.1 rendered the
-        // typed Runtime control card, leaving two public Runtime action UIs.
-        // M5.1 + M5.7 are now the single customer Runtime surface.
         ZNInstallMethodFinderM42UIDeferred();
         [[ZNRuntimeActionRuntime sharedRuntime] refresh];
-        [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] M5.7 backend installed: Finder/Builder retained; legacy duplicate Feature action UI disabled"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] backend/finder installed; Builder UI delegated to canonical M5.9.2 unified renderer"];
     });
 }
