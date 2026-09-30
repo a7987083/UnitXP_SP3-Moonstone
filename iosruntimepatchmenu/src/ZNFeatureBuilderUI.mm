@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNFeatureDescriptionStore.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
@@ -41,6 +42,7 @@ static const void *kZN50BExpandedFeatureKeys = &kZN50BExpandedFeatureKeys;
 static const NSInteger kZN50BExpandTagBase = 460000;
 static const NSInteger kZN50BAddPatchTagBase = 461000;
 static const NSInteger kZN50BRenameTagBase = 462000;
+static const NSInteger kZN50BDescriptionTagBase = 463000;
 
 static NSString *ZN50BTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -198,6 +200,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
         if (error) *error = @"找不到要重命名的功能";
         return NO;
     }
+    ZNMoveFeatureDescription(oldValue, newValue);
     self.lastStatus = [NSString stringWithFormat:@"功能已重命名：%@ → %@", oldValue, newValue];
     return YES;
 }
@@ -210,6 +213,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
 - (void)zn50b_addFeature:(id)sender;
 - (void)zn50b_addPatch:(UIButton *)sender;
 - (void)zn50b_featureNameEnd:(UITextField *)field;
+- (void)zn50b_featureDescriptionEnd:(UITextField *)field;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureBuilderUI)
@@ -320,6 +324,35 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
         [nameField addTarget:self action:@selector(zn50b_featureNameEnd:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
         [nameCard addSubview:nameField];
         [self.contentView addSubview:nameCard];
+        y += 56;
+
+        // Description editor. This stays in the same authoring renderer and is
+        // snapshotted by ZNFeatureMetadataCodec into the generated binary.
+        UIView *descriptionCard = [self cardAtY:y height:50 width:width compact:NO];
+        UILabel *descriptionLabel = [self label:@"说明" size:9.2 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
+        descriptionLabel.frame = CGRectMake(18, 9, 45, 30);
+        [descriptionCard addSubview:descriptionLabel];
+        UITextField *descriptionField = [[UITextField alloc] initWithFrame:CGRectMake(63, 9, descriptionCard.bounds.size.width - 78, 31)];
+        descriptionField.tag = kZN50BDescriptionTagBase + (NSInteger)featureIndex;
+        descriptionField.text = ZNFeatureDescriptionForName(name);
+        descriptionField.placeholder = @"客户页第二行说明（短文本）";
+        descriptionField.enabled = !locked;
+        descriptionField.textColor = self.theme.primaryTextColor;
+        descriptionField.backgroundColor = self.theme.controlColor;
+        descriptionField.font = [UIFont systemFontOfSize:10.2 weight:UIFontWeightRegular];
+        descriptionField.autocorrectionType = UITextAutocorrectionTypeNo;
+        descriptionField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        descriptionField.returnKeyType = UIReturnKeyDone;
+        descriptionField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        descriptionField.layer.cornerRadius = 7;
+        descriptionField.layer.borderWidth = 1;
+        descriptionField.layer.borderColor = self.theme.borderColor.CGColor;
+        UIView *descriptionPad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 1)];
+        descriptionField.leftView = descriptionPad;
+        descriptionField.leftViewMode = UITextFieldViewModeAlways;
+        [descriptionField addTarget:self action:@selector(zn50b_featureDescriptionEnd:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+        [descriptionCard addSubview:descriptionField];
+        [self.contentView addSubview:descriptionCard];
         y += 56;
 
         for (NSUInteger patchIndex = 0; patchIndex < rows.count; patchIndex++) {
@@ -498,6 +531,20 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     [self renderPage];
 }
 
+- (void)zn50b_featureDescriptionEnd:(UITextField *)field {
+    NSInteger index = field.tag - kZN50BDescriptionTagBase;
+    if (index < 0) return;
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+    NSArray<NSDictionary *> *features = ZN50BFeatureGroups(workspace);
+    if ((NSUInteger)index >= features.count) return;
+    NSString *name = features[(NSUInteger)index][@"name"];
+    ZNSetFeatureDescriptionForName(name, field.text ?: @"");
+    workspace.lastStatus = ZNFeatureDescriptionForName(name).length
+        ? [NSString stringWithFormat:@"%@：说明已保存，生成时写入客户二进制", name]
+        : [NSString stringWithFormat:@"%@：说明已清空", name];
+    [field resignFirstResponder];
+}
+
 @end
 
 static void ZN50BSwapInstanceMethod(Class cls, SEL original, SEL replacement) {
@@ -511,6 +558,6 @@ extern "C" void ZNInstallFeatureBuilderUIDeferred(void) {
         Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (!cls) return;
         ZN50BSwapInstanceMethod(cls, @selector(zn44_renderOther), @selector(zn50b_renderOther));
-        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5 Feature Builder installed: Feature -> Patches -> validate/build; JSON optional"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][main] v0.5 Feature Builder installed: Feature -> description -> Patches -> validate/build; JSON optional"];
     }
 }
