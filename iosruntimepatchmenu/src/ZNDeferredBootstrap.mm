@@ -11,7 +11,7 @@ extern "C" void ZNInstallRuntimeMenuV055Deferred(void);
 extern "C" void ZNInstallFeatureGroupUIDeferred(void);
 extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
-extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
+extern "C" void ZNInstallM621FlatOffsetAuthoringDeferred(void);
 
 extern "C" void ZonoePatchStart(void);
 extern "C" void ZonoePatchShow(void);
@@ -176,7 +176,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
-        ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
+        ZNRunActivationStage(@"FlatOffsetAuthoring", ^{ ZNInstallM621FlatOffsetAuthoringDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
         ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
