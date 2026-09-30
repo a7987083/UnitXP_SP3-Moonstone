@@ -17,6 +17,7 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 @interface ZNRuntimeMethodAction : NSObject <NSCopying>
 @property(nonatomic,assign) uint32_t actionID;
 @property(nonatomic,copy) NSString *title;
+@property(nonatomic,copy) NSString *descriptionText;
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSString *assembly;
 @property(nonatomic,copy) NSString *namespaceName;
@@ -24,16 +25,9 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 @property(nonatomic,copy) NSString *methodName;
 @property(nonatomic,assign) NSUInteger argumentCount;
 @property(nonatomic,copy) NSArray<NSString *> *argumentValues;
-// M4.6: full managed parameter-type identity. Empty + signatureAvailable=YES
-// represents an exact zero-parameter signature; signatureAvailable=NO keeps
-// legacy Method/N compatibility for records authored by older versions.
 @property(nonatomic,copy) NSArray<NSString *> *parameterTypeNames;
 @property(nonatomic,assign) BOOL signatureAvailable;
-// M5.1: one dictionary per argument. enabled=NO means fixed value. enabled=YES
-// exposes that argument in the generated menu using switch/button/number/slider.
 @property(nonatomic,copy) NSArray<NSDictionary<NSString *, id> *> *argumentControlConfigs;
-// M5.1 Immediate Chain. Empty means no chain. V1 stores a complete target
-// method descriptor and never persists a returned object address/GCHandle.
 @property(nonatomic,copy) NSDictionary<NSString *, id> *immediateChain;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @property(nonatomic,copy,readonly) NSString *legacyCanonicalIdentity;
@@ -53,6 +47,9 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 - (BOOL)updateTitle:(nullable NSString *)title
             atIndex:(NSUInteger)index
               error:(NSString * _Nullable * _Nullable)error;
+- (BOOL)updateDescriptionText:(nullable NSString *)descriptionText
+                      atIndex:(NSUInteger)index
+                        error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)updateArgumentValues:(NSArray<NSString *> *)argumentValues
                      atIndex:(NSUInteger)index
                        error:(NSString * _Nullable * _Nullable)error;
