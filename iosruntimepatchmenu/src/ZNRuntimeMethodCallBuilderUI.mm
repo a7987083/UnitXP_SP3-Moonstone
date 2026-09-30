@@ -8,6 +8,7 @@
 
 static const NSInteger kZNRMCBuilderDeleteTagBase = 671000;
 static const NSInteger kZNRMCBuilderTitleTagBase = 672000;
+static const NSInteger kZNRMCBuilderDescriptionTagBase = 673000;
 static const NSInteger kZNRMCBuilderArgumentTagBase = 674000;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
@@ -51,6 +52,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
 - (void)znrmc_clearAuthoringActions:(id)sender;
 - (void)znrmc_deleteAuthoringAction:(UIButton *)sender;
 - (void)znrmc_titleEditingEnded:(UITextField *)field;
+- (void)znrmc_descriptionEditingEnded:(UITextField *)field;
 - (void)znrmc_argumentEditingChanged:(UITextField *)field;
 - (void)znrmc_argumentEditingEnded:(UITextField *)field;
 @end
@@ -93,7 +95,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
         for (NSUInteger i = 0; i < actions.count; i++) {
             ZNRuntimeMethodAction *action = actions[i];
             BOOL hasArgument = action.argumentCount == 1;
-            CGFloat cardH = hasArgument ? 116.0 : 76.0;
+            CGFloat cardH = hasArgument ? 152.0 : 112.0;
             UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
 
             UITextField *name = ZNRMCBuilderTextField(CGRectMake(13, 7, card.bounds.size.width - 82, 27), self.theme);
@@ -109,27 +111,36 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             deleteButton.tag = kZNRMCBuilderDeleteTagBase + (NSInteger)i;
             [card addSubview:deleteButton];
 
+            UILabel *descriptionLabel = [self label:@"说明" size:8.2 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+            descriptionLabel.frame = CGRectMake(13, 40, 34, 27);
+            [card addSubview:descriptionLabel];
+            UITextField *description = ZNRMCBuilderTextField(CGRectMake(49, 40, card.bounds.size.width - 62, 27), self.theme);
+            description.tag = kZNRMCBuilderDescriptionTagBase + (NSInteger)i;
+            description.text = action.descriptionText ?: @"";
+            description.placeholder = @"客户端显示说明（可留空）";
+            description.font = [UIFont systemFontOfSize:9.4 weight:UIFontWeightRegular];
+            [description addTarget:self action:@selector(znrmc_descriptionEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+            [card addSubview:description];
+
             UILabel *identity = [self label:action.canonicalIdentity
                                         size:7.8
                                       weight:UIFontWeightRegular
                                        color:self.theme.secondaryTextColor];
-            identity.frame = CGRectMake(13, 40, card.bounds.size.width - 26, 25);
+            identity.frame = CGRectMake(13, 76, card.bounds.size.width - 26, 25);
             identity.numberOfLines = 2;
             identity.lineBreakMode = NSLineBreakByTruncatingMiddle;
             [card addSubview:identity];
 
             if (hasArgument) {
                 UILabel *argLabel = [self label:@"参数 1" size:8.2 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-                argLabel.frame = CGRectMake(13, 77, 44, 27);
+                argLabel.frame = CGRectMake(13, 113, 44, 27);
                 [card addSubview:argLabel];
 
-                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(59, 75, card.bounds.size.width - 72, 31), self.theme);
+                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(59, 111, card.bounds.size.width - 72, 31), self.theme);
                 argument.tag = kZNRMCBuilderArgumentTagBase + (NSInteger)i;
                 argument.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
                 argument.placeholder = @"参数值";
                 argument.font = [UIFont monospacedDigitSystemFontOfSize:9.6 weight:UIFontWeightMedium];
-                // M5.8.3: keep the model current while typing. This is required
-                // for Slider authoring because the value at build time is its max.
                 [argument addTarget:self action:@selector(znrmc_argumentEditingChanged:) forControlEvents:UIControlEventEditingChanged];
                 [argument addTarget:self action:@selector(znrmc_argumentEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
                 [card addSubview:argument];
@@ -166,6 +177,18 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
     [field resignFirstResponder];
 }
 
+- (void)znrmc_descriptionEditingEnded:(UITextField *)field {
+    NSInteger index = field.tag - kZNRMCBuilderDescriptionTagBase;
+    if (index < 0) return;
+    NSString *error = nil;
+    if (![[ZNRuntimeActionStore sharedStore] updateDescriptionText:field.text atIndex:(NSUInteger)index error:&error]) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] description update failed: %@", error ?: @"unknown"]];
+    }
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if ((NSUInteger)index < actions.count) field.text = actions[(NSUInteger)index].descriptionText ?: @"";
+    [field resignFirstResponder];
+}
+
 - (void)znrmc_argumentEditingChanged:(UITextField *)field {
     NSInteger index = field.tag - kZNRMCBuilderArgumentTagBase;
     if (index < 0) return;
@@ -198,7 +221,7 @@ extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void) {
         Method replacement = class_getInstanceMethod(cls, @selector(znrmc_renderOther));
         if (original && replacement) {
             method_exchangeImplementations(original, replacement);
-            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (M5.8.3 live argument sync)"];
+            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (description authoring + M5.8.3 live argument sync)"];
         }
     });
 }
