@@ -2,6 +2,9 @@
 #import <objc/runtime.h>
 #import "ZNRuntimeActionModel.h"
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-protocol-method-implementation"
+
 static const void *kZNRuntimeDescriptionKey = &kZNRuntimeDescriptionKey;
 static NSString * const kZNRuntimeDescriptionDefaultsPrefix = @"zonoe.runtime-description.v1";
 
@@ -33,14 +36,16 @@ static NSString *ZNRDDefaultsKey(ZNRuntimeMethodAction *action) {
             if (error) *error = @"Runtime Method Call 索引已失效";
             return NO;
         }
-        NSMutableArray *mutable = [self valueForKey:@"mutableActions"];
-        if (![mutable isKindOfClass:NSMutableArray.class] || index >= mutable.count) {
+        NSMutableArray *actionStorage = [self valueForKey:@"mutableActions"];
+        if (![actionStorage isKindOfClass:NSMutableArray.class] || index >= actionStorage.count) {
             if (error) *error = @"Runtime Method Call 存储不可用";
             return NO;
         }
-        ZNRuntimeMethodAction *action = mutable[index];
+        ZNRuntimeMethodAction *action = actionStorage[index];
         action.descriptionText = descriptionText ?: @"";
         return YES;
     }
 }
 @end
+
+#pragma clang diagnostic pop
