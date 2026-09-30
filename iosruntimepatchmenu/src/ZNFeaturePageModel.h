@@ -12,6 +12,7 @@ typedef NS_ENUM(NSUInteger, ZNFeaturePageSource) {
 @interface ZNFeaturePageItem : NSObject
 @property(nonatomic,copy) NSString *identifier;
 @property(nonatomic,copy) NSString *title;
+@property(nonatomic,copy) NSString *descriptionText;
 @property(nonatomic,assign) ZNFeaturePageSource source;
 @property(nonatomic,assign) ZNFeatureControlType controlType;
 @property(nonatomic,assign) ZNValueType valueType;
