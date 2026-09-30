@@ -53,6 +53,7 @@ extern "C" void ZNInstallM585StaticRuntimeRangeDeferred(void);
 extern "C" void ZNInstallM590UnifiedActionModelDeferred(void);
 extern "C" void ZNInstallM591OffsetHookControlsDeferred(void);
 extern "C" void ZNInstallM592OffsetAuthoringPersistenceDeferred(void);
+extern "C" void ZNInstallM593CanonicalOffsetArchitectureDeferred(void);
 extern "C" void ZNInstallCanonicalFeaturePageDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
@@ -148,6 +149,10 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM590UnifiedActionModelDeferred();
         ZNInstallM591OffsetHookControlsDeferred();
         ZNInstallM592OffsetAuthoringPersistenceDeferred();
+        // Final Offset ownership: all author-entered Offset text is resolved by
+        // the shared validator/resolver before legacy compatibility adapters can
+        // consume it. Runtime Method / IL2CPP remains a separate architecture.
+        ZNInstallM593CanonicalOffsetArchitectureDeferred();
 
         // Final UI ownership: all historical modules above may keep their data,
         // validation and execution behavior, but customer Feature rendering is
