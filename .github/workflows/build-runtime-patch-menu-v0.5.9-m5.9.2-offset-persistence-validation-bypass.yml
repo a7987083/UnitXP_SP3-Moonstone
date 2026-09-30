@@ -31,7 +31,9 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s=Path('iosruntimepatchmenu/src/ZNFeaturePageUI.mm').read_text()
-          body=s[s.index('- (void)znfr_render:(BOOL)compact'):s.index('- (void)znfr_renderFull')]
+          start=s.index('- (void)znfr_render:(BOOL)compact')
+          end=s.index('- (void)znfr_renderFull', start)
+          body=s[start:end]
           assert '[runtime refresh]' not in body
           assert '[[ZNRuntimeActionRuntime sharedRuntime] refresh]' not in body
           assert '[[ZNStaticDispatchRuntime sharedRuntime] refresh]' not in body
