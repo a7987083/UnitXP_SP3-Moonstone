@@ -5,6 +5,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface ZNRuntimeMethodActionRecord : NSObject
 @property(nonatomic,assign,readonly) uint32_t actionID;
 @property(nonatomic,copy,readonly) NSString *title;
+@property(nonatomic,copy,readonly) NSString *descriptionText;
 @property(nonatomic,copy,readonly) NSString *group;
 @property(nonatomic,copy,readonly) NSString *assembly;
 @property(nonatomic,copy,readonly) NSString *namespaceName;
