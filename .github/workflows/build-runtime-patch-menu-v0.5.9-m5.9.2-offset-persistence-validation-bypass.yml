@@ -1,4 +1,4 @@
-name: Build Runtime Patch Menu v0.5.9 M5.9.2 Flat Authoring UI
+name: Build Runtime Patch Menu v0.5.9 M5.9.2 Unified Other Page
 
 on:
   push:
@@ -20,14 +20,17 @@ jobs:
           set -euxo pipefail
           grep -q '0.5.9 · M5.9.2' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNM592OffsetAuthoringPersistence.mm' iosruntimepatchmenu/Makefile
-          grep -q 'ZNM592FlatAuthoring.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZNM592UnifiedOtherPage.mm' iosruntimepatchmenu/Makefile
+          ! grep -q 'ZNM592FlatAuthoring.mm' iosruntimepatchmenu/Makefile
           grep -q 'ZNInstallM592OffsetAuthoringPersistenceDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
-          grep -q 'ZNInstallM592FlatAuthoringDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
-          grep -q 'ZN_UI_CANONICAL_FEATURE_RENDERER' iosruntimepatchmenu/src/ZNM592FlatAuthoring.mm
-          grep -q 'method_setImplementation' iosruntimepatchmenu/src/ZNM592FlatAuthoring.mm
-          grep -q '名称' iosruntimepatchmenu/src/ZNM592FlatAuthoring.mm
-          grep -q '说明' iosruntimepatchmenu/src/ZNM592FlatAuthoring.mm
-          grep -q 'Offset' iosruntimepatchmenu/src/ZNM592FlatAuthoring.mm
+          grep -q 'ZNInstallM592UnifiedOtherPageDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+          grep -q 'ZN_UI_CANONICAL_FEATURE_RENDERER' iosruntimepatchmenu/src/ZNM592UnifiedOtherPage.mm
+          grep -q 'method_setImplementation' iosruntimepatchmenu/src/ZNM592UnifiedOtherPage.mm
+          grep -q 'Runtime Method Call' iosruntimepatchmenu/src/ZNM592UnifiedOtherPage.mm
+          grep -q 'Offset 功能' iosruntimepatchmenu/src/ZNM592UnifiedOtherPage.mm
+          grep -q 'UIKeyboardTypeDefault' iosruntimepatchmenu/src/ZNM592UnifiedOtherPage.mm
+          grep -q 'UIReturnKeyDone' iosruntimepatchmenu/src/ZNM592UnifiedOtherPage.mm
+          ! grep -q 'ZNInstallRuntimeMethodCallBuilderUIDeferred();' iosruntimepatchmenu/src/ZNRuntimeMethodCallBootstrap.mm
           grep -q 'zonoe.m5.9.2.offset-authoring.v1' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
           grep -q 'bypassed legacy MOV/FMOV gate' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
           grep -q 'row.enabledText=ZNM592Hex(data)' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
@@ -77,32 +80,33 @@ jobs:
           PY
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
-      - name: Build M5.9.2 Flat UI
+      - name: Build M5.9.2 Unified Other Page
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m5.9.2-flat
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.9.2-flat/ZonoPatch_v0.5.9_M5.9.2_FlatAuthoringUI.dylib
-          shasum -a 256 dist-m5.9.2-flat/ZonoPatch_v0.5.9_M5.9.2_FlatAuthoringUI.dylib | tee dist-m5.9.2-flat/SHA256.txt
+          mkdir -p dist-m5.9.2-unified
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.9.2-unified/ZonoPatch_v0.5.9_M5.9.2_UnifiedOtherPage.dylib
+          shasum -a 256 dist-m5.9.2-unified/ZonoPatch_v0.5.9_M5.9.2_UnifiedOtherPage.dylib | tee dist-m5.9.2-unified/SHA256.txt
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m5.9.2-flat/ZonoPatch_v0.5.9_M5.9.2_FlatAuthoringUI.dylib
+          out=iosruntimepatchmenu/dist-m5.9.2-unified/ZonoPatch_v0.5.9_M5.9.2_UnifiedOtherPage.dylib
           file "$out" | grep -q 'arm64'
-          otool -L "$out" | tee /tmp/zono_m592_flat_load_commands.txt
-          strings -a "$out" > /tmp/zono_m592_flat_strings.txt
-          grep -q '\[m5.9.2\]' /tmp/zono_m592_flat_strings.txt
-          grep -q 'm5.9.2-flat-ui' /tmp/zono_m592_flat_strings.txt
-          grep -q 'm5.9.2-offset-persist' /tmp/zono_m592_flat_strings.txt
-          grep -q 'm5.9.2-validate' /tmp/zono_m592_flat_strings.txt
-          ! grep -qi 'dobby' /tmp/zono_m592_flat_load_commands.txt
+          otool -L "$out" | tee /tmp/zono_m592_unified_load_commands.txt
+          strings -a "$out" > /tmp/zono_m592_unified_strings.txt
+          grep -q '\[m5.9.2\]' /tmp/zono_m592_unified_strings.txt
+          grep -q 'm5.9.2-unified-other' /tmp/zono_m592_unified_strings.txt
+          grep -q 'Runtime Method Call' /tmp/zono_m592_unified_strings.txt
+          grep -q 'm5.9.2-offset-persist' /tmp/zono_m592_unified_strings.txt
+          grep -q 'm5.9.2-validate' /tmp/zono_m592_unified_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m592_unified_load_commands.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.9-M5.9.2-FlatAuthoringUI
+          name: ZonoPatch-v0.5.9-M5.9.2-UnifiedOtherPage
           path: |
-            iosruntimepatchmenu/dist-m5.9.2-flat/ZonoPatch_v0.5.9_M5.9.2_FlatAuthoringUI.dylib
-            iosruntimepatchmenu/dist-m5.9.2-flat/SHA256.txt
+            iosruntimepatchmenu/dist-m5.9.2-unified/ZonoPatch_v0.5.9_M5.9.2_UnifiedOtherPage.dylib
+            iosruntimepatchmenu/dist-m5.9.2-unified/SHA256.txt
           if-no-files-found: error
