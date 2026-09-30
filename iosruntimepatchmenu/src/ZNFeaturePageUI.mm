@@ -240,24 +240,20 @@ static double ZNFRQuantize(double v, NSDictionary *cfg, double lo, double hi) {
             NSArray *cfgs = record.argumentControlConfigs.count == record.argumentCount ? record.argumentControlConfigs : @[];
             NSUInteger exposed=0; for (NSDictionary *cfg in cfgs) if ([cfg[@"enabled"] boolValue]) exposed++;
             BOOL hasDescription = ZNFRTrim(item.descriptionText).length > 0;
-            CGFloat descriptionExtra = hasDescription ? (compact ? 16.0 : 18.0) : 0.0;
-            CGFloat baseH = (compact ? 42.0 : 50.0) + descriptionExtra, rowH = compact ? 31.0 : 36.0;
-            CGFloat h = baseH + exposed*rowH;
-            if (!exposed) h = (compact ? 44.0 : 54.0) + descriptionExtra;
+            CGFloat rowH = compact ? 31.0 : 36.0;
+            CGFloat baseH = hasDescription ? (compact ? 42.0 : 46.0) : (compact ? 28.0 : 32.0);
+            CGFloat h = baseH + exposed * rowH;
+            if (!exposed) h = hasDescription ? (compact ? 46.0 : 52.0) : (compact ? 40.0 : 46.0);
             UIView *card = [self cardAtY:y height:h width:width compact:compact];
             UILabel *name = [self label:item.title size:(compact?10.4:11.3) weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
             name.frame = CGRectMake(compact?9:13,5,card.bounds.size.width-94,20); name.lineBreakMode=NSLineBreakByTruncatingTail; [card addSubview:name];
-            CGFloat metadataY = 24.0;
             if (hasDescription) {
                 UILabel *description = [self label:item.descriptionText size:(compact?7.8:8.4) weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
                 description.frame = CGRectMake(compact?9:13,24,card.bounds.size.width-94,16);
                 description.numberOfLines = 1;
                 description.lineBreakMode = NSLineBreakByTruncatingTail;
                 [card addSubview:description];
-                metadataY += descriptionExtra;
             }
-            UILabel *kind = [self label:@"Runtime" size:7.7 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
-            kind.frame = CGRectMake(compact?9:13,metadataY,70,15); [card addSubview:kind];
             if (!exposed) {
                 UIButton *b=[self zn40_button:@"执行" selector:@selector(znfr_runtimeExecute:) frame:CGRectMake(card.bounds.size.width-70,(h-29)*0.5,58,29)];
                 b.tag=kZNFRExecTagBase+(NSInteger)index; [card addSubview:b];
@@ -269,10 +265,8 @@ static double ZNFRQuantize(double v, NSDictionary *cfg, double lo, double hi) {
                 NSInteger slot=(NSInteger)(index*ZN_RUNTIME_ACTION_MAX_ARGUMENTS+arg);
                 NSString *fallback=(stored.count==record.argumentCount)?stored[arg]:(arg<record.argumentValues.count?record.argumentValues[arg]:@"");
                 ZNRuntimeArgumentControlType type=ZNRuntimeArgumentControlTypeFromKey(cfg[@"type"]);
-                CGFloat left=compact?9:13, labelW=compact?62:72;
-                UILabel *al=[self label:[NSString stringWithFormat:@"参数%lu",(unsigned long)arg+1] size:7.8 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
-                al.frame=CGRectMake(left,rowY,labelW,rowH); [card addSubview:al];
-                CGFloat x=left+labelW+4, avail=card.bounds.size.width-x-12;
+                CGFloat left=compact?9:13;
+                CGFloat x=left, avail=card.bounds.size.width-x-12;
                 if (type==ZNRuntimeArgumentControlTypeSwitch) {
                     UISwitch *sw=[UISwitch new]; sw.on=fallback.boolValue||[fallback.lowercaseString isEqualToString:@"true"]; sw.tag=kZNFRRuntimeSlotBase+slot; [sw addTarget:self action:@selector(znfr_runtimeSwitch:) forControlEvents:UIControlEventValueChanged]; sw.center=CGPointMake(card.bounds.size.width-38,rowY+rowH*0.5); [card addSubview:sw];
                 } else if (type==ZNRuntimeArgumentControlTypeSlider) {
