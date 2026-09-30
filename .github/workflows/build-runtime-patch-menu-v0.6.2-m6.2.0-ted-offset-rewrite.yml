@@ -1,4 +1,4 @@
-name: Build Runtime Patch Menu v0.6.2 M6.2.0 TED Offset Rewrite
+name: Build Runtime Patch Menu v0.6.2.1 M6.2.1 Flat Offset Authoring
 
 on:
   push:
@@ -18,12 +18,15 @@ jobs:
       - name: Source contract assertions
         run: |
           set -euxo pipefail
-          grep -q '0.6.2 · M6.2.0' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q '0.6.2.1 · M6.2.1' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNM620TEDOffsetRewrite.mm' iosruntimepatchmenu/Makefile
-          grep -q 'ZNInstallM620TEDOffsetRewriteDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
-          grep -q 'Number / Slider' iosruntimepatchmenu/src/ZNM620TEDOffsetRewrite.mm
-          grep -q 'Switch / Button' iosruntimepatchmenu/src/ZNM620TEDOffsetRewrite.mm
-          grep -q 'no old Offset Hook / IL2CPP promotion' iosruntimepatchmenu/src/ZNM620TEDOffsetRewrite.mm
+          grep -q 'ZNM621FlatOffsetAuthoring.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZNInstallM621FlatOffsetAuthoringDeferred' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          ! grep -q 'ZNInstallFeatureBuilderUIDeferred();' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          grep -q 'One canonical authoring renderer only' iosruntimepatchmenu/src/ZNM621FlatOffsetAuthoring.mm
+          grep -q '@"说明"' iosruntimepatchmenu/src/ZNM621FlatOffsetAuthoring.mm
+          grep -q '@"名称"' iosruntimepatchmenu/src/ZNM621FlatOffsetAuthoring.mm
+          grep -q '@"Offset"' iosruntimepatchmenu/src/ZNM621FlatOffsetAuthoring.mm
           ! grep -q 'ZNM591OffsetHookControls.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNM592OffsetAuthoringPersistence.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNM610UnifiedFeatureModel.mm' iosruntimepatchmenu/Makefile
@@ -71,30 +74,30 @@ jobs:
           PY
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
-      - name: Build M6.2.0
+      - name: Build M6.2.1
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m6.2.0
-          cp .theos/obj/ZonoePatchV03.dylib dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_TEDOffsetRewrite.dylib
-          shasum -a 256 dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_TEDOffsetRewrite.dylib | tee dist-m6.2.0/SHA256.txt
+          mkdir -p dist-m6.2.1
+          cp .theos/obj/ZonoePatchV03.dylib dist-m6.2.1/ZonoPatch_v0.6.2.1_M6.2.1_FlatOffsetAuthoring.dylib
+          shasum -a 256 dist-m6.2.1/ZonoPatch_v0.6.2.1_M6.2.1_FlatOffsetAuthoring.dylib | tee dist-m6.2.1/SHA256.txt
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_TEDOffsetRewrite.dylib
+          out=iosruntimepatchmenu/dist-m6.2.1/ZonoPatch_v0.6.2.1_M6.2.1_FlatOffsetAuthoring.dylib
           file "$out" | grep -q 'arm64'
-          otool -L "$out" | tee /tmp/zono_m620_load_commands.txt
-          strings -a "$out" > /tmp/zono_m620_strings.txt
-          grep -q '\[m6.2-ted\]' /tmp/zono_m620_strings.txt
-          grep -q 'Number/Slider auto' /tmp/zono_m620_strings.txt
-          ! grep -qi 'dobby' /tmp/zono_m620_load_commands.txt
+          otool -L "$out" | tee /tmp/zono_m621_load_commands.txt
+          strings -a "$out" > /tmp/zono_m621_strings.txt
+          grep -q '\[m6.2.1-ui\]' /tmp/zono_m621_strings.txt
+          grep -q 'canonical flat Offset authoring installed' /tmp/zono_m621_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m621_load_commands.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.6.2-M6.2.0-TEDOffsetRewrite
+          name: ZonoPatch-v0.6.2.1-M6.2.1-FlatOffsetAuthoring
           path: |
-            iosruntimepatchmenu/dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_TEDOffsetRewrite.dylib
-            iosruntimepatchmenu/dist-m6.2.0/SHA256.txt
+            iosruntimepatchmenu/dist-m6.2.1/ZonoPatch_v0.6.2.1_M6.2.1_FlatOffsetAuthoring.dylib
+            iosruntimepatchmenu/dist-m6.2.1/SHA256.txt
           if-no-files-found: error
