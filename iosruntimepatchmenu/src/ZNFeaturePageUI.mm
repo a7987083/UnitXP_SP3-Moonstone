@@ -69,6 +69,7 @@ static NSDictionary *ZNFRStaticMeta(ZNStaticPatchRecord *record) {
              @"title":title ?: @"功能",
              @"group":group,
              @"explicitGroup":@([group caseInsensitiveCompare:@"Imported"] != NSOrderedSame),
+             @"description":@"",
              @"controlType":@(record.entry ? ZNFeatureControlTypeFromFlags(record.entry->flags) : ZNFeatureControlTypeSwitch),
              @"valueType":@(record.entry ? ZNFeatureValueTypeFromFlags(record.entry->flags) : ZNValueTypeAuto),
              @"sliderMax":@0};
@@ -94,6 +95,7 @@ static NSArray<ZNFeaturePageItem *> *ZNFRBuildStaticItems(void) {
         ZNFeaturePageItem *item = [ZNFeaturePageItem new];
         item.identifier = key;
         item.title = explicitGroup && group.length ? group : (title.length ? title : @"功能");
+        item.descriptionText = ZNFRTrim(m[@"description"]);
         item.source = ZNFeaturePageSourceStaticOffset;
         item.controlType = (ZNFeatureControlType)[m[@"controlType"] unsignedIntegerValue];
         item.valueType = (ZNValueType)[m[@"valueType"] integerValue];
@@ -133,6 +135,7 @@ static NSArray<ZNFeaturePageItem *> *ZNFRBuildRuntimeItems(void) {
         ZNFeaturePageItem *item = [ZNFeaturePageItem new];
         item.identifier = [NSString stringWithFormat:@"runtime:%u:%@",record.actionID,record.canonicalIdentity ?: @""];
         item.title = record.title.length ? record.title : record.methodName;
+        item.descriptionText = @"";
         item.source = ZNFeaturePageSourceRuntimeIL2CPP;
         item.controlType = ZNFRRuntimePrimaryType(record);
         item.valueType = ZNValueTypeAuto;
@@ -278,12 +281,24 @@ static double ZNFRQuantize(double v, NSDictionary *cfg, double lo, double hi) {
 
         NSDictionary *back=[item.backingRecord isKindOfClass:NSDictionary.class]?item.backingRecord:@{};
         NSArray<ZNStaticPatchRecord *> *records=back[@"records"] ?: @[];
-        CGFloat h=compact?40:46; UIView *card=[self cardAtY:y height:h width:width compact:compact];
-        UILabel *name=[self label:item.title size:(compact?10.7:11.4) weight:UIFontWeightSemibold color:self.theme.primaryTextColor];name.frame=CGRectMake(compact?9:13,compact?10:13,card.bounds.size.width-(item.controlType==ZNFeatureControlTypeNumber?150:96),20);name.lineBreakMode=NSLineBreakByTruncatingTail;[card addSubview:name];
+        BOOL hasDescription = ZNFRTrim(item.descriptionText).length > 0;
+        CGFloat h = hasDescription ? (compact ? 52 : 58) : (compact ? 40 : 46);
+        UIView *card=[self cardAtY:y height:h width:width compact:compact];
+        CGFloat textRightInset = item.controlType==ZNFeatureControlTypeNumber ? 150 : 96;
+        UILabel *name=[self label:item.title size:(compact?10.7:11.4) weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+        name.frame=CGRectMake(compact?9:13,hasDescription?(compact?5:7):(compact?10:13),card.bounds.size.width-textRightInset,20);
+        name.lineBreakMode=NSLineBreakByTruncatingTail;[card addSubview:name];
+        if (hasDescription) {
+            UILabel *description=[self label:item.descriptionText size:(compact?7.8:8.4) weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            description.frame=CGRectMake(compact?9:13,compact?25:28,card.bounds.size.width-textRightInset,16);
+            description.lineBreakMode=NSLineBreakByTruncatingTail;
+            description.numberOfLines=1;
+            [card addSubview:description];
+        }
         if(item.controlType==ZNFeatureControlTypeSwitch){UISwitch *sw=[UISwitch new];sw.on=ZNFRStaticAllEnabled(records);sw.tag=kZNFRControlTagBase+(NSInteger)index;[sw addTarget:self action:@selector(znfr_staticToggle:) forControlEvents:UIControlEventValueChanged];sw.center=CGPointMake(card.bounds.size.width-38,h*0.5);[card addSubview:sw];}
-        else if(item.controlType==ZNFeatureControlTypeButton){UIButton*b=[self zn40_button:@"执行" selector:@selector(znfr_staticExecute:) frame:CGRectMake(card.bounds.size.width-70,compact?6:8,58,compact?28:30)];b.tag=kZNFRExecTagBase+(NSInteger)index;[card addSubview:b];}
-        else if(item.controlType==ZNFeatureControlTypeNumber){UITextField*f=[[UITextField alloc]initWithFrame:CGRectMake(card.bounds.size.width-(compact?126:142),compact?6:8,compact?68:82,compact?28:30)];f.text=item.currentValueText;f.keyboardType=UIKeyboardTypeNumbersAndPunctuation;f.returnKeyType=UIReturnKeyDone;f.textAlignment=NSTextAlignmentCenter;f.textColor=self.theme.primaryTextColor;f.backgroundColor=self.theme.controlColor;f.layer.cornerRadius=7;f.layer.borderWidth=1;f.layer.borderColor=self.theme.borderColor.CGColor;f.tag=kZNFRControlTagBase+(NSInteger)index;[f addTarget:self action:@selector(znfr_staticNumberReturn:) forControlEvents:UIControlEventEditingDidEndOnExit];[card addSubview:f];UIButton*b=[self zn40_button:@"执行" selector:@selector(znfr_staticExecute:) frame:CGRectMake(CGRectGetMaxX(f.frame)+4,compact?6:8,compact?50:52,compact?28:30)];b.tag=kZNFRExecTagBase+(NSInteger)index;[card addSubview:b];}
-        else {CGFloat sw=compact?92:112;ZNRangeControl*s=[[ZNRangeControl alloc]initWithFrame:CGRectMake(card.bounds.size.width-sw-10,compact?6:8,sw,compact?28:30)];s.minimumValue=item.minimumValue;s.maximumValue=MAX(item.maximumValue,item.minimumValue+1);s.value=MAX(s.minimumValue,MIN(s.maximumValue,item.currentValueText.doubleValue));s.tag=kZNFRControlTagBase+(NSInteger)index;[s addTarget:self action:@selector(znfr_staticSlider:) forControlEvents:UIControlEventPrimaryActionTriggered];[card addSubview:s];}
+        else if(item.controlType==ZNFeatureControlTypeButton){UIButton*b=[self zn40_button:@"执行" selector:@selector(znfr_staticExecute:) frame:CGRectMake(card.bounds.size.width-70,(h-(compact?28:30))*0.5,58,compact?28:30)];b.tag=kZNFRExecTagBase+(NSInteger)index;[card addSubview:b];}
+        else if(item.controlType==ZNFeatureControlTypeNumber){UITextField*f=[[UITextField alloc]initWithFrame:CGRectMake(card.bounds.size.width-(compact?126:142),(h-(compact?28:30))*0.5,compact?68:82,compact?28:30)];f.text=item.currentValueText;f.keyboardType=UIKeyboardTypeNumbersAndPunctuation;f.returnKeyType=UIReturnKeyDone;f.textAlignment=NSTextAlignmentCenter;f.textColor=self.theme.primaryTextColor;f.backgroundColor=self.theme.controlColor;f.layer.cornerRadius=7;f.layer.borderWidth=1;f.layer.borderColor=self.theme.borderColor.CGColor;f.tag=kZNFRControlTagBase+(NSInteger)index;[f addTarget:self action:@selector(znfr_staticNumberReturn:) forControlEvents:UIControlEventEditingDidEndOnExit];[card addSubview:f];UIButton*b=[self zn40_button:@"执行" selector:@selector(znfr_staticExecute:) frame:CGRectMake(CGRectGetMaxX(f.frame)+4,(h-(compact?28:30))*0.5,compact?50:52,compact?28:30)];b.tag=kZNFRExecTagBase+(NSInteger)index;[card addSubview:b];}
+        else {CGFloat sw=compact?92:112;ZNRangeControl*s=[[ZNRangeControl alloc]initWithFrame:CGRectMake(card.bounds.size.width-sw-10,(h-(compact?28:30))*0.5,sw,compact?28:30)];s.minimumValue=item.minimumValue;s.maximumValue=MAX(item.maximumValue,item.minimumValue+1);s.value=MAX(s.minimumValue,MIN(s.maximumValue,item.currentValueText.doubleValue));s.tag=kZNFRControlTagBase+(NSInteger)index;[s addTarget:self action:@selector(znfr_staticSlider:) forControlEvents:UIControlEventPrimaryActionTriggered];[card addSubview:s];}
         [self.contentView addSubview:card]; y += h+(compact?6:7);
     }
     [self zn40_updateContentHeight:y];
