@@ -24,6 +24,9 @@ enum {
     ZNRuntimeActionFlagArgumentControls = 1u << 3,
     // M5.1 reserved[4] -> UTF-8 JSON Immediate Chain target descriptor.
     ZNRuntimeActionFlagImmediateChain = 1u << 4,
+    // M5.9.2 UI rebuild: reserved[5] -> UTF-8 customer-facing description.
+    // This preserves the 64-byte Runtime entry ABI and v1 table format.
+    ZNRuntimeActionFlagDescriptionText = 1u << 5,
 };
 
 typedef struct {
@@ -55,7 +58,7 @@ typedef struct {
     // reserved[2] argument vector JSON
     // reserved[3] M5.1 argument control JSON
     // reserved[4] M5.1 Immediate Chain JSON
-    // reserved[5] free
+    // reserved[5] M5.9.2 customer-facing description UTF-8 string
     uint32_t reserved[6];
 } ZNRuntimeMethodCallEntry;
 
