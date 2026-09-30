@@ -135,7 +135,7 @@ static NSArray<ZNFeaturePageItem *> *ZNFRBuildRuntimeItems(void) {
         ZNFeaturePageItem *item = [ZNFeaturePageItem new];
         item.identifier = [NSString stringWithFormat:@"runtime:%u:%@",record.actionID,record.canonicalIdentity ?: @""];
         item.title = record.title.length ? record.title : record.methodName;
-        item.descriptionText = @"";
+        item.descriptionText = ZNFRTrim(record.descriptionText);
         item.source = ZNFeaturePageSourceRuntimeIL2CPP;
         item.controlType = ZNFRRuntimePrimaryType(record);
         item.valueType = ZNValueTypeAuto;
@@ -150,8 +150,6 @@ static NSArray<ZNFeaturePageItem *> *ZNFRBuildRuntimeItems(void) {
 }
 
 static void ZNFRPublishInitialSnapshot(void) {
-    // Static Dispatch discovery is completed by the deferred bootstrap before UI
-    // installation. Runtime metadata is scanned exactly once here, never in render.
     [[ZNRuntimeActionRuntime sharedRuntime] refresh];
     [[ZNFeaturePageModel sharedModel] publishStaticItems:ZNFRBuildStaticItems()];
     [[ZNFeaturePageModel sharedModel] publishRuntimeItems:ZNFRBuildRuntimeItems()];
@@ -241,16 +239,27 @@ static double ZNFRQuantize(double v, NSDictionary *cfg, double lo, double hi) {
             if (!record) continue;
             NSArray *cfgs = record.argumentControlConfigs.count == record.argumentCount ? record.argumentControlConfigs : @[];
             NSUInteger exposed=0; for (NSDictionary *cfg in cfgs) if ([cfg[@"enabled"] boolValue]) exposed++;
-            CGFloat baseH = compact ? 42.0 : 50.0, rowH = compact ? 31.0 : 36.0;
+            BOOL hasDescription = ZNFRTrim(item.descriptionText).length > 0;
+            CGFloat descriptionExtra = hasDescription ? (compact ? 16.0 : 18.0) : 0.0;
+            CGFloat baseH = (compact ? 42.0 : 50.0) + descriptionExtra, rowH = compact ? 31.0 : 36.0;
             CGFloat h = baseH + exposed*rowH;
-            if (!exposed) h = compact ? 44.0 : 54.0;
+            if (!exposed) h = (compact ? 44.0 : 54.0) + descriptionExtra;
             UIView *card = [self cardAtY:y height:h width:width compact:compact];
             UILabel *name = [self label:item.title size:(compact?10.4:11.3) weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
-            name.frame = CGRectMake(compact?9:13,7,card.bounds.size.width-94,22); name.lineBreakMode=NSLineBreakByTruncatingTail; [card addSubview:name];
+            name.frame = CGRectMake(compact?9:13,5,card.bounds.size.width-94,20); name.lineBreakMode=NSLineBreakByTruncatingTail; [card addSubview:name];
+            CGFloat metadataY = 24.0;
+            if (hasDescription) {
+                UILabel *description = [self label:item.descriptionText size:(compact?7.8:8.4) weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+                description.frame = CGRectMake(compact?9:13,24,card.bounds.size.width-94,16);
+                description.numberOfLines = 1;
+                description.lineBreakMode = NSLineBreakByTruncatingTail;
+                [card addSubview:description];
+                metadataY += descriptionExtra;
+            }
             UILabel *kind = [self label:@"Runtime" size:7.7 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
-            kind.frame = CGRectMake(compact?9:13,27,70,15); [card addSubview:kind];
+            kind.frame = CGRectMake(compact?9:13,metadataY,70,15); [card addSubview:kind];
             if (!exposed) {
-                UIButton *b=[self zn40_button:@"执行" selector:@selector(znfr_runtimeExecute:) frame:CGRectMake(card.bounds.size.width-70,compact?8:10,58,29)];
+                UIButton *b=[self zn40_button:@"执行" selector:@selector(znfr_runtimeExecute:) frame:CGRectMake(card.bounds.size.width-70,(h-29)*0.5,58,29)];
                 b.tag=kZNFRExecTagBase+(NSInteger)index; [card addSubview:b];
             }
             NSArray *stored=ZNFRRuntimeStoredValues(record);
@@ -316,7 +325,7 @@ static double ZNFRQuantize(double v, NSDictionary *cfg, double lo, double hi) {
 - (void)znfr_staticSlider:(ZNRangeControl *)slider {ZNFeaturePageItem*item=[self znfr_itemForTag:slider.tag base:kZNFRControlTagBase];if(!item)return;double v=round(slider.value);slider.value=v;NSString*text=[NSString stringWithFormat:@"%.0f",v];NSString*identity=ZNFRStaticPreferenceIdentity(item);[NSUserDefaults.standardUserDefaults setObject:text forKey:[NSString stringWithFormat:@"zn.fc.%@.valueText",identity]];[NSUserDefaults.standardUserDefaults setDouble:v forKey:[NSString stringWithFormat:@"zn.fc.%@.value",identity]];[NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureSliderValueDidChangeNotification object:self userInfo:ZNFRStaticEventInfo(item,@(v),text)];}
 
 - (NSMutableArray<NSString *> *)znfr_runtimeValuesForIndex:(NSUInteger)index record:(ZNRuntimeMethodActionRecord *)record {NSArray*stored=ZNFRRuntimeStoredValues(record);NSMutableArray*values=[NSMutableArray arrayWithArray:(stored?:record.argumentValues?:@[])];while(values.count<record.argumentCount)[values addObject:@""];for(NSUInteger arg=0;arg<record.argumentCount;arg++){NSDictionary*cfg=(record.argumentControlConfigs.count==record.argumentCount)?record.argumentControlConfigs[arg]:nil;if(![cfg[@"enabled"]boolValue])continue;NSInteger slot=(NSInteger)(index*ZN_RUNTIME_ACTION_MAX_ARGUMENTS+arg);UIView*v=[self.contentView viewWithTag:kZNFRRuntimeSlotBase+slot];ZNRuntimeArgumentControlType type=ZNRuntimeArgumentControlTypeFromKey(cfg[@"type"]);if(type==ZNRuntimeArgumentControlTypeSwitch&&[v isKindOfClass:UISwitch.class])values[arg]=((UISwitch*)v).on?@"true":@"false";else if(type==ZNRuntimeArgumentControlTypeSlider&&[v isKindOfClass:ZNRangeControl.class]){ZNRangeControl*s=(ZNRangeControl*)v;values[arg]=[NSString stringWithFormat:@"%.17g",ZNFRQuantize(s.value,cfg,s.minimumValue,s.maximumValue)];}else if(type==ZNRuntimeArgumentControlTypeNumber&&[v isKindOfClass:UITextField.class])values[arg]=((UITextField*)v).text?:@"";}return values;}
-- (void)znfr_runtimeExecute:(UIButton *)sender {NSInteger index=sender.tag-kZNFRExecTagBase;NSArray<ZNFeaturePageItem *> *items=[ZNFeaturePageModel sharedModel].items;if(index<0||(NSUInteger)index>=items.count)return;ZNFeaturePageItem*item=items[(NSUInteger)index];ZNRuntimeMethodActionRecord*r=[item.backingRecord isKindOfClass:ZNRuntimeMethodActionRecord.class]?item.backingRecord:nil;if(!r)return;NSMutableArray*values=[self znfr_runtimeValuesForIndex:(NSUInteger)index record:r];ZNFRRuntimeStoreValues(r,values);ZNRuntimeMethodAction*a=[ZNRuntimeMethodAction new];a.actionID=r.actionID;a.title=r.title;a.group=r.group;a.assembly=r.assembly;a.namespaceName=r.namespaceName;a.className=r.className;a.methodName=r.methodName;a.argumentCount=r.argumentCount;a.argumentValues=values;a.parameterTypeNames=r.parameterTypeNames;a.signatureAvailable=r.signatureAvailable;a.argumentControlConfigs=r.argumentControlConfigs;a.immediateChain=r.immediateChain;NSString*e=nil;NSDictionary*result=[[ZNIL2CPPInvokeEngine sharedEngine]executeAction:a error:&e];if(!result)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[feature-page] runtime execute failed %@",e?:@"unknown"]];}
+- (void)znfr_runtimeExecute:(UIButton *)sender {NSInteger index=sender.tag-kZNFRExecTagBase;NSArray<ZNFeaturePageItem *> *items=[ZNFeaturePageModel sharedModel].items;if(index<0||(NSUInteger)index>=items.count)return;ZNFeaturePageItem*item=items[(NSUInteger)index];ZNRuntimeMethodActionRecord*r=[item.backingRecord isKindOfClass:ZNRuntimeMethodActionRecord.class]?item.backingRecord:nil;if(!r)return;NSMutableArray*values=[self znfr_runtimeValuesForIndex:(NSUInteger)index record:r];ZNFRRuntimeStoreValues(r,values);ZNRuntimeMethodAction*a=[ZNRuntimeMethodAction new];a.actionID=r.actionID;a.title=r.title;a.descriptionText=r.descriptionText;a.group=r.group;a.assembly=r.assembly;a.namespaceName=r.namespaceName;a.className=r.className;a.methodName=r.methodName;a.argumentCount=r.argumentCount;a.argumentValues=values;a.parameterTypeNames=r.parameterTypeNames;a.signatureAvailable=r.signatureAvailable;a.argumentControlConfigs=r.argumentControlConfigs;a.immediateChain=r.immediateChain;NSString*e=nil;NSDictionary*result=[[ZNIL2CPPInvokeEngine sharedEngine]executeAction:a error:&e];if(!result)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[feature-page] runtime execute failed %@",e?:@"unknown"]];}
 - (void)znfr_runtimeSwitch:(UISwitch *)sender {NSInteger slot=sender.tag-kZNFRRuntimeSlotBase;if(slot<0)return;NSUInteger index=(NSUInteger)slot/ZN_RUNTIME_ACTION_MAX_ARGUMENTS;UIButton*b=[UIButton new];b.tag=kZNFRExecTagBase+(NSInteger)index;[self znfr_runtimeExecute:b];}
 - (void)znfr_runtimeSliderChanged:(ZNRangeControl *)slider {NSInteger slot=slider.tag-kZNFRRuntimeSlotBase;if(slot<0)return;NSUInteger index=(NSUInteger)slot/ZN_RUNTIME_ACTION_MAX_ARGUMENTS,arg=(NSUInteger)slot%ZN_RUNTIME_ACTION_MAX_ARGUMENTS;NSArray<ZNFeaturePageItem *> *items=[ZNFeaturePageModel sharedModel].items;if(index>=items.count)return;ZNFeaturePageItem *item=items[index];ZNRuntimeMethodActionRecord*r=[item.backingRecord isKindOfClass:ZNRuntimeMethodActionRecord.class]?item.backingRecord:nil;if(!r||r.argumentControlConfigs.count!=r.argumentCount||arg>=r.argumentCount)return;NSDictionary*cfg=r.argumentControlConfigs[arg];slider.value=ZNFRQuantize(slider.value,cfg,slider.minimumValue,slider.maximumValue);UIView*v=[self.contentView viewWithTag:kZNFRRuntimeValueBase+slot];if([v isKindOfClass:UILabel.class])((UILabel*)v).text=[NSString stringWithFormat:@"%.6g",slider.value];}
 - (void)znfr_runtimeSliderCommit:(ZNRangeControl *)slider {[self znfr_runtimeSliderChanged:slider];NSInteger slot=slider.tag-kZNFRRuntimeSlotBase;if(slot<0)return;UIButton*b=[UIButton new];b.tag=kZNFRExecTagBase+(NSInteger)((NSUInteger)slot/ZN_RUNTIME_ACTION_MAX_ARGUMENTS);[self znfr_runtimeExecute:b];}
