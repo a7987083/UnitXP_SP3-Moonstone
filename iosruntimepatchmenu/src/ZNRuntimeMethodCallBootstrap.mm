@@ -13,13 +13,10 @@ extern "C" void ZNInstallRuntimeMethodCallDeferred(void) {
         ZNInstallRuntimeMethodCallFinderUIDeferred();
         ZNInstallRuntimeMethodCallBuilderUIDeferred();
 
-        // M5.7 intentionally does NOT install the historical
-        // ZNRuntimeMethodCallFeatureUI. That older layer appended a second
-        // customer-facing "method + Execute" card before M5.1 rendered the
-        // typed Runtime control card, leaving two public Runtime action UIs.
-        // M5.1 + M5.7 are now the single customer Runtime surface.
+        // Historical duplicate customer Runtime UI remains disabled. The
+        // canonical Feature page performs the one initial Runtime metadata scan
+        // after all backend adapters are installed; render/layout never scans.
         ZNInstallMethodFinderM42UIDeferred();
-        [[ZNRuntimeActionRuntime sharedRuntime] refresh];
-        [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] M5.7 backend installed: Finder/Builder retained; legacy duplicate Feature action UI disabled"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] backend installed; discovery owned by canonical Feature snapshot"];
     });
 }
