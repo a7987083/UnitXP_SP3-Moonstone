@@ -2,7 +2,6 @@
 #import <UIKit/UIKit.h>
 #import <atomic>
 
-extern "C" void ZNInstallSharedSiteExecutionProbeV3Deferred(void);
 extern "C" void ZNInstallPublicCompactLayoutDeferred(void);
 extern "C" void ZNInstallRuntimeExecutorV041Deferred(void);
 extern "C" void ZNInstallRuntimeDiagnosticsV042Deferred(void);
@@ -194,8 +193,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 - (void)zn_beginActivation {
     @try {
-        // Old +load-era wrappers, then former constructor priorities 104/106/109.
-        ZNRunActivationStage(@"SharedSiteExecutionProbeV3", ^{ ZNInstallSharedSiteExecutionProbeV3Deferred(); });
         ZNRunActivationStage(@"PublicCompactLayout", ^{ ZNInstallPublicCompactLayoutDeferred(); });
         ZNRunActivationStage(@"RuntimeExecutorV041", ^{ ZNInstallRuntimeExecutorV041Deferred(); });
         ZNRunActivationStage(@"RuntimeDiagnosticsV042", ^{ ZNInstallRuntimeDiagnosticsV042Deferred(); });
