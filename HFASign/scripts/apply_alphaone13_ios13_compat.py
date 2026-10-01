@@ -21,6 +21,17 @@ if alt_source_count != 1:
     )
 alt_source_manifest.write_text(alt_source.replace(old_alt_target, new_alt_target, 1))
 
+nimble_manifest = root / "NimbleKit/Package.swift"
+nimble = nimble_manifest.read_text()
+old_nimble_target = ".iOS(.v16)"
+new_nimble_target = ".iOS(.v13)"
+nimble_target_count = nimble.count(old_nimble_target)
+if nimble_target_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit {old_nimble_target}, found {nimble_target_count}"
+    )
+nimble_manifest.write_text(nimble.replace(old_nimble_target, new_nimble_target, 1))
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -131,5 +142,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit target lowered to iOS 13; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Color bridge guarded for iOS 14+"
 )
