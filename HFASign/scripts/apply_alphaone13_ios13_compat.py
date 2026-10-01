@@ -54,6 +54,29 @@ if nav_extension_count != 1:
     )
 nimble_nav_path.write_text(nimble_nav.replace(old_nav_extension, new_nav_extension, 1))
 
+nimble_search_path = root / "NimbleKit/Sources/NimbleExtensions/View/View+compatSearchScopes.swift"
+nimble_search = nimble_search_path.read_text()
+old_search_scope = '''\t\tif #available(iOS 16.4, *) {
+\t\t\tself.searchScopes(selection, activation: .onSearchPresentation, content)
+\t\t} else {
+\t\t\tself.searchScopes(selection, scopes: content)
+\t\t}
+'''
+new_search_scope = '''\t\tif #available(iOS 16.4, *) {
+\t\t\tself.searchScopes(selection, activation: .onSearchPresentation, content)
+\t\t} else if #available(iOS 16.0, *) {
+\t\t\tself.searchScopes(selection, scopes: content)
+\t\t} else {
+\t\t\tself
+\t\t}
+'''
+search_scope_count = nimble_search.count(old_search_scope)
+if search_scope_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit searchScopes compatibility block, found {search_scope_count}"
+    )
+nimble_search_path.write_text(nimble_search.replace(old_search_scope, new_search_scope, 1))
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -164,5 +187,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now fallback and Namespace availability applied; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, and searchScopes compatibility applied; Color bridge guarded for iOS 14+"
 )
