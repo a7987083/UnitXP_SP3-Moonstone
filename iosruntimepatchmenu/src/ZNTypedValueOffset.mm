@@ -29,6 +29,22 @@ static BOOL ZNTVParseRVA(NSString *text, uint64_t *out, NSString **error) {
     return YES;
 }
 
+static BOOL ZNTVParseNumericValue(NSString *value, NSString *type, double *out, NSString **error) {
+    NSString *s = ZNTVTrim(value);
+    if (!s.length) {
+        if (error) *error = @"Value is empty";
+        return NO;
+    }
+    char *end = NULL;
+    double parsed = strtod(s.UTF8String, &end);
+    if (!end || end == s.UTF8String || *end != '\0' || !isfinite(parsed)) {
+        if (error) *error = [NSString stringWithFormat:@"Invalid %@ value", type ?: @""];
+        return NO;
+    }
+    if (out) *out = parsed;
+    return YES;
+}
+
 @implementation ZNTypedValueOffset {
     NSString *_originalValueText;
     uint64_t _rva;
@@ -77,6 +93,19 @@ static BOOL ZNTVParseRVA(NSString *text, uint64_t *out, NSString **error) {
         return NO;
     }
 
+    if (self.controlKind == ZNTypedValueControlKindSlider) {
+        if (!isfinite(self.minValue) || !isfinite(self.maxValue) || self.minValue > self.maxValue) {
+            _lastError = @"Slider range is invalid";
+            if (error) *error = _lastError;
+            return NO;
+        }
+        if (!isfinite(self.stepValue) || self.stepValue <= 0) {
+            _lastError = @"Slider step must be greater than zero";
+            if (error) *error = _lastError;
+            return NO;
+        }
+    }
+
     uint64_t rva = 0;
     NSString *local = nil;
     if (!ZNTVParseRVA(self.offsetText, &rva, &local)) {
@@ -122,17 +151,55 @@ static BOOL ZNTVParseRVA(NSString *text, uint64_t *out, NSString **error) {
 }
 
 - (BOOL)applyValue:(NSString *)value error:(NSString **)error {
-    (void)value;
-    _lastError = @"M5.11 preview core does not enable live value writes yet";
-    if (error) *error = _lastError;
-    return NO;
+    NSString *local = nil;
+    if (!_validated && ![self validate:&local]) {
+        _lastError = local ?: @"Typed value offset is not validated";
+        if (error) *error = _lastError;
+        return NO;
+    }
+
+    double numeric = 0;
+    if (!ZNTVParseNumericValue(value, self.valueType, &numeric, &local)) {
+        _lastError = local ?: @"Invalid value";
+        if (error) *error = _lastError;
+        return NO;
+    }
+    if (self.controlKind == ZNTypedValueControlKindSlider && (numeric < self.minValue || numeric > self.maxValue)) {
+        _lastError = [NSString stringWithFormat:@"Value %.10g is outside slider range %.10g...%.10g", numeric, self.minValue, self.maxValue];
+        if (error) *error = _lastError;
+        return NO;
+    }
+
+    ZNH5GGValueBackend *backend = [ZNH5GGValueBackend sharedBackend];
+    if (![backend writeAddress:_resolvedAddress value:ZNTVTrim(value) type:self.valueType error:&local]) {
+        _lastError = local ?: @"Typed value write failed";
+        if (error) *error = _lastError;
+        return NO;
+    }
+
+    self.valueText = ZNTVTrim(value);
+    _applied = YES;
+    _lastError = @"";
+    return YES;
 }
 
 - (BOOL)restore:(NSString **)error {
     if (!_applied) return YES;
-    _lastError = @"M5.11 preview core has no applied value to restore";
-    if (error) *error = _lastError;
-    return NO;
+    if (!_validated || !_resolvedAddress || !_originalValueText.length) {
+        _lastError = @"Original value is unavailable";
+        if (error) *error = _lastError;
+        return NO;
+    }
+    NSString *local = nil;
+    if (![[ZNH5GGValueBackend sharedBackend] writeAddress:_resolvedAddress value:_originalValueText type:self.valueType error:&local]) {
+        _lastError = local ?: @"Restore original value failed";
+        if (error) *error = _lastError;
+        return NO;
+    }
+    self.valueText = _originalValueText;
+    _applied = NO;
+    _lastError = @"";
+    return YES;
 }
 
 @end
