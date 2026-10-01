@@ -10,6 +10,7 @@ extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
 extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
 extern "C" void ZNInstallTypedValueAuthoringUIDeferred(void);
+extern "C" void ZNInstallTypedValueFeatureUIDeferred(void);
 
 extern "C" void ZonoePatchStart(void);
 extern "C" void ZonoePatchShow(void);
@@ -172,6 +173,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     @try {
         ZNRunActivationStage(@"RuntimeMenu", ^{ ZNInstallRuntimeMenuV055Deferred(); });
         ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
+        ZNRunActivationStage(@"TypedValueFeatureUI", ^{ ZNInstallTypedValueFeatureUIDeferred(); });
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
         ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
@@ -210,18 +212,14 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     int expected = ZNDeferredStateCold;
     if (!gZNDeferredState.compare_exchange_strong(expected,
                                                    ZNDeferredStateLoading,
-                                                   std::memory_order_acq_rel)) {
-        return;
-    }
+                                                   std::memory_order_acq_rel)) return;
 
     self.button.enabled = NO;
     self.button.alpha = 0.78;
     [self.button setTitle:@"…" forState:UIControlStateNormal];
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        [self zn_beginActivation];
-    });
+                   dispatch_get_main_queue(), ^{ [self zn_beginActivation]; });
 }
 
 @end
