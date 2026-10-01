@@ -1,0 +1,113 @@
+name: Verify M5.11 Typed Output ABI
+
+on:
+  push:
+    branches:
+      - feature/m5.10-offset-core-rebuild-v1
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify production source contract
+        run: |
+          set -euxo pipefail
+          grep -q 'ZNTV_STATIC_MAGIC0' iosruntimepatchmenu/src/ZNTypedValueStaticFormat.h
+          grep -q 'sizeof(ZNTVStaticHeader) == 64' iosruntimepatchmenu/src/ZNTypedValueStaticFormat.h
+          grep -q 'sizeof(ZNTVStaticEntry) == 128' iosruntimepatchmenu/src/ZNTypedValueStaticFormat.h
+          grep -q 'ZNTypedOnlyBinaryBuilderBuildWorkspace' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'ZNTypedValueEmbedIntoGeneratedOutputs' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'typed-only' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q '__ZNDATA' iosruntimepatchmenu/src/ZNTypedOnlyBinaryBuilder.mm
+          grep -q '__zndata' iosruntimepatchmenu/src/ZNTypedOnlyBinaryBuilder.mm
+          grep -q 'ZNTVStaticHeader' iosruntimepatchmenu/src/ZNTypedValueBinaryPersistence.mm
+          grep -q 'ZNTVStaticEntry' iosruntimepatchmenu/src/ZNTypedValueBinaryPersistence.mm
+
+      - name: Build deterministic Typed Value Mach-O fixture
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+
+          MH_MAGIC_64 = 0xFEEDFACF
+          CPU_TYPE_ARM64 = 0x0100000C
+          MH_DYLIB = 0x6
+          LC_SEGMENT_64 = 0x19
+          VM_PROT_READ = 1
+          VM_PROT_WRITE = 2
+          S_REGULAR = 0
+          ZN44_MAGIC0 = 0x3148435441504E5A
+          ZN44_MAGIC1 = 0x3154495543524944
+          ZNTV_MAGIC0 = 0x31564C4156544E5A
+          ZNTV_MAGIC1 = 0x3154455346464F56
+
+          header_size = 32
+          seg_cmd_size = 72 + 80
+          fileoff = 0x4000
+          filesize = 0x4000
+          total = fileoff + filesize
+          b = bytearray(total)
+
+          struct.pack_into('<IIIIIIII', b, 0,
+                           MH_MAGIC_64, CPU_TYPE_ARM64, 0, MH_DYLIB,
+                           1, seg_cmd_size, 0, 0)
+          o = header_size
+          struct.pack_into('<II16sQQQQiiII', b, o,
+                           LC_SEGMENT_64, seg_cmd_size, b'__ZNDATA\0\0\0\0\0\0\0\0',
+                           0x100004000, filesize, fileoff, filesize,
+                           VM_PROT_READ|VM_PROT_WRITE, VM_PROT_READ|VM_PROT_WRITE,
+                           1, 0)
+          s = o + 72
+          struct.pack_into('<16s16sQQIIIIIIII', b, s,
+                           b'__zndata\0\0\0\0\0\0\0\0', b'__ZNDATA\0\0\0\0\0\0\0\0',
+                           0x100004000, 64 + 64 + 2*128,
+                           fileoff, 3, 0, 0, S_REGULAR, 0, 0, 0)
+
+          z = fileoff
+          struct.pack_into('<QQIIII4Q', b, z,
+                           ZN44_MAGIC0, ZN44_MAGIC1, 2, 0, 128, 0,
+                           0, 0, 0, 0)
+          t = z + 64
+          struct.pack_into('<QQIIII4Q', b, t,
+                           ZNTV_MAGIC0, ZNTV_MAGIC1, 1, 2, 128, 0,
+                           0, 0, 0, 0)
+
+          def put_entry(off, rva, minv, maxv, step, default, control, typ, title):
+              struct.pack_into('<QddddI', b, off, rva, minv, maxv, step, default, control)
+              b[off+44:off+52] = typ.encode()[:7].ljust(8, b'\0')
+              b[off+52:off+116] = title.encode()[:63].ljust(64, b'\0')
+
+          put_entry(t+64,     0x123456, 0.0, 10.0, 0.5, 3.5, 0, 'F32', 'Speed')
+          put_entry(t+64+128, 0xABCDEF, 0.0, 0.0, 1.0, 6000.0, 1, 'I32', 'Coins')
+
+          Path('m511_fixture.dylib').write_bytes(b)
+          PY
+          file m511_fixture.dylib
+
+      - name: Verify Typed Value ABI and entries
+        run: |
+          set -euxo pipefail
+          python3 tools/verify_m511_typed_output.py m511_fixture.dylib --require-count 2 --json | tee m511_fixture_report.json
+          python3 - <<'PY'
+          import json
+          r = json.load(open('m511_fixture_report.json'))
+          assert r['static']['count'] == 0
+          assert r['typed']['count'] == 2
+          a, b = r['typed']['entries']
+          assert a == {'index': 0, 'rva': '0x123456', 'valueType': 'F32', 'control': 'slider', 'min': 0.0, 'max': 10.0, 'step': 0.5, 'default': 3.5, 'title': 'Speed'}
+          assert b == {'index': 1, 'rva': '0xABCDEF', 'valueType': 'I32', 'control': 'number', 'min': 0.0, 'max': 0.0, 'step': 1.0, 'default': 6000.0, 'title': 'Coins'}
+          print('ABI acceptance PASS')
+          PY
+
+      - name: Upload acceptance fixture
+        uses: actions/upload-artifact@v4
+        with:
+          name: M5.11-Typed-Output-ABI-Acceptance
+          path: |
+            m511_fixture.dylib
+            m511_fixture_report.json
+          if-no-files-found: error
