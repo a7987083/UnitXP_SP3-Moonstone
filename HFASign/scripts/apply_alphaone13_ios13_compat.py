@@ -21,6 +21,57 @@ if alt_source_count != 1:
     )
 alt_source_manifest.write_text(alt_source.replace(old_alt_target, new_alt_target, 1))
 
+alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
+alt_color = alt_color_path.read_text()
+old_color_components = '''#if canImport(UIKit)
+\t\ttypealias NativeColor = UIColor
+#elseif canImport(AppKit)
+\t\ttypealias NativeColor = NSColor
+#endif
+\t\t
+\t\tvar r: CGFloat = 0
+\t\tvar g: CGFloat = 0
+\t\tvar b: CGFloat = 0
+\t\tvar o: CGFloat = 0
+\t\t
+\t\tguard NativeColor(self).getRed(&r, green: &g, blue: &b, alpha: &o) else {
+\t\t\t// You can handle the failure here as you want
+\t\t\treturn (0, 0, 0, 0)
+\t\t}
+\t\t
+\t\treturn (r, g, b, o)
+'''
+new_color_components = '''\t\tvar r: CGFloat = 0
+\t\tvar g: CGFloat = 0
+\t\tvar b: CGFloat = 0
+\t\tvar o: CGFloat = 0
+
+#if canImport(UIKit)
+\t\t// SwiftUI Color -> UIColor is public only from iOS 14.
+\t\t// Keep the original conversion where available; iOS 13 needs a
+\t\t// compile-safe fallback because SwiftUI exposes no public resolver.
+\t\tif #available(iOS 14.0, *) {
+\t\t\tguard UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &o) else {
+\t\t\t\treturn (0, 0, 0, 0)
+\t\t\t}
+\t\t\treturn (r, g, b, o)
+\t\t}
+\t\treturn (0, 0, 0, 1)
+#elseif canImport(AppKit)
+\t\tguard NSColor(self).getRed(&r, green: &g, blue: &b, alpha: &o) else {
+\t\t\treturn (0, 0, 0, 0)
+\t\t}
+\t\treturn (r, g, b, o)
+#endif
+'''
+color_component_count = alt_color.count(old_color_components)
+if color_component_count != 1:
+    raise SystemExit(
+        "iOS13 compat: expected one AltSourceKit Color.components implementation, "
+        f"found {color_component_count}"
+    )
+alt_color_path.write_text(alt_color.replace(old_color_components, new_color_components, 1))
+
 app_path = root / "Ksign/FeatherApp.swift"
 app = app_path.read_text()
 old = '''\tfunc body(content: Content) -> some View {
@@ -80,5 +131,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit target lowered to iOS 13"
+    f"AltSourceKit target lowered to iOS 13; Color bridge guarded for iOS 14+"
 )
