@@ -167,8 +167,12 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
-        ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
+
+        // Important: install the ordinary Offset control decorator BEFORE the
+        // Builder takes over zn44_renderOther. This makes the final Builder
+        // entrypoint call through the control renderer instead of bypassing it.
         ZNRunActivationStage(@"OrdinaryOffsetControlsUI", ^{ ZNInstallOrdinaryOffsetControlsUIDeferred(); });
+        ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
         ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
