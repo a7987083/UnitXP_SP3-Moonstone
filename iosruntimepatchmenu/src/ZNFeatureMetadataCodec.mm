@@ -63,9 +63,9 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry, NSString *target, NSSt
     NSString *displayName = explicitGroup ? cleanGroup : cleanTitle;
     if (!displayName.length || [displayName hasPrefix:@"Patch #"]) displayName = [NSString stringWithFormat:@"功能 #%u", entry->patchID];
 
-    // M5.10+ Static Offset has no typed-control metadata. Preserve only the
-    // dispatch ownership bits produced by Builder V3.
-    entry->flags &= (ZN44_STATIC_ENTRY_FLAG_CANONICAL | ZN44_STATIC_ENTRY_FLAG_SHARED);
+    // M5.10+ one entry owns one physical site. Preserve only the self-canonical
+    // bit; there is no shared-site/variant metadata.
+    entry->flags &= ZN44_STATIC_ENTRY_FLAG_CANONICAL;
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
     NSString *descriptionText = ZNFeatureDescriptionForName(explicitGroup ? cleanGroup : cleanTitle);
