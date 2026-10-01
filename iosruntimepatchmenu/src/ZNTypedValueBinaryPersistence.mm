@@ -49,10 +49,7 @@ static void ZNTVCopyFixed(char *dst, size_t cap, NSString *value) {
 
 static BOOL ZNTVEmbedOne(NSString *path, NSArray<ZNTypedValueOffset *> *values, NSString **error) {
     if (!values.count) return YES;
-    if (values.count > ZNTV_STATIC_MAX_ENTRIES) {
-        if (error) *error = @"Typed Value 条目超过 256";
-        return NO;
-    }
+    if (values.count > ZNTV_STATIC_MAX_ENTRIES) { if (error) *error = @"Typed Value 条目超过 256"; return NO; }
 
     int fd = open(path.fileSystemRepresentation, O_RDWR);
     if (fd < 0) { if (error) *error = @"无法打开生成后二进制"; return NO; }
@@ -68,8 +65,7 @@ static BOOL ZNTVEmbedOne(NSString *path, NSArray<ZNTypedValueOffset *> *values, 
         if (size < sizeof(struct mach_header_64)) { local = @"Mach-O 太小"; break; }
         struct mach_header_64 *mh = (struct mach_header_64 *)base;
         if (mh->magic != MH_MAGIC_64) { local = @"Typed Value persistence 仅支持 thin 64-bit Mach-O"; break; }
-        uint8_t *cursor = base + sizeof(*mh);
-        uint8_t *limit = cursor + mh->sizeofcmds;
+        uint8_t *cursor = base + sizeof(*mh), *limit = cursor + mh->sizeofcmds;
         if (limit > base + size) { local = @"load commands 越界"; break; }
 
         struct section_64 *ownedSection = NULL;
@@ -85,9 +81,7 @@ static BOOL ZNTVEmbedOne(NSString *path, NSArray<ZNTypedValueOffset *> *values, 
                     if (lc->cmdsize >= sizeof(*seg) + sectionBytes) {
                         struct section_64 *secs = (struct section_64 *)(seg + 1);
                         for (uint32_t j = 0; j < seg->nsects; j++) {
-                            if (strncmp(secs[j].sectname, "__zndata", 16) == 0) {
-                                ownedSegment = seg; ownedSection = &secs[j]; break;
-                            }
+                            if (strncmp(secs[j].sectname, "__zndata", 16) == 0) { ownedSegment = seg; ownedSection = &secs[j]; break; }
                         }
                     }
                 }
@@ -95,25 +89,20 @@ static BOOL ZNTVEmbedOne(NSString *path, NSArray<ZNTypedValueOffset *> *values, 
             if (ownedSection) break;
             cursor += lc->cmdsize;
         }
-        if (!ownedSection || !ownedSegment) { local = @"输出文件没有 V3 __ZNDATA/__zndata；纯 Typed-only 生成尚未走此路径"; break; }
+        if (!ownedSection || !ownedSegment) { local = @"输出文件没有 __ZNDATA/__zndata"; break; }
         if (ownedSegment->fileoff > size || ownedSegment->filesize > size - ownedSegment->fileoff) { local = @"__ZNDATA file range 越界"; break; }
         if (ownedSection->offset < ownedSegment->fileoff || ownedSection->offset > ownedSegment->fileoff + ownedSegment->filesize) { local = @"__zndata offset 异常"; break; }
         if (ownedSection->size < sizeof(ZN44StaticHeader)) { local = @"__zndata 缺少 Static Header"; break; }
 
         ZN44StaticHeader *staticHeader = (ZN44StaticHeader *)(base + ownedSection->offset);
-        if (staticHeader->magic0 != ZN44_STATIC_MAGIC0 || staticHeader->magic1 != ZN44_STATIC_MAGIC1 ||
-            staticHeader->entrySize != sizeof(ZN44StaticEntry) || staticHeader->count > ZN44_STATIC_MAX_ENTRIES) {
-            local = @"__zndata Static Header 无效"; break;
-        }
+        if (staticHeader->magic0 != ZN44_STATIC_MAGIC0 || staticHeader->magic1 != ZN44_STATIC_MAGIC1 || staticHeader->entrySize != sizeof(ZN44StaticEntry) || staticHeader->count > ZN44_STATIC_MAX_ENTRIES) { local = @"__zndata Static Header 无效"; break; }
         uint64_t staticUsed = sizeof(ZN44StaticHeader) + (uint64_t)staticHeader->count * sizeof(ZN44StaticEntry);
         uint64_t typedOffsetInSection = ZNTVAlign8(staticUsed);
         uint64_t typedBytes = sizeof(ZNTVStaticHeader) + (uint64_t)values.count * sizeof(ZNTVStaticEntry);
         uint64_t required = typedOffsetInSection + typedBytes;
         uint64_t sectionRelative = (uint64_t)ownedSection->offset - ownedSegment->fileoff;
-        if (required > ownedSegment->filesize - sectionRelative) {
-            local = [NSString stringWithFormat:@"__ZNDATA 剩余空间不足：need=0x%llX capacity=0x%llX", required, ownedSegment->filesize - sectionRelative];
-            break;
-        }
+        if (required > ownedSegment->filesize - sectionRelative) { local = [NSString stringWithFormat:@"__ZNDATA 剩余空间不足：need=0x%llX capacity=0x%llX", required, ownedSegment->filesize - sectionRelative]; break; }
+
         uint8_t *typedBase = base + ownedSection->offset + typedOffsetInSection;
         memset(typedBase, 0, typedBytes);
         ZNTVStaticHeader *header = (ZNTVStaticHeader *)typedBase;
@@ -151,14 +140,11 @@ static BOOL ZNTVEmbedOne(NSString *path, NSArray<ZNTypedValueOffset *> *values, 
 BOOL ZNTypedValueEmbedIntoGeneratedOutputs(NSArray<NSString *> *outputs, NSString **report, NSString **error) {
     NSUInteger embeddedFiles = 0, embeddedEntries = 0;
     for (NSString *path in outputs ?: @[]) {
-        if (![path hasSuffix:@".znpatched"] || ![NSFileManager.defaultManager fileExistsAtPath:path]) continue;
+        if (![NSFileManager.defaultManager fileExistsAtPath:path]) continue;
         NSArray<ZNTypedValueOffset *> *entries = ZNTVEntriesForOutput(path);
         if (!entries.count) continue;
         NSString *local = nil;
-        if (!ZNTVEmbedOne(path, entries, &local)) {
-            if (error) *error = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, local ?: @"Typed Value 写入失败"];
-            return NO;
-        }
+        if (!ZNTVEmbedOne(path, entries, &local)) { if (error) *error = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, local ?: @"Typed Value 写入失败"]; return NO; }
         embeddedFiles++;
         embeddedEntries += entries.count;
     }
