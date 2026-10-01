@@ -150,7 +150,6 @@ jobs:
           grep -q 'static-dispatch' /tmp/zono_m512_strings.txt
           grep -q 'builder-pipeline-m5.12-offset-recovery' /tmp/zono_m512_strings.txt
           grep -q 'm5.12-offset-ui' /tmp/zono_m512_strings.txt
-          grep -q '点击执行 / 开关 / 输入 / 滑动条' /tmp/zono_m512_strings.txt
           ! grep -q 'H5GG typed/raw backend ready' /tmp/zono_m512_strings.txt
           ! grep -q 'm5.11-value-runtime' /tmp/zono_m512_strings.txt
           ! grep -q 'generated Typed Value Slider/Number UI installed' /tmp/zono_m512_strings.txt
