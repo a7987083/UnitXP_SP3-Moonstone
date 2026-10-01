@@ -9,6 +9,7 @@ extern "C" void ZNInstallFeatureGroupUIDeferred(void);
 extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
 extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
+extern "C" void ZNInstallTypedValueAuthoringUIDeferred(void);
 
 extern "C" void ZonoePatchStart(void);
 extern "C" void ZonoePatchShow(void);
@@ -174,6 +175,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
         ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
+        ZNRunActivationStage(@"TypedValueAuthoringUI", ^{ ZNInstallTypedValueAuthoringUIDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
         ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
@@ -194,9 +196,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"PublicCompactLayout", ^{ ZNInstallPublicCompactLayoutDeferred(); });
         ZNRunActivationStage(@"StaticDispatchPrepare", ^{ ZNPrepareStaticDispatchRuntimeDeferred(); });
 
-        // Static Dispatch historically waits 350 ms before refresh. Keep that
-        // stage behavior. This continuation is queued later on the same main
-        // queue, so the refresh must finish before the menu is revealed.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             [self zn_finishActivation];
@@ -219,8 +218,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     self.button.alpha = 0.78;
     [self.button setTitle:@"…" forState:UIControlStateNormal];
 
-    // One UI beat makes the loading state visible before the original startup
-    // chain begins. The menu appears only after all deferred stages complete.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         [self zn_beginActivation];
@@ -229,9 +226,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 @end
 
-// The only v0.5.7 load-time constructor. It owns the cold launcher only and
-// intentionally does not touch DeveloperGate, PatchManager, Resolver, Static
-// Dispatch, Builder, Diagnostics, Probe, Feature UI, or the menu controller.
 __attribute__((constructor(200))) static void ZNDeferredColdLauncherBootstrap(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[ZNDeferredLauncher sharedLauncher] installIfPossible];
