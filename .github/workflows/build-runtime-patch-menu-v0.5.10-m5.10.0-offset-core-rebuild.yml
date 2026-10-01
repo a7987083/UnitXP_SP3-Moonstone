@@ -1,4 +1,4 @@
-name: Build Runtime Patch Menu v0.5.10 M5.10.7 Offset Core Rebuild
+name: Build Runtime Patch Menu v0.5.11 M5.11.1 Unified Offset
 
 on:
   push:
@@ -16,81 +16,58 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Offset rebuild source contract
+      - name: Unified Offset source contract
         run: |
           set -euxo pipefail
-          grep -q '0.5.10 · M5.10.7' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q 'M5.10.0 clean Offset Core' iosruntimepatchmenu/src/ZNOffsetCore.mm
-          grep -q 'M5.10.0 Offset Workspace V1' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
-          grep -q 'Switch/byte patch only' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
-          grep -q 'src/ZNOffsetCore.mm' iosruntimepatchmenu/Makefile
-          grep -q 'ZNOCParseRVA' iosruntimepatchmenu/src/ZNOffsetCore.mm
+          grep -q '0.5.11 · M5.11.1' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Unified Offset' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'ZNOffsetControlKindSwitch' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.h
+          grep -q 'ZNOffsetControlKindSlider' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.h
+          grep -q 'ZNOffsetControlKindNumber' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.h
+          grep -q '类型 · %@' iosruntimepatchmenu/src/ZNFeatureBuilderControlsV2.mm
+          grep -q 'zn64fb_cycleControl' iosruntimepatchmenu/src/ZNFeatureBuilderControlsV2.mm
+          grep -q 'zn64fb_cycleValueType' iosruntimepatchmenu/src/ZNFeatureBuilderControlsV2.mm
+          grep -q 'zn64fb_editRange' iosruntimepatchmenu/src/ZNFeatureBuilderControlsV2.mm
+          grep -q 'UnifiedOffsetControls' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          ! grep -q 'TypedValueAuthoringUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          ! grep -q 'src/ZNTypedValueWorkspace.mm' iosruntimepatchmenu/Makefile
+          ! grep -q 'src/ZNTypedValueAuthoringUI.mm' iosruntimepatchmenu/Makefile
 
-          # Legacy Offset implementations/resolvers/typed backends/executors are physically gone.
+          # Switch/raw-byte authoring now prefers H5GG and falls back to native page writes.
+          grep -q 'writeRawARM64BytesAtAddress' iosruntimepatchmenu/src/ZNH5GGValueBackend.h
+          grep -q 'writeRawARM64BytesAtAddress' iosruntimepatchmenu/src/ZNH5GGValueBackend.mm
+          grep -q 'ZNOCWriteBestBackend' iosruntimepatchmenu/src/ZNOffsetCore.mm
+          grep -q 'H5GG raw backend' iosruntimepatchmenu/src/ZNOffsetCore.mm
+
+          # Slider/Number use the same original Offset workspace and persist from those rows.
+          grep -q 'row.controlKind != ZNOffsetControlKindSwitch' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'ZNStaticOnlyWorkspace' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'ZNBinaryPatchWorkspace sharedWorkspace' iosruntimepatchmenu/src/ZNTypedValueBinaryPersistence.mm
+          grep -q 'ZNTVStaticEntry' iosruntimepatchmenu/src/ZNTypedValueBinaryPersistence.mm
+
+          # Legacy dangerous Offset hook/value-cell stacks stay gone.
           for p in \
             iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm \
             iosruntimepatchmenu/src/ZNM591OffsetHookControls.mm \
             iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm \
             iosruntimepatchmenu/src/ZNM593CanonicalOffsetArchitecture.mm \
             iosruntimepatchmenu/src/ZNOffsetResolverV2.mm \
-            iosruntimepatchmenu/src/ZNBinaryPatchWorkspaceAddressV2.mm \
-            iosruntimepatchmenu/src/ZNAnyImageAddressResolver.h \
             iosruntimepatchmenu/src/ZNAnyImageAddressResolver.mm \
-            iosruntimepatchmenu/src/ZNStaticValueCellV1.h \
-            iosruntimepatchmenu/src/ZNStaticBinaryBuilder.mm \
-            iosruntimepatchmenu/src/ZNStaticBinarySigningBridge.mm \
-            iosruntimepatchmenu/src/ZNSharedSiteProbe.h \
-            iosruntimepatchmenu/src/ZNSharedSiteProbeV2.mm \
-            iosruntimepatchmenu/src/ZNSharedSiteExecutionProbeV3.h \
-            iosruntimepatchmenu/src/ZNSharedSiteExecutionProbeV3.mm \
-            iosruntimepatchmenu/src/ZNSharedSiteExecutionProbeV3Bootstrap.mm \
-            iosruntimepatchmenu/src/ZNPatchCoreV041.mm \
-            iosruntimepatchmenu/src/ZNRuntimePatchExecutor.h \
-            iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm \
-            iosruntimepatchmenu/src/ZNRuntimeDiagnosticsV042.mm; do
+            iosruntimepatchmenu/src/ZNStaticValueCellV1.mm \
+            iosruntimepatchmenu/src/ZNRuntimePatchExecutor.mm; do
             test ! -e "$p"
           done
+          ! grep -R -q 'ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1\|ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1' iosruntimepatchmenu/src
 
-          ! grep -q 'ZNPatchCoreV041\|ZNRuntimePatchExecutor\|ZNRuntimeDiagnosticsV042\|ZNM591OffsetHookControls\|ZNM592OffsetAuthoringPersistence\|ZNM593CanonicalOffsetArchitecture\|ZNOffsetResolverV2\|ZNAnyImageAddressResolver\|ZNSharedSite' iosruntimepatchmenu/Makefile
-          ! grep -q 'RuntimeExecutorV041\|RuntimeDiagnosticsV042\|SharedSiteExecutionProbe' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
-
-          # Static Offset authoring/rendering/backend is Switch + raw byte patch only.
-          grep -q '类型 · Switch' iosruntimepatchmenu/src/ZNFeatureBuilderControlsV2.mm
-          ! grep -q 'znfr_staticSlider\|znfr_staticNumberReturn' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
-          ! grep -R -q 'ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1\|ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1\|ZN44_STATIC_HEADER_FLAG_VALUE_CELLS_V1' iosruntimepatchmenu/src
-          ! grep -R -q 'ZN_FEATURE_CONTROL_FLAG_\|ZN_FEATURE_VALUE_FLAG_' iosruntimepatchmenu/src
-          ! grep -q 'featureControlType\|featureValueType\|setControlType\|setValueType' iosruntimepatchmenu/src/ZNFeatureControlModel.h iosruntimepatchmenu/src/ZNFeatureControlModel.mm
-          ! grep -R -q 'ZNFeatureNumberValueDidChangeNotification\|ZNFeatureSliderValueDidChangeNotification' iosruntimepatchmenu/src
-
-          # JSON import never owns a second address parser or guesses coordinate systems.
+          # Single RVA coordinate system remains authoritative.
+          grep -q 'ZNOCParseRVA' iosruntimepatchmenu/src/ZNOffsetCore.mm
           ! grep -q 'ZNJIParseRVA' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
           ! grep -q '@"address"\|@"addr"\|@"location"' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
-          grep -q '@"offset", @"rva"' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
 
-          # One Target+RVA == one physical site == OFF/ON. No owner/shared-site model.
-          grep -q 'one-site-two-state-off-on' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
-          grep -q 'Switch/byte patch only' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-          ! grep -R -q 'ZN44_STATIC_ENTRY_FLAG_SHARED' iosruntimepatchmenu/src
-          ! grep -q 'logicalToPhysical\|\.members\|sharedSiteCount\|last-enabled-active-owner-wins' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
-          ! grep -q 'ownerOrderBySite\|Shared Site Owner Stack\|ZN44CanonicalIndex\|fallback-compat-scan\|compatibility full scan' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-          ! grep -q 'VM_PROT_WRITE.*ZN44StaticHeader' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-          grep -q '__ZNDATA' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-          grep -q '__zndata' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-
-          # Game/sample-specific probe chain and old mock Patch sliders are absent.
-          ! grep -R -q 'ZNSharedSiteProbe\|MdhpNuX\|0x2E25904\|0x2E1BCA0\|0x2E257E4' iosruntimepatchmenu/src
-          ! grep -q 'kZNFeatureSpeed\|kZNFeatureDamage\|kZNFeatureJump\|kZNFeatureAttackSpeed' iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm
-          ! grep -q '@"speed" name:@"移速修改"\|@"damage" name:@"伤害倍率"\|@"jump" name:@"跳跃高度"\|@"attack_speed" name:@"攻速修改"' iosruntimepatchmenu/src/ZNPatchCore.mm
-
-          # Runtime Method / IL2CPP typed controls intentionally remain.
+          # Runtime Method / IL2CPP controls remain untouched.
           grep -q 'ZNRuntimeArgumentControlTypeSlider' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
           grep -q 'ZNRuntimeArgumentControlTypeNumber' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
           grep -q 'ZNRuntimeMethodActionRecord' iosruntimepatchmenu/src/ZNM58UnifiedControlRuntime.mm
-          grep -q 'ZNRuntimeMethodActionRecord' iosruntimepatchmenu/src/ZNM584SchemeALayout.mm
-
-          # Old install/value-cell chains cannot return through bootstrap/postprocess.
-          ! grep -q 'ZNInstallOffsetResolverV2Deferred\|ZNInstallBinaryPatchWorkspaceAddressV2Deferred\|ZNInstallM56StaticValueCellBindingDeferred\|ZNInstallM585StaticRuntimeRangeDeferred\|ZNInstallM585UnifiedControlSemanticsDeferred\|ZNInstallM590UnifiedActionModelDeferred\|ZNInstallM591OffsetHookControlsDeferred\|ZNInstallM592OffsetAuthoringPersistenceDeferred\|ZNInstallM593CanonicalOffsetArchitectureDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
-          ! grep -q 'ZNStaticValueCellAugmentAtPath\|ZNStaticValueCellV1.h' iosruntimepatchmenu/src/ZNGeneratedBinaryPostprocess.mm
 
       - name: Install dependencies
         run: |
@@ -137,39 +114,37 @@ jobs:
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
 
-      - name: Build M5.10.7 Offset Core Rebuild
+      - name: Build M5.11.1 Unified Offset
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m5.10.7-offset-rebuild
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.10.7-offset-rebuild/ZonoPatch_v0.5.10_M5.10.7_OffsetCoreRebuild.dylib
-          stat -f '%z' dist-m5.10.7-offset-rebuild/ZonoPatch_v0.5.10_M5.10.7_OffsetCoreRebuild.dylib | tee dist-m5.10.7-offset-rebuild/SIZE.txt
-          shasum -a 256 dist-m5.10.7-offset-rebuild/ZonoPatch_v0.5.10_M5.10.7_OffsetCoreRebuild.dylib | tee dist-m5.10.7-offset-rebuild/SHA256.txt
+          mkdir -p dist-m5.11.1-unified-offset
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.11.1-unified-offset/ZonoPatch_v0.5.11_M5.11.1_UnifiedOffset.dylib
+          stat -f '%z' dist-m5.11.1-unified-offset/ZonoPatch_v0.5.11_M5.11.1_UnifiedOffset.dylib | tee dist-m5.11.1-unified-offset/SIZE.txt
+          shasum -a 256 dist-m5.11.1-unified-offset/ZonoPatch_v0.5.11_M5.11.1_UnifiedOffset.dylib | tee dist-m5.11.1-unified-offset/SHA256.txt
 
-      - name: Verify binary cleanup
+      - name: Verify binary contract
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m5.10.7-offset-rebuild/ZonoPatch_v0.5.10_M5.10.7_OffsetCoreRebuild.dylib
+          out=iosruntimepatchmenu/dist-m5.11.1-unified-offset/ZonoPatch_v0.5.11_M5.11.1_UnifiedOffset.dylib
           file "$out" | grep -q 'arm64'
-          strings -a "$out" > /tmp/zono_m5107_strings.txt
-          grep -q 'm5.10-offset' /tmp/zono_m5107_strings.txt
-          ! grep -q 'm5.9.1-offset-hook\|m5.9.2-offset-persist\|m5.9.3-canonical-offset' /tmp/zono_m5107_strings.txt
-          ! grep -q 'Offset Hook · 自动准备\|Offset Hook 数量超过\|Static RW Value Cell' /tmp/zono_m5107_strings.txt
-          ! grep -q 'ZNStaticValueCellAugmentAtPath\|ZNInstallAnyImageAddressResolverDeferred' /tmp/zono_m5107_strings.txt
-          ! grep -q 'ZNFeatureNumberValueDidChangeNotification\|ZNFeatureSliderValueDidChangeNotification' /tmp/zono_m5107_strings.txt
-          ! grep -q 'ZNSharedSiteProbe\|MdhpNuX\|0x2E25904\|Shared Site Owner Stack' /tmp/zono_m5107_strings.txt
-          ! grep -q 'fallback-compat-scan\|last-enabled-active-owner-wins' /tmp/zono_m5107_strings.txt
-          ! grep -q 'Runtime Patch Executor 0.4.1\|Runtime Diagnostics 0.5.2\|RuntimeExecutorV041\|RuntimeDiagnosticsV042' /tmp/zono_m5107_strings.txt
-          ! grep -q '移速修改\|伤害倍率\|跳跃高度\|攻速修改' /tmp/zono_m5107_strings.txt
+          strings -a "$out" > /tmp/zono_m5111_strings.txt
+          grep -q 'M5.11.1' /tmp/zono_m5111_strings.txt
+          grep -q 'Unified Offset' /tmp/zono_m5111_strings.txt
+          grep -q 'm5.11-offset' /tmp/zono_m5111_strings.txt
+          grep -q 'H5GG raw' /tmp/zono_m5111_strings.txt
+          ! grep -q 'Typed Value Offset · H5GG' /tmp/zono_m5111_strings.txt
+          ! grep -q 'm5.9.1-offset-hook\|m5.9.2-offset-persist\|m5.9.3-canonical-offset' /tmp/zono_m5111_strings.txt
+          ! grep -q 'Static RW Value Cell\|Shared Site Owner Stack' /tmp/zono_m5111_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.10-M5.10.7-OffsetCoreRebuild
+          name: ZonoPatch-v0.5.11-M5.11.1-UnifiedOffset
           path: |
-            iosruntimepatchmenu/dist-m5.10.7-offset-rebuild/ZonoPatch_v0.5.10_M5.10.7_OffsetCoreRebuild.dylib
-            iosruntimepatchmenu/dist-m5.10.7-offset-rebuild/SHA256.txt
-            iosruntimepatchmenu/dist-m5.10.7-offset-rebuild/SIZE.txt
+            iosruntimepatchmenu/dist-m5.11.1-unified-offset/ZonoPatch_v0.5.11_M5.11.1_UnifiedOffset.dylib
+            iosruntimepatchmenu/dist-m5.11.1-unified-offset/SHA256.txt
+            iosruntimepatchmenu/dist-m5.11.1-unified-offset/SIZE.txt
           if-no-files-found: error
