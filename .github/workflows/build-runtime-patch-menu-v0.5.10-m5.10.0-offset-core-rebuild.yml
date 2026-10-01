@@ -32,24 +32,45 @@ jobs:
           ! grep -q 'src/ZNTypedOnlyBinaryBuilder.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNFeatureBuilderControlsV2.mm' iosruntimepatchmenu/Makefile
 
-          # Builder surface is plain Target + Offset/RVA + Enabled bytes.
+          # Builder surface stays on the ordinary Offset workspace.
           ! grep -q 'ZNOffsetControlKind' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.h
           ! grep -q 'ZNTypedValueOffset' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.h
           grep -q 'ZNPatchRuntimeValidator' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
           grep -q 'applyTemporary' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
           grep -q 'restoreOriginal' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
 
-          # No Typed Value / unified-offset hooks are installed at activation.
+          # Four-type UI is isolated from patch/write backends.
+          test -f iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'src/ZNOrdinaryOffsetControlsUI.mm' iosruntimepatchmenu/Makefile
+          grep -q '点击执行' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q '开关' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q '输入' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q '滑动条' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'ZNFeatureControlTypeButton: return ZNFeatureControlTypeSwitch' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'ZNFeatureControlTypeSwitch: return ZNFeatureControlTypeNumber' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'ZNFeatureControlTypeNumber: return ZNFeatureControlTypeSlider' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'ZNFeatureControlTypeSlider: return ZNFeatureControlTypeButton' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'ZNOONeedsValueType' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q '值类型 · %@' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          ! grep -q 'H5GG\|ZNTypedValue\|ZNStaticDispatchRuntime' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'featureControlType' iosruntimepatchmenu/src/ZNFeatureControlModel.h
+          grep -q 'featureValueType' iosruntimepatchmenu/src/ZNFeatureControlModel.h
+          grep -q '点击执行' iosruntimepatchmenu/src/ZNFeatureControlModel.mm
+          grep -q '输入' iosruntimepatchmenu/src/ZNFeatureControlModel.mm
+          grep -q '滑动条' iosruntimepatchmenu/src/ZNFeatureControlModel.mm
+
+          # No old Typed Value / unified-offset hook is installed; only isolated UI follows Builder UI.
           ! grep -q 'TypedValueFeatureUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
           ! grep -q 'UnifiedOffsetControls' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
           grep -q 'StaticDispatchPrepare' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
           grep -q 'FeatureBuilderUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          grep -q 'OrdinaryOffsetControlsUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
           grep -q 'FeatureGroupUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
 
           # IL2CPP/Runtime Method may not reinstall an ordinary Offset authoring layer.
           ! grep -q 'ZNInstallFeatureBuilderControlsV2Deferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
 
-          # Static generation + customer runtime are a matched historical pair.
+          # Static generation + customer runtime remain the historical pair for later execution repair.
           grep -q '__ZNTEXT' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
           grep -q '__ZNDATA' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
           grep -q 'ownerOrderBySite' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
@@ -128,6 +149,8 @@ jobs:
           grep -q 'runtime-validate' /tmp/zono_m512_strings.txt
           grep -q 'static-dispatch' /tmp/zono_m512_strings.txt
           grep -q 'builder-pipeline-m5.12-offset-recovery' /tmp/zono_m512_strings.txt
+          grep -q 'm5.12-offset-ui' /tmp/zono_m512_strings.txt
+          grep -q '点击执行 / 开关 / 输入 / 滑动条' /tmp/zono_m512_strings.txt
           ! grep -q 'H5GG typed/raw backend ready' /tmp/zono_m512_strings.txt
           ! grep -q 'm5.11-value-runtime' /tmp/zono_m512_strings.txt
           ! grep -q 'generated Typed Value Slider/Number UI installed' /tmp/zono_m512_strings.txt
