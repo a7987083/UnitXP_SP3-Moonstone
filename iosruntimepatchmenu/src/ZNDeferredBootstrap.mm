@@ -9,6 +9,7 @@ extern "C" void ZNInstallFeatureGroupUIDeferred(void);
 extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
 extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
+extern "C" void ZNInstallOrdinaryOffsetControlsUIDeferred(void);
 
 extern "C" void ZonoePatchStart(void);
 extern "C" void ZonoePatchShow(void);
@@ -167,6 +168,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
         ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
+        ZNRunActivationStage(@"OrdinaryOffsetControlsUI", ^{ ZNInstallOrdinaryOffsetControlsUIDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
         ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
