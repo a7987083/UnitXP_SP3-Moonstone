@@ -20,9 +20,11 @@ jobs:
         run: |
           set -euxo pipefail
           grep -q '0.5.10 · M5.10.0' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q 'M5.10.0 Offset Core V1' iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
+          grep -q 'M5.10.0 clean Offset Core' iosruntimepatchmenu/src/ZNOffsetCore.mm
           grep -q 'M5.10.0 Offset Workspace V1' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
           grep -q 'Switch/byte patch only' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
+          grep -q 'src/ZNOffsetCore.mm' iosruntimepatchmenu/Makefile
+          ! grep -q 'src/ZNPatchRuntimeValidator.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNM591OffsetHookControls.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNM592OffsetAuthoringPersistence.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNM593CanonicalOffsetArchitecture.mm' iosruntimepatchmenu/Makefile
@@ -31,6 +33,7 @@ jobs:
           ! grep -q 'ZNM56StaticValueCellBinding.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNStaticValueCellV1.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'ZNFeatureRuntimeControlsV2.mm' iosruntimepatchmenu/Makefile
+          test ! -e iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           test ! -e iosruntimepatchmenu/src/ZNM591OffsetHookControls.mm
           test ! -e iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
           test ! -e iosruntimepatchmenu/src/ZNM593CanonicalOffsetArchitecture.mm
@@ -38,6 +41,9 @@ jobs:
           test ! -e iosruntimepatchmenu/src/ZNBinaryPatchWorkspaceAddressV2.mm
           grep -q 'offsetHook.*@NO' iosruntimepatchmenu/src/ZNFeatureMetadataCodec.mm
           grep -q '类型 · Switch' iosruntimepatchmenu/src/ZNFeatureBuilderControlsV2.mm
+          ! grep -q 'znfr_staticSlider' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
+          ! grep -q 'znfr_staticNumberReturn' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
+          grep -q 'ZNRuntimeArgumentControlTypeSlider' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
 
       - name: Install dependencies
         run: |
@@ -92,6 +98,7 @@ jobs:
           make FINALPACKAGE=1
           mkdir -p dist-m5.10.0-offset-rebuild
           cp .theos/obj/ZonoePatchV03.dylib dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib
+          stat -f '%z' dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib | tee dist-m5.10.0-offset-rebuild/SIZE.txt
           shasum -a 256 dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib | tee dist-m5.10.0-offset-rebuild/SHA256.txt
 
       - name: Verify binary cleanup
@@ -105,6 +112,7 @@ jobs:
           ! grep -q 'm5.9.2-offset-persist' /tmp/zono_m510_strings.txt
           ! grep -q 'm5.9.3-canonical-offset' /tmp/zono_m510_strings.txt
           ! grep -q 'Offset Hook · 自动准备' /tmp/zono_m510_strings.txt
+          ! grep -q 'Offset Hook 数量超过' /tmp/zono_m510_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -113,4 +121,5 @@ jobs:
           path: |
             iosruntimepatchmenu/dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib
             iosruntimepatchmenu/dist-m5.10.0-offset-rebuild/SHA256.txt
+            iosruntimepatchmenu/dist-m5.10.0-offset-rebuild/SIZE.txt
           if-no-files-found: error
