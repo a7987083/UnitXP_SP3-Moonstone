@@ -6,11 +6,9 @@ extern "C" void ZNInstallPublicCompactLayoutDeferred(void);
 extern "C" void ZNPrepareStaticDispatchRuntimeDeferred(void);
 extern "C" void ZNInstallRuntimeMenuV055Deferred(void);
 extern "C" void ZNInstallFeatureGroupUIDeferred(void);
-extern "C" void ZNInstallTypedValueFeatureUIDeferred(void);
 extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
 extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
-extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
 
 extern "C" void ZonoePatchStart(void);
 extern "C" void ZonoePatchShow(void);
@@ -166,13 +164,9 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     @try {
         ZNRunActivationStage(@"RuntimeMenu", ^{ ZNInstallRuntimeMenuV055Deferred(); });
         ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
-        // Generated customer binaries still need the typed runtime renderer.
-        ZNRunActivationStage(@"TypedValueFeatureUI", ^{ ZNInstallTypedValueFeatureUIDeferred(); });
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
         ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
-        // M5.11 authoring uses the original Offset surface; no second Typed Value authoring region.
-        ZNRunActivationStage(@"UnifiedOffsetControls", ^{ ZNInstallFeatureBuilderControlsV2Deferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
         ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });

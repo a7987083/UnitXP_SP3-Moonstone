@@ -3,16 +3,12 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Static Dispatch on-disk format for M5.10+ Offset Switch/byte patches.
-// One metadata entry owns exactly one physical Target+RVA site and has only two
-// runtime states: relocated Original (OFF) and relocated Enabled bytes (ON).
-// Static Offset typed controls, shared-site variants, arbitrary-site
-// instrumentation, and RW value-cell backends are not part of this ABI.
+// Static Dispatch on-disk format. Runtime only switches selectedTarget in RW
+// memory; it never writes executable pages after launch.
 //
 // Builder V3 changes allocation, not the entry ABI: generated executable code
 // lives in an owned __ZNTEXT segment and metadata/selectedTarget live in an
-// owned __ZNDATA segment. The historical tail fields remain layout-compatible
-// but are self-identifying only: physicalID=index+1, canonicalIndex=index.
+// owned __ZNDATA segment. Therefore V3 intentionally reuses the V2 on-disk ABI.
 #define ZN44_STATIC_MAGIC0 UINT64_C(0x3148435441504E5A) /* "ZNPATCH1" */
 #define ZN44_STATIC_MAGIC1 UINT64_C(0x3154495543524944) /* "DIRCUIT1" marker */
 #define ZN44_STATIC_VERSION_V1 1u
@@ -24,8 +20,24 @@
 #define ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1 UINT32_C(0x00000001)
 #define ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1   UINT32_C(0x00000002)
 #define ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2 UINT32_C(0x00000004)
+#define ZN44_STATIC_HEADER_FLAG_VALUE_CELLS_V1      UINT32_C(0x00000008)
 
 #define ZN44_STATIC_ENTRY_FLAG_CANONICAL UINT32_C(0x00000001)
+#define ZN44_STATIC_ENTRY_FLAG_SHARED    UINT32_C(0x00000002)
+
+// M5.6 Runtime-safe typed Static values. Value cells live in owned __ZNDATA
+// segment tail and are loaded by build-time generated LDR-literal instructions.
+// Runtime updates only RW cells; executable pages are never changed.
+#define ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1 UINT32_C(0x00004000)
+#define ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_SHIFT 15u
+#define ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK UINT32_C(0x00038000)
+
+static inline uint32_t ZN44StaticValueCellTypeFlags(uint32_t type) {
+    return (type << ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_SHIFT) & ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK;
+}
+static inline uint32_t ZN44StaticValueCellTypeFromFlags(uint32_t flags) {
+    return (flags & ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK) >> ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_SHIFT;
+}
 
 typedef struct {
     uint64_t magic0;

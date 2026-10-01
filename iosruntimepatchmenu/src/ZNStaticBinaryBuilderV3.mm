@@ -87,7 +87,7 @@ struct ZNV3Physical {
     uint64_t fileoff;
     uint64_t window;
     size_t segIndex;
-    size_t logicalIndex;
+    std::vector<size_t> members;
     NSData *original;
     uint64_t thunkRVA;
     uint64_t offRVA;
@@ -815,6 +815,7 @@ static BOOL ZNV3BuildTarget(NSString *target,
     ZNV3Layout layout = {};
     std::vector<ZNV3Logical> logicals;
     std::vector<ZNV3Physical> physicals;
+    std::vector<size_t> logicalToPhysical;
     uint64_t codeNeeded = 0;
     uint64_t dataNeeded = 0;
     uint64_t codeSegmentSize = 0;
@@ -857,31 +858,23 @@ static BOOL ZNV3BuildTarget(NSString *target,
         }
         if (localError) break;
 
-        // M5.10.6: one authored row owns one physical Target+RVA site. The
-        // Workspace already rejects duplicates; Builder repeats the check so
-        // imported/programmatic rows cannot revive shared-site semantics.
-        physicals.reserve(logicals.size());
-        for (size_t i = 0; i < logicals.size(); i++) {
-            ZNV3Logical &logical = logicals[i];
-            for (const ZNV3Physical &existing : physicals) {
-                if (existing.rva == logical.rva) {
-                    localError = [NSString stringWithFormat:@"重复 Target+RVA：%@+0x%llX；M5.10 Static Offset 不支持 Shared Site", target, logical.rva];
-                    break;
-                }
+        logicalToPhysical.assign(logicals.size(),0);
+        for (size_t i=0;i<logicals.size();i++) {
+            ZNV3Logical &logical=logicals[i];
+            size_t pIndex=SIZE_MAX;
+            for(size_t p=0;p<physicals.size();p++) if(physicals[p].rva==logical.rva){pIndex=p;break;}
+            if(pIndex==SIZE_MAX){
+                ZNV3Physical physical={};
+                physical.rva=logical.rva; physical.fileoff=logical.fileoff; physical.window=logical.length; physical.segIndex=logical.segIndex;
+                physical.members.push_back(i); physical.original=nil; physical.thunkRVA=0; physical.offRVA=0;
+                physicals.push_back(physical); pIndex=physicals.size()-1;
+            } else {
+                ZNV3Physical &physical=physicals[pIndex];
+                physical.window=std::max(physical.window,logical.length);
+                physical.members.push_back(i);
             }
-            if (localError) break;
-            ZNV3Physical physical = {};
-            physical.rva = logical.rva;
-            physical.fileoff = logical.fileoff;
-            physical.window = logical.length;
-            physical.segIndex = logical.segIndex;
-            physical.logicalIndex = i;
-            physical.original = nil;
-            physical.thunkRVA = 0;
-            physical.offRVA = 0;
-            physicals.push_back(physical);
+            logicalToPhysical[i]=pIndex;
         }
-        if (localError) break;
 
         for(size_t p=0;p<physicals.size();p++) {
             ZNV3Physical &physical=physicals[p];
@@ -913,10 +906,15 @@ static BOOL ZNV3BuildTarget(NSString *target,
         for(const ZNV3Physical &physical:physicals){
             uint64_t variantStride=ZN60VariantStrideBytes(physical.window);
             if(!variantStride){localError=@"Protection V2 Variant stride 计算失败";break;}
-            NSData *source=ZNV3ComposedVariant(physical,logicals[physical.logicalIndex]);
-            if(!source){localError=@"Enabled Variant 合成失败";break;}
-            // Exactly two relocated paths per site: OFF/Original + ON/Enabled.
-            codeNeeded=ZNV3Align(codeNeeded,16)+thunkStride+variantStride*2u;
+            NSMutableArray<NSData *> *unique=[NSMutableArray array];
+            for(size_t logicalIndex:physical.members){
+                NSData *source=ZNV3ComposedVariant(physical,logicals[logicalIndex]);
+                if(!source){localError=@"Variant 合成失败";break;}
+                BOOL exists=NO; for(NSData *x in unique)if([x isEqualToData:source]){exists=YES;break;}
+                if(!exists)[unique addObject:source];
+            }
+            if(localError)break;
+            codeNeeded=ZNV3Align(codeNeeded,16)+thunkStride+variantStride*(1+unique.count);
         }
         if(localError)break;
         codeNeeded+=64;
@@ -999,25 +997,33 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         physical.thunkRVA=thunkRVA;
                         physical.offRVA=offRVA;
 
-                        size_t logicalIndex=physical.logicalIndex;
-                        NSData *source=ZNV3ComposedVariant(physical,logicals[logicalIndex]);
-                        if(!source){localError=@"Enabled Variant 合成失败";break;}
-                        uint64_t onState=ZN60DeriveLayoutState(protectionV2Nonce,physical.rva,1u);
-                        uint64_t onRegionBase=ZNV3Align(codeCursor,16);
-                        uint64_t onPad=(ZN60NextLayoutWord(&onState)%5u)*16u;
-                        uint64_t onFileOffset=onRegionBase+onPad;
-                        uint64_t onRegionRVA=codeRVA+(onFileOffset-codeFileOffset);
-                        codeCursor=onRegionBase+variantStride;
-                        uint64_t onEntryRVA=0;
-                        uint32_t onFragments=0;
-                        if(!ZNV3WriteVariantV2(base,onFileOffset,onRegionRVA,variantReserved,source,physical.rva,
-                                               physical.rva,physical.rva+physical.window,physical.rva+physical.window,
-                                               onState,&onEntryRVA,&onFragments,&localError))break;
-                        protectionV2Variants++;
-                        protectionV2Fragments+=onFragments;
-                        onRVAs[logicalIndex]=onEntryRVA;
+                        NSMutableArray<NSData *> *writtenSources=[NSMutableArray array];
+                        NSMutableArray<NSNumber *> *writtenRVAs=[NSMutableArray array];
+                        for(size_t logicalIndex:physical.members){
+                            NSData *source=ZNV3ComposedVariant(physical,logicals[logicalIndex]);
+                            NSUInteger found=NSNotFound;
+                            for(NSUInteger j=0;j<writtenSources.count;j++)if([writtenSources[j] isEqualToData:source]){found=j;break;}
+                            if(found!=NSNotFound){onRVAs[logicalIndex]=writtenRVAs[found].unsignedLongLongValue;continue;}
 
-                        size_t canonicalLogical=physical.logicalIndex;
+                            uint32_t variantOrdinal=(uint32_t)writtenSources.count+1u;
+                            uint64_t onState=ZN60DeriveLayoutState(protectionV2Nonce,physical.rva,variantOrdinal);
+                            uint64_t onRegionBase=ZNV3Align(codeCursor,16);
+                            uint64_t onPad=(ZN60NextLayoutWord(&onState)%5u)*16u;
+                            uint64_t onFileOffset=onRegionBase+onPad;
+                            uint64_t onRegionRVA=codeRVA+(onFileOffset-codeFileOffset);
+                            codeCursor=onRegionBase+variantStride;
+                            uint64_t onEntryRVA=0;
+                            uint32_t onFragments=0;
+                            if(!ZNV3WriteVariantV2(base,onFileOffset,onRegionRVA,variantReserved,source,physical.rva,
+                                                   physical.rva,physical.rva+physical.window,physical.rva+physical.window,
+                                                   onState,&onEntryRVA,&onFragments,&localError))break;
+                            protectionV2Variants++;
+                            protectionV2Fragments+=onFragments;
+                            [writtenSources addObject:source]; [writtenRVAs addObject:@(onEntryRVA)]; onRVAs[logicalIndex]=onEntryRVA;
+                        }
+                        if(localError)break;
+
+                        size_t canonicalLogical=physical.members.front();
                         uint64_t entryRVA=dataRVA+sizeof(ZN44StaticHeader)+canonicalLogical*sizeof(ZN44StaticEntry);
                         if(entryRVA&7u){localError=@"V3 canonical selectedTarget 未 8-byte 对齐";break;}
                         if(!ZNV3WriteThunkV2(base,thunkFileOffset,thunkRVA,32u,entryRVA,offRVA,thunkState,&localError))break;
@@ -1032,7 +1038,7 @@ static BOOL ZNV3BuildTarget(NSString *target,
 
                     for(size_t i=0;i<logicals.size();i++){
                         ZNV3Logical &logical=logicals[i];
-                        ZNV3Physical &physical=physicals[i];
+                        ZNV3Physical &physical=physicals[logicalToPhysical[i]];
                         ZN44StaticEntry &entry=entries[i];
                         memset(&entry,0,sizeof(entry));
                         entry.offRVA=physical.offRVA;
@@ -1041,9 +1047,10 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         entry.windowLength=(uint32_t)physical.window;
                         entry.patchID=(uint32_t)i+1;
                         entry.enabledLength=(uint32_t)logical.enabled.length;
-                        entry.physicalID=(uint32_t)i+1;
-                        entry.canonicalIndex=(uint32_t)i;
-                        entry.flags=ZN44_STATIC_ENTRY_FLAG_CANONICAL;
+                        entry.physicalID=(uint32_t)logicalToPhysical[i]+1;
+                        entry.canonicalIndex=(uint32_t)physical.members.front();
+                        entry.flags=(i==physical.members.front()?ZN44_STATIC_ENTRY_FLAG_CANONICAL:0u) |
+                                    (physical.members.size()>1?ZN44_STATIC_ENTRY_FLAG_SHARED:0u);
                         ZNV3CopyFixed(entry.title,sizeof(entry.title),logical.row.title.length?logical.row.title:[NSString stringWithFormat:@"Patch #%u",entry.patchID]);
                         ZNV3CopyFixed(entry.group,sizeof(entry.group),logical.row.group.length?logical.row.group:@"Imported");
                     }
@@ -1051,7 +1058,8 @@ static BOOL ZNV3BuildTarget(NSString *target,
                     if(msync(base,(size_t)newFileSize,MS_SYNC)!=0){localError=[NSString stringWithFormat:@"msync 失败：errno=%d",errno];break;}
 
                     success=YES;
-                    // One entry == one physical site; no shared-site ownership layer.
+                    NSUInteger sharedSites=0;
+                    for(const ZNV3Physical &p:physicals)if(p.members.size()>1)sharedSites++;
                     if(metadata)*metadata=@{
                         @"target":target,
                         @"input":inputPath,
@@ -1060,12 +1068,13 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         @"allocationPolicy":@"owned-segments-only",
                         @"logicalPatchCount":@(logicals.size()),
                         @"physicalSiteCount":@(physicals.size()),
+                        @"sharedSiteCount":@(sharedSites),
                         @"zntTextRVA":[NSString stringWithFormat:@"0x%llX",codeRVA],
                         @"zntTextSize":[NSString stringWithFormat:@"0x%llX",codeSegmentSize],
                         @"zntDataRVA":[NSString stringWithFormat:@"0x%llX",dataRVA],
                         @"zntDataSize":[NSString stringWithFormat:@"0x%llX",dataSegmentSize],
                         @"linkeditShift":[NSString stringWithFormat:@"0x%llX",insertedBytes],
-                        @"stateModel":@"one-site-two-state-off-on",
+                        @"ownerPolicy":@"last-enabled-active-owner-wins",
                         @"bootSafeOffFallback":@YES,
                         @"payloadProtectionV2":@YES,
                         @"payloadLayout":@"fragmented-16-byte-slot-chain-v1",
@@ -1137,11 +1146,11 @@ BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
             @"Protection V2 varies thunk live length and entry placement per generated output; it is a static-analysis cost layer, not cryptographic secrecy",
             @"Static Dispatch metadata and selectedTarget live in the newly owned __ZNDATA/__zndata segment",
             @"No executable/data gap fallback is allowed",
-            @"Duplicate Target + RVA is rejected before generation",
-            @"Each physical site has exactly OFF/Original and ON/Enabled relocated paths",
-            @"Enabled bytes are composed with the validated Original tail before relocation when needed",
-            @"Runtime state is a direct OFF/ON selectedTarget switch",
-            @"OFF selects relocated Original",
+            @"Same Target + same starting RVA is one physical site",
+            @"Different Enabled values become logical variants",
+            @"Short variants are composed with the current validated Original tail before relocation",
+            @"Runtime owner policy: most recently enabled active owner wins",
+            @"No active owner selects relocated Original",
             @"Different-start overlapping windows remain a hard conflict",
             @"Runtime changes RW selectedTarget only; executable pages are not modified after launch",
             @"Original patch sites remain one direct ARM64 B where the validated overwrite window is one instruction; V2 does not claim to hide this architectural requirement",
@@ -1165,7 +1174,7 @@ BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
             @"First tap completes deferred bootstrap before menu appears",
             @"OFF path matches original behavior",
             @"ON path matches enabled behavior",
-            @"Each site toggles independently between OFF and ON",
+            @"Shared-site owner fallback remains correct",
             @"Kill/relaunch stays OFF until first ZN tap, then restores saved state",
             @"Generated Mach-O installs and launches after normal package re-sign"
         ]
