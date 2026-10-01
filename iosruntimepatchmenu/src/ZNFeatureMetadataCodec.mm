@@ -22,7 +22,7 @@ static NSString *ZNFMNormalize(NSString *value) {
     return [[ZNFMTrim(value) precomposedStringWithCanonicalMapping] lowercaseString];
 }
 static uint64_t ZNFMHash64(NSData *data) {
-    const uint8_t *bytes = data.bytes;
+    const uint8_t *bytes = (const uint8_t *)data.bytes;
     uint64_t hash = UINT64_C(1469598103934665603) ^ UINT64_C(0x5A4F4E4F50415443);
     for (NSUInteger i = 0; i < data.length; i++) { hash ^= bytes[i]; hash *= UINT64_C(1099511628211); }
     hash ^= hash >> 33; hash *= UINT64_C(0xff51afd7ed558ccd); hash ^= hash >> 33;
@@ -88,9 +88,9 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry, NSString *target, NSSt
     memcpy(storage + 5, &featureID, sizeof(featureID));
     storage[13] = (uint8_t)nameData.length; storage[48] = 0;
 
-    const uint8_t *nameBytes = nameData.bytes;
+    const uint8_t *nameBytes = (const uint8_t *)nameData.bytes;
     for (NSUInteger i = 0; i < nameData.length; i++) ZNFMWritePayloadByte(storage, i, nameBytes[i] ^ ZNFMKeyByte(featureID, i));
-    const uint8_t *descriptionBytes = descriptionData.bytes;
+    const uint8_t *descriptionBytes = (const uint8_t *)descriptionData.bytes;
     for (NSUInteger i = 0; i < descriptionData.length; i++) {
         NSUInteger p = nameData.length + i;
         ZNFMWritePayloadByte(storage, p, descriptionBytes[i] ^ ZNFMKeyByte(featureID, p));
@@ -110,7 +110,7 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
     if (!featureID || nameLength > kZNFMNameCapacity || descriptionLength > 63 || nameLength + descriptionLength > kZNFMNameCapacity) return nil;
 
     NSMutableData *nameData = [NSMutableData dataWithLength:nameLength];
-    uint8_t *nameOut = nameData.mutableBytes;
+    uint8_t *nameOut = (uint8_t *)nameData.mutableBytes;
     for (NSUInteger i = 0; i < nameLength; i++) nameOut[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
     NSString *name = [[NSString alloc] initWithData:nameData encoding:NSUTF8StringEncoding];
     if (!name.length) return nil;
@@ -118,7 +118,7 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
     NSString *description = @"";
     if (descriptionLength) {
         NSMutableData *data = [NSMutableData dataWithLength:descriptionLength];
-        uint8_t *out = data.mutableBytes;
+        uint8_t *out = (uint8_t *)data.mutableBytes;
         for (NSUInteger i = 0; i < descriptionLength; i++) {
             NSUInteger p = nameLength + i; out[i] = ZNFMReadPayloadByte(storage, p) ^ ZNFMKeyByte(featureID, p);
         }
