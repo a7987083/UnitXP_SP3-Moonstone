@@ -43,6 +43,17 @@ if date_default_count != 1:
     )
 nimble_date_path.write_text(nimble_date.replace(old_date_default, new_date_default, 1))
 
+nimble_nav_path = root / "NimbleKit/Sources/NimbleExtensions/View/View+compatNavTransition.swift"
+nimble_nav = nimble_nav_path.read_text()
+old_nav_extension = "extension View {\n"
+new_nav_extension = "@available(iOS 14.0, *)\nextension View {\n"
+nav_extension_count = nimble_nav.count(old_nav_extension)
+if nav_extension_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit navigation View extension, found {nav_extension_count}"
+    )
+nimble_nav_path.write_text(nimble_nav.replace(old_nav_extension, new_nav_extension, 1))
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -153,5 +164,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now fallback applied; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now fallback and Namespace availability applied; Color bridge guarded for iOS 14+"
 )
