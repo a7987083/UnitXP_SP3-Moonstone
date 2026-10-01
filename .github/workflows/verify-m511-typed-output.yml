@@ -18,7 +18,7 @@ jobs:
           grep -q 'ZNTV_STATIC_MAGIC0' iosruntimepatchmenu/src/ZNTypedValueStaticFormat.h
           grep -q 'sizeof(ZNTVStaticHeader) == 64' iosruntimepatchmenu/src/ZNTypedValueStaticFormat.h
           grep -q 'sizeof(ZNTVStaticEntry) == 128' iosruntimepatchmenu/src/ZNTypedValueStaticFormat.h
-          grep -q 'ZNTypedOnlyBinaryBuilderBuildWorkspace' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'ZNTypedOnlyBinaryBuilderBuild' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
           grep -q 'ZNTypedValueEmbedIntoGeneratedOutputs' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
           grep -q 'typed-only' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
           grep -q '__ZNDATA' iosruntimepatchmenu/src/ZNTypedOnlyBinaryBuilder.mm
