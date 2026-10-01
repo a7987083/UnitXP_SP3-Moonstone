@@ -13,9 +13,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderM21CancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPABIDetailUIDeferred(void);
 extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
-extern "C" void ZNInstallFeatureRuntimeControlsV2Deferred(void);
-extern "C" void ZNInstallOffsetResolverV2Deferred(void);
-extern "C" void ZNInstallBinaryPatchWorkspaceAddressV2Deferred(void);
 extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
 extern "C" void ZNInstallM551AuthoringPersistenceDeferred(void);
@@ -45,15 +42,8 @@ extern "C" void ZNInstallM52ChainStoreV2Deferred(void);
 extern "C" void ZNInstallM52ImmediateChainV2Deferred(void);
 extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void);
 extern "C" void ZNInstallM55TypedControlBindingDeferred(void);
-extern "C" void ZNInstallM56StaticValueCellBindingDeferred(void);
 extern "C" void ZNInstallM58UnifiedControlRuntimeDeferred(void);
 extern "C" void ZNInstallM584SchemeALayoutDeferred(void);
-extern "C" void ZNInstallM585UnifiedControlSemanticsDeferred(void);
-extern "C" void ZNInstallM585StaticRuntimeRangeDeferred(void);
-extern "C" void ZNInstallM590UnifiedActionModelDeferred(void);
-extern "C" void ZNInstallM591OffsetHookControlsDeferred(void);
-extern "C" void ZNInstallM592OffsetAuthoringPersistenceDeferred(void);
-extern "C" void ZNInstallM593CanonicalOffsetArchitectureDeferred(void);
 extern "C" void ZNInstallCanonicalFeaturePageDeferred(void);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
@@ -109,9 +99,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();
         ZNInstallIL2CPPABIDetailUIDeferred();
         ZNInstallFeatureBuilderControlsV2Deferred();
-        ZNInstallFeatureRuntimeControlsV2Deferred();
-        ZNInstallOffsetResolverV2Deferred();
-        ZNInstallBinaryPatchWorkspaceAddressV2Deferred();
         ZNInstallRuntimeMenuModalShellDeferred();
         ZNInstallRuntimeMethodCallDeferred();
         ZNInstallM551AuthoringPersistenceDeferred();
@@ -141,23 +128,13 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM52ImmediateChainV2Deferred();
         ZNInstallM52ChainExecuteButtonDeferred();
         ZNInstallM55TypedControlBindingDeferred();
-        ZNInstallM56StaticValueCellBindingDeferred();
         ZNInstallM58UnifiedControlRuntimeDeferred();
         ZNInstallM584SchemeALayoutDeferred();
-        ZNInstallM585UnifiedControlSemanticsDeferred();
-        ZNInstallM585StaticRuntimeRangeDeferred();
-        ZNInstallM590UnifiedActionModelDeferred();
-        ZNInstallM591OffsetHookControlsDeferred();
-        ZNInstallM592OffsetAuthoringPersistenceDeferred();
-        // Final Offset ownership: all author-entered Offset text is resolved by
-        // the shared validator/resolver before legacy compatibility adapters can
-        // consume it. Runtime Method / IL2CPP remains a separate architecture.
-        ZNInstallM593CanonicalOffsetArchitectureDeferred();
 
-        // Final UI ownership: all historical modules above may keep their data,
-        // validation and execution behavior, but customer Feature rendering is
-        // rebound once here to the canonical Runtime+Static renderer.
+        // M5.10+: ordinary Static Offset has a single rebuilt Core and no
+        // legacy Offset resolver/hook/value-cell installers. Runtime Method /
+        // IL2CPP stays on its independent runtime invocation architecture.
         ZNInstallCanonicalFeaturePageDeferred();
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.9.2-rebuild] canonical Feature renderer owns customer page after all legacy adapters"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.10-offset] canonical Feature renderer installed; legacy Static Offset installers removed"];
     });
 }
