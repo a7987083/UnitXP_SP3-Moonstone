@@ -1,4 +1,4 @@
-name: Build Runtime Patch Menu v0.5.10 M5.10.0 Offset Core Rebuild
+name: Build Runtime Patch Menu v0.5.10 M5.10.1 Offset Core Rebuild
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
       - name: Offset rebuild source contract
         run: |
           set -euxo pipefail
-          grep -q '0.5.10 · M5.10.0' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q '0.5.10 · M5.10.1' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'M5.10.0 clean Offset Core' iosruntimepatchmenu/src/ZNOffsetCore.mm
           grep -q 'M5.10.0 Offset Workspace V1' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
           grep -q 'Switch/byte patch only' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
@@ -90,36 +90,36 @@ jobs:
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
 
-      - name: Build M5.10.0 Offset Core Rebuild
+      - name: Build M5.10.1 Offset Core Rebuild
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m5.10.0-offset-rebuild
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib
-          stat -f '%z' dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib | tee dist-m5.10.0-offset-rebuild/SIZE.txt
-          shasum -a 256 dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib | tee dist-m5.10.0-offset-rebuild/SHA256.txt
+          mkdir -p dist-m5.10.1-offset-rebuild
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.10.1-offset-rebuild/ZonoPatch_v0.5.10_M5.10.1_OffsetCoreRebuild.dylib
+          stat -f '%z' dist-m5.10.1-offset-rebuild/ZonoPatch_v0.5.10_M5.10.1_OffsetCoreRebuild.dylib | tee dist-m5.10.1-offset-rebuild/SIZE.txt
+          shasum -a 256 dist-m5.10.1-offset-rebuild/ZonoPatch_v0.5.10_M5.10.1_OffsetCoreRebuild.dylib | tee dist-m5.10.1-offset-rebuild/SHA256.txt
 
       - name: Verify binary cleanup
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib
+          out=iosruntimepatchmenu/dist-m5.10.1-offset-rebuild/ZonoPatch_v0.5.10_M5.10.1_OffsetCoreRebuild.dylib
           file "$out" | grep -q 'arm64'
-          strings -a "$out" > /tmp/zono_m510_strings.txt
-          grep -q 'm5.10-offset' /tmp/zono_m510_strings.txt
-          ! grep -q 'm5.9.1-offset-hook' /tmp/zono_m510_strings.txt
-          ! grep -q 'm5.9.2-offset-persist' /tmp/zono_m510_strings.txt
-          ! grep -q 'm5.9.3-canonical-offset' /tmp/zono_m510_strings.txt
-          ! grep -q 'Offset Hook · 自动准备' /tmp/zono_m510_strings.txt
-          ! grep -q 'Offset Hook 数量超过' /tmp/zono_m510_strings.txt
+          strings -a "$out" > /tmp/zono_m5101_strings.txt
+          grep -q 'm5.10-offset' /tmp/zono_m5101_strings.txt
+          ! grep -q 'm5.9.1-offset-hook' /tmp/zono_m5101_strings.txt
+          ! grep -q 'm5.9.2-offset-persist' /tmp/zono_m5101_strings.txt
+          ! grep -q 'm5.9.3-canonical-offset' /tmp/zono_m5101_strings.txt
+          ! grep -q 'Offset Hook · 自动准备' /tmp/zono_m5101_strings.txt
+          ! grep -q 'Offset Hook 数量超过' /tmp/zono_m5101_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.10-M5.10.0-OffsetCoreRebuild
+          name: ZonoPatch-v0.5.10-M5.10.1-OffsetCoreRebuild
           path: |
-            iosruntimepatchmenu/dist-m5.10.0-offset-rebuild/ZonoPatch_v0.5.10_M5.10.0_OffsetCoreRebuild.dylib
-            iosruntimepatchmenu/dist-m5.10.0-offset-rebuild/SHA256.txt
-            iosruntimepatchmenu/dist-m5.10.0-offset-rebuild/SIZE.txt
+            iosruntimepatchmenu/dist-m5.10.1-offset-rebuild/ZonoPatch_v0.5.10_M5.10.1_OffsetCoreRebuild.dylib
+            iosruntimepatchmenu/dist-m5.10.1-offset-rebuild/SHA256.txt
+            iosruntimepatchmenu/dist-m5.10.1-offset-rebuild/SIZE.txt
           if-no-files-found: error
