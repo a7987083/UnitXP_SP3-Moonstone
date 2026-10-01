@@ -1,12 +1,9 @@
 #import "ZNFeatureMetadataCodec.h"
+#import "ZNFeatureControlModel.h"
 #import "ZNFeatureDescriptionStore.h"
 #import "ZNPatchCore.h"
 #import "ZNValueTypeModel.h"
 #include <string.h>
-
-// M5.10+ Static Offset metadata codec.
-// Static Offset output is Switch-only. Slider/Number/Button metadata is not
-// emitted or interpreted here; Runtime Method/IL2CPP owns those control types.
 
 static const uint8_t kZNFMMarker0 = 0xA5;
 static const uint8_t kZNFMMarker1 = 0x5A;
@@ -63,12 +60,15 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry, NSString *target, NSSt
     NSString *displayName = explicitGroup ? cleanGroup : cleanTitle;
     if (!displayName.length || [displayName hasPrefix:@"Patch #"]) displayName = [NSString stringWithFormat:@"功能 #%u", entry->patchID];
 
-    // M5.10+ one entry owns one physical site. Preserve only the self-canonical
-    // bit; there is no shared-site/variant metadata.
-    entry->flags &= ZN44_STATIC_ENTRY_FLAG_CANONICAL;
+    NSString *featureLookupName = explicitGroup ? cleanGroup : cleanTitle;
+    ZNFeatureControlType controlType = ZNFeatureControlTypeForFeatureName(featureLookupName);
+    ZNValueType valueType = ZNFeatureValueTypeForFeatureName(featureLookupName);
+    entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK)) |
+                   ZNFeatureControlFlags(controlType) |
+                   ZNFeatureValueTypeFlags(valueType);
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
-    NSString *descriptionText = ZNFeatureDescriptionForName(explicitGroup ? cleanGroup : cleanTitle);
+    NSString *descriptionText = ZNFeatureDescriptionForName(featureLookupName);
     NSData *descriptionData = ZNFMUTF8Prefix(descriptionText, kZNFMDescriptionPreferredCapacity);
     NSData *nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity - descriptionData.length);
     if (!nameData.length) { descriptionData = [NSData data]; nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity); }
@@ -120,16 +120,18 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
         if (decoded.length) description = decoded;
     }
     BOOL explicitGroup = (storage[4] & 0x01) != 0;
+    ZNFeatureControlType controlType = ZNFeatureControlTypeFromFlags(entry->flags);
+    ZNValueType valueType = ZNFeatureValueTypeFromFlags(entry->flags);
     return @{
         @"featureID": @(featureID),
         @"title": name,
         @"group": explicitGroup ? name : @"Imported",
         @"explicitGroup": @(explicitGroup),
         @"description": description ?: @"",
-        @"controlType": @(ZNFeatureControlTypeSwitch),
-        @"controlTypeName": @"开关",
-        @"valueType": @(ZNValueTypeAuto),
-        @"valueTypeName": ZNValueTypeName(ZNValueTypeAuto),
-        @"source": version >= kZNFMVersionV2 ? @"embedded-znf2-m510" : @"embedded-znf1-m510"
+        @"controlType": @(controlType),
+        @"controlTypeName": ZNFeatureControlTypeName(controlType),
+        @"valueType": @(valueType),
+        @"valueTypeName": ZNValueTypeName(valueType),
+        @"source": version >= kZNFMVersionV2 ? @"embedded-znf2-m512" : @"embedded-znf1-m512"
     };
 }
