@@ -12,7 +12,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderM2Deferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM21CancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred(void);
 extern "C" void ZNInstallIL2CPPABIDetailUIDeferred(void);
-extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
 extern "C" void ZNInstallRuntimeMenuModalShellDeferred(void);
 extern "C" void ZNInstallRuntimeMethodCallDeferred(void);
 extern "C" void ZNInstallM551AuthoringPersistenceDeferred(void);
@@ -98,7 +97,6 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallIL2CPPMethodFinderM21CancelUXDeferred();
         ZNInstallIL2CPPMethodFinderM22StableCancelUXDeferred();
         ZNInstallIL2CPPABIDetailUIDeferred();
-        ZNInstallFeatureBuilderControlsV2Deferred();
         ZNInstallRuntimeMenuModalShellDeferred();
         ZNInstallRuntimeMethodCallDeferred();
         ZNInstallM551AuthoringPersistenceDeferred();
@@ -131,10 +129,10 @@ extern "C" void ZNInstallIL2CPPMethodFinderMenuBindingDeferred(void) {
         ZNInstallM58UnifiedControlRuntimeDeferred();
         ZNInstallM584SchemeALayoutDeferred();
 
-        // M5.10+: ordinary Static Offset has a single rebuilt Core and no
-        // legacy Offset resolver/hook/value-cell installers. Runtime Method /
-        // IL2CPP stays on its independent runtime invocation architecture.
+        // Ordinary Static Offset authoring is installed only by the historical
+        // FeatureBuilderUI/Workspace chain. Keep IL2CPP menu binding independent
+        // so it cannot re-install a second Offset authoring/control path.
         ZNInstallCanonicalFeaturePageDeferred();
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.10-offset] canonical Feature renderer installed; legacy Static Offset installers removed"];
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.12-offset-recovery] IL2CPP menu binding independent from ordinary Offset authoring"];
     });
 }
