@@ -6,11 +6,11 @@ extern "C" void ZNInstallPublicCompactLayoutDeferred(void);
 extern "C" void ZNPrepareStaticDispatchRuntimeDeferred(void);
 extern "C" void ZNInstallRuntimeMenuV055Deferred(void);
 extern "C" void ZNInstallFeatureGroupUIDeferred(void);
+extern "C" void ZNInstallTypedValueFeatureUIDeferred(void);
 extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
 extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
-extern "C" void ZNInstallTypedValueAuthoringUIDeferred(void);
-extern "C" void ZNInstallTypedValueFeatureUIDeferred(void);
+extern "C" void ZNInstallFeatureBuilderControlsV2Deferred(void);
 
 extern "C" void ZonoePatchStart(void);
 extern "C" void ZonoePatchShow(void);
@@ -47,8 +47,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         UIWindow *fallback = nil;
         for (UIScene *scene in app.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
-            if (scene.activationState != UISceneActivationStateForegroundActive &&
-                scene.activationState != UISceneActivationStateForegroundInactive) continue;
+            if (scene.activationState != UISceneActivationStateForegroundActive && scene.activationState != UISceneActivationStateForegroundInactive) continue;
             for (UIWindow *window in ((UIWindowScene *)scene).windows) {
                 if (window.hidden || window.alpha <= 0.01) continue;
                 if (window.isKeyWindow) return window;
@@ -88,14 +87,9 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     return self;
 }
 
-- (void)dealloc {
-    [NSNotificationCenter.defaultCenter removeObserver:self];
-}
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 
-- (void)zn_windowChanged:(NSNotification *)note {
-    (void)note;
-    [self installIfPossible];
-}
+- (void)zn_windowChanged:(NSNotification *)note { (void)note; [self installIfPossible]; }
 
 - (CGPoint)zn_clamp:(CGPoint)center window:(UIWindow *)window {
     UIEdgeInsets safe = window.safeAreaInsets;
@@ -138,8 +132,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         self.hostWindow = window;
         NSString *stored = [NSUserDefaults.standardUserDefaults stringForKey:kZNDeferredFloatPositionKey];
         UIEdgeInsets safe = window.safeAreaInsets;
-        CGPoint fallback = CGPointMake(CGRectGetWidth(window.bounds) - safe.right - kZNDeferredMargin - kZNDeferredFloatSize * 0.5,
-                                       CGRectGetMidY(window.bounds));
+        CGPoint fallback = CGPointMake(CGRectGetWidth(window.bounds) - safe.right - kZNDeferredMargin - kZNDeferredFloatSize * 0.5, CGRectGetMidY(window.bounds));
         self.button.center = [self zn_clamp:(stored.length ? CGPointFromString(stored) : fallback) window:window];
         [window addSubview:self.button];
     }
@@ -166,18 +159,20 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     self.button.enabled = NO;
     self.button.alpha = 1.0;
     [self.button setTitle:@"!" forState:UIControlStateNormal];
-    NSLog(@"[ZonoPatch] v0.5.7 deferred activation failed: %@", exception.reason ?: @"unknown exception");
+    NSLog(@"[ZonoPatch] deferred activation failed: %@", exception.reason ?: @"unknown exception");
 }
 
 - (void)zn_finishActivation {
     @try {
         ZNRunActivationStage(@"RuntimeMenu", ^{ ZNInstallRuntimeMenuV055Deferred(); });
         ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
+        // Generated customer binaries still need the typed runtime renderer.
         ZNRunActivationStage(@"TypedValueFeatureUI", ^{ ZNInstallTypedValueFeatureUIDeferred(); });
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
         ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
-        ZNRunActivationStage(@"TypedValueAuthoringUI", ^{ ZNInstallTypedValueAuthoringUIDeferred(); });
+        // M5.11 authoring uses the original Offset surface; no second Typed Value authoring region.
+        ZNRunActivationStage(@"UnifiedOffsetControls", ^{ ZNInstallFeatureBuilderControlsV2Deferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
         ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
@@ -197,11 +192,7 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     @try {
         ZNRunActivationStage(@"PublicCompactLayout", ^{ ZNInstallPublicCompactLayoutDeferred(); });
         ZNRunActivationStage(@"StaticDispatchPrepare", ^{ ZNPrepareStaticDispatchRuntimeDeferred(); });
-
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            [self zn_finishActivation];
-        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self zn_finishActivation]; });
     } @catch (NSException *exception) {
         [self zn_markFailed:exception];
     }
@@ -210,22 +201,15 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 - (void)zn_activate:(id)sender {
     (void)sender;
     int expected = ZNDeferredStateCold;
-    if (!gZNDeferredState.compare_exchange_strong(expected,
-                                                   ZNDeferredStateLoading,
-                                                   std::memory_order_acq_rel)) return;
-
+    if (!gZNDeferredState.compare_exchange_strong(expected, ZNDeferredStateLoading, std::memory_order_acq_rel)) return;
     self.button.enabled = NO;
     self.button.alpha = 0.78;
     [self.button setTitle:@"…" forState:UIControlStateNormal];
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ [self zn_beginActivation]; });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self zn_beginActivation]; });
 }
 
 @end
 
 __attribute__((constructor(200))) static void ZNDeferredColdLauncherBootstrap(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[ZNDeferredLauncher sharedLauncher] installIfPossible];
-    });
+    dispatch_async(dispatch_get_main_queue(), ^{ [[ZNDeferredLauncher sharedLauncher] installIfPossible]; });
 }
