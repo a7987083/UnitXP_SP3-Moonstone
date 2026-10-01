@@ -31,8 +31,8 @@ static NSString *ZNOWTrim(NSString *value) {
 }
 
 static NSString *ZNOWTargetForRow(ZNBinaryPatchRow *row, NSString *fallback) {
-    NSString *explicit = ZNOWTrim(row.target);
-    if (row.explicitTarget && explicit.length) return explicit;
+    NSString *explicitTargetName = ZNOWTrim(row.target);
+    if (row.explicitTarget && explicitTargetName.length) return explicitTargetName;
     NSString *base = ZNOWTrim(fallback);
     return base.length ? base : @"main";
 }
