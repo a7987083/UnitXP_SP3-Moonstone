@@ -7,6 +7,7 @@
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
+#import "ZNTypedValueBinaryPersistence.h"
 #import "ZNPatchCore.h"
 #include <math.h>
 
@@ -28,10 +29,6 @@ static NSString *ZNM583Trim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
 
-// M5.8.3 authoring contract:
-// Only Slider requires a value before generation. That authored value is the
-// generated slider's maximum. Number / Fixed / Switch / Button do not acquire
-// a new pre-generation value requirement.
 static BOOL ZNM583PrepareSliderAuthoring(NSString **error) {
     ZNRuntimeActionStore *store = [ZNRuntimeActionStore sharedStore];
     NSArray<ZNRuntimeMethodAction *> *actions = [store actionsSnapshot];
@@ -45,9 +42,7 @@ static BOOL ZNM583PrepareSliderAuthoring(NSString **error) {
         for (NSUInteger arg = 0; arg < action.argumentCount; arg++) {
             NSDictionary *original = configs[arg];
             if (![original[@"enabled"] boolValue] ||
-                ZNRuntimeArgumentControlTypeFromKey(original[@"type"]) != ZNRuntimeArgumentControlTypeSlider) {
-                continue;
-            }
+                ZNRuntimeArgumentControlTypeFromKey(original[@"type"]) != ZNRuntimeArgumentControlTypeSlider) continue;
 
             NSString *text = arg < action.argumentValues.count ? ZNM583Trim(action.argumentValues[arg]) : @"";
             NSDecimalNumber *number = text.length
@@ -55,11 +50,9 @@ static BOOL ZNM583PrepareSliderAuthoring(NSString **error) {
                 : NSDecimalNumber.notANumber;
             double maxValue = number.doubleValue;
             if (!text.length || [number isEqualToNumber:NSDecimalNumber.notANumber] || !isfinite(maxValue) || maxValue <= 0.0) {
-                if (error) {
-                    *error = [NSString stringWithFormat:@"%@ 参数%lu：滑块必须在生成时填写大于 0 的最大值",
-                              action.title.length ? action.title : action.methodName,
-                              (unsigned long)arg + 1];
-                }
+                if (error) *error = [NSString stringWithFormat:@"%@ 参数%lu：滑块必须在生成时填写大于 0 的最大值",
+                                     action.title.length ? action.title : action.methodName,
+                                     (unsigned long)arg + 1];
                 return NO;
             }
 
@@ -136,7 +129,6 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
         return NO;
     }
 
-    // Re-snapshot after M5.8.3 normalized Slider control metadata.
     NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
     NSUInteger partialStaticRows = 0;
     NSUInteger completeStaticRows = ZNCompleteStaticRowCount(workspace, &partialStaticRows);
@@ -172,6 +164,13 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
         return NO;
     }
 
+    NSString *typedValueReport = nil;
+    NSString *typedValueError = nil;
+    if (!runtimeOnly && !ZNTypedValueEmbedIntoGeneratedOutputs(builderOutputs ?: @[], &typedValueReport, &typedValueError)) {
+        if (error) *error = typedValueError ?: @"M5.11 Typed Value metadata 写入失败";
+        return NO;
+    }
+
     NSString *signatureReport = nil;
     NSString *signatureError = nil;
     BOOL signatureOK = runtimeOnly
@@ -192,7 +191,7 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
     }
 
     NSString *combinedReport = builderReport ?: @"";
-    for (NSString *piece in @[actionReport ?: @"", signatureReport ?: @"", verificationReport ?: @""]) {
+    for (NSString *piece in @[actionReport ?: @"", typedValueReport ?: @"", signatureReport ?: @"", verificationReport ?: @""]) {
         if (!piece.length) continue;
         combinedReport = combinedReport.length ? [combinedReport stringByAppendingFormat:@"\n%@", piece] : piece;
     }
@@ -210,11 +209,12 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
         return NO;
     }
 
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ completeStatic=%lu partialStatic=%lu runtime=%lu",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ completeStatic=%lu partialStatic=%lu runtime=%lu typedPersist=%@",
                                          runtimeOnly ? @"runtime-only-m5.8.3" : @"static/mixed-v3",
                                          (unsigned long)completeStaticRows,
                                          (unsigned long)partialStaticRows,
-                                         (unsigned long)actions.count]];
+                                         (unsigned long)actions.count,
+                                         typedValueReport.length ? typedValueReport : @"none"]];
     return YES;
 }
 
