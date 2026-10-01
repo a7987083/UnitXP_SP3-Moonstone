@@ -1,6 +1,7 @@
 #import "ZNPatchRuntimeValidator.h"
 #import "ZNPatchCore.h"
 #import "ZNExecutablePageProbe.h"
+#import "ZNH5GGValueBackend.h"
 #import <mach/mach.h>
 #import <mach-o/loader.h>
 #import <libkern/OSCacheControl.h>
@@ -9,10 +10,9 @@
 #import <stdlib.h>
 #import <string.h>
 
-// M5.10.0 clean Offset Core.
-// Single contract: module + RVA + raw ARM64 bytes.
-// No Offset Slider/Number, no Dobby Offset hook, no SyntheticValidator,
-// no VA/runtime/file address guessing, no second parser.
+// M5.11 unified Offset core.
+// Address contract remains module + RVA. Switch rows are raw ARM64 bytes;
+// Slider/Number rows use ZNTypedValueOffset and do not pass through this class.
 
 static NSString *ZNOCTrim(NSString *s) {
     return [s ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -29,7 +29,7 @@ static BOOL ZNOCParseRVA(NSString *text, uint64_t *out, NSString **error) {
     NSString *s = ZNOCTrim(text).lowercaseString;
     if ([s hasPrefix:@"rva:"]) s = ZNOCTrim([s substringFromIndex:4]);
     if ([s hasPrefix:@"va:"] || [s hasPrefix:@"runtime:"] || [s hasPrefix:@"file:"]) {
-        if (error) *error = @"M5.10 只接受 RVA；va/runtime/file 模式已删除";
+        if (error) *error = @"M5.11 只接受 RVA；va/runtime/file 模式已删除";
         return NO;
     }
     if (!s.length) { if (error) *error = @"RVA 不能为空"; return NO; }
@@ -105,8 +105,7 @@ static BOOL ZNOCExecutableRange(uintptr_t imageBase, uintptr_t address, NSUInteg
 
 static BOOL ZNOCRead(uintptr_t address, NSUInteger length, NSData **out, NSString **error) {
     NSMutableData *data = [NSMutableData dataWithLength:length]; mach_vm_size_t copied = 0;
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)address, (mach_vm_size_t)length,
-                                              (mach_vm_address_t)data.mutableBytes, &copied);
+    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)address, (mach_vm_size_t)length, (mach_vm_address_t)data.mutableBytes, &copied);
     if (kr != KERN_SUCCESS || copied != length) { if (error) *error = [NSString stringWithFormat:@"内存读取失败 kr=%d copied=%llu", kr, copied]; return NO; }
     if (out) *out = data; return YES;
 }
@@ -115,7 +114,7 @@ static int ZNOCPOSIX(vm_prot_t prot) {
     int p = 0; if (prot & VM_PROT_READ) p |= PROT_READ; if (prot & VM_PROT_WRITE) p |= PROT_WRITE; if (prot & VM_PROT_EXECUTE) p |= PROT_EXEC; return p;
 }
 
-static BOOL ZNOCWriteVerified(uintptr_t address, NSData *wanted, NSData *rollback, vm_prot_t protection, NSString **error) {
+static BOOL ZNOCWriteNative(uintptr_t address, NSData *wanted, NSData *rollback, vm_prot_t protection, NSString **error) {
     vm_size_t page = vm_page_size; uintptr_t pageStart = address & ~((uintptr_t)page - 1u);
     uintptr_t pageEnd = (address + wanted.length + page - 1u) & ~((uintptr_t)page - 1u); size_t span = pageEnd - pageStart;
     if (mprotect((void *)pageStart, span, PROT_READ | PROT_WRITE) != 0) { if (error) *error = [NSString stringWithFormat:@"代码页改为 RW 失败 errno=%d", errno]; return NO; }
@@ -126,6 +125,27 @@ static BOOL ZNOCWriteVerified(uintptr_t address, NSData *wanted, NSData *rollbac
     if (!match) { if (error) *error = @"写入 read-back 不一致，已回滚"; return NO; }
     if (restore != 0) { if (error) *error = [NSString stringWithFormat:@"恢复代码页权限失败 errno=%d", errno]; return NO; }
     return YES;
+}
+
+static BOOL ZNOCWriteBestBackend(uintptr_t address, NSData *wanted, NSData *rollback, vm_prot_t protection, NSString **error) {
+    ZNH5GGValueBackend *h5 = [ZNH5GGValueBackend sharedBackend];
+    if (h5.available) {
+        NSString *local = nil;
+        if ([h5 writeRawARM64BytesAtAddress:(uint64_t)address bytes:wanted rollback:rollback error:&local]) {
+            sys_icache_invalidate((void *)address, wanted.length);
+            NSData *check = nil;
+            if (ZNOCRead(address, wanted.length, &check, NULL) && [check isEqualToData:wanted]) return YES;
+            if (error) *error = @"H5GG 写入后最终 read-back 不一致";
+            return NO;
+        }
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.11-offset] H5GG raw backend failed, fallback native: %@", local ?: @"unknown"]];
+    }
+    ZNExecutablePageProbe *probe = [ZNExecutablePageProbe sharedProbe];
+    if ((!probe.hasRun && ![probe runProbe]) || !probe.supported) {
+        if (error) *error = h5.available ? @"H5GG 写入失败且 native 代码页写入不可用" : @"H5GG 不可用，设备也不支持 native 临时代码页写入";
+        return NO;
+    }
+    return ZNOCWriteNative(address, wanted, rollback, protection, error);
 }
 
 @interface ZNPatchRuntimeValidator ()
@@ -175,7 +195,7 @@ static BOOL ZNOCWriteVerified(uintptr_t address, NSData *wanted, NSData *rollbac
         self.runtimeAddress = address; self.capturedOriginalBytes = original; self.currentBytes = original; self.znProtection = range.protection;
         self.znSegment = [NSString stringWithUTF8String:range.name] ?: @"?"; self.validated = YES; self.applied = NO;
         self.lastResult = [NSString stringWithFormat:@"验证通过 %@+0x%llX · %@ · %lu bytes", self.target, self.rva, self.znSegment, (unsigned long)self.patchBytes.length];
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.10-offset] validated %@+0x%llX address=%p original=%@ enabled=%@", self.target, self.rva, (void *)address, ZNOCHex(original), ZNOCHex(self.patchBytes)]];
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.11-offset] validated %@+0x%llX address=%p original=%@ enabled=%@", self.target, self.rva, (void *)address, ZNOCHex(original), ZNOCHex(self.patchBytes)]];
         return YES;
     }
 }
@@ -186,10 +206,8 @@ static BOOL ZNOCWriteVerified(uintptr_t address, NSData *wanted, NSData *rollbac
         if (self.applied) return YES;
         NSData *now = nil; if (!ZNOCRead(self.runtimeAddress, self.patchBytes.length, &now, error)) return NO;
         if (![now isEqualToData:self.capturedOriginalBytes]) { if (error) *error = @"当前字节已变化，拒绝覆盖"; return NO; }
-        ZNExecutablePageProbe *probe = [ZNExecutablePageProbe sharedProbe];
-        if ((!probe.hasRun && ![probe runProbe]) || !probe.supported) { if (error) *error = @"设备不支持安全临时代码页写入"; return NO; }
-        if (!ZNOCWriteVerified(self.runtimeAddress, self.patchBytes, self.capturedOriginalBytes, self.znProtection, error)) return NO;
-        self.currentBytes = self.patchBytes; self.applied = YES; self.lastResult = @"临时 Patch 已应用"; return YES;
+        if (!ZNOCWriteBestBackend(self.runtimeAddress, self.patchBytes, self.capturedOriginalBytes, self.znProtection, error)) return NO;
+        self.currentBytes = self.patchBytes; self.applied = YES; self.lastResult = [ZNH5GGValueBackend sharedBackend].available ? @"临时 Patch 已应用 · H5GG" : @"临时 Patch 已应用 · Native"; return YES;
     }
 }
 
@@ -198,7 +216,7 @@ static BOOL ZNOCWriteVerified(uintptr_t address, NSData *wanted, NSData *rollbac
         if (!self.applied) return YES;
         NSData *now = nil; if (!ZNOCRead(self.runtimeAddress, self.patchBytes.length, &now, error)) return NO;
         if (![now isEqualToData:self.patchBytes]) { if (error) *error = @"当前字节不是本会话 Patch，拒绝覆盖"; return NO; }
-        if (!ZNOCWriteVerified(self.runtimeAddress, self.capturedOriginalBytes, self.patchBytes, self.znProtection, error)) return NO;
+        if (!ZNOCWriteBestBackend(self.runtimeAddress, self.capturedOriginalBytes, self.patchBytes, self.znProtection, error)) return NO;
         self.currentBytes = self.capturedOriginalBytes; self.applied = NO; self.lastResult = @"Original 已恢复"; return YES;
     }
 }
