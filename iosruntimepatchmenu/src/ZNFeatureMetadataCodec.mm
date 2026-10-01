@@ -3,165 +3,97 @@
 #import "ZNFeatureDescriptionStore.h"
 #include <string.h>
 
+// M5.10 Static Offset metadata codec.
+// Static Offset output is Switch-only. Slider/Number/Button metadata is not
+// emitted here; Runtime Method/IL2CPP owns those control types separately.
+
 static const uint8_t kZNFMMarker0 = 0xA5;
 static const uint8_t kZNFMMarker1 = 0x5A;
 static const uint8_t kZNFMVersionV1 = 1;
 static const uint8_t kZNFMVersionV2 = 2;
 static const NSUInteger kZNFMNameCapacity = 57;
 static const NSUInteger kZNFMDescriptionPreferredCapacity = 24;
-static const uint32_t kZNFM585SliderMaxMask = UINT32_C(0xFFFC0000);
-static const uint32_t kZNFM585SliderMaxShift = 18u;
-extern "C" uint32_t ZNM585SliderMaximumFlagsForFeatureName(NSString *featureName);
-
-// title/group are contiguous in ZN44StaticEntry: 48 + 24 bytes.
-// Layout inside that 72-byte region remains 128-byte-entry ABI compatible.
-//
-// V1:
-//   storage[4] bit0 = explicit group
-//   storage[13]     = name byte length
-//   payload         = name
-//
-// V2:
-//   storage[4] bit0     = explicit group
-//   storage[4] bits1..7 = description byte length (0..63)
-//   storage[13]         = name byte length
-//   payload             = name || description
-//
-// V2 therefore adds a short customer-facing description without growing
-// ZN44StaticEntry. Existing V1 binaries continue to decode unchanged.
-// M5.5 keeps Value Type in entry.flags bits 11..13. M5.8.5 uses bits 18..31
-// for Static Slider maximum and M5.9.1 uses bit2 for native Offset hook mode.
+static const uint32_t kZNLegacySliderMaxMask = UINT32_C(0xFFFC0000);
 
 static NSString *ZNFMTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
-
 static NSString *ZNFMNormalize(NSString *value) {
-    NSString *trimmed = ZNFMTrim(value);
-    return [[trimmed precomposedStringWithCanonicalMapping] lowercaseString];
+    return [[ZNFMTrim(value) precomposedStringWithCanonicalMapping] lowercaseString];
 }
-
 static uint64_t ZNFMHash64(NSData *data) {
-    const uint8_t *bytes = (const uint8_t *)data.bytes;
+    const uint8_t *bytes = data.bytes;
     uint64_t hash = UINT64_C(1469598103934665603) ^ UINT64_C(0x5A4F4E4F50415443);
-    for (NSUInteger i = 0; i < data.length; i++) {
-        hash ^= bytes[i];
-        hash *= UINT64_C(1099511628211);
-    }
-    hash ^= hash >> 33;
-    hash *= UINT64_C(0xff51afd7ed558ccd);
-    hash ^= hash >> 33;
-    if (!hash) hash = UINT64_C(0x5A4E464541545552);
-    return hash;
+    for (NSUInteger i = 0; i < data.length; i++) { hash ^= bytes[i]; hash *= UINT64_C(1099511628211); }
+    hash ^= hash >> 33; hash *= UINT64_C(0xff51afd7ed558ccd); hash ^= hash >> 33;
+    return hash ?: UINT64_C(0x5A4E464541545552);
 }
-
 static uint8_t ZNFMKeyByte(uint64_t featureID, NSUInteger index) {
-    uint64_t x = featureID ^ UINT64_C(0x9E3779B97F4A7C15) ^
-                 ((uint64_t)index * UINT64_C(0xD6E8FEB86659FD93));
-    x ^= x >> 12;
-    x ^= x << 25;
-    x ^= x >> 27;
-    x *= UINT64_C(0x2545F4914F6CDD1D);
+    uint64_t x = featureID ^ UINT64_C(0x9E3779B97F4A7C15) ^ ((uint64_t)index * UINT64_C(0xD6E8FEB86659FD93));
+    x ^= x >> 12; x ^= x << 25; x ^= x >> 27; x *= UINT64_C(0x2545F4914F6CDD1D);
     return (uint8_t)(x >> 56);
 }
-
 static NSData *ZNFMUTF8Prefix(NSString *value, NSUInteger capacity) {
-    NSData *full = [value dataUsingEncoding:NSUTF8StringEncoding];
-    if (full.length <= capacity) return full ?: [NSData data];
-    NSUInteger length = capacity;
-    while (length > 0) {
+    NSData *full = [value dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+    if (full.length <= capacity) return full;
+    for (NSUInteger length = capacity; length > 0; length--) {
         NSData *candidate = [full subdataWithRange:NSMakeRange(0, length)];
         if ([[NSString alloc] initWithData:candidate encoding:NSUTF8StringEncoding]) return candidate;
-        length--;
     }
     return [NSData data];
 }
-
 static void ZNFMWritePayloadByte(uint8_t *storage, NSUInteger index, uint8_t value) {
     if (index < 34) storage[14 + index] = value;
     else storage[49 + (index - 34)] = value;
 }
-
 static uint8_t ZNFMReadPayloadByte(const uint8_t *storage, NSUInteger index) {
-    if (index < 34) return storage[14 + index];
-    return storage[49 + (index - 34)];
+    return index < 34 ? storage[14 + index] : storage[49 + (index - 34)];
 }
-
-static uint64_t ZNFMFeatureID(NSString *target,
-                              NSString *displayName,
-                              BOOL explicitGroup,
-                              uint64_t siteRVA,
-                              uint32_t patchID) {
-    NSString *normalizedName = ZNFMNormalize(displayName);
+static uint64_t ZNFMFeatureID(NSString *target, NSString *displayName, BOOL explicitGroup, uint64_t siteRVA, uint32_t patchID) {
     NSString *identity = explicitGroup
-        ? [NSString stringWithFormat:@"feature|%@", normalizedName]
-        : [NSString stringWithFormat:@"patch|%@|%016llx|%u|%@", ZNFMNormalize(target), siteRVA, patchID, normalizedName];
-    NSData *data = [identity dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    return ZNFMHash64(data);
+        ? [NSString stringWithFormat:@"feature|%@", ZNFMNormalize(displayName)]
+        : [NSString stringWithFormat:@"patch|%@|%016llx|%u|%@", ZNFMNormalize(target), siteRVA, patchID, ZNFMNormalize(displayName)];
+    return ZNFMHash64([identity dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data]);
 }
 
-BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry,
-                                  NSString *target,
-                                  NSString *title,
-                                  NSString *group) {
+BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry, NSString *target, NSString *title, NSString *group) {
     if (!entry) return NO;
-
-    NSString *cleanTitle = ZNFMTrim(title);
-    NSString *cleanGroup = ZNFMTrim(group);
+    NSString *cleanTitle = ZNFMTrim(title), *cleanGroup = ZNFMTrim(group);
     BOOL explicitGroup = cleanGroup.length && [cleanGroup caseInsensitiveCompare:@"Imported"] != NSOrderedSame;
     NSString *displayName = explicitGroup ? cleanGroup : cleanTitle;
     if (!displayName.length || [displayName hasPrefix:@"Patch #"]) displayName = [NSString stringWithFormat:@"功能 #%u", entry->patchID];
 
-    NSString *featureLookupName = explicitGroup ? cleanGroup : cleanTitle;
-    ZNFeatureControlType controlType = ZNFeatureControlTypeForFeatureName(featureLookupName);
-    ZNValueType valueType = ZNFeatureValueTypeForFeatureName(featureLookupName);
-    uint32_t sliderMaxFlags = controlType == ZNFeatureControlTypeSlider
-        ? ZNM585SliderMaximumFlagsForFeatureName(featureLookupName)
-        : 0;
-    uint32_t hookFlag = (controlType == ZNFeatureControlTypeSlider || controlType == ZNFeatureControlTypeNumber)
-        ? ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1
-        : 0;
-    entry->flags = (entry->flags & ~(ZN_FEATURE_CONTROL_FLAG_MASK | ZN_FEATURE_VALUE_FLAG_MASK | kZNFM585SliderMaxMask | ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1)) |
-                   ZNFeatureControlFlags(controlType) |
-                   ZNFeatureValueTypeFlags(valueType) |
-                   sliderMaxFlags |
-                   hookFlag;
+    // Strip every legacy Static typed-control bit. Static Offset is Switch-only.
+    entry->flags &= ~(ZN_FEATURE_CONTROL_FLAG_MASK |
+                      ZN_FEATURE_VALUE_FLAG_MASK |
+                      kZNLegacySliderMaxMask |
+                      ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1 |
+                      ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1 |
+                      ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK);
+    entry->flags |= ZNFeatureControlFlags(ZNFeatureControlTypeSwitch) |
+                    ZNFeatureValueTypeFlags(ZNValueTypeAuto);
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
-    NSString *descriptionText = ZNFeatureDescriptionForName(featureLookupName.length ? featureLookupName : displayName);
-
-    // Keep Feature name useful even when a description exists. Description is
-    // intentionally short in V2 because it shares the existing 57-byte payload.
+    NSString *descriptionText = ZNFeatureDescriptionForName(explicitGroup ? cleanGroup : cleanTitle);
     NSData *descriptionData = ZNFMUTF8Prefix(descriptionText, kZNFMDescriptionPreferredCapacity);
-    NSUInteger nameCapacity = kZNFMNameCapacity - descriptionData.length;
-    NSData *nameData = ZNFMUTF8Prefix(displayName, nameCapacity);
-    if (nameData.length == 0) {
-        // Do not sacrifice the display name to a description. Drop description
-        // and retry with the full V1 name capacity.
-        descriptionData = [NSData data];
-        nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity);
-    }
-    if (nameData.length > UINT8_MAX || descriptionData.length > 63 || nameData.length + descriptionData.length > kZNFMNameCapacity) return NO;
+    NSData *nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity - descriptionData.length);
+    if (!nameData.length) { descriptionData = [NSData data]; nameData = ZNFMUTF8Prefix(displayName, kZNFMNameCapacity); }
+    if (!nameData.length || descriptionData.length > 63 || nameData.length + descriptionData.length > kZNFMNameCapacity) return NO;
 
     uint8_t *storage = (uint8_t *)entry->title;
     memset(storage, 0, sizeof(entry->title) + sizeof(entry->group));
-    storage[0] = 0;
-    storage[1] = kZNFMMarker0;
-    storage[2] = kZNFMMarker1;
+    storage[0] = 0; storage[1] = kZNFMMarker0; storage[2] = kZNFMMarker1;
     storage[3] = descriptionData.length ? kZNFMVersionV2 : kZNFMVersionV1;
     storage[4] = (explicitGroup ? 0x01 : 0x00) | ((uint8_t)descriptionData.length << 1);
     memcpy(storage + 5, &featureID, sizeof(featureID));
-    storage[13] = (uint8_t)nameData.length;
-    storage[48] = 0;
+    storage[13] = (uint8_t)nameData.length; storage[48] = 0;
 
-    const uint8_t *nameBytes = (const uint8_t *)nameData.bytes;
-    for (NSUInteger i = 0; i < nameData.length; i++) {
-        ZNFMWritePayloadByte(storage, i, nameBytes[i] ^ ZNFMKeyByte(featureID, i));
-    }
-    const uint8_t *descriptionBytes = (const uint8_t *)descriptionData.bytes;
+    const uint8_t *nameBytes = nameData.bytes;
+    for (NSUInteger i = 0; i < nameData.length; i++) ZNFMWritePayloadByte(storage, i, nameBytes[i] ^ ZNFMKeyByte(featureID, i));
+    const uint8_t *descriptionBytes = descriptionData.bytes;
     for (NSUInteger i = 0; i < descriptionData.length; i++) {
-        NSUInteger payloadIndex = nameData.length + i;
-        ZNFMWritePayloadByte(storage, payloadIndex, descriptionBytes[i] ^ ZNFMKeyByte(featureID, payloadIndex));
+        NSUInteger p = nameData.length + i;
+        ZNFMWritePayloadByte(storage, p, descriptionBytes[i] ^ ZNFMKeyByte(featureID, p));
     }
     return YES;
 }
@@ -172,50 +104,40 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
     uint8_t version = storage[3];
     if (storage[0] != 0 || storage[48] != 0 || storage[1] != kZNFMMarker0 || storage[2] != kZNFMMarker1 ||
         (version != kZNFMVersionV1 && version != kZNFMVersionV2)) return nil;
-
-    uint64_t featureID = 0;
-    memcpy(&featureID, storage + 5, sizeof(featureID));
+    uint64_t featureID = 0; memcpy(&featureID, storage + 5, sizeof(featureID));
     uint8_t nameLength = storage[13];
     uint8_t descriptionLength = version >= kZNFMVersionV2 ? (storage[4] >> 1) : 0;
-    if (!featureID || nameLength > kZNFMNameCapacity || descriptionLength > 63 ||
-        (NSUInteger)nameLength + (NSUInteger)descriptionLength > kZNFMNameCapacity) return nil;
+    if (!featureID || nameLength > kZNFMNameCapacity || descriptionLength > 63 || nameLength + descriptionLength > kZNFMNameCapacity) return nil;
 
-    NSMutableData *decodedName = [NSMutableData dataWithLength:nameLength];
-    uint8_t *nameOut = (uint8_t *)decodedName.mutableBytes;
-    for (NSUInteger i = 0; i < nameLength; i++) {
-        nameOut[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
-    }
-    NSString *name = [[NSString alloc] initWithData:decodedName encoding:NSUTF8StringEncoding];
+    NSMutableData *nameData = [NSMutableData dataWithLength:nameLength];
+    uint8_t *nameOut = nameData.mutableBytes;
+    for (NSUInteger i = 0; i < nameLength; i++) nameOut[i] = ZNFMReadPayloadByte(storage, i) ^ ZNFMKeyByte(featureID, i);
+    NSString *name = [[NSString alloc] initWithData:nameData encoding:NSUTF8StringEncoding];
     if (!name.length) return nil;
 
-    NSString *descriptionText = @"";
+    NSString *description = @"";
     if (descriptionLength) {
-        NSMutableData *decodedDescription = [NSMutableData dataWithLength:descriptionLength];
-        uint8_t *descriptionOut = (uint8_t *)decodedDescription.mutableBytes;
+        NSMutableData *data = [NSMutableData dataWithLength:descriptionLength];
+        uint8_t *out = data.mutableBytes;
         for (NSUInteger i = 0; i < descriptionLength; i++) {
-            NSUInteger payloadIndex = nameLength + i;
-            descriptionOut[i] = ZNFMReadPayloadByte(storage, payloadIndex) ^ ZNFMKeyByte(featureID, payloadIndex);
+            NSUInteger p = nameLength + i; out[i] = ZNFMReadPayloadByte(storage, p) ^ ZNFMKeyByte(featureID, p);
         }
-        NSString *decoded = [[NSString alloc] initWithData:decodedDescription encoding:NSUTF8StringEncoding];
-        if (decoded.length) descriptionText = decoded;
+        NSString *decoded = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        if (decoded.length) description = decoded;
     }
-
     BOOL explicitGroup = (storage[4] & 0x01) != 0;
-    ZNFeatureControlType controlType = ZNFeatureControlTypeFromFlags(entry->flags);
-    ZNValueType valueType = ZNFeatureValueTypeFromFlags(entry->flags);
-    uint32_t sliderMax = (entry->flags & kZNFM585SliderMaxMask) >> kZNFM585SliderMaxShift;
     return @{
         @"featureID": @(featureID),
         @"title": name,
         @"group": explicitGroup ? name : @"Imported",
         @"explicitGroup": @(explicitGroup),
-        @"description": descriptionText ?: @"",
-        @"controlType": @(controlType),
-        @"controlTypeName": ZNFeatureControlTypeName(controlType),
-        @"valueType": @(valueType),
-        @"valueTypeName": ZNValueTypeName(valueType),
-        @"sliderMax": @(sliderMax),
-        @"offsetHook": @((entry->flags & ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1) != 0),
-        @"source": version >= kZNFMVersionV2 ? @"embedded-znf2" : @"embedded-znf1"
+        @"description": description ?: @"",
+        @"controlType": @(ZNFeatureControlTypeSwitch),
+        @"controlTypeName": ZNFeatureControlTypeName(ZNFeatureControlTypeSwitch),
+        @"valueType": @(ZNValueTypeAuto),
+        @"valueTypeName": ZNValueTypeName(ZNValueTypeAuto),
+        @"sliderMax": @0,
+        @"offsetHook": @NO,
+        @"source": version >= kZNFMVersionV2 ? @"embedded-znf2-m510" : @"embedded-znf1-m510"
     };
 }
