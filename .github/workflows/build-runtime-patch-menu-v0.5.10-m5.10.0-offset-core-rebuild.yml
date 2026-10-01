@@ -46,6 +46,9 @@ jobs:
           grep -q 'FeatureBuilderUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
           grep -q 'FeatureGroupUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
 
+          # IL2CPP/Runtime Method may not reinstall an ordinary Offset authoring layer.
+          ! grep -q 'ZNInstallFeatureBuilderControlsV2Deferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
+
           # Static generation + customer runtime are a matched historical pair.
           grep -q '__ZNTEXT' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
           grep -q '__ZNDATA' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
