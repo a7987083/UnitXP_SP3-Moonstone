@@ -59,12 +59,10 @@ jobs:
           done
           ! grep -R -q 'ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1\|ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1' iosruntimepatchmenu/src
 
-          # Single RVA coordinate system remains authoritative.
           grep -q 'ZNOCParseRVA' iosruntimepatchmenu/src/ZNOffsetCore.mm
           ! grep -q 'ZNJIParseRVA' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
           ! grep -q '@"address"\|@"addr"\|@"location"' iosruntimepatchmenu/src/ZNPatchJSONImporter.mm
 
-          # Runtime Method / IL2CPP controls remain untouched.
           grep -q 'ZNRuntimeArgumentControlTypeSlider' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
           grep -q 'ZNRuntimeArgumentControlTypeNumber' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
           grep -q 'ZNRuntimeMethodActionRecord' iosruntimepatchmenu/src/ZNM58UnifiedControlRuntime.mm
@@ -131,10 +129,13 @@ jobs:
           out=iosruntimepatchmenu/dist-m5.11.1-unified-offset/ZonoPatch_v0.5.11_M5.11.1_UnifiedOffset.dylib
           file "$out" | grep -q 'arm64'
           strings -a "$out" > /tmp/zono_m5111_strings.txt
-          grep -q 'M5.11.1' /tmp/zono_m5111_strings.txt
-          grep -q 'Unified Offset' /tmp/zono_m5111_strings.txt
+          # Verify strings that are guaranteed to be emitted by live runtime code.
           grep -q 'm5.11-offset' /tmp/zono_m5111_strings.txt
-          grep -q 'H5GG raw' /tmp/zono_m5111_strings.txt
+          grep -q 'm5.11-raw' /tmp/zono_m5111_strings.txt
+          grep -q 'm5.11-unified-persist' /tmp/zono_m5111_strings.txt
+          grep -q 'unified Builder installed' /tmp/zono_m5111_strings.txt
+          grep -q 'H5GG typed/raw backend ready' /tmp/zono_m5111_strings.txt
+          # Duplicate authoring surface and legacy stacks must stay absent.
           ! grep -q 'Typed Value Offset · H5GG' /tmp/zono_m5111_strings.txt
           ! grep -q 'm5.9.1-offset-hook\|m5.9.2-offset-persist\|m5.9.3-canonical-offset' /tmp/zono_m5111_strings.txt
           ! grep -q 'Static RW Value Cell\|Shared Site Owner Stack' /tmp/zono_m5111_strings.txt
