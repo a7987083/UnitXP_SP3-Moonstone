@@ -1,6 +1,7 @@
 #import "ZNTypedValueBinaryPersistence.h"
 #import "ZNTypedValueStaticFormat.h"
-#import "ZNTypedValueWorkspace.h"
+#import "ZNBinaryPatchWorkspace.h"
+#import "ZNTypedValueOffset.h"
 #import "ZNStaticPatchFormat.h"
 #import "ZNPatchCore.h"
 #import <mach-o/loader.h>
@@ -31,9 +32,11 @@ static NSString *ZNTVResolvedTarget(NSString *target) {
 static NSArray<ZNTypedValueOffset *> *ZNTVEntriesForOutput(NSString *path) {
     NSString *outputName = ZNTVCleanOutputName(path);
     NSMutableArray *matches = [NSMutableArray array];
-    for (ZNTypedValueRow *row in [ZNTypedValueWorkspace sharedWorkspace].rows ?: @[]) {
-        ZNTypedValueOffset *entry = row.entry;
-        if (!entry || !entry.isValidated) continue;
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+    for (ZNBinaryPatchRow *row in workspace.rows ?: @[]) {
+        if (row.controlKind == ZNOffsetControlKindSwitch) continue;
+        ZNTypedValueOffset *entry = row.typedEntry;
+        if (!row.validated || !entry.isValidated) continue;
         NSString *target = ZNTVResolvedTarget(entry.target);
         if ([target caseInsensitiveCompare:outputName] == NSOrderedSame) [matches addObject:entry];
     }
@@ -148,7 +151,7 @@ BOOL ZNTypedValueEmbedIntoGeneratedOutputs(NSArray<NSString *> *outputs, NSStrin
         embeddedFiles++;
         embeddedEntries += entries.count;
     }
-    if (report) *report = [NSString stringWithFormat:@"M5.11 Typed Value metadata：%lu files / %lu entries", (unsigned long)embeddedFiles, (unsigned long)embeddedEntries];
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.11-value-persist] files=%lu entries=%lu", (unsigned long)embeddedFiles, (unsigned long)embeddedEntries]];
+    if (report) *report = [NSString stringWithFormat:@"M5.11 Unified Typed metadata：%lu files / %lu entries", (unsigned long)embeddedFiles, (unsigned long)embeddedEntries];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.11-unified-persist] files=%lu entries=%lu", (unsigned long)embeddedFiles, (unsigned long)embeddedEntries]];
     return YES;
 }
