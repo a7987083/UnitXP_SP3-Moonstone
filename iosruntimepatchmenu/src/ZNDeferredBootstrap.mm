@@ -3,8 +3,6 @@
 #import <atomic>
 
 extern "C" void ZNInstallPublicCompactLayoutDeferred(void);
-extern "C" void ZNInstallRuntimeExecutorV041Deferred(void);
-extern "C" void ZNInstallRuntimeDiagnosticsV042Deferred(void);
 extern "C" void ZNPrepareStaticDispatchRuntimeDeferred(void);
 extern "C" void ZNInstallRuntimeMenuV055Deferred(void);
 extern "C" void ZNInstallFeatureGroupUIDeferred(void);
@@ -194,8 +192,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 - (void)zn_beginActivation {
     @try {
         ZNRunActivationStage(@"PublicCompactLayout", ^{ ZNInstallPublicCompactLayoutDeferred(); });
-        ZNRunActivationStage(@"RuntimeExecutorV041", ^{ ZNInstallRuntimeExecutorV041Deferred(); });
-        ZNRunActivationStage(@"RuntimeDiagnosticsV042", ^{ ZNInstallRuntimeDiagnosticsV042Deferred(); });
         ZNRunActivationStage(@"StaticDispatchPrepare", ^{ ZNPrepareStaticDispatchRuntimeDeferred(); });
 
         // Static Dispatch historically waits 350 ms before refresh. Keep that
