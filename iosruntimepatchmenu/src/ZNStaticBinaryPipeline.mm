@@ -2,12 +2,14 @@
 #import "ZNStaticBinaryBuilderV3Internal.h"
 #import "ZNGeneratedBinaryPostprocess.h"
 #import "ZNRuntimeOnlyBinaryBuilder.h"
+#import "ZNTypedOnlyBinaryBuilder.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNTypedValueBinaryPersistence.h"
+#import "ZNTypedValueWorkspace.h"
 #import "ZNPatchCore.h"
 #include <math.h>
 
@@ -23,6 +25,25 @@ static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
     }
     if (partialRows) *partialRows = partial;
     return complete;
+}
+
+static NSArray<NSString *> *ZNValidatedTypedTargets(NSUInteger *typedCount, NSString **error) {
+    NSMutableOrderedSet<NSString *> *targets = [NSMutableOrderedSet orderedSet];
+    NSUInteger count = 0;
+    for (ZNTypedValueRow *row in [ZNTypedValueWorkspace sharedWorkspace].rows ?: @[]) {
+        ZNTypedValueOffset *entry = row.entry;
+        if (!entry || !entry.offsetText.length) continue;
+        if (!entry.isValidated) {
+            if (error) *error = [NSString stringWithFormat:@"Typed Value「%@」必须先读取验证通过", entry.title.length ? entry.title : @"未命名"];
+            return nil;
+        }
+        NSString *target = [entry.target ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (!target.length) target = @"main";
+        [targets addObject:target];
+        count++;
+    }
+    if (typedCount) *typedCount = count;
+    return targets.array ?: @[];
 }
 
 static NSString *ZNM583Trim(NSString *value) {
@@ -129,23 +150,39 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
         return NO;
     }
 
+    NSString *typedValidationError = nil;
+    NSUInteger typedCount = 0;
+    NSArray<NSString *> *typedTargets = ZNValidatedTypedTargets(&typedCount, &typedValidationError);
+    if (!typedTargets) {
+        if (error) *error = typedValidationError ?: @"Typed Value 验证失败";
+        return NO;
+    }
+
     NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
     NSUInteger partialStaticRows = 0;
     NSUInteger completeStaticRows = ZNCompleteStaticRowCount(workspace, &partialStaticRows);
+    BOOL typedOnly = typedCount > 0 && completeStaticRows == 0 && actions.count == 0;
     BOOL runtimeOnly = actions.count > 0 && completeStaticRows == 0;
 
+    NSString *mode = typedOnly ? @"typed-only" : (runtimeOnly ? @"runtime-only" : @"static/mixed");
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
-        @"[builder-mode-m5.8.3] runtime=%lu completeStatic=%lu partialStatic=%lu mode=%@",
+        @"[builder-mode-m5.11] runtime=%lu typed=%lu completeStatic=%lu partialStatic=%lu mode=%@",
         (unsigned long)actions.count,
+        (unsigned long)typedCount,
         (unsigned long)completeStaticRows,
         (unsigned long)partialStaticRows,
-        runtimeOnly ? @"runtime-only" : @"static/mixed"]];
+        mode]];
 
     NSArray<NSString *> *builderOutputs = nil;
     NSString *builderReport = nil;
     NSString *builderError = nil;
 
-    if (runtimeOnly) {
+    if (typedOnly) {
+        if (!ZNTypedOnlyBinaryBuilderBuild(typedTargets, &builderOutputs, &builderReport, &builderError)) {
+            if (error) *error = builderError ?: @"M5.11 Typed-only Builder 生成失败";
+            return NO;
+        }
+    } else if (runtimeOnly) {
         if (!ZNRuntimeOnlyBinaryBuilderBuildWorkspace(workspace, &builderOutputs, &builderReport, &builderError)) {
             if (error) *error = builderError ?: @"Runtime-only Builder 生成失败";
             return NO;
@@ -166,16 +203,19 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
 
     NSString *typedValueReport = nil;
     NSString *typedValueError = nil;
-    if (!runtimeOnly && !ZNTypedValueEmbedIntoGeneratedOutputs(builderOutputs ?: @[], &typedValueReport, &typedValueError)) {
+    if (!ZNTypedValueEmbedIntoGeneratedOutputs(builderOutputs ?: @[], &typedValueReport, &typedValueError)) {
         if (error) *error = typedValueError ?: @"M5.11 Typed Value metadata 写入失败";
         return NO;
     }
 
     NSString *signatureReport = nil;
     NSString *signatureError = nil;
-    BOOL signatureOK = runtimeOnly
-        ? ZNM581AugmentRuntimeOnlySignatures(builderOutputs ?: @[], &signatureReport, &signatureError)
-        : ZNRuntimeActionAugmentGeneratedOutputsM46(builderOutputs ?: @[], &signatureReport, &signatureError);
+    BOOL signatureOK = YES;
+    if (actions.count) {
+        signatureOK = runtimeOnly
+            ? ZNM581AugmentRuntimeOnlySignatures(builderOutputs ?: @[], &signatureReport, &signatureError)
+            : ZNRuntimeActionAugmentGeneratedOutputsM46(builderOutputs ?: @[], &signatureReport, &signatureError);
+    }
     if (!signatureOK) {
         if (error) *error = signatureError ?: @"M4.6 Full Method Signature 写入失败";
         return NO;
@@ -195,13 +235,14 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
         if (!piece.length) continue;
         combinedReport = combinedReport.length ? [combinedReport stringByAppendingFormat:@"\n%@", piece] : piece;
     }
-    if (runtimeOnly && partialStaticRows) {
-        NSString *ignored = [NSString stringWithFormat:@"M5.8.3 Runtime-only：忽略 %lu 个未完整填写的 Offset/Enabled 草稿行。", (unsigned long)partialStaticRows];
+    if ((runtimeOnly || typedOnly) && partialStaticRows) {
+        NSString *ignored = [NSString stringWithFormat:@"%@：忽略 %lu 个未完整填写的 Offset/Enabled 草稿行。", mode, (unsigned long)partialStaticRows];
         combinedReport = combinedReport.length ? [combinedReport stringByAppendingFormat:@"\n%@", ignored] : ignored;
     }
 
     NSString *postprocessError = nil;
-    BOOL postprocessOK = runtimeOnly
+    BOOL containerOnly = runtimeOnly || typedOnly;
+    BOOL postprocessOK = containerOnly
         ? ZNRuntimeOnlyPostProcessGeneratedOutputsM461(builderOutputs ?: @[], combinedReport, outputs, report, &postprocessError)
         : ZNPostProcessGeneratedBinaryOutputs(builderOutputs ?: @[], combinedReport, outputs, report, &postprocessError);
     if (!postprocessOK) {
@@ -209,11 +250,12 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
         return NO;
     }
 
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ completeStatic=%lu partialStatic=%lu runtime=%lu typedPersist=%@",
-                                         runtimeOnly ? @"runtime-only-m5.8.3" : @"static/mixed-v3",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline-m5.11] mode=%@ completeStatic=%lu partialStatic=%lu runtime=%lu typed=%lu persist=%@",
+                                         mode,
                                          (unsigned long)completeStaticRows,
                                          (unsigned long)partialStaticRows,
                                          (unsigned long)actions.count,
+                                         (unsigned long)typedCount,
                                          typedValueReport.length ? typedValueReport : @"none"]];
     return YES;
 }
