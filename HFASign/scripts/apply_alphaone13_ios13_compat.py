@@ -10,6 +10,17 @@ if count == 0:
 text = text.replace("IPHONEOS_DEPLOYMENT_TARGET = 16.0;", "IPHONEOS_DEPLOYMENT_TARGET = 13.0;")
 project.write_text(text)
 
+alt_source_manifest = root / "AltSourceKit/Package.swift"
+alt_source = alt_source_manifest.read_text()
+old_alt_target = ".iOS(.v14)"
+new_alt_target = ".iOS(.v13)"
+alt_source_count = alt_source.count(old_alt_target)
+if alt_source_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one AltSourceKit {old_alt_target}, found {alt_source_count}"
+    )
+alt_source_manifest.write_text(alt_source.replace(old_alt_target, new_alt_target, 1))
+
 app_path = root / "Ksign/FeatherApp.swift"
 app = app_path.read_text()
 old = '''\tfunc body(content: Content) -> some View {
@@ -67,4 +78,7 @@ sources = sources.replace(".foregroundStyle(.secondary)", ".foregroundColor(.sec
 sources = sources.replace(".background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))", ".background(Color(UIColor.secondarySystemBackground))\n                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))")
 sources_path.write_text(sources)
 
-print(f"iOS13 compat applied; deployment target replacements: {count}")
+print(
+    f"iOS13 compat applied; deployment target replacements: {count}; "
+    f"AltSourceKit target lowered to iOS 13"
+)
