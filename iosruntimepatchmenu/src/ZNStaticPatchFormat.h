@@ -4,14 +4,15 @@
 #include <stddef.h>
 
 // Static Dispatch on-disk format for M5.10+ Offset Switch/byte patches.
-// Runtime only switches selectedTarget in RW memory; it never writes executable
-// pages after launch. Static Offset typed controls (Slider/Number/Button),
-// arbitrary-site instrumentation, and RW value-cell backends are not part of
-// this ABI.
+// One metadata entry owns exactly one physical Target+RVA site and has only two
+// runtime states: relocated Original (OFF) and relocated Enabled bytes (ON).
+// Static Offset typed controls, shared-site variants, arbitrary-site
+// instrumentation, and RW value-cell backends are not part of this ABI.
 //
 // Builder V3 changes allocation, not the entry ABI: generated executable code
 // lives in an owned __ZNTEXT segment and metadata/selectedTarget live in an
-// owned __ZNDATA segment. V3 intentionally reuses the compact V2 entry layout.
+// owned __ZNDATA segment. The historical tail fields remain layout-compatible
+// but are self-identifying only: physicalID=index+1, canonicalIndex=index.
 #define ZN44_STATIC_MAGIC0 UINT64_C(0x3148435441504E5A) /* "ZNPATCH1" */
 #define ZN44_STATIC_MAGIC1 UINT64_C(0x3154495543524944) /* "DIRCUIT1" marker */
 #define ZN44_STATIC_VERSION_V1 1u
@@ -25,7 +26,6 @@
 #define ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2 UINT32_C(0x00000004)
 
 #define ZN44_STATIC_ENTRY_FLAG_CANONICAL UINT32_C(0x00000001)
-#define ZN44_STATIC_ENTRY_FLAG_SHARED    UINT32_C(0x00000002)
 
 typedef struct {
     uint64_t magic0;
