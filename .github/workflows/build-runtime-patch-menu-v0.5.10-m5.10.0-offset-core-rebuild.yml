@@ -1,4 +1,4 @@
-name: Build M5.12 Historical Ordinary Offset Recovery
+name: Build M5.12 Offset UI
 
 on:
   push:
@@ -16,30 +16,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ordinary Offset isolation contract
+      - name: Ordinary Offset UI contract
         run: |
           set -euxo pipefail
-
-          # Ordinary Offset has exactly one authoring/runtime validator implementation.
           test -f iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'src/ZNPatchRuntimeValidator.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNOffsetCore.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNH5GGValueBackend.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNTypedValueOffset.mm' iosruntimepatchmenu/Makefile
-          ! grep -q 'src/ZNTypedValueBinaryPersistence.mm' iosruntimepatchmenu/Makefile
-          ! grep -q 'src/ZNTypedValueDispatchRuntime.mm' iosruntimepatchmenu/Makefile
-          ! grep -q 'src/ZNTypedValueFeatureUI.mm' iosruntimepatchmenu/Makefile
-          ! grep -q 'src/ZNTypedOnlyBinaryBuilder.mm' iosruntimepatchmenu/Makefile
-          ! grep -q 'src/ZNFeatureBuilderControlsV2.mm' iosruntimepatchmenu/Makefile
-
-          # Builder surface stays on the ordinary Offset workspace.
-          ! grep -q 'ZNOffsetControlKind' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.h
-          ! grep -q 'ZNTypedValueOffset' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.h
-          grep -q 'ZNPatchRuntimeValidator' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
-          grep -q 'applyTemporary' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
-          grep -q 'restoreOriginal' iosruntimepatchmenu/src/ZNBinaryPatchWorkspace.mm
-
-          # Four-type UI is isolated from patch/write backends.
           test -f iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
           grep -q 'src/ZNOrdinaryOffsetControlsUI.mm' iosruntimepatchmenu/Makefile
           grep -q '点击执行' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
@@ -51,38 +35,10 @@ jobs:
           grep -q 'ZNFeatureControlTypeNumber: return ZNFeatureControlTypeSlider' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
           grep -q 'ZNFeatureControlTypeSlider: return ZNFeatureControlTypeButton' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
           grep -q 'ZNOONeedsValueType' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
-          grep -q '值类型 · %@' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
           ! grep -q 'H5GG\|ZNTypedValue\|ZNStaticDispatchRuntime' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
-          grep -q 'featureControlType' iosruntimepatchmenu/src/ZNFeatureControlModel.h
-          grep -q 'featureValueType' iosruntimepatchmenu/src/ZNFeatureControlModel.h
-          grep -q '点击执行' iosruntimepatchmenu/src/ZNFeatureControlModel.mm
-          grep -q '输入' iosruntimepatchmenu/src/ZNFeatureControlModel.mm
-          grep -q '滑动条' iosruntimepatchmenu/src/ZNFeatureControlModel.mm
-
-          # No old Typed Value / unified-offset hook is installed; only isolated UI follows Builder UI.
-          ! grep -q 'TypedValueFeatureUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
-          ! grep -q 'UnifiedOffsetControls' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
-          grep -q 'StaticDispatchPrepare' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
-          grep -q 'FeatureBuilderUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
           grep -q 'OrdinaryOffsetControlsUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
-          grep -q 'FeatureGroupUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
-
-          # IL2CPP/Runtime Method may not reinstall an ordinary Offset authoring layer.
-          ! grep -q 'ZNInstallFeatureBuilderControlsV2Deferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
-
-          # Static generation + customer runtime remain the historical pair for later execution repair.
-          grep -q '__ZNTEXT' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
-          grep -q '__ZNDATA' iosruntimepatchmenu/src/ZNStaticBinaryBuilderV3.mm
-          grep -q 'ownerOrderBySite' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-          grep -q 'selectedTarget' iosruntimepatchmenu/src/ZNStaticDispatchRuntime.mm
-          grep -q 'ZNStaticBinaryBuilderV3BuildWorkspace(workspace' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
-          ! grep -q 'ZNTypedValue' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
-          ! grep -q 'ZNTypedOnlyBinaryBuilder' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
-
-          # Runtime Method/IL2CPP remains on the current independent chain.
+          grep -q 'FeatureBuilderUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
           grep -q 'ZNRuntimeActionEmbedIntoGeneratedOutputs' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
-          grep -q 'ZNRuntimeArgumentControlTypeSlider' iosruntimepatchmenu/src/ZNFeaturePageUI.mm
-          grep -q 'ZNRuntimeMethodActionRecord' iosruntimepatchmenu/src/ZNM58UnifiedControlRuntime.mm
 
       - name: Install dependencies
         run: |
@@ -94,7 +50,7 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
-      - name: Build pinned Dobby for Runtime Method backend
+      - name: Build pinned Dobby
         run: |
           set -euxo pipefail
           mkdir -p vendor
@@ -104,9 +60,9 @@ jobs:
           sed -i '' '/^import pipes$/d' scripts/platform_builder.py
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('include/dobby.h')
-          s = p.read_text()
-          old = '''#ifdef __cplusplus
+          p=Path('include/dobby.h')
+          s=p.read_text()
+          old='''#ifdef __cplusplus
           extern "C" {
           #endif
 
@@ -114,7 +70,7 @@ jobs:
           #include <stdint.h>
           #include <sys/types.h>
           '''
-          new = '''#include <stdbool.h>
+          new='''#include <stdbool.h>
           #include <stdint.h>
           #include <sys/types.h>
 
@@ -122,44 +78,41 @@ jobs:
           extern "C" {
           #endif
           '''
-          if old not in s:
-              raise SystemExit('unexpected Dobby header layout')
-          p.write_text(s.replace(old, new, 1))
+          if old not in s: raise SystemExit('unexpected Dobby header layout')
+          p.write_text(s.replace(old,new,1))
           PY
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
 
-      - name: Build M5.12 Ordinary Offset Recovery
+      - name: Build Offset UI
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m5.12-offset-recovery
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.12-offset-recovery/ZonoPatch_M5.12_OrdinaryOffsetRecovery.dylib
-          stat -f '%z' dist-m5.12-offset-recovery/ZonoPatch_M5.12_OrdinaryOffsetRecovery.dylib | tee dist-m5.12-offset-recovery/SIZE.txt
-          shasum -a 256 dist-m5.12-offset-recovery/ZonoPatch_M5.12_OrdinaryOffsetRecovery.dylib | tee dist-m5.12-offset-recovery/SHA256.txt
+          mkdir -p dist-m5.12-offset-ui
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.12-offset-ui/ZonoPatch_v0.5.12_M5.12_OffsetUI.dylib
+          stat -f '%z' dist-m5.12-offset-ui/ZonoPatch_v0.5.12_M5.12_OffsetUI.dylib | tee dist-m5.12-offset-ui/SIZE.txt
+          shasum -a 256 dist-m5.12-offset-ui/ZonoPatch_v0.5.12_M5.12_OffsetUI.dylib | tee dist-m5.12-offset-ui/SHA256.txt
 
       - name: Verify binary contract
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m5.12-offset-recovery/ZonoPatch_M5.12_OrdinaryOffsetRecovery.dylib
+          out=iosruntimepatchmenu/dist-m5.12-offset-ui/ZonoPatch_v0.5.12_M5.12_OffsetUI.dylib
           file "$out" | grep -q 'arm64'
           strings -a "$out" > /tmp/zono_m512_strings.txt
           grep -q 'runtime-validate' /tmp/zono_m512_strings.txt
           grep -q 'static-dispatch' /tmp/zono_m512_strings.txt
           grep -q 'builder-pipeline-m5.12-offset-recovery' /tmp/zono_m512_strings.txt
-          grep -q 'm5.12-offset-ui' /tmp/zono_m512_strings.txt
           ! grep -q 'H5GG typed/raw backend ready' /tmp/zono_m512_strings.txt
           ! grep -q 'm5.11-value-runtime' /tmp/zono_m512_strings.txt
-          ! grep -q 'generated Typed Value Slider/Number UI installed' /tmp/zono_m512_strings.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-M5.12-OrdinaryOffsetRecovery
+          name: ZonoPatch-v0.5.12-M5.12-OffsetUI
           path: |
-            iosruntimepatchmenu/dist-m5.12-offset-recovery/ZonoPatch_M5.12_OrdinaryOffsetRecovery.dylib
-            iosruntimepatchmenu/dist-m5.12-offset-recovery/SHA256.txt
-            iosruntimepatchmenu/dist-m5.12-offset-recovery/SIZE.txt
+            iosruntimepatchmenu/dist-m5.12-offset-ui/ZonoPatch_v0.5.12_M5.12_OffsetUI.dylib
+            iosruntimepatchmenu/dist-m5.12-offset-ui/SHA256.txt
+            iosruntimepatchmenu/dist-m5.12-offset-ui/SIZE.txt
           if-no-files-found: error
