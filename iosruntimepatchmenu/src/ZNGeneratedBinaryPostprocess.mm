@@ -1,6 +1,5 @@
 #import "ZNGeneratedBinaryPostprocess.h"
 #import "ZNStaticMetadataPrivacy.h"
-#import "ZNStaticValueCellV1.h"
 #import "ZNStaticRVAProtection.h"
 #import "ZNAdhocMachOSigner.h"
 
@@ -20,7 +19,6 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
     NSString *failure = nil;
     NSString *folder = nil;
     NSUInteger totalEncodedNames = 0;
-    NSUInteger totalValueCells = 0;
     NSUInteger totalProtectedRVAs = 0;
     NSUInteger generatedTargets = 0;
 
@@ -29,10 +27,9 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         generatedTargets++;
         if (!folder.length) folder = path.stringByDeletingLastPathComponent;
 
-        // ZNF1 must run first: it materializes the authored Control Type and
-        // Value Type into entry.flags. Value-cell augmentation consumes exactly
-        // those flags to decide whether Number/Slider is MOV or FMOV and which
-        // I32/U32/I64/U64/F32/F64 cell format to generate.
+        // M5.10+: Static Offset is Switch/byte-patch only. Encode display
+        // metadata, protect RVAs, then sign. Legacy Number/Slider value-cell
+        // augmentation has been removed from the Static Offset pipeline.
         NSUInteger encodedNames = 0;
         NSString *privacyError = nil;
         if (!ZNScrubStaticDisplayMetadataAtPath(path, &encodedNames, &privacyError)) {
@@ -41,17 +38,6 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         }
         totalEncodedNames += encodedNames;
 
-        NSUInteger convertedCells = 0;
-        NSString *cellError = nil;
-        if (!ZNStaticValueCellAugmentAtPath(path, &convertedCells, &cellError)) {
-            failure = [NSString stringWithFormat:@"%@：%@", path.lastPathComponent, cellError ?: @"Static RW Value Cell 参数化失败"];
-            break;
-        }
-        totalValueCells += convertedCells;
-
-        // RVA protection is intentionally after value-cell augmentation because
-        // augmentation needs plain Builder RVAs to walk the Protection-V2 source
-        // chain. Signing remains last so the final code/data bytes are covered.
         NSUInteger protectedRVAs = 0;
         NSString *rvaError = nil;
         if (!ZN55ProtectStaticRVAsAtPath(path, &protectedRVAs, &rvaError)) {
@@ -82,7 +68,6 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         item[@"output"] = finalPath;
         item[@"suffixlessExport"] = @YES;
         item[@"encodedFeatureMetadataEntries"] = @(encodedNames);
-        item[@"rwValueCellEntries"] = @(convertedCells);
         item[@"protectedStaticRVAEntries"] = @(protectedRVAs);
         [signing addObject:item];
     }
@@ -107,12 +92,13 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
         if (![object isKindOfClass:NSMutableDictionary.class]) continue;
 
         object[@"generatedBinaryPipeline"] = @{
-            @"mode": @"m5.6.2-rw-value-cell",
+            @"mode": @"m5.10-static-offset-switch-only",
             @"builder": @"Static Binary Builder V3",
-            @"postprocessOrder": @[@"Payload Layout V2 (Builder)", @"ZNF1", @"RW Value Cell V1", @"Static RVA Protection V1", @"Adhoc CodeDirectory", @"Suffixless Export"],
+            @"postprocessOrder": @[@"Payload Layout V2 (Builder)", @"ZNF1", @"Static RVA Protection V1", @"Adhoc CodeDirectory", @"Suffixless Export"],
             @"runtimeBuilderSwizzle": @NO,
             @"asyncLoadOrderDependency": @NO,
             @"suffixlessBinaryName": @YES,
+            @"staticOffsetTypedControls": @NO,
         };
         object[@"generatedBinarySignature"] = @{
             @"mode": @"zonoe-self-contained-adhoc",
@@ -133,11 +119,10 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             @"staticEntryABIPreserved": @YES,
         };
         object[@"generatedBinaryProtection"] = @{
-            @"mode": @"payload-v2+rw-value-cell-v1+static-rva-protection-v1",
+            @"mode": @"payload-v2+static-rva-protection-v1",
             @"plainStaticRVAFieldsPresent": @NO,
             @"protectedFields": @[@"siteRVA", @"offRVA", @"onRVA"],
             @"protectedEntries": @(totalProtectedRVAs),
-            @"rwValueCellEntries": @(totalValueCells),
             @"perOutputNonce": @YES,
             @"integrityCheck": @YES,
             @"runtimeDecodesOnDemand": @YES,
@@ -146,7 +131,7 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
             @"payloadLayout": @"fragmented-16-byte-slot-chain-v1",
             @"maxContiguousSourceInstructions": @1,
             @"runtimeExecutableWrites": @NO,
-            @"runtimeTypedValueBackend": @"RW __ZNDATA value cells",
+            @"staticOffsetValueCellBackend": @NO,
             @"directSiteBranchStillArchitectural": @YES,
         };
 
@@ -157,9 +142,8 @@ BOOL ZNPostProcessGeneratedBinaryOutputs(NSArray<NSString *> *innerOutputs,
 
     if (outputs) *outputs = [finalOutputs copy];
     if (report) {
-        *report = [NSString stringWithFormat:@"%@\nM5.6.2：Static Number/Slider 在构建期转换为 RW __ZNDATA Value Cell；运行时只写数据页，不修改 executable page。Value-cell=%lu。替换回 IPA 后仍需正常整包重签。",
-                   innerReport ?: @"Static Binary Builder V3 生成成功",
-                   (unsigned long)totalValueCells];
+        *report = [NSString stringWithFormat:@"%@\nM5.10：Static Offset 仅保留 Switch/byte patch；旧 Number/Slider Value Cell 后处理已删除。替换回 IPA 后仍需正常整包重签。",
+                   innerReport ?: @"Static Binary Builder V3 生成成功"];
     }
     return YES;
 }
