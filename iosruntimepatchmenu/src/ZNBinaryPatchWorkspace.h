@@ -2,6 +2,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 @class ZNPatchRuntimeValidator;
+@class ZNTypedValueOffset;
+
+typedef NS_ENUM(NSInteger, ZNOffsetControlKind) {
+    ZNOffsetControlKindSwitch = 0,
+    ZNOffsetControlKindSlider = 1,
+    ZNOffsetControlKindNumber = 2,
+};
 
 @interface ZNBinaryPatchRow : NSObject
 @property(nonatomic,copy) NSString *target;
@@ -17,6 +24,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,assign) BOOL lowConfidence;
 @property(nonatomic,assign) BOOL conflict;
 @property(nonatomic,strong,nullable) ZNPatchRuntimeValidator *validator;
+
+// M5.11 unified Offset authoring. One row is either a raw byte Switch patch
+// or a typed Slider/Number value at Target+RVA.
+@property(nonatomic,assign) ZNOffsetControlKind controlKind;
+@property(nonatomic,copy) NSString *valueType;
+@property(nonatomic,assign) double minValue;
+@property(nonatomic,assign) double maxValue;
+@property(nonatomic,assign) double stepValue;
+@property(nonatomic,strong,nullable) ZNTypedValueOffset *typedEntry;
 @end
 
 @interface ZNBinaryPatchWorkspace : NSObject
