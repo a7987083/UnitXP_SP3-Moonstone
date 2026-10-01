@@ -288,10 +288,6 @@ static void ZNModuleAdded(const struct mach_header *mh, intptr_t slide) {
     _descriptors = [NSMutableDictionary dictionary];
     [self registerDescriptor:@"ui_test" name:@"UI 测试开关" category:@"首页" value:0 control:ZNFeatureControlTypeSwitch];
     [self registerDescriptor:@"invincible" name:@"无敌" category:@"玩家" value:0 control:ZNFeatureControlTypeSwitch];
-    [self registerDescriptor:@"speed" name:@"移速修改" category:@"移动" value:2.5 control:ZNFeatureControlTypeSlider];
-    [self registerDescriptor:@"damage" name:@"伤害倍率" category:@"战斗" value:5.0 control:ZNFeatureControlTypeSlider];
-    [self registerDescriptor:@"jump" name:@"跳跃高度" category:@"移动" value:1.5 control:ZNFeatureControlTypeSlider];
-    [self registerDescriptor:@"attack_speed" name:@"攻速修改" category:@"战斗" value:1.8 control:ZNFeatureControlTypeSlider];
     [self registerDescriptor:@"other_test" name:@"测试功能" category:@"其他" value:0 control:ZNFeatureControlTypeButton];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(moduleAdded:) name:@"ZNModuleManagerImageAdded" object:nil];
     [ZNModuleManager sharedManager];

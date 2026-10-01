@@ -62,10 +62,6 @@ static NSString * const kZNRememberPositionKey = @"ZonoePatch.RememberPosition";
 
 static NSString * const kZNFeatureUITest = @"ui_test";
 static NSString * const kZNFeatureInvincible = @"invincible";
-static NSString * const kZNFeatureSpeed = @"speed";
-static NSString * const kZNFeatureDamage = @"damage";
-static NSString * const kZNFeatureJump = @"jump";
-static NSString * const kZNFeatureAttackSpeed = @"attack_speed";
 static NSString * const kZNFeatureOtherTest = @"other_test";
 
 static const CGFloat kZNFloatSize = 52.0;
@@ -157,15 +153,7 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
         kZNRememberPositionKey: @YES,
         ZNEnabledKey(kZNFeatureUITest): @NO,
         ZNEnabledKey(kZNFeatureInvincible): @NO,
-        ZNEnabledKey(kZNFeatureSpeed): @NO,
-        ZNEnabledKey(kZNFeatureDamage): @NO,
-        ZNEnabledKey(kZNFeatureJump): @NO,
-        ZNEnabledKey(kZNFeatureAttackSpeed): @NO,
         ZNEnabledKey(kZNFeatureOtherTest): @NO,
-        ZNValueKey(kZNFeatureSpeed): @2.5,
-        ZNValueKey(kZNFeatureDamage): @5.0,
-        ZNValueKey(kZNFeatureJump): @1.5,
-        ZNValueKey(kZNFeatureAttackSpeed): @1.8,
     }];
 
     _themeMode = (ZNThemeMode)[ud integerForKey:kZNThemeModeKey];
@@ -444,11 +432,11 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
         [self addSection:@"Runtime 状态" subtitle:@"V0.2.4 UI · 页面高度已自适应" y:&y width:width];
         [self addFullSwitch:@"UI 测试开关" subtitle:@"当前不执行真实 Patch" featureID:kZNFeatureUITest y:&y width:width];
     } else if ([cat isEqualToString:@"玩家"]) {
-        [self addSection:@"玩家" subtitle:@"角色与能力相关修改" y:&y width:width]; [self addFullSwitch:@"无敌" subtitle:@"当前仅改变界面状态" featureID:kZNFeatureInvincible y:&y width:width]; [self addFullComposite:@"伤害倍率" featureID:kZNFeatureDamage fallback:5 min:1 max:20 y:&y width:width];
+        [self addSection:@"玩家" subtitle:@"角色与能力相关修改" y:&y width:width]; [self addFullSwitch:@"无敌" subtitle:@"当前仅改变界面状态" featureID:kZNFeatureInvincible y:&y width:width];
     } else if ([cat isEqualToString:@"战斗"]) {
-        [self addSection:@"战斗" subtitle:@"数值类功能统一使用组合 Slider" y:&y width:width]; [self addFullComposite:@"伤害倍率" featureID:kZNFeatureDamage fallback:5 min:1 max:20 y:&y width:width]; [self addFullComposite:@"攻速修改" featureID:kZNFeatureAttackSpeed fallback:1.8 min:1 max:5 y:&y width:width];
+        [self addSection:@"战斗" subtitle:@"Static Offset 数值滑块已移除" y:&y width:width];
     } else if ([cat isEqualToString:@"移动"]) {
-        [self addSection:@"移动" subtitle:@"功能名 + 当前值 + Slider + 开关" y:&y width:width]; [self addFullComposite:@"移速修改" featureID:kZNFeatureSpeed fallback:2.5 min:1 max:5 y:&y width:width]; [self addFullComposite:@"跳跃高度" featureID:kZNFeatureJump fallback:1.5 min:1 max:5 y:&y width:width];
+        [self addSection:@"移动" subtitle:@"Static Offset 数值滑块已移除" y:&y width:width];
     } else if ([cat isEqualToString:@"其他"]) {
         [self addSection:@"其他" subtitle:@"后续扩展功能" y:&y width:width]; [self addFullSwitch:@"测试功能" subtitle:@"占位控件" featureID:kZNFeatureOtherTest y:&y width:width];
     } else if ([cat isEqualToString:@"设置"]) {
@@ -461,7 +449,7 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
 
 - (void)renderCompactPage {
     [self.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)]; CGFloat width=CGRectGetWidth(self.contentView.bounds), y=7.0;
-    [self addCompactSwitch:@"无敌" featureID:kZNFeatureInvincible y:&y width:width]; [self addCompactComposite:@"移速" featureID:kZNFeatureSpeed fallback:2.5 min:1 max:5 y:&y width:width]; [self addCompactComposite:@"伤害" featureID:kZNFeatureDamage fallback:5 min:1 max:20 y:&y width:width]; [self addCompactComposite:@"跳跃" featureID:kZNFeatureJump fallback:1.5 min:1 max:5 y:&y width:width];
+    [self addCompactSwitch:@"无敌" featureID:kZNFeatureInvincible y:&y width:width];
     CGRect f=self.contentView.frame; f.size.height=MAX(CGRectGetHeight(self.contentScroll.bounds),y+4); self.contentView.frame=f; self.contentScroll.contentSize=f.size;
 }
 
