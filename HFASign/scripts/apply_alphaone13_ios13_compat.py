@@ -32,6 +32,17 @@ if nimble_target_count != 1:
     )
 nimble_manifest.write_text(nimble.replace(old_nimble_target, new_nimble_target, 1))
 
+nimble_date_path = root / "NimbleKit/Sources/NimbleExtensions/Date/Date+timeLeft.swift"
+nimble_date = nimble_date_path.read_text()
+old_date_default = "from now: Date = .now"
+new_date_default = "from now: Date = Date()"
+date_default_count = nimble_date.count(old_date_default)
+if date_default_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit Date.now default, found {date_default_count}"
+    )
+nimble_date_path.write_text(nimble_date.replace(old_date_default, new_date_default, 1))
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -142,5 +153,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now fallback applied; Color bridge guarded for iOS 14+"
 )
