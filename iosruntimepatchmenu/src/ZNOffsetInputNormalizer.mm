@@ -1,6 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/loader.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNPatchCore.h"
 
