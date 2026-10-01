@@ -1,11 +1,12 @@
 #import "ZNFeatureMetadataCodec.h"
-#import "ZNFeatureControlModel.h"
 #import "ZNFeatureDescriptionStore.h"
+#import "ZNPatchCore.h"
+#import "ZNValueTypeModel.h"
 #include <string.h>
 
-// M5.10 Static Offset metadata codec.
+// M5.10+ Static Offset metadata codec.
 // Static Offset output is Switch-only. Slider/Number/Button metadata is not
-// emitted here; Runtime Method/IL2CPP owns those control types separately.
+// emitted or interpreted here; Runtime Method/IL2CPP owns those control types.
 
 static const uint8_t kZNFMMarker0 = 0xA5;
 static const uint8_t kZNFMMarker1 = 0x5A;
@@ -13,7 +14,6 @@ static const uint8_t kZNFMVersionV1 = 1;
 static const uint8_t kZNFMVersionV2 = 2;
 static const NSUInteger kZNFMNameCapacity = 57;
 static const NSUInteger kZNFMDescriptionPreferredCapacity = 24;
-static const uint32_t kZNLegacySliderMaxMask = UINT32_C(0xFFFC0000);
 
 static NSString *ZNFMTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -63,15 +63,9 @@ BOOL ZNFeatureMetadataEncodeEntry(ZN44StaticEntry *entry, NSString *target, NSSt
     NSString *displayName = explicitGroup ? cleanGroup : cleanTitle;
     if (!displayName.length || [displayName hasPrefix:@"Patch #"]) displayName = [NSString stringWithFormat:@"功能 #%u", entry->patchID];
 
-    // Strip every legacy Static typed-control bit. Static Offset is Switch-only.
-    entry->flags &= ~(ZN_FEATURE_CONTROL_FLAG_MASK |
-                      ZN_FEATURE_VALUE_FLAG_MASK |
-                      kZNLegacySliderMaxMask |
-                      ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1 |
-                      ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1 |
-                      ZN44_STATIC_ENTRY_VALUE_CELL_TYPE_MASK);
-    entry->flags |= ZNFeatureControlFlags(ZNFeatureControlTypeSwitch) |
-                    ZNFeatureValueTypeFlags(ZNValueTypeAuto);
+    // M5.10+ Static Offset has no typed-control metadata. Preserve only the
+    // dispatch ownership bits produced by Builder V3.
+    entry->flags &= (ZN44_STATIC_ENTRY_FLAG_CANONICAL | ZN44_STATIC_ENTRY_FLAG_SHARED);
 
     uint64_t featureID = ZNFMFeatureID(target ?: @"", displayName, explicitGroup, entry->siteRVA, entry->patchID);
     NSString *descriptionText = ZNFeatureDescriptionForName(explicitGroup ? cleanGroup : cleanTitle);
@@ -133,11 +127,9 @@ NSDictionary<NSString *, id> *ZNFeatureMetadataDecodeEntry(const ZN44StaticEntry
         @"explicitGroup": @(explicitGroup),
         @"description": description ?: @"",
         @"controlType": @(ZNFeatureControlTypeSwitch),
-        @"controlTypeName": ZNFeatureControlTypeName(ZNFeatureControlTypeSwitch),
+        @"controlTypeName": @"开关",
         @"valueType": @(ZNValueTypeAuto),
         @"valueTypeName": ZNValueTypeName(ZNValueTypeAuto),
-        @"sliderMax": @0,
-        @"offsetHook": @NO,
         @"source": version >= kZNFMVersionV2 ? @"embedded-znf2-m510" : @"embedded-znf1-m510"
     };
 }
