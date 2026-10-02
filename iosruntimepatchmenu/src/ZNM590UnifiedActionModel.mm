@@ -121,11 +121,53 @@ static UILabel *ZNM590LeftLabelForField(UITextField *field) {
         if(type!=ZNFeatureControlTypeNumber&&type!=ZNFeatureControlTypeSlider)continue;
         NSString *name=ZNM590FeatureNameForRow(row);
         if(type==ZNFeatureControlTypeSlider){
-            // Dedicated visible Max field is installed by M5.8.5 (tag 931000+featureIndex).
-            // Hide the generic Enabled/Patch field so Slider authoring has one clear input.
+            double max=ZNM590StoredSliderMax(name);
+            if(!isfinite(max)||max<=0.0){
+                if(error)*error=[NSString stringWithFormat:@"%@：滑块必须填写最大值（例如 31）",name];
+                return NO;
+            }
+        }
+        // Number/Slider carry no Patch/test value. Validation prepares only Offset + ValueType;
+        // Slider additionally requires authored Max.
+        row.enabledText=@"";
+        row.validated=NO;
+        row.validator=nil;
+        row.originalHex=@"";
+    }
+    return [self znm590_validateAll:error];
+}
+@end
+
+@interface ZNRuntimeMenuControllerV040 (ZNM590BuilderAdapter)
+- (void)znm590_renderOther;
+- (void)znm590_sliderMaxChanged:(UITextField *)field;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM590BuilderAdapter)
+- (void)znm590_renderOther {
+    [self znm590_renderOther];
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    NSArray *features=ZNM590BuilderFeatureGroups(workspace);
+    BOOL locked=workspace.hasAnyApplied||workspace.isBuilding;
+
+    // M6.3: keep M5.8.5's dedicated Slider Max field visible.
+    // The generic Enabled/Patch field is not used for Slider authoring.
+
+    for(NSUInteger globalIndex=0;globalIndex<workspace.rows.count;globalIndex++){
+        ZNBinaryPatchRow *row=workspace.rows[globalIndex];
+        ZNFeatureControlType type=row.featureControlType;
+        if(type!=ZNFeatureControlTypeNumber&&type!=ZNFeatureControlTypeSlider)continue;
+        UITextField *field=(UITextField *)[self.contentView viewWithTag:kZNM590EnabledFieldTagBase+(NSInteger)globalIndex];
+        if(![field isKindOfClass:UITextField.class])continue;
+        UILabel *label=ZNM590LeftLabelForField(field);
+        [field removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+
+        NSString *name=ZNM590FeatureNameForRow(row);
+        if(type==ZNFeatureControlTypeSlider){
+            // Max is edited by the dedicated visible field installed by M5.8.5.
+            // Hide the generic Patch/Enabled input so there is one unambiguous Slider value.
             field.hidden=YES;
             if(label)label.hidden=YES;
-            continue;
         }else{
             // Number has no authoring/test value in M6.3. ValueType is selected
             // explicitly on the patch card; the actual number is entered only
