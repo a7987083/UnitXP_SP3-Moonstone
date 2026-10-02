@@ -18,6 +18,7 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 @property(nonatomic,assign) uint32_t actionID;
 @property(nonatomic,copy) NSString *title;
 @property(nonatomic,copy) NSString *group;
+@property(nonatomic,copy) NSString *featureDescription;
 @property(nonatomic,copy) NSString *assembly;
 @property(nonatomic,copy) NSString *namespaceName;
 @property(nonatomic,copy) NSString *className;
@@ -53,6 +54,9 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 - (BOOL)updateTitle:(nullable NSString *)title
             atIndex:(NSUInteger)index
               error:(NSString * _Nullable * _Nullable)error;
+- (BOOL)updateFeatureDescription:(nullable NSString *)featureDescription
+                         atIndex:(NSUInteger)index
+                           error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)updateArgumentValues:(NSArray<NSString *> *)argumentValues
                      atIndex:(NSUInteger)index
                        error:(NSString * _Nullable * _Nullable)error;
