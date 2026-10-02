@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNDirectNativeCallExecutor.h"
 #import "ZNIL2CPPMethodSignature.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
@@ -72,6 +73,7 @@ static const void *kZNM54HistoryKey = &kZNM54HistoryKey;
 - (void)znm54_done:(UITextField *)field;
 - (void)znm54_openDetail:(UIButton *)sender;
 - (void)znm54_createCandidate:(UIButton *)sender;
+- (void)znm54_directTestCandidate:(UIButton *)sender;
 @end
 
 static NSString *ZNM54Trim(NSString *value) {
@@ -357,17 +359,43 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
     [self renderPage];
 }
 
+- (void)znm54_directTestCandidate:(UIButton *)sender {
+    NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM54CandidateKey);
+    if (!candidate) return;
+    NSString *error = nil;
+    NSDictionary *result = ZNDirectNativeTestCandidate(candidate, &error);
+    if (result) {
+        NSDictionary *config = [result[@"config"] isKindOfClass:NSDictionary.class] ? result[@"config"] : @{};
+        [self zn60v3_setStatus:[NSString stringWithFormat:@"Direct Native SUCCESS：%@ · %@+0x%llX · self/methodInfo unused；现在点“创建方法”保存 Direct 模式",
+                                 candidate[@"method"] ?: @"Method",
+                                 config[@"image"] ?: @"image",
+                                 (unsigned long long)[config[@"rva"] unsignedLongLongValue]]];
+    } else {
+        [self zn60v3_setStatus:[NSString stringWithFormat:@"Direct Native FAILED：%@", error ?: @"ABI / RVA 验证失败"]];
+    }
+    [self renderPage];
+}
+
 - (void)znm54_createCandidate:(UIButton *)sender {
     NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM54CandidateKey);
     if (!candidate) return;
     NSArray<NSString *> *values = [self znm43_argumentValues:candidate] ?: @[];
     NSString *error = nil;
-    ZNRuntimeMethodAction *action = [[ZNRuntimeActionStore sharedStore] addMethodCandidate:candidate
-                                                                                     title:candidate[@"method"]
-                                                                            argumentValues:values
-                                                                                     error:&error];
+    NSDictionary *directConfig = ZNDirectNativeValidatedConfigForCandidate(candidate);
+    ZNRuntimeMethodAction *action = directConfig
+        ? [[ZNRuntimeActionStore sharedStore] addDirectNativeCandidate:candidate
+                                                               config:directConfig
+                                                                title:candidate[@"method"]
+                                                                error:&error]
+        : [[ZNRuntimeActionStore sharedStore] addMethodCandidate:candidate
+                                                          title:candidate[@"method"]
+                                                 argumentValues:values
+                                                          error:&error];
     [self zn60v3_setStatus:action
-        ? [NSString stringWithFormat:@"已加入 Builder：%@ args=%@", action.canonicalIdentity, action.argumentValues ?: @[]]
+        ? [NSString stringWithFormat:@"已加入 Builder：%@ · %@ args=%@",
+            action.canonicalIdentity,
+            action.callMode ?: @"il2cpp-runtime-invoke",
+            action.argumentValues ?: @[]]
         : (error ?: @"创建 Runtime Method Call 失败")];
     [self renderPage];
 }
@@ -446,7 +474,7 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
         CGFloat rowH = 34.0;
         CGFloat argsH = argc ? argc * rowH : 0.0;
         CGFloat signatureH = types.count ? 18.0 : 0.0;
-        CGFloat cardH = MAX(92.0, 60.0 + argsH + signatureH);
+        CGFloat cardH = MAX(126.0, 60.0 + argsH + signatureH);
         UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
 
         UIButton *detail = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -518,10 +546,26 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
         test.layer.borderColor = self.theme.accentColor.CGColor;
         [card addSubview:test];
 
-        UIButton *create = [self zn40_button:@"创建方法" selector:@selector(znm54_createCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 41, rightW, 28)];
+        NSDictionary *directReturn = [abi[@"return"] isKindOfClass:NSDictionary.class] ? abi[@"return"] : @{};
+        BOOL directEligible = (argc == 0 &&
+                               (ZNIL2CPPABIValueKind)[directReturn[@"kind"] integerValue] == ZNIL2CPPABIValueKindVoid &&
+                               [candidate[@"methodPointer"] unsignedLongLongValue] != 0 &&
+                               [candidate[@"rva"] unsignedLongLongValue] != 0);
+        UIButton *direct = [self zn40_button:@"Direct 测试"
+                                    selector:@selector(znm54_directTestCandidate:)
+                                       frame:CGRectMake(card.bounds.size.width - rightW - 10, 41, rightW, 28)];
+        objc_setAssociatedObject(direct, kZNM54CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        direct.enabled = directEligible;
+        direct.alpha = directEligible ? 1.0 : 0.48;
+        direct.titleLabel.font = [self menuFont:8.0 weight:UIFontWeightSemibold];
+        direct.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.14];
+        direct.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.75].CGColor;
+        [card addSubview:direct];
+
+        UIButton *create = [self zn40_button:@"创建方法" selector:@selector(znm54_createCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 75, rightW, 28)];
         objc_setAssociatedObject(create, kZNM54CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        create.enabled = callable;
-        create.alpha = callable ? 1.0 : 0.48;
+        create.enabled = callable || directEligible;
+        create.alpha = create.enabled ? 1.0 : 0.48;
         create.titleLabel.font = [self menuFont:8.2 weight:UIFontWeightSemibold];
         [card addSubview:create];
 
