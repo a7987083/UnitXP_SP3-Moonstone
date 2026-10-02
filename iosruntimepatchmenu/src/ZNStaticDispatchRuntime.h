@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface ZNStaticDispatchRuntime : NSObject
 + (instancetype)sharedRuntime;
 @property(nonatomic,copy,readonly) NSArray<ZNStaticPatchRecord *> *records;
+@property(nonatomic,assign,readonly) uint64_t snapshotGeneration;
 - (void)refresh;
 - (BOOL)setEnabled:(BOOL)enabled forRecord:(ZNStaticPatchRecord *)record error:(NSString * _Nullable * _Nullable)error;
 - (NSArray<NSString *> *)diagnosticLines;
