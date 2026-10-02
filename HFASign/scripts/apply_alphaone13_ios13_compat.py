@@ -119,15 +119,15 @@ nimble_exporter_path.write_text(
 nimble_importer_path = root / "NimbleKit/Sources/NimbleViews/UIKit/FileImporterRepresentableView.swift"
 nimble_importer = nimble_importer_path.read_text()
 old_importer_types = '''public struct FileImporterRepresentableView: UIViewControllerRepresentable {
-    public var allowedContentTypes: [UTType]
-    public var allowsMultipleSelection: Bool = false
-    public var onDocumentsPicked: ([URL]) -> Void
-    
-    public init(
-        allowedContentTypes: [UTType],
-        allowsMultipleSelection: Bool = false,
-        onDocumentsPicked: @escaping ([URL]) -> Void
-    ) {
+	public var allowedContentTypes: [UTType]
+	public var allowsMultipleSelection: Bool = false
+	public var onDocumentsPicked: ([URL]) -> Void
+	
+	public init(
+		allowedContentTypes: [UTType],
+		allowsMultipleSelection: Bool = false,
+		onDocumentsPicked: @escaping ([URL]) -> Void
+	) {
 '''
 new_importer_types = '''public enum FileImporterContentType {
     case xmlPropertyList
@@ -201,7 +201,7 @@ if importer_types_count != 1:
     )
 nimble_importer = nimble_importer.replace(old_importer_types, new_importer_types, 1)
 
-old_importer_picker = "        let picker = UIDocumentPickerViewController(forOpeningContentTypes: allowedContentTypes, asCopy: true)\n"
+old_importer_picker = "\t\tlet picker = UIDocumentPickerViewController(forOpeningContentTypes: allowedContentTypes, asCopy: true)\n"
 new_importer_picker = '''        let picker: UIDocumentPickerViewController
         if #available(iOS 14.0, *) {
             picker = UIDocumentPickerViewController(
