@@ -113,6 +113,7 @@ static NSDictionary *ZNFSDisplay(ZNStaticPatchRecord *record) {
                 @"key": key,
                 @"featureID": @(featureID),
                 @"title": featureTitle ?: @"功能",
+                @"description": record.featureDescription ?: @"",
                 @"controlType": @(controlType),
                 @"valueType": @(valueType),
                 @"sliderMax": sliderMax,
