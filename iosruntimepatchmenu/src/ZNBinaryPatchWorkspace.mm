@@ -139,7 +139,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
     [sites enumerateKeysAndObjectsUsingBlock:^(NSString *key,NSMutableArray<ZNBinaryPatchRow *> *bucket,BOOL *stop){
         (void)key;(void)stop; if(bucket.count<=1)return; shared++;
         NSMutableSet *v=[NSMutableSet set]; for(ZNBinaryPatchRow *r in bucket)[v addObject:r.enabledText.uppercaseString?:@""];
-        NSString *status=v.count>1?@"↔ Shared Site：多个 Variant（临时应用/生成均合并）":@"↔ Shared Site：重复 Variant（临时应用/生成均合并）";
+        NSString *status=v.count>1?@"↔ Shared Site：多个 Variant（临时应用/生成均合并）":@"⚠ 重复 Patch：Target + Offset + Patch 相同（生成时自动合并）";
         for(ZNBinaryPatchRow *r in bucket){r.conflict=NO;if(!r.lowConfidence)r.statusText=status;}
     }];
     self.rows=rows; [self ensureDefaultRows]; self.showJSONFiles=NO;
@@ -165,7 +165,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
         NSString *t=ZNW44TargetForRow(r,self.defaultTarget);NSString *key=[NSString stringWithFormat:@"%@|%llx",t.lowercaseString,v];if(!sites[key])sites[key]=[NSMutableArray array];[sites[key] addObject:r];}
     [sites enumerateKeysAndObjectsUsingBlock:^(NSString *key,NSMutableArray<ZNBinaryPatchRow *> *bucket,BOOL *stop){(void)key;(void)stop;if(bucket.count<=1)return;
         NSMutableSet *variants=[NSMutableSet set];for(ZNBinaryPatchRow *r in bucket)[variants addObject:r.enabledText.uppercaseString?:@""];
-        NSString *s=variants.count>1?@"↔ Shared Site：多个 Variant":@"↔ Shared Site：重复 Variant";
+        NSString *s=variants.count>1?@"↔ Shared Site：多个 Variant":@"⚠ 重复 Patch：内容相同（生成时自动合并）";
         for(ZNBinaryPatchRow *r in bucket)if(!r.validated)r.statusText=s;
     }];
 }
