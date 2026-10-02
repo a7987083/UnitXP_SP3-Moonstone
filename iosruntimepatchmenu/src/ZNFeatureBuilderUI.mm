@@ -4,6 +4,7 @@
 
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNFeatureDescriptionStore.h"
+#import "ZNFeatureControlModel.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
@@ -383,7 +384,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
                                             enabled:!locked];
             [patchCard addSubview:offset];
 
-            ZNFeatureControlType controlType = row.featureControlType;
+            ZNFeatureControlType controlType = [workspace controlTypeForFeature:name];
             BOOL sliderAuthoring = (controlType == ZNFeatureControlTypeSlider);
             BOOL numberAuthoring = (controlType == ZNFeatureControlTypeNumber);
             NSString *secondLabelText = sliderAuthoring ? @"Max" : (numberAuthoring ? @"模板" : @"Enabled");
