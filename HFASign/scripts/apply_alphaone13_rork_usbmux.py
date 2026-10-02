@@ -108,6 +108,41 @@ alt_package = replace_once(
 )
 alt_package_path.write_text(alt_package)
 
+# SwiftUI.Color -> UIColor was introduced in iOS 14. Keep the existing path on
+# newer systems and compile a conservative fallback for the iOS 13 target.
+alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
+alt_color = alt_color_path.read_text()
+alt_color = replace_once(
+    alt_color,
+    '''\t\tguard NativeColor(self).getRed(&r, green: &g, blue: &b, alpha: &o) else {
+\t\t\t// You can handle the failure here as you want
+\t\t\treturn (0, 0, 0, 0)
+\t\t}
+\t\t
+\t\treturn (r, g, b, o)
+''',
+    '''#if canImport(UIKit)
+\t\tif #available(iOS 14.0, *) {
+\t\t\tguard NativeColor(self).getRed(&r, green: &g, blue: &b, alpha: &o) else {
+\t\t\t\treturn (0, 0, 0, 0)
+\t\t\t}
+\t\t\treturn (r, g, b, o)
+\t\t}
+\t\t// SwiftUI did not expose a public Color -> UIColor bridge on iOS 13.
+\t\t// Decoding still preserves source colors; encoding uses a deterministic
+\t\t// opaque fallback instead of invoking an unavailable API.
+\t\treturn (0, 0, 0, 1)
+#elseif canImport(AppKit)
+\t\tguard NativeColor(self).getRed(&r, green: &g, blue: &b, alpha: &o) else {
+\t\t\treturn (0, 0, 0, 0)
+\t\t}
+\t\treturn (r, g, b, o)
+#endif
+''',
+    "AltSourceKit Color UIKit iOS14 bridge",
+)
+alt_color_path.write_text(alt_color)
+
 # IDeviceSwift supplied three app-visible types. Keep the Zonoe API/UI shape and
 # replace only the implementation underneath it.
 import_count = 0
@@ -423,6 +458,7 @@ checks = {
     "rork direct install": "RorkUsbmux.installApp(bundleId: bundleIdentifier)" in bridge_path.read_text(),
     "bundle identifier wired": call_count == 2,
     "AltSourceKit iOS13": ".iOS(.v13)" in alt_package_path.read_text(),
+    "AltSourceKit iOS13 Color guard": "if #available(iOS 14.0, *)" in alt_color_path.read_text(),
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
