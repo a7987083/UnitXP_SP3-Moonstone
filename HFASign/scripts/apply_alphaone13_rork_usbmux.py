@@ -143,6 +143,19 @@ alt_color = replace_once(
 )
 alt_color_path.write_text(alt_color)
 
+# NimbleKit is source-only in the pinned Ksign tree. Lower only its iOS manifest
+# floor so Xcode can compile the module for the app's iOS 13 deployment target;
+# individual newer SwiftUI APIs remain subject to compile-time availability checks.
+nimble_package_path = root / "NimbleKit/Package.swift"
+nimble_package = nimble_package_path.read_text()
+nimble_package = replace_once(
+    nimble_package,
+    "\t\t.iOS(.v16),",
+    "\t\t.iOS(.v13),",
+    "NimbleKit iOS deployment target",
+)
+nimble_package_path.write_text(nimble_package)
+
 # IDeviceSwift supplied three app-visible types. Keep the Zonoe API/UI shape and
 # replace only the implementation underneath it.
 import_count = 0
@@ -459,6 +472,7 @@ checks = {
     "bundle identifier wired": call_count == 2,
     "AltSourceKit iOS13": ".iOS(.v13)" in alt_package_path.read_text(),
     "AltSourceKit iOS13 Color guard": "if #available(iOS 14.0, *)" in alt_color_path.read_text(),
+    "NimbleKit iOS13": ".iOS(.v13)" in nimble_package_path.read_text(),
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
