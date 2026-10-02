@@ -5,6 +5,7 @@
 
 #import "ZNFeatureControlModel.h"
 #import "ZNFeatureMetadataCodec.h"
+#import "ZNFeatureSnapshotProvider.h"
 #import "ZNRangeControl.h"
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
@@ -39,29 +40,7 @@ static NSDictionary *ZNM585RDisplay(ZNStaticPatchRecord *record) {
 }
 
 static NSArray<NSDictionary *> *ZNM585RFeatures(void) {
-    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];
-    [runtime refresh];
-    NSMutableArray *order=[NSMutableArray array];
-    NSMutableDictionary *members=[NSMutableDictionary dictionary],*metadata=[NSMutableDictionary dictionary];
-    for(ZNStaticPatchRecord *record in runtime.records){
-        NSDictionary *display=ZNM585RDisplay(record);
-        NSString *group=ZNM585RTrim(display[@"group"]),*title=ZNM585RTrim(display[@"title"]);
-        uint64_t featureID=[display[@"featureID"] unsignedLongLongValue];
-        BOOL explicitFeature=[display[@"explicitGroup"] boolValue]||(group.length&&[group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame);
-        NSString *key=featureID?[NSString stringWithFormat:@"id:%016llx",featureID]:(explicitFeature?[@"group:" stringByAppendingString:group.lowercaseString]:[NSString stringWithFormat:@"patch:%@:%u",record.target.lowercaseString?:@"",record.patchID]);
-        if(!members[key]){
-            members[key]=[NSMutableArray array];
-            ZNFeatureControlType ct=record.entry?ZNFeatureControlTypeFromFlags(record.entry->flags):ZNFeatureControlTypeSwitch;
-            ZNValueType vt=record.entry?ZNFeatureValueTypeFromFlags(record.entry->flags):ZNValueTypeAuto;
-            NSNumber *sliderMax=[display[@"sliderMax"] isKindOfClass:NSNumber.class]?display[@"sliderMax"]:@0;
-            metadata[key]=[@{@"key":key,@"featureID":@(featureID),@"title":explicitFeature&&group.length?group:(title.length?title:@"功能"),@"controlType":@(ct),@"valueType":@(vt),@"sliderMax":sliderMax} mutableCopy];
-            [order addObject:key];
-        }
-        [members[key] addObject:record];
-    }
-    NSMutableArray *out=[NSMutableArray array];
-    for(NSString *key in order){NSMutableDictionary *item=[metadata[key] mutableCopy];item[@"records"]=[members[key] copy];[out addObject:[item copy]];}
-    return out;
+    return [[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
 }
 
 static NSString *ZNM585RPreferenceKey(NSDictionary *feature,NSString *suffix){
