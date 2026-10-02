@@ -220,9 +220,15 @@ if importer_picker_count != 1:
     raise SystemExit(
         f"iOS13 compat: expected one NimbleKit importer picker construction, found {importer_picker_count}"
     )
-nimble_importer_path.write_text(
-    nimble_importer.replace(old_importer_picker, new_importer_picker, 1)
+nimble_importer = nimble_importer.replace(
+    old_importer_picker,
+    new_importer_picker,
+    1,
 )
+nimble_importer = "\n".join(
+    line.rstrip() for line in nimble_importer.splitlines()
+) + "\n"
+nimble_importer_path.write_text(nimble_importer)
 
 importer_callsite_paths = [
     root / "Ksign/Views/Settings/Certificates/CertificatesAddView.swift",
