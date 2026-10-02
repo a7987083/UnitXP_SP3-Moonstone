@@ -9,6 +9,7 @@
 static const NSInteger kZNRMCBuilderDeleteTagBase = 671000;
 static const NSInteger kZNRMCBuilderTitleTagBase = 672000;
 static const NSInteger kZNRMCBuilderArgumentTagBase = 674000;
+static const NSInteger kZNRMCBuilderDescriptionTagBase = 675000;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -51,6 +52,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
 - (void)znrmc_clearAuthoringActions:(id)sender;
 - (void)znrmc_deleteAuthoringAction:(UIButton *)sender;
 - (void)znrmc_titleEditingEnded:(UITextField *)field;
+- (void)znrmc_descriptionEditingEnded:(UITextField *)field;
 - (void)znrmc_argumentEditingChanged:(UITextField *)field;
 - (void)znrmc_argumentEditingEnded:(UITextField *)field;
 @end
@@ -93,7 +95,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
         for (NSUInteger i = 0; i < actions.count; i++) {
             ZNRuntimeMethodAction *action = actions[i];
             BOOL hasArgument = action.argumentCount == 1;
-            CGFloat cardH = hasArgument ? 116.0 : 76.0;
+            CGFloat cardH = hasArgument ? 149.0 : 109.0;
             UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
 
             UITextField *name = ZNRMCBuilderTextField(CGRectMake(13, 7, card.bounds.size.width - 82, 27), self.theme);
@@ -113,17 +115,21 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
                                         size:7.8
                                       weight:UIFontWeightRegular
                                        color:self.theme.secondaryTextColor];
-            identity.frame = CGRectMake(13, 40, card.bounds.size.width - 26, 25);
+            identity.frame = CGRectMake(13, 40, card.bounds.size.width - 26, 20);
             identity.numberOfLines = 2;
             identity.lineBreakMode = NSLineBreakByTruncatingMiddle;
             [card addSubview:identity];
 
-            if (hasArgument) {
-                UILabel *argLabel = [self label:@"参数 1" size:8.2 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-                argLabel.frame = CGRectMake(13, 77, 44, 27);
-                [card addSubview:argLabel];
+            UITextField *description = ZNRMCBuilderTextField(CGRectMake(13, 65, card.bounds.size.width - 26, 29), self.theme);
+            description.tag = kZNRMCBuilderDescriptionTagBase + (NSInteger)i;
+            description.text = action.featureDescription ?: @"";
+            description.placeholder = @"功能说明";
+            description.font = [UIFont systemFontOfSize:9.2 weight:UIFontWeightRegular];
+            [description addTarget:self action:@selector(znrmc_descriptionEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+            [card addSubview:description];
 
-                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(59, 75, card.bounds.size.width - 72, 31), self.theme);
+            if (hasArgument) {
+                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(13, 104, card.bounds.size.width - 26, 31), self.theme);
                 argument.tag = kZNRMCBuilderArgumentTagBase + (NSInteger)i;
                 argument.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
                 argument.placeholder = @"参数值";
@@ -163,6 +169,16 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
     }
     NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
     if ((NSUInteger)index < actions.count) field.text = actions[(NSUInteger)index].title;
+    [field resignFirstResponder];
+}
+
+- (void)znrmc_descriptionEditingEnded:(UITextField *)field {
+    NSInteger index = field.tag - kZNRMCBuilderDescriptionTagBase;
+    if (index < 0) return;
+    NSString *error = nil;
+    [[ZNRuntimeActionStore sharedStore] updateFeatureDescription:field.text atIndex:(NSUInteger)index error:&error];
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if ((NSUInteger)index < actions.count) field.text = actions[(NSUInteger)index].featureDescription ?: @"";
     [field resignFirstResponder];
 }
 
