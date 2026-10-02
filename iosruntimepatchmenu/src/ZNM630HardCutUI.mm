@@ -334,15 +334,27 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     for (NSUInteger i=0;i<features.count;i++) {
         NSDictionary *feature=features[i];
         NSString *title=[feature[@"title"] isKindOfClass:NSString.class]?feature[@"title"]:@"功能";
+        NSString *description=[feature[@"description"] isKindOfClass:NSString.class]?feature[@"description"]:@"";
         ZNFeatureControlType type=(ZNFeatureControlType)[feature[@"controlType"] unsignedIntValue];
 
-        CGFloat h=compact?42.0:48.0;
+        CGFloat h=compact?42.0:(description.length?60.0:48.0);
         UIView *card=[self cardAtY:y height:h width:width compact:compact];
 
+        CGFloat textWidth=MAX(40.0,CGRectGetWidth(card.bounds)-(compact?88:108));
         UILabel *name=[self label:title size:(compact?10.8:11.5) weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
-        name.frame=CGRectMake(compact?10:13,0,MAX(40.0,CGRectGetWidth(card.bounds)-(compact?88:108)),h);
+        name.frame=compact
+            ? CGRectMake(10,0,textWidth,h)
+            : CGRectMake(13,description.length?6.0:0,textWidth,description.length?24.0:h);
         name.lineBreakMode=NSLineBreakByTruncatingTail;
         [card addSubview:name];
+
+        if(!compact&&description.length){
+            UILabel *detail=[self label:description size:8.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            detail.frame=CGRectMake(13,29.0,textWidth,22.0);
+            detail.numberOfLines=1;
+            detail.lineBreakMode=NSLineBreakByTruncatingTail;
+            [card addSubview:detail];
+        }
 
         if (type==ZNFeatureControlTypeSwitch) {
             UISwitch *toggle=[UISwitch new];
@@ -358,7 +370,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
         } else if (type==ZNFeatureControlTypeButton) {
             UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
             button.tag=kZNM630HardCutButtonTagBase+(NSInteger)i;
-            button.frame=CGRectMake(CGRectGetWidth(card.bounds)-(compact?72:86),compact?7:8,compact?62:72,compact?28:32);
+            button.frame=CGRectMake(CGRectGetWidth(card.bounds)-(compact?72:86),(h-(compact?28:32))*0.5,compact?62:72,compact?28:32);
             [button setTitle:@"执行" forState:UIControlStateNormal];
             [button setTitleColor:self.theme.primaryTextColor forState:UIControlStateNormal];
             button.backgroundColor=self.theme.controlColor;
@@ -374,6 +386,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
             CGFloat x=CGRectGetWidth(card.bounds)-totalW-(compact?7.0:10.0);
 
             UITextField *field=[[UITextField alloc] initWithFrame:CGRectMake(x,compact?7.0:8.0,totalW-executeW-gap,compact?28.0:32.0)];
+            field.frame=CGRectMake(field.frame.origin.x,(h-field.frame.size.height)*0.5,field.frame.size.width,field.frame.size.height);
             field.tag=kZNM630HardCutNumberFieldTagBase+(NSInteger)i;
             field.text=ZNM630StoredText(feature,@"0");
             field.textAlignment=NSTextAlignmentCenter;
@@ -410,7 +423,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
             CGFloat valueW=compact?38.0:44.0;
             CGFloat left=compact?72.0:92.0;
             CGFloat right=valueW+(compact?8.0:10.0);
-            UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(left,compact?7.0:8.0,MAX(40.0,CGRectGetWidth(card.bounds)-left-right),compact?28.0:32.0)];
+            UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(left,(h-(compact?28.0:32.0))*0.5,MAX(40.0,CGRectGetWidth(card.bounds)-left-right),compact?28.0:32.0)];
             slider.tag=kZNM630HardCutSliderTagBase+(NSInteger)i;
             slider.minimumValue=0.0f;
             slider.maximumValue=(float)max;
