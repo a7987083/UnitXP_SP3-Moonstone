@@ -529,7 +529,7 @@ checks = {
     "NimbleKit iOS13": ".iOS(.v13)" in nimble_package_path.read_text(),
     "Nimble Date.now backport": "Date = Date()" in nimble_date_path.read_text(),
     "Nimble namespace removed": "@Namespace" not in all_swift,
-    "Nimble compat searchable": searchable_count == 4,
+    "Nimble compat searchable": searchable_count == 3,\n    "No raw platform searchable": "placement: .platform()" not in all_swift,
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
