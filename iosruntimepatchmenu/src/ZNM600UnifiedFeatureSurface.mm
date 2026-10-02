@@ -255,8 +255,7 @@ extern "C" BOOL ZNM620TemporaryRestoreOffsetValue(uintptr_t address, NSString **
     if(!hooks.count)return [self znm600_applyText:text info:info error:error];
 
     ZNValueType type=(ZNValueType)[info[@"valueType"] integerValue];
-    ZNFeatureControlType control=(ZNFeatureControlType)[info[@"controlType"] integerValue];
-    if(type==ZNValueTypeAuto)type=(control==ZNFeatureControlTypeSlider)?ZNValueTypeF32:ZNValueTypeI32;
+    if(type==ZNValueTypeAuto){if(error)*error=@"ValueType=Auto 无法安全执行；请在生成前选择明确类型";return NO;}
     uint64_t raw=0;NSString *local=nil;
     if(!ZNM600RawValue(text,type,&raw,&local)){if(error)*error=local;return NO;}
 
