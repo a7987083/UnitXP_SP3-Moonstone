@@ -323,7 +323,7 @@ new_list_body = '''\t@ViewBuilder
 \t\t\t\t.navigationBarTitleDisplayMode(_mode)
 \t\t} else {
 \t\t\t_listContent
-\t\t\t\t.navigationBarTitle(_title, displayMode: _mode)
+\t\t\t\t.navigationBarTitle(Text(_title), displayMode: _mode)
 \t\t}
 \t}
 
