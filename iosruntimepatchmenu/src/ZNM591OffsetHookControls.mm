@@ -203,7 +203,7 @@ static void ZNM591InstrumentCallback(void *address,DobbyRegisterContext *ctx) {
 
 static BOOL ZNM591RawValue(NSString *text,ZNValueType type,uint64_t *out,NSString **error) {
     NSString *s=ZNM591Trim(text);
-    if(type==ZNValueTypeF32){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F32";return NO;}float f=(float)d;uint32_t u=0;memcpy(&u,&f,4);if(out)*out=u;return YES;}
+    if(type==ZNValueTypeF32){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F32";return NO;}float f=(float)d;if(!isfinite(f)){if(error)*error=@"F32 超出可表示范围";return NO;}uint32_t u=0;memcpy(&u,&f,4);if(out)*out=u;return YES;}
     if(type==ZNValueTypeF64){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F64";return NO;}uint64_t u=0;memcpy(&u,&d,8);if(out)*out=u;return YES;}
     if(type==ZNValueTypeI32||type==ZNValueTypeI64){NSScanner *sc=[NSScanner scannerWithString:s];long long v=0;if(![sc scanLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效有符号整数";return NO;}if(type==ZNValueTypeI32&&(v<INT32_MIN||v>INT32_MAX)){if(error)*error=@"超出 I32";return NO;}if(out)*out=(uint64_t)v;return YES;}
     if(type==ZNValueTypeU32||type==ZNValueTypeU64){if([s hasPrefix:@"-"]){if(error)*error=@"无效无符号整数";return NO;}NSScanner *sc=[NSScanner scannerWithString:s];unsigned long long v=0;if(![sc scanUnsignedLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效无符号整数";return NO;}if(type==ZNValueTypeU32&&v>UINT32_MAX){if(error)*error=@"超出 U32";return NO;}if(out)*out=v;return YES;}
@@ -239,8 +239,7 @@ static BOOL ZNM591InstallOrUpdate(uintptr_t address,ZNValueType type,uint64_t ra
     for(ZNStaticPatchRecord *r in runtime.records){if(ZNM591RecordMatches(r,info)&&r.entry&&(r.entry->flags&ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1))[hooks addObject:r];}
     if(!hooks.count)return [self znm591_applyText:text info:info error:error];
     ZNValueType authored=(ZNValueType)[info[@"valueType"] integerValue];
-    ZNFeatureControlType control=(ZNFeatureControlType)[info[@"controlType"] integerValue];
-    if(authored==ZNValueTypeAuto)authored=(control==ZNFeatureControlTypeSlider)?ZNValueTypeF32:ZNValueTypeI32;
+    if(authored==ZNValueTypeAuto){if(error)*error=@"ValueType=Auto 无法安全执行；请在生成前选择明确类型";return NO;}
     uint64_t raw=0;NSString *local=nil;
     if(!ZNM591RawValue(text,authored,&raw,&local)){if(error)*error=local;return NO;}
     for(ZNStaticPatchRecord *r in hooks){
