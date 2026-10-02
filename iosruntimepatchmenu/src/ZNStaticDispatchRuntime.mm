@@ -11,6 +11,7 @@
 @property(nonatomic,copy,readwrite) NSString *target;
 @property(nonatomic,copy,readwrite) NSString *title;
 @property(nonatomic,copy,readwrite) NSString *group;
+@property(nonatomic,copy,readwrite) NSString *featureDescription;
 @property(nonatomic,assign,readwrite) uint64_t siteRVA;
 @property(nonatomic,assign,readwrite) uint32_t patchID;
 @property(nonatomic,assign,readwrite,getter=isEnabled) BOOL enabled;
@@ -181,6 +182,20 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     if (!ZN44HeaderValid(header, headerAddress, regionEnd)) return NO;
 
     ZN44StaticEntry *entries = (ZN44StaticEntry *)(headerAddress + sizeof(ZN44StaticHeader));
+    const ZN44FeatureDescriptionEntry *descriptionEntries = NULL;
+    uint64_t descriptionOffset=(sizeof(ZN44StaticHeader)+(uint64_t)header->count*sizeof(ZN44StaticEntry)+7u)&~UINT64_C(7);
+    uintptr_t descriptionAddress=headerAddress+(uintptr_t)descriptionOffset;
+    if(descriptionAddress+sizeof(ZN44FeatureDescriptionHeader)<=regionEnd){
+        const ZN44FeatureDescriptionHeader *descriptionHeader=(const ZN44FeatureDescriptionHeader *)descriptionAddress;
+        uint64_t descriptionBytes=sizeof(*descriptionHeader)+(uint64_t)descriptionHeader->count*sizeof(ZN44FeatureDescriptionEntry);
+        if(descriptionHeader->magic0==ZN44_FEATURE_DESC_MAGIC0 &&
+           descriptionHeader->magic1==ZN44_FEATURE_DESC_MAGIC1 &&
+           descriptionHeader->count==header->count &&
+           descriptionHeader->entrySize==sizeof(ZN44FeatureDescriptionEntry) &&
+           descriptionAddress+descriptionBytes<=regionEnd){
+            descriptionEntries=(const ZN44FeatureDescriptionEntry *)(descriptionHeader+1);
+        }
+    }
     if (!ZN55ValidateProtectedHeader(header, entries)) {
         ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] integrity FAIL target=%@ header=%p", targetName, (void *)headerAddress]);
         return NO;
@@ -228,6 +243,14 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
         record.target = targetName;
         record.title = ZN44StringFromFixed(entry->title, sizeof(entry->title), [NSString stringWithFormat:@"Patch #%u", entry->patchID]);
         record.group = ZN44StringFromFixed(entry->group, sizeof(entry->group), @"Imported");
+        record.featureDescription=@"";
+        if(descriptionEntries){
+            const ZN44FeatureDescriptionEntry *desc=&descriptionEntries[e];
+            if(desc->patchID==entry->patchID && desc->length<=ZN44_FEATURE_DESC_MAX_UTF8){
+                NSString *decoded=[[NSString alloc] initWithBytes:desc->text length:desc->length encoding:NSUTF8StringEncoding];
+                if(decoded.length)record.featureDescription=decoded;
+            }
+        }
         record.siteRVA = entryRVAs.siteRVA;
         record.patchID = entry->patchID;
         record.imageBase = runtimeHeader;
