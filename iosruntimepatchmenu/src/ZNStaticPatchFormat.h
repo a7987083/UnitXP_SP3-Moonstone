@@ -17,6 +17,29 @@
 #define ZN44_STATIC_VERSION ZN44_STATIC_VERSION_V1
 #define ZN44_STATIC_MAX_ENTRIES 512u
 
+// M6.3 Feature Description table. This table follows the fixed Static Entry
+// array inside __ZNDATA. It does not change the 128-byte ZN44StaticEntry ABI
+// and does not consume ZN44StaticHeader.reserved[], which belong to RVA
+// Protection V1.
+#define ZN44_FEATURE_DESC_MAGIC0 UINT64_C(0x31435345444E5A46) /* "FZNDESC1" */
+#define ZN44_FEATURE_DESC_MAGIC1 UINT64_C(0x3154454D41544E5A) /* "ZNTAMET1" */
+#define ZN44_FEATURE_DESC_MAX_UTF8 120u
+
+typedef struct {
+    uint64_t magic0;
+    uint64_t magic1;
+    uint32_t count;
+    uint32_t entrySize;
+} ZN44FeatureDescriptionHeader;
+
+typedef struct {
+    uint32_t patchID;
+    uint16_t length;
+    uint16_t reserved;
+    char text[ZN44_FEATURE_DESC_MAX_UTF8];
+} ZN44FeatureDescriptionEntry;
+
+
 #define ZN44_STATIC_HEADER_FLAG_FEATURE_METADATA_V1 UINT32_C(0x00000001)
 #define ZN44_STATIC_HEADER_FLAG_RVA_PROTECTION_V1   UINT32_C(0x00000002)
 #define ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2 UINT32_C(0x00000004)
@@ -71,6 +94,8 @@ typedef struct {
 #if defined(__cplusplus)
 static_assert(sizeof(ZN44StaticHeader) == 64, "ZN44StaticHeader ABI");
 static_assert(sizeof(ZN44StaticEntry) == 128, "ZN44StaticEntry ABI");
+static_assert(sizeof(ZN44FeatureDescriptionHeader) == 24, "ZN44FeatureDescriptionHeader ABI");
+static_assert(sizeof(ZN44FeatureDescriptionEntry) == 128, "ZN44FeatureDescriptionEntry ABI");
 static_assert(offsetof(ZN44StaticEntry, selectedTarget) == 0, "selectedTarget must stay first");
 static_assert(offsetof(ZN44StaticEntry, physicalID) == 116, "v2/v3 tail must preserve v1 ABI");
 static_assert(offsetof(ZN44StaticEntry, group) == offsetof(ZN44StaticEntry, title) + 48, "title/group must remain contiguous for ZNF1 metadata");
