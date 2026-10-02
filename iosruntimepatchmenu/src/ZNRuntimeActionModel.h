@@ -16,6 +16,8 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 
 @interface ZNRuntimeMethodAction : NSObject <NSCopying>
 @property(nonatomic,assign) uint32_t actionID;
+@property(nonatomic,copy) NSString *callMode;
+@property(nonatomic,copy) NSDictionary<NSString *, id> *executionMetadata;
 @property(nonatomic,copy) NSString *title;
 @property(nonatomic,copy) NSString *descriptionText;
 @property(nonatomic,copy) NSString *group;
@@ -44,6 +46,10 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
                                                  title:(nullable NSString *)title
                                         argumentValues:(NSArray<NSString *> *)argumentValues
                                                  error:(NSString * _Nullable * _Nullable)error;
+- (nullable ZNRuntimeMethodAction *)addDirectNativeCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                     config:(NSDictionary<NSString *, id> *)config
+                                                      title:(nullable NSString *)title
+                                                      error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)updateTitle:(nullable NSString *)title
             atIndex:(NSUInteger)index
               error:(NSString * _Nullable * _Nullable)error;
