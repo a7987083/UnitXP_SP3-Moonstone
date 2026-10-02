@@ -46,7 +46,12 @@ jobs:
           # macos-15 runner may retain an openssl@1.1 link while ldid pulls openssl@3.
           # Unlink only the stale keg; do not upgrade the compiler/SDK/toolchain.
           brew unlink openssl@1.1 || true
-          brew install ldid cmake
+          if ! brew install ldid cmake; then
+            # GitHub's macos image can leave /opt/homebrew/bin/openssl as a stale
+            # openssl@1.1 symlink even when brew reports zero links removed.
+            brew link --overwrite openssl@3
+            brew install ldid cmake
+          fi
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
