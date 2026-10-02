@@ -22,9 +22,10 @@ options_path = ROOT / "Ksign/Views/Signing/Shared/SigningOptionsView.swift"
 options = options_path.read_text()
 section = "\t\tZonoeUDIDCallbackSection(isEnabled: $options.zonoeUDIDCallbackEnabled)\n\n"
 if section not in options:
-    marker = '\t\tNBSection("实验性功能") {'
-    require(marker in options, "alphaone13 inbox restore: SigningOptionsView insertion marker missing")
-    options = options.replace(marker, section + marker, 1)
+    match = re.search(r"(\n\s*var body: some View \{\n)", options, flags=re.S)
+    require(match is not None, "alphaone13 inbox restore: SigningOptionsView body marker missing")
+    insert_at = match.end()
+    options = options[:insert_at] + section + options[insert_at:]
 options_path.write_text(options)
 
 
