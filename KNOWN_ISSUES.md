@@ -1,5 +1,17 @@
 # KNOWN_ISSUES
 
+## KI-M513-INPUT-001 — Device compatibility not yet verified
+
+Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
+
+M5.13 removes the second key-window design from custom numeric/hex input and routes Offset/Patch/Runtime numeric values through custom pads. CI proves source/build/binary contracts only; it does not prove the target game's Unity/native keyboard bridge will no longer interfere on device. The affected game must be used for acceptance.
+
+## KI-M513-INPUT-002 — System-text responder recovery is bounded
+
+Status: `DESIGNED / DEVICE PENDING`
+
+Name/description fields still use the system keyboard. KeyboardService attempts responder recovery at most two times after keyboard presentation. This deliberately avoids an infinite responder fight with the host game. If the game continuously reclaims first responder, text fields may still require a future fully custom QWERTY pad.
+
 ## KI-M512-EXT-001 — Cross-dylib activation 待编译/真机验证
 
 Severity: `HIGH`  

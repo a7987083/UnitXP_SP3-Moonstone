@@ -1,5 +1,26 @@
 # ROADMAP
 
+## M5.13 — Unified Input Service
+
+### Completed in source/CI
+
+- [x] Custom Offset/address pad.
+- [x] Custom Patch HEX pad.
+- [x] Custom Runtime numeric/flexible pad.
+- [x] No second key UIWindow / no `makeKeyAndVisible` in the custom pad path.
+- [x] System-text KeyboardService with bounded responder recovery.
+- [x] Normal + ExternalOnly builds.
+- [x] Binary verification and artifact upload.
+
+### Device acceptance remaining
+
+- [ ] In the affected game, tapping Offset must open ZonoPatch custom pad without the game's `Send` input overlay.
+- [ ] Offset entry must persist into `ZNBinaryPatchWorkspace`.
+- [ ] Patch HEX entry must persist and validate.
+- [ ] Runtime numeric argument entry must update `ZNRuntimeActionStore`.
+- [ ] Name/description system-text fields must remain usable if the game tries to steal responder.
+- [ ] Normal and ExternalOnly launch behavior must remain unchanged.
+
 ## Current milestone — M5.12 OffsetClosure
 
 Repository: `a7987083/UnitXP_SP3-Moonstone`  

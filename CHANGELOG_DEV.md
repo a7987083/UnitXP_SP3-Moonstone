@@ -1,5 +1,56 @@
 # CHANGELOG_DEV
 
+## 2026-10-02 — M5.13 Unified Input Service
+
+### 目标
+
+解决部分 Unity 游戏在 ZonoPatch 拉起系统键盘后，游戏自己的 native/Unity 输入桥抢走 first responder，导致 ZonoPatch 输入框无法接收字符的问题。
+
+### 实际修改
+
+- 新分支 `feature/m5.13-input-service-v1`，基于 M5.12 双变体完成线。
+- 新增 `ZNInputService.h`，统一输入模式：
+  - SystemText
+  - Integer
+  - Decimal
+  - HexAddress
+  - HexBytes
+  - NumericFlexible
+- 重构 `ZNStandaloneNumericKeypad.mm`：
+  - 自定义数值/HEX Pad 不再创建第二个 key UIWindow。
+  - 不再调用 `makeKeyAndVisible`。
+  - 使用现有 ViewController presentation hierarchy，以 `UIModalPresentationOverFullScreen` 呈现。
+  - 自定义输入字段本身不进入 first-responder 输入链；透明 touch overlay 负责打开 Pad。
+- Ordinary Offset：
+  - Offset -> HexAddress Pad。
+  - Enabled/Patch HEX -> HexBytes Pad。
+- Runtime Method Builder：
+  - 数值参数 -> NumericFlexible Pad。
+  - 标题/说明 -> SystemText + KeyboardService。
+- KeyboardService 监听 willShow/didShow/willHide/didHide，记录 active field，并在系统键盘出现后提供最多 2 次有限 responder recovery；避免无限 responder fight。
+- 保留 M5.12 Offset/Runtime backend，不改 patch write / IL2CPP invoke 行为。
+
+### CI
+
+- Run `36978059843`：首次失败于 hosted Homebrew openssl@1.1 / openssl@3 link conflict，非源码错误。
+- Run `36978236824`：进入编译，首个源码错误为 keypad completion retain-cycle warning-as-error。
+- Run `36978397588`：Normal / ExternalOnly 均编译成功；Binary Verify 因 `strings | grep -q` + pipefail 产生 flush 假阴性。
+- Final Run `36978655147`：Source Contract / dependencies / Dobby / Normal / ExternalOnly / Binary Verify / Artifact Upload 全部 SUCCESS。
+- Artifact ID `11214802305`。
+- Artifact digest `sha256:55aaf87c4a047b9d518e61a834d526b5656cb24c411e409d9ff3b048c8e0be3b`。
+- Normal SHA256 `e8b703b04f56a0231820ad49e94d648b21b9676ebfe9af524852a48d1894ded7`。
+- ExternalOnly SHA256 `c5900d01b6fa72f77cf84be28c37afb38bb472dfd483af8f221de699185f8a34`。
+
+### 验证边界
+
+- 已修改：YES。
+- 已提交：YES。
+- 已编译：YES。
+- Binary Verify：YES。
+- Artifact：YES。
+- 已运行：NO。
+- 已实机验证：NO。
+
 ## 2026-10-02 — M5.12 Cross-dylib Activation API
 
 ### 实际修改

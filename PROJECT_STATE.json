@@ -1,12 +1,12 @@
 {
-  "schema_version": 27,
+  "schema_version": 28,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
-  "version": "0.5.12-dev",
-  "milestone": "M5.12",
-  "phase": "offset-closure-dual-launch-variants",
-  "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
-  "branch": "recovery/m5.12-historical-offset-closure",
+  "version": "0.5.13-dev",
+  "milestone": "M5.13",
+  "phase": "unified-input-service",
+  "phase_status": "ci-binary-artifact-verified-device-validation-pending",
+  "branch": "feature/m5.13-input-service-v1",
   "baseline": "6f4baa44d612551c3a0a25013d960719bc468f06",
   "external_api": {
     "header": "iosruntimepatchmenu/src/ZonoePatchAPI.h",
@@ -26,7 +26,7 @@
     "run": false,
     "device_verified": false
   },
-  "next_task": "Device-test Normal launcher behavior and ExternalOnly peer-dylib ZonoePatchActivate() path.",
+  "next_task": "Device-test custom Offset/Runtime numeric pads in the affected game; then test bounded system-text responder recovery.",
   "captured_at": "2026-10-02",
   "dual_variant_build": {
     "build_anchor": "e0fda5a52b786eab11724152068efa5a5da396ce",
@@ -47,5 +47,26 @@
       "cold_launcher": false,
       "activation_symbol": "ZonoePatchActivate"
     }
+  },
+  "input_service": {
+    "header": "iosruntimepatchmenu/src/ZNInputService.h",
+    "no_custom_key_window": true,
+    "custom_modes": [
+      "integer",
+      "decimal",
+      "hex-address",
+      "hex-bytes",
+      "numeric-flexible"
+    ],
+    "system_text_keyboard_service": true,
+    "responder_recovery_max_attempts": 2,
+    "offset_custom_pad": true,
+    "runtime_numeric_custom_pad": true
+  },
+  "ci": {
+    "run_id": 36978655147,
+    "result": "success",
+    "artifact_id": 11214802305,
+    "artifact_digest": "sha256:55aaf87c4a047b9d518e61a834d526b5656cb24c411e409d9ff3b048c8e0be3b"
   }
 }
