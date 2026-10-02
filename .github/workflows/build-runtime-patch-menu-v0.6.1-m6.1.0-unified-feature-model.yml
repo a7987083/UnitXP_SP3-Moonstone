@@ -31,8 +31,15 @@ jobs:
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
       - name: Install dependencies
         run: |
+          set -euxo pipefail
           brew update
+          # macos-15-arm64 runner currently ships openssl@1.1 linked while
+          # Homebrew ldid pulls openssl@3. Unlink the legacy formula first so
+          # dependency installation does not fail at brew link.
+          brew unlink openssl@1.1 || true
           brew install ldid cmake
+          command -v ldid
+          command -v cmake
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
