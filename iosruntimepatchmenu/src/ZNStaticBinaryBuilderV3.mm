@@ -1057,6 +1057,28 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         ZNV3CopyFixed(entry.group,sizeof(entry.group),logical.row.group.length?logical.row.group:@"Imported");
                     }
 
+                    uint64_t descOffset=ZNV3Align(sizeof(ZN44StaticHeader)+logicals.size()*sizeof(ZN44StaticEntry),8);
+                    ZN44FeatureDescriptionHeader *descHeader=(ZN44FeatureDescriptionHeader *)((uint8_t *)header+descOffset);
+                    memset(descHeader,0,sizeof(*descHeader)+logicals.size()*sizeof(ZN44FeatureDescriptionEntry));
+                    descHeader->magic0=ZN44_FEATURE_DESC_MAGIC0;
+                    descHeader->magic1=ZN44_FEATURE_DESC_MAGIC1;
+                    descHeader->count=(uint32_t)logicals.size();
+                    descHeader->entrySize=sizeof(ZN44FeatureDescriptionEntry);
+                    ZN44FeatureDescriptionEntry *descEntries=(ZN44FeatureDescriptionEntry *)(descHeader+1);
+                    for(size_t i=0;i<logicals.size();i++){
+                        ZN44FeatureDescriptionEntry &descEntry=descEntries[i];
+                        descEntry.patchID=(uint32_t)i+1u;
+                        NSData *utf8=[logicals[i].row.featureDescription dataUsingEncoding:NSUTF8StringEncoding]?:[NSData data];
+                        NSUInteger length=MIN((NSUInteger)ZN44_FEATURE_DESC_MAX_UTF8,utf8.length);
+                        while(length>0){
+                            NSData *candidate=[utf8 subdataWithRange:NSMakeRange(0,length)];
+                            if([[NSString alloc] initWithData:candidate encoding:NSUTF8StringEncoding])break;
+                            length--;
+                        }
+                        descEntry.length=(uint16_t)length;
+                        if(length)memcpy(descEntry.text,utf8.bytes,length);
+                    }
+
                     if(msync(base,(size_t)newFileSize,MS_SYNC)!=0){localError=[NSString stringWithFormat:@"msync 失败：errno=%d",errno];break;}
 
                     success=YES;
@@ -1112,7 +1134,9 @@ BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
     for(ZNBinaryPatchRow *row in workspace.rows){
         if(!row.offsetText.length&&!row.enabledText.length)continue;
         if(!row.validated||!row.validator){if(error)*error=@"所有已填写 Patch 必须先“读取验证”通过";return NO;}
-        NSString *target=(row.explicitTarget&&row.target.length)?row.target:workspace.defaultTarget;
+        NSString *global=[workspace.defaultTarget ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        BOOL autoTarget=!global.length||[global caseInsensitiveCompare:@"自动"]==NSOrderedSame||[global caseInsensitiveCompare:@"auto"]==NSOrderedSame;
+        NSString *target=autoTarget?((row.explicitTarget&&row.target.length)?row.target:@"main"):global;
         if(!groups[target])groups[target]=[NSMutableArray array];
         [groups[target] addObject:row];
     }
