@@ -65,7 +65,7 @@ static BOOL ZNM600RecordMatches(ZNStaticPatchRecord *record, NSDictionary *info)
 
 static BOOL ZNM600RawValue(NSString *text, ZNValueType type, uint64_t *out, NSString **error) {
     NSString *s=ZNM600Trim(text);
-    if(type==ZNValueTypeF32){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F32";return NO;}float f=(float)d;uint32_t u=0;memcpy(&u,&f,4);if(out)*out=u;return YES;}
+    if(type==ZNValueTypeF32){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F32";return NO;}float f=(float)d;if(!isfinite(f)){if(error)*error=@"F32 超出可表示范围";return NO;}uint32_t u=0;memcpy(&u,&f,4);if(out)*out=u;return YES;}
     if(type==ZNValueTypeF64){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F64";return NO;}uint64_t u=0;memcpy(&u,&d,8);if(out)*out=u;return YES;}
     if(type==ZNValueTypeI32||type==ZNValueTypeI64){NSScanner *sc=[NSScanner scannerWithString:s];long long v=0;if(![sc scanLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效有符号整数";return NO;}if(type==ZNValueTypeI32&&(v<INT32_MIN||v>INT32_MAX)){if(error)*error=@"超出 I32";return NO;}if(out)*out=(uint64_t)v;return YES;}
     if(type==ZNValueTypeU32||type==ZNValueTypeU64){if([s hasPrefix:@"-"]){if(error)*error=@"无效无符号整数";return NO;}NSScanner *sc=[NSScanner scannerWithString:s];unsigned long long v=0;if(![sc scanUnsignedLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效无符号整数";return NO;}if(type==ZNValueTypeU32&&v>UINT32_MAX){if(error)*error=@"超出 U32";return NO;}if(out)*out=v;return YES;}
@@ -174,6 +174,72 @@ static BOOL ZNM600InstallOrUpdate(uintptr_t address, ZNValueType type, uint32_t 
     os_unfair_lock_unlock(&gZNM600HookLock);
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.0-offset-hook] installed address=%p type=%ld integerReg=X%u",(void *)address,(long)type,integerRegister]];
     return YES;
+}
+
+
+static BOOL ZNM600DestroyHook(uintptr_t address, NSString **error) {
+    if (!address) { if (error) *error = @"Offset Hook 地址无效"; return NO; }
+    os_unfair_lock_lock(&gZNM600HookLock);
+    uint32_t count=gZNM600HookCount.load(std::memory_order_relaxed);
+    uint32_t found=UINT32_MAX;
+    for(uint32_t i=0;i<count;i++) if(gZNM600Hooks[i].address==address){found=i;break;}
+    if(found==UINT32_MAX){os_unfair_lock_unlock(&gZNM600HookLock);return YES;}
+
+    int rc=DobbyDestroy((void *)address);
+    if(rc!=0){
+        os_unfair_lock_unlock(&gZNM600HookLock);
+        if(error)*error=[NSString stringWithFormat:@"DobbyDestroy 失败 rc=%d",rc];
+        return NO;
+    }
+    for(uint32_t i=found;i+1<count;i++){
+        gZNM600Hooks[i].address=gZNM600Hooks[i+1].address;
+        gZNM600Hooks[i].type=gZNM600Hooks[i+1].type;
+        gZNM600Hooks[i].integerRegister=gZNM600Hooks[i+1].integerRegister;
+        gZNM600Hooks[i].raw.store(gZNM600Hooks[i+1].raw.load(std::memory_order_relaxed),std::memory_order_relaxed);
+    }
+    if(count){
+        uint32_t last=count-1;
+        gZNM600Hooks[last].address=0;
+        gZNM600Hooks[last].type=0;
+        gZNM600Hooks[last].integerRegister=0;
+        gZNM600Hooks[last].raw.store(0,std::memory_order_relaxed);
+        gZNM600HookCount.store(last,std::memory_order_release);
+    }
+    os_unfair_lock_unlock(&gZNM600HookLock);
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.2-temp-value] restored address=%p",(void *)address]];
+    return YES;
+}
+
+// M6.2 authoring-only test API. It reuses the proven M6.0 safe Offset Hook ABI
+// but does not change Runtime/IL2CPP authoring. ValueType must come from imported
+// metadata or an explicit user choice; Auto is never guessed.
+extern "C" BOOL ZNM620TemporaryApplyOffsetValue(NSString *target,
+                                                 uint64_t rva,
+                                                 ZNValueType type,
+                                                 NSString *text,
+                                                 uintptr_t *outAddress,
+                                                 NSString **error) {
+    if(type==ZNValueTypeAuto){if(error)*error=@"请选择 ValueType；M6.2 不根据字节猜测类型";return NO;}
+    uint64_t raw=0;NSString *local=nil;
+    if(!ZNM600RawValue(text,type,&raw,&local)){if(error)*error=local;return NO;}
+    if(!ZNM600RequireExactMethodEntry(rva,&local)){if(error)*error=local;return NO;}
+
+    uint32_t integerRegister=0;
+    if(type==ZNValueTypeI32||type==ZNValueTypeU32||type==ZNValueTypeI64||type==ZNValueTypeU64){
+        if(!ZNM600ResolveIntegerRegister(rva,&integerRegister,&local)){if(error)*error=local;return NO;}
+    }
+    NSString *module=ZNM600Trim(target);
+    if(!module.length)module=@"main";
+    uintptr_t address=[[ZNModuleManager sharedManager] runtimeAddressForModule:module rva:rva];
+    if(!address){if(error)*error=[NSString stringWithFormat:@"%@+0x%llX 无法解析运行时地址",module,rva];return NO;}
+    if(!ZNM600InstallOrUpdate(address,type,integerRegister,raw,&local)){if(error)*error=local;return NO;}
+    if(outAddress)*outAddress=address;
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.2-temp-value] applied %@+0x%llX value=%@ type=%@",module,rva,text?:@"",ZNValueTypeName(type)]];
+    return YES;
+}
+
+extern "C" BOOL ZNM620TemporaryRestoreOffsetValue(uintptr_t address, NSString **error) {
+    return ZNM600DestroyHook(address,error);
 }
 
 @interface ZNM56StaticValueCellBinder (ZNM600SafeOffsetABI)
