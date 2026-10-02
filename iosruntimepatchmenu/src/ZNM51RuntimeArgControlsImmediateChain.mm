@@ -303,10 +303,7 @@ static NSString *ZN51ValueKey(uint32_t actionID, NSUInteger arg) {
         for (NSUInteger arg = 0; arg < record.argumentCount; arg++) {
             NSDictionary *cfg = configs.count ? configs[arg] : nil;
             if (![cfg[@"enabled"] boolValue]) continue;
-            NSString *type = arg < record.parameterTypeNames.count ? record.parameterTypeNames[arg] : @"?";
-            UILabel *label = [self label:[NSString stringWithFormat:@"参数%lu · %@", (unsigned long)arg + 1, ZN51ShortType(type)] size:8.0 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-            label.frame = CGRectMake(13, rowY, 82, 28);
-            [card addSubview:label];
+
             NSString *key = ZN51ValueKey(record.actionID, arg);
             NSString *defaultValue = arg < record.argumentValues.count ? record.argumentValues[arg] : @"";
             NSString *stored = ZN51Values(self)[key] ?: defaultValue;
@@ -321,7 +318,7 @@ static NSString *ZN51ValueKey(uint32_t actionID, NSUInteger arg) {
                 control.center = CGPointMake(card.bounds.size.width - 38, rowY + 14);
                 [card addSubview:control];
             } else if (controlType == ZNRuntimeArgumentControlTypeSlider) {
-                UISlider *control = [[UISlider alloc] initWithFrame:CGRectMake(96, rowY, card.bounds.size.width - 109, 28)];
+                UISlider *control = [[UISlider alloc] initWithFrame:CGRectMake(13, rowY, card.bounds.size.width - 26, 28)];
                 control.minimumValue = [cfg[@"min"] floatValue];
                 control.maximumValue = [cfg[@"max"] floatValue];
                 if (control.maximumValue <= control.minimumValue) control.maximumValue = control.minimumValue + 100;
@@ -336,7 +333,7 @@ static NSString *ZN51ValueKey(uint32_t actionID, NSUInteger arg) {
                 button.tag = kZN51ExecTag + (NSInteger)i;
                 [card addSubview:button];
             } else {
-                UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(96, rowY, card.bounds.size.width - 109, 28)];
+                UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(13, rowY, card.bounds.size.width - 26, 28)];
                 field.text = stored; field.placeholder = defaultValue; field.textColor = self.theme.primaryTextColor; field.backgroundColor = self.theme.controlColor;
                 field.layer.cornerRadius = 6; field.layer.borderWidth = 1; field.layer.borderColor = self.theme.borderColor.CGColor;
                 field.font = [UIFont monospacedDigitSystemFontOfSize:9.2 weight:UIFontWeightMedium]; field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
