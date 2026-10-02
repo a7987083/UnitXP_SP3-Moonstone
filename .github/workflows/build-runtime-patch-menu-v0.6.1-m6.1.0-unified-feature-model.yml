@@ -21,10 +21,12 @@ jobs:
           grep -q '0.6.1 · M6.1.0' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNM610UnifiedFeatureModel.mm' iosruntimepatchmenu/Makefile
           grep -q 'ZNInstallM610UnifiedFeatureModelDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
-          grep -q 'exact one-arg Offset Number/Slider -> Runtime backend' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
-          grep -q 'ZNIL2CPPParameterTypeNamesForCandidate' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
-          grep -q 'updateArgumentControlConfigs' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
-          grep -q 'fallback Static preserved' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'Offset/Runtime separated' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'no Offset->Runtime promotion' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'Offset stays Static/Offset backend' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'Runtime stays explicit IL2CPP backend' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          ! grep -q 'ZNM610PromoteRow' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          ! grep -q 'method_exchangeImplementations' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
       - name: Install dependencies
@@ -85,9 +87,9 @@ jobs:
           file "$out" | grep -q 'arm64'
           otool -L "$out" | tee /tmp/zono_m610_load_commands.txt
           strings -a "$out" > /tmp/zono_m610_strings.txt
-          grep -q '\[m6.1\]' /tmp/zono_m610_strings.txt
-          grep -q 'Unified Feature Model installed' /tmp/zono_m610_strings.txt
-          grep -q 'm6.1-model' /tmp/zono_m610_strings.txt
+          grep -q '\[m6.1-split\]' /tmp/zono_m610_strings.txt
+          grep -q 'Offset/Runtime separated' /tmp/zono_m610_strings.txt
+          ! grep -q 'm6.1-model] promoted' /tmp/zono_m610_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m610_load_commands.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
