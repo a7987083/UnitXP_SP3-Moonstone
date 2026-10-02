@@ -127,9 +127,8 @@ static UILabel *ZNM590LeftLabelForField(UITextField *field) {
                 return NO;
             }
         }
-        // Number/Slider follow Runtime semantics: the visible authoring field is
-        // not ARM64 Enabled bytes. Force M5.8.5 to rebuild the value template
-        // from Offset every validation pass.
+        // Number/Slider carry no Patch/test value. Validation prepares only Offset + ValueType;
+        // Slider additionally requires authored Max.
         row.enabledText=@"";
         row.validated=NO;
         row.validator=nil;
@@ -196,12 +195,15 @@ static UILabel *ZNM590LeftLabelForField(UITextField *field) {
             field.accessibilityLabel=[NSString stringWithFormat:@"%@ 滑块最大值",name];
             [field addTarget:self action:@selector(znm590_sliderMaxChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
         }else{
-            if(label)label.text=@"模板";
-            field.text=@"自动从 Offset 读取";
+            // Number has no authoring/test value in M6.3. ValueType is selected
+            // explicitly on the patch card; the actual number is entered only
+            // from the generated runtime menu.
+            if(label)label.text=@"数值";
+            field.text=@"生成后在菜单中输入";
             field.placeholder=@"";
             field.enabled=NO;
             field.userInteractionEnabled=NO;
-            field.accessibilityLabel=[NSString stringWithFormat:@"%@ Number 模板自动读取",name];
+            field.accessibilityLabel=[NSString stringWithFormat:@"%@ Number 生成后输入",name];
         }
     }
 }
