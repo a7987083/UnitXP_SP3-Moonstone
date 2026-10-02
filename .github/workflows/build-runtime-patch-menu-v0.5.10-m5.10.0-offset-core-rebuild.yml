@@ -143,17 +143,20 @@ jobs:
           cd iosruntimepatchmenu
           normal=dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_Normal.dylib
           external=dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_ExternalOnly.dylib
+          idx=0
           for out in "$normal" "$external"; do
             file "$out" | grep -q 'arm64'
-            strings -a "$out" | grep -q '\[m5.13-input\]'
+            strings -a "$out" > "/tmp/zono_m513_strings_${idx}.txt"
+            grep -q '\[m5.13-input\]' "/tmp/zono_m513_strings_${idx}.txt"
             nm -gU "$out" | grep -q '_ZonoePatchActivate'
             nm -gU "$out" | grep -q '_ZonoePatchShow'
-            strings -a "$out" > /tmp/zono_m512_strings.txt
+            cp "/tmp/zono_m513_strings_${idx}.txt" /tmp/zono_m512_strings.txt
             grep -q 'runtime-validate' /tmp/zono_m512_strings.txt
             grep -q 'static-dispatch' /tmp/zono_m512_strings.txt
             grep -q 'm5.12-value-cell' /tmp/zono_m512_strings.txt
             ! grep -q 'H5GG typed/raw backend ready' /tmp/zono_m512_strings.txt
             ! grep -q 'm5.11-value-runtime' /tmp/zono_m512_strings.txt
+            idx=$((idx+1))
           done
           test "$(shasum -a 256 "$normal" | awk '{print $1}')" != "$(shasum -a 256 "$external" | awk '{print $1}')"
           {
