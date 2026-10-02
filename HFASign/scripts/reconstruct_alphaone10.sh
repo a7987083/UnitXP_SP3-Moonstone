@@ -34,10 +34,17 @@ python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_source_ui_cleanup.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_source_ux_compilefix.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_ios13_compat.py"
 python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_inbox_restore.py"
+python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_rork_usbmux.py"
 
 git -C "${BUILD_DIR}" diff --check
-git -C "${BUILD_DIR}" submodule update --init --recursive
-python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_ios13_dependency_compat.py"
+git -C "${BUILD_DIR}" submodule update --init --recursive Zsign
+
+RORK_USBMUX_URL="https://github.com/rorkai/rork-usbmux.git"
+RORK_USBMUX_COMMIT="9288f13deef5d109c96696a86892b9c54be87ebc"
+rm -rf "${BUILD_DIR}/RorkUsbmux"
+git clone "${RORK_USBMUX_URL}" "${BUILD_DIR}/RorkUsbmux"
+git -C "${BUILD_DIR}/RorkUsbmux" checkout "${RORK_USBMUX_COMMIT}"
+
 git -C "${BUILD_DIR}/Zsign" apply "${HFASIGN_DIR}/patches/0017-Fix-Zsign-removeProvision-semantics.patch"
 
-echo "Reconstructed zonoe v3.0.0-alphaone13 from frozen alphaone10 baseline + additive alphaone11/alphaone12/alphaone13 transforms + iOS 13 compatibility + signing settings/Inbox recovery"
+echo "Reconstructed zonoe v3.0.0-alphaone13 from frozen alphaone10 baseline + additive alphaone11/alphaone12/alphaone13 transforms + iOS 13 compatibility + signing settings/Inbox recovery + RorkUsbmux direct-install bridge"

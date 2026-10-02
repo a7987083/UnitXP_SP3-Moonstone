@@ -40,7 +40,7 @@ jobs:
             ~/Library/Caches/org.swift.swiftpm
             HFASignBuild/SourcePackages/repositories
             HFASignBuild/SourcePackages/artifacts
-          key: spm-${{ runner.os }}-${{ runner.arch }}-ksign-03a3a9c86897d79f9faf8106037b9971841d56a0-${{ steps.spm-cache-key.outputs.xcode }}-${{ steps.spm-cache-key.outputs.sdk }}-${{ steps.spm-cache-key.outputs.package }}
+          key: spm-${{ runner.os }}-${{ runner.arch }}-ksign-03a3a9c86897d79f9faf8106037b9971841d56a0-rork-9288f13-${{ steps.spm-cache-key.outputs.xcode }}-${{ steps.spm-cache-key.outputs.sdk }}-${{ steps.spm-cache-key.outputs.package }}
 
       - name: Live source decoder regression
         run: |
@@ -103,7 +103,7 @@ jobs:
           import hashlib
           roots = [
               Path("HFASignBuild/Ksign"), Path("HFASignBuild/AltSourceKit"), Path("HFASignBuild/Zsign"),
-              Path("HFASignBuild/deps"), Path("HFASignBuild/Ksign.xcodeproj/project.pbxproj"),
+              Path("HFASignBuild/deps"), Path("HFASignBuild/RorkUsbmux"), Path("HFASignBuild/Ksign.xcodeproj/project.pbxproj"),
               Path("HFASignBuild/Ksign.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"),
           ]
           files = []
