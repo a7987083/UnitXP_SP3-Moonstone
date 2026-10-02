@@ -20,7 +20,11 @@ def clean(path: Path) -> None:
 # so this is the same Options.zonoeUDIDCallbackEnabled used by SigningView.
 options_path = ROOT / "Ksign/Views/Signing/Shared/SigningOptionsView.swift"
 options = options_path.read_text()
-section = "\t\tZonoeUDIDCallbackSection(isEnabled: $options.zonoeUDIDCallbackEnabled)\n\n"
+section = """\t\tif temporaryOptions == nil {
+\t\t\tZonoeUDIDCallbackSection(isEnabled: $options.zonoeUDIDCallbackEnabled)
+\t\t}
+
+"""
 if section not in options:
     match = re.search(r"(\n\s*var body: some View \{\n)", options, flags=re.S)
     require(match is not None, "alphaone13 inbox restore: SigningOptionsView body marker missing")
@@ -395,7 +399,7 @@ app_path.write_text(app)
 
 # Reconstruction-time invariants. These run before Xcode and catch transform drift.
 checks = {
-    "settings uses shared zonoe option": 'ZonoeUDIDCallbackSection(isEnabled: $options.zonoeUDIDCallbackEnabled)' in options,
+    "settings uses shared zonoe option": 'if temporaryOptions == nil {' in options and 'ZonoeUDIDCallbackSection(isEnabled: $options.zonoeUDIDCallbackEnabled)' in options,
     "inbox recovery entrypoint": 'func recoverInboxIfNeeded()' in coordinator,
     "success-only inbox delete": 'guard success, self.fileManager.fileExists(atPath: item.path)' in coordinator,
     "concurrent dedup state": 'inFlightImportWaiters' in coordinator and 'importStateQueue.sync' in coordinator,
