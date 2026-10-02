@@ -156,6 +156,60 @@ nimble_package = replace_once(
 )
 nimble_package_path.write_text(nimble_package)
 
+# Backport the small set of NimbleExtensions APIs that prevent an iOS 13 build.
+# Search remains available on iOS 15+, while iOS 13/14 receive a no-op modifier.
+nimble_date_path = root / "NimbleKit/Sources/NimbleExtensions/Date/Date+timeLeft.swift"
+nimble_date = nimble_date_path.read_text()
+nimble_date = replace_once(
+    nimble_date,
+    "public func expirationInfo(from now: Date = .now) -> ExpirationInfo {",
+    "public func expirationInfo(from now: Date = Date()) -> ExpirationInfo {",
+    "NimbleExtensions Date.now backport",
+)
+nimble_date_path.write_text(nimble_date)
+
+nimble_nav_path = root / "NimbleKit/Sources/NimbleExtensions/View/View+compatNavTransition.swift"
+nimble_nav_path.write_text('''//\n//  View+NavTransition.swift\n//  iOS 13 compatibility: transition namespaces are intentionally disabled.\n//\n\nimport SwiftUI\n\nextension View {\n\t@ViewBuilder\n\tpublic func compatNavigationTransition(id: String) -> some View {\n\t\tself\n\t}\n\n\t@ViewBuilder\n\tpublic func compatMatchedTransitionSource(id: String) -> some View {\n\t\tself\n\t}\n}\n''')
+
+nimble_scopes_path = root / "NimbleKit/Sources/NimbleExtensions/View/View+compatSearchScopes.swift"
+nimble_scopes = nimble_scopes_path.read_text()
+nimble_scopes = replace_once(
+    nimble_scopes,
+    '''\t\tif #available(iOS 16.4, *) {\n\t\t\tself.searchScopes(selection, activation: .onSearchPresentation, content)\n\t\t} else {\n\t\t\tself.searchScopes(selection, scopes: content)\n\t\t}\n''',
+    '''\t\tif #available(iOS 16.4, *) {\n\t\t\tself.searchScopes(selection, activation: .onSearchPresentation, content)\n\t\t} else if #available(iOS 16.0, *) {\n\t\t\tself.searchScopes(selection, scopes: content)\n\t\t} else {\n\t\t\tself\n\t\t}\n''',
+    "NimbleExtensions searchScopes availability",
+)
+nimble_scopes_path.write_text(nimble_scopes)
+
+nimble_search_path = root / "NimbleKit/Sources/NimbleExtensions/View/View+platformDrawerPlacement.swift"
+nimble_search_path.write_text('''//\n//  View+platformDrawerPlacement.swift\n//  NimbleKit\n//\n\nimport SwiftUI\n\n@available(iOS 15.0, *)\nextension SearchFieldPlacement {\n\t@MainActor public static func platform() -> SearchFieldPlacement {\n\t\tUIDevice.current.userInterfaceIdiom == .pad ? .automatic : .navigationBarDrawer(displayMode: .always)\n\t}\n}\n\nextension View {\n\t@ViewBuilder\n\tpublic func compatSearchable(text: Binding<String>) -> some View {\n\t\tif #available(iOS 15.0, *) {\n\t\t\tself.searchable(text: text, placement: .platform())\n\t\t} else {\n\t\t\tself\n\t\t}\n\t}\n}\n''')
+
+# Namespace is iOS 14+, but these namespaces are used only by iOS 18 visual
+# transitions. Remove them from the iOS 13 build and keep the compat calls as no-ops.
+namespace_count = 0
+transition_call_count = 0
+searchable_count = 0
+for path in (root / "Ksign").rglob("*.swift"):
+    text = path.read_text()
+    original = text
+    text, n = re.subn(r"^[ \t]*@Namespace(?: private)? var _namespace[ \t]*\n", "", text, flags=re.MULTILINE)
+    namespace_count += n
+    text, n = re.subn(r"\.compatNavigationTransition\(id: ([^\n]+?), ns: _namespace\)", r".compatNavigationTransition(id: \1)", text)
+    transition_call_count += n
+    text, n = re.subn(r"\.compatMatchedTransitionSource\(id: ([^\n]+?), ns: _namespace\)", r".compatMatchedTransitionSource(id: \1)", text)
+    transition_call_count += n
+    text, n = re.subn(r"\.searchable\(text: ([^,\n]+), placement: \.platform\(\)\)", r".compatSearchable(text: \1)", text)
+    searchable_count += n
+    if text != original:
+        path.write_text(text)
+
+if namespace_count != 3:
+    raise SystemExit(f"rork-usbmux compat: expected 3 Namespace properties, found {namespace_count}")
+if transition_call_count < 7:
+    raise SystemExit(f"rork-usbmux compat: expected >=7 transition calls, found {transition_call_count}")
+if searchable_count != 4:
+    raise SystemExit(f"rork-usbmux compat: expected 4 platform searchable calls, found {searchable_count}")
+
 # IDeviceSwift supplied three app-visible types. Keep the Zonoe API/UI shape and
 # replace only the implementation underneath it.
 import_count = 0
@@ -473,6 +527,9 @@ checks = {
     "AltSourceKit iOS13": ".iOS(.v13)" in alt_package_path.read_text(),
     "AltSourceKit iOS13 Color guard": "if #available(iOS 14.0, *)" in alt_color_path.read_text(),
     "NimbleKit iOS13": ".iOS(.v13)" in nimble_package_path.read_text(),
+    "Nimble Date.now backport": "Date = Date()" in nimble_date_path.read_text(),
+    "Nimble namespace removed": "@Namespace" not in all_swift,
+    "Nimble compat searchable": searchable_count == 4,
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
