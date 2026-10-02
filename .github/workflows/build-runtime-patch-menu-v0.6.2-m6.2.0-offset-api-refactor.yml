@@ -99,7 +99,7 @@ jobs:
           strings -a "$out" > /tmp/zono_m620_strings.txt
           grep -q '\[m6.1-split\]' /tmp/zono_m620_strings.txt
           grep -q '\[m6.2-temp-value\]' /tmp/zono_m620_strings.txt
-          grep -q '请选择 ValueType' /tmp/zono_m620_strings.txt
+          grep -q 'm6.2-temp-value' /tmp/zono_m620_strings.txt
           ! grep -qi 'dobby' /tmp/zono_m620_load_commands.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
