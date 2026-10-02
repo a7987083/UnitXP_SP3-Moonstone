@@ -81,10 +81,17 @@ jobs:
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
-          make FINALPACKAGE=1
+          make FINALPACKAGE=1 2>&1 | tee build-m6.3.0.log
           mkdir -p dist-m6.3.0
           cp .theos/obj/ZonoePatchV03.dylib dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_RuntimeUIConsolidation.dylib
           shasum -a 256 dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_RuntimeUIConsolidation.dylib | tee dist-m6.3.0/SHA256.txt
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m6.3.0-build-log
+          path: iosruntimepatchmenu/build-m6.3.0.log
+          if-no-files-found: warn
       - name: Verify binary
         run: |
           set -euxo pipefail
