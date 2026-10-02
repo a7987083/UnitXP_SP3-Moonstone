@@ -13,6 +13,8 @@
 #import "ZNValueTypeModel.h"
 #import "ZNPatchCore.h"
 
+extern "C" void ZNM630RestorePersistedTypedValues(UIView *contentView);
+
 static const NSInteger kZN65ToggleTagBase = 450000;
 static const NSInteger kZN65NumberTagBase = 469000;
 static const NSInteger kZN65ActionTagBase = 470000;
@@ -108,15 +110,29 @@ static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
             CGFloat width=compact?88:112;
             ZNRangeControl *slider=[[ZNRangeControl alloc]initWithFrame:CGRectMake(CGRectGetWidth(card.bounds)-width-(compact?7:10),oldFrame.origin.y,width,oldFrame.size.height)];
             slider.tag=kZN65SliderTagBase+(NSInteger)i;
-            slider.minimumValue=1;slider.maximumValue=10;slider.value=MIN(10.0,MAX(1.0,round(ZN65StoredValue(feature,1))));
+
+            // M6.3 consolidation: absorb M5.8.5 authored range semantics here
+            // instead of adding a second decorator swizzle.
+            double max=[feature[@"sliderMax"] doubleValue];
+            if(!isfinite(max)||max<=0.0)max=10.0;
+            double stored=ZN65StoredValue(feature,0.0);
+            if(!isfinite(stored))stored=0.0;
+            slider.minimumValue=0.0;
+            slider.maximumValue=max;
+            slider.value=MAX(0.0,MIN(max,round(stored)));
+
             slider.minimumTrackTintColor=self.theme.accentColor;
             slider.maximumTrackTintColor=[self.theme.trackColor colorWithAlphaComponent:.75];
             slider.thumbTintColor=self.theme.primaryTextColor;
             [slider addTarget:self action:@selector(zn65fc_sliderCommitted:) forControlEvents:UIControlEventPrimaryActionTriggered];
-            slider.accessibilityLabel=[NSString stringWithFormat:@"%@ 滑块 %@ 1-10 step 1",feature[@"title"]?:@"功能",ZNValueTypeName(valueType)];
+            slider.accessibilityLabel=[NSString stringWithFormat:@"%@ 滑块 %@ 0-%.0f step 1",feature[@"title"]?:@"功能",ZNValueTypeName(valueType),max];
             [card addSubview:slider];
         }
     }
+
+    // M6.3 consolidation: M5.9.0 typed-value restore is now a direct tail
+    // stage of the single control decorator rather than another swizzle layer.
+    ZNM630RestorePersistedTypedValues(self.contentView);
 }
 - (void)zn65fc_renderFull{[self zn65fc_renderFull];[self zn65fc_decorateCompact:NO];}
 - (void)zn65fc_renderCompact{[self zn65fc_renderCompact];[self zn65fc_decorateCompact:YES];}
@@ -156,7 +172,9 @@ static void ZN65StoreNumberText(NSDictionary *feature, NSString *text) {
     NSArray *features=ZN65FeatureGroups();
     if(index<0||(NSUInteger)index>=features.count)return;
     NSDictionary *feature=features[(NSUInteger)index];
-    double value=MAX(1.0,MIN(10.0,round(slider.value)));
+    double max=[feature[@"sliderMax"] doubleValue];
+    if(!isfinite(max)||max<=0.0)max=10.0;
+    double value=MAX(0.0,MIN(max,round(slider.value)));
     slider.value=value;
     NSString *text=[NSString stringWithFormat:@"%.0f",value];
     [NSUserDefaults.standardUserDefaults setDouble:value forKey:ZN65PreferenceKey(feature,@"value")];
