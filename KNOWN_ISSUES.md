@@ -3,9 +3,9 @@
 ## KI-M512-EXT-001 — Cross-dylib activation 待编译/真机验证
 
 Severity: `HIGH`  
-Status: `SOURCE CHANGED / BUILD + DEVICE PENDING`
+Status: `SOURCE/CI/BINARY FIXED / DEVICE PENDING`
 
-M5.12 新增 `ZonoePatchActivate()`，目标是让另一个 dylib 通过 `dlsym` 进入原 Deferred Bootstrap。必须验证最终 Mach-O 导出 `_ZonoePatchActivate`、`dlsym` 可解析、Cold/Loading/Ready 幂等，以及不会重复安装 installer。当前不得标记为已编译或已实机验证。
+M5.12 已新增 `ZonoePatchActivate()`，并完成 Normal / ExternalOnly 双变体 CI。Run `36961499728` 已验证两版均成功编译、均导出 `_ZonoePatchActivate`，且两版 SHA256 不同。仍需真机验证：Normal 冷启动悬浮窗、ExternalOnly 冷启动无悬浮窗、peer dylib 的 `dlsym + ZonoePatchActivate()`、以及 Cold/Loading/Ready 幂等性。
 
 只记录当前未关闭问题、验证缺口和设计边界。
 

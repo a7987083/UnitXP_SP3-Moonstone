@@ -11,11 +11,26 @@
 - 新增 `src/ZonoePatchAPI.h` 与 `docs/EXTERNAL_API.md`，明确跨 dylib 使用方式。
 - 现有 `ZonoePatchStart/Show/Hide/IsVisible` 行为未改。
 
+### 双变体构建
+
+- Normal：启动后按原逻辑显示 ZN 悬浮窗。
+- ExternalOnly：冷启动不创建悬浮窗，仅等待外部 dylib 调用 `ZonoePatchActivate()`。
+- 两版共用同一源码，通过 `ZN_EXTERNAL_ONLY=1` 编译宏切换，避免代码分叉。
+- ExternalOnly 的程序化激活不会先创建临时悬浮窗。
+- CI Run `36961499728`：Source Contract / Dobby / Normal Build / ExternalOnly Build / Binary Verify / Artifact Upload 全部 SUCCESS。
+- Artifact ID：`11208715483`。
+- Artifact digest：`sha256:78cef02e27d8397be7d825d496cb5b9eab781e573c941e53bab1c1c28f48661a`。
+- Normal SHA256：`3392522fef7d7abae1fa48596bf90374737881767695c901d93be05c0526dd69`。
+- ExternalOnly SHA256：`f357fa2882cdbbe088b7c6e94acecc2eda5777249bb72b66caa38d5006ff7431`。
+- 两版均为 `1402544` bytes；CI 已验证两者 SHA256 不同，并均导出 `_ZonoePatchActivate` / `_ZonoePatchShow`。
+
 ### 验证边界
 
 - 已修改：YES。
-- 已提交：提交后更新。
-- 已编译：NO。
+- 已提交：YES。
+- 已编译：YES。
+- Binary Verify：YES。
+- Artifact：YES。
 - 已运行：NO。
 - 已实机验证：NO。
 

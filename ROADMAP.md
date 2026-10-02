@@ -25,4 +25,17 @@ Baseline before cross-dylib API: `6f4baa44d612551c3a0a25013d960719bc468f06`
 
 ### Validation status
 
-Source change is being committed. Compile, binary export verification, runtime, and device acceptance are still pending.
+- Source: committed.
+- CI Run `36961499728`: SUCCESS.
+- Normal build: SUCCESS.
+- ExternalOnly build: SUCCESS.
+- Binary export verification: SUCCESS for both; `_ZonoePatchActivate` is exported.
+- Artifact ID: `11208715483`.
+- Device acceptance: pending.
+
+### Device acceptance remaining
+
+- Normal: cold launch still shows the ZN launcher and tap activates normally.
+- ExternalOnly: cold launch shows no ZN launcher.
+- ExternalOnly: peer dylib `dlsym + ZonoePatchActivate()` activates once and shows the menu.
+- Repeated activation while Loading/Ready remains idempotent.

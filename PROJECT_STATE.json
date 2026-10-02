@@ -1,11 +1,11 @@
 {
-  "schema_version": 26,
+  "schema_version": 27,
   "project": "ZonoPatch Runtime Patch Menu",
   "repository": "a7987083/UnitXP_SP3-Moonstone",
   "version": "0.5.12-dev",
   "milestone": "M5.12",
-  "phase": "offset-closure-cross-dylib-activation",
-  "phase_status": "source-change-pending-build-validation",
+  "phase": "offset-closure-dual-launch-variants",
+  "phase_status": "source-ci-binary-artifact-verified-device-validation-pending",
   "branch": "recovery/m5.12-historical-offset-closure",
   "baseline": "6f4baa44d612551c3a0a25013d960719bc468f06",
   "external_api": {
@@ -19,11 +19,33 @@
   },
   "validation": {
     "modified": true,
-    "committed": false,
-    "compiled": false,
+    "committed": true,
+    "compiled": true,
+    "binary_verified": true,
+    "artifact_uploaded": true,
     "run": false,
     "device_verified": false
   },
-  "next_task": "Compile M5.12 and verify exported symbol plus cross-dylib activation on device.",
-  "captured_at": "2026-10-02"
+  "next_task": "Device-test Normal launcher behavior and ExternalOnly peer-dylib ZonoePatchActivate() path.",
+  "captured_at": "2026-10-02",
+  "dual_variant_build": {
+    "build_anchor": "e0fda5a52b786eab11724152068efa5a5da396ce",
+    "workflow_run_id": 36961499728,
+    "result": "success",
+    "artifact_id": 11208715483,
+    "artifact_digest": "sha256:78cef02e27d8397be7d825d496cb5b9eab781e573c941e53bab1c1c28f48661a",
+    "normal": {
+      "file": "ZonoPatch_v0.5.12_M5.12_OffsetClosure_Normal.dylib",
+      "sha256": "3392522fef7d7abae1fa48596bf90374737881767695c901d93be05c0526dd69",
+      "size_bytes": 1402544,
+      "cold_launcher": true
+    },
+    "external_only": {
+      "file": "ZonoPatch_v0.5.12_M5.12_OffsetClosure_ExternalOnly.dylib",
+      "sha256": "f357fa2882cdbbe088b7c6e94acecc2eda5777249bb72b66caa38d5006ff7431",
+      "size_bytes": 1402544,
+      "cold_launcher": false,
+      "activation_symbol": "ZonoePatchActivate"
+    }
+  }
 }
