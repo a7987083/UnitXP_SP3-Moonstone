@@ -103,35 +103,57 @@ jobs:
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
 
-      - name: Build Ordinary Offset Closure
+      - name: Build Normal variant
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
           mkdir -p dist-m5.12-offset-closure
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure.dylib
-          stat -f '%z' dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure.dylib | tee dist-m5.12-offset-closure/SIZE.txt
-          shasum -a 256 dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure.dylib | tee dist-m5.12-offset-closure/SHA256.txt
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_Normal.dylib
 
-      - name: Verify binary contract
+      - name: Build ExternalOnly variant
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure.dylib
-          file "$out" | grep -q 'arm64'
-          strings -a "$out" > /tmp/zono_m512_strings.txt
-          grep -q 'runtime-validate' /tmp/zono_m512_strings.txt
-          grep -q 'static-dispatch' /tmp/zono_m512_strings.txt
-          grep -q 'm5.12-value-cell' /tmp/zono_m512_strings.txt
-          ! grep -q 'H5GG typed/raw backend ready' /tmp/zono_m512_strings.txt
-          ! grep -q 'm5.11-value-runtime' /tmp/zono_m512_strings.txt
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 ZN_EXTERNAL_ONLY=1
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_ExternalOnly.dylib
+
+      - name: Verify both binary contracts
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          normal=dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_Normal.dylib
+          external=dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_ExternalOnly.dylib
+          for out in "$normal" "$external"; do
+            file "$out" | grep -q 'arm64'
+            nm -gU "$out" | grep -q '_ZonoePatchActivate'
+            nm -gU "$out" | grep -q '_ZonoePatchShow'
+            strings -a "$out" > /tmp/zono_m512_strings.txt
+            grep -q 'runtime-validate' /tmp/zono_m512_strings.txt
+            grep -q 'static-dispatch' /tmp/zono_m512_strings.txt
+            grep -q 'm5.12-value-cell' /tmp/zono_m512_strings.txt
+            ! grep -q 'H5GG typed/raw backend ready' /tmp/zono_m512_strings.txt
+            ! grep -q 'm5.11-value-runtime' /tmp/zono_m512_strings.txt
+          done
+          test "$(shasum -a 256 "$normal" | awk '{print $1}')" != "$(shasum -a 256 "$external" | awk '{print $1}')"
+          {
+            shasum -a 256 "$normal"
+            shasum -a 256 "$external"
+          } | tee dist-m5.12-offset-closure/SHA256.txt
+          {
+            stat -f '%z %N' "$normal"
+            stat -f '%z %N' "$external"
+          } | tee dist-m5.12-offset-closure/SIZE.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.12-M5.12-OffsetClosure
+          name: ZonoPatch-v0.5.12-M5.12-OffsetClosure-Dual
           path: |
-            iosruntimepatchmenu/dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure.dylib
+            iosruntimepatchmenu/dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_Normal.dylib
+            iosruntimepatchmenu/dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_ExternalOnly.dylib
             iosruntimepatchmenu/dist-m5.12-offset-closure/SHA256.txt
             iosruntimepatchmenu/dist-m5.12-offset-closure/SIZE.txt
           if-no-files-found: error
