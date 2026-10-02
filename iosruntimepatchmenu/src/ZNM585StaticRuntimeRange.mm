@@ -97,13 +97,9 @@ static NSDictionary *ZNM585REventInfo(NSDictionary *feature,NSNumber *value,NSSt
 
 extern "C" void ZNInstallM585StaticRuntimeRangeDeferred(void){
     static dispatch_once_t once;dispatch_once(&once,^{
-        Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");if(!cls)return;
-        Method d1=class_getInstanceMethod(cls,@selector(zn65fc_decorateCompact:));
-        Method d2=class_getInstanceMethod(cls,@selector(znm585_rangeDecorateCompact:));
-        if(d1&&d2)method_exchangeImplementations(d1,d2);
-        Method c1=class_getInstanceMethod(cls,@selector(zn65fc_sliderCommitted:));
-        Method c2=class_getInstanceMethod(cls,@selector(znm585_rangeSliderCommitted:));
-        if(c1&&c2)method_exchangeImplementations(c1,c2);
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.8.5] Static Slider runtime uses embedded authored max (min=0 step=1)"];
+        // M6.3 consolidation: authored Slider min/max/step and commit semantics
+        // are implemented directly by ZNFeatureRuntimeControlsV2. Keep this
+        // installer as a compatibility symbol, but do not add UI swizzles.
+        [[ZNRuntimeLogger sharedLogger]log:@"[m6.3-ui] M5.8.5 Slider runtime semantics consolidated into FeatureRuntimeControlsV2"];
     });
 }
