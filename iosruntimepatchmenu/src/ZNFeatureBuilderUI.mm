@@ -399,23 +399,23 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     CGFloat inner = width - 26.0;
     CGFloat buttonW = (inner - gap) / 2.0;
 
+    // M6.2: authoring test flow is Apply -> Restore. Validation/preparation is
+    // internal to Apply/Build; there is no separate user-facing preflight step.
     UIView *actions1 = [self cardAtY:y height:52 width:width compact:NO];
-    UIButton *validate = [self zn40_button:@"读取验证" selector:@selector(zn44_validateAll:) frame:CGRectMake(13, 9, buttonW, 34)];
-    UIButton *apply = [self zn40_button:@"临时应用" selector:@selector(zn44_applyAll:) frame:CGRectMake(13 + buttonW + gap, 9, buttonW, 34)];
-    validate.enabled = !workspace.isBuilding && !workspace.hasAnyApplied;
-    apply.enabled = !workspace.isBuilding && !workspace.hasAnyApplied;
-    [actions1 addSubview:validate];
+    UIButton *apply = [self zn40_button:@"应用" selector:@selector(zn44_applyAll:)
+                                  frame:CGRectMake(13, 9, inner, 34)];
+    apply.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0;
     [actions1 addSubview:apply];
     [self.contentView addSubview:actions1];
     y += 60;
 
     UIView *actions2 = [self cardAtY:y height:52 width:width compact:NO];
-    UIButton *restore = [self zn40_button:@"恢复全部" selector:@selector(zn44_restoreAll:) frame:CGRectMake(13, 9, buttonW, 34)];
+    UIButton *restore = [self zn40_button:@"恢复" selector:@selector(zn44_restoreAll:) frame:CGRectMake(13, 9, buttonW, 34)];
     UIButton *build = [self zn40_button:(workspace.isBuilding ? @"正在生成…" : @"生成新二进制")
                                    selector:@selector(zn44_buildBinary:)
                                       frame:CGRectMake(13 + buttonW + gap, 9, buttonW, 34)];
     restore.enabled = !workspace.isBuilding && workspace.hasAnyApplied;
-    build.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0 && workspace.validatedCount == workspace.filledCount;
+    build.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0;
     [actions2 addSubview:restore];
     [actions2 addSubview:build];
     [self.contentView addSubview:actions2];
