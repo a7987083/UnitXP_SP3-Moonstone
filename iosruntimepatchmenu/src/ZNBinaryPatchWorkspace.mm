@@ -35,7 +35,7 @@ static NSString *ZNW62FeatureName(ZNBinaryPatchRow *row) {
 - (instancetype)init {
     self=[super init]; if(!self) return nil;
     _target=@""; _offsetText=@""; _enabledText=@""; _originalHex=@"";
-    _title=@""; _group=@"Imported"; _sourcePath=@""; _statusText=@"";
+    _title=@""; _group=@"Imported"; _sourcePath=@""; _statusText=@""; _featureDescription=@"";
     return self;
 }
 @end
@@ -55,8 +55,16 @@ static BOOL ZNW44RVA(NSString *text,uint64_t *out) {
     if(out)*out=v; return YES;
 }
 
+static BOOL ZNW44TargetIsAuto(NSString *target) {
+    NSString *t=[target ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return !t.length || [t caseInsensitiveCompare:@"自动"]==NSOrderedSame || [t caseInsensitiveCompare:@"auto"]==NSOrderedSame;
+}
+
 static NSString *ZNW44TargetForRow(ZNBinaryPatchRow *row, NSString *defaultTarget) {
-    return (row.explicitTarget && row.target.length) ? row.target : (defaultTarget.length ? defaultTarget : @"main");
+    // M6.3 Global Target Authority:
+    // explicit top selection overrides JSON/row targets everywhere.
+    if(!ZNW44TargetIsAuto(defaultTarget)) return defaultTarget;
+    return (row.explicitTarget && row.target.length) ? row.target : @"main";
 }
 
 static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarget) {
@@ -82,7 +90,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
     _rows=[NSMutableArray array]; _jsonFiles=@[]; _lastOutputPaths=@[]; _temporarySharedSessions=[NSMutableArray array]; _temporaryValueSessions=[NSMutableArray array];
     NSString *name=[ZNModuleManager sharedManager].mainExecutable[@"name"];
     if(!name.length) name=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleExecutable"];
-    _defaultTarget=name.length?name:@"main"; _lastStatus=@"等待输入或导入 JSON";
+    (void)name; _defaultTarget=@"自动"; _lastStatus=@"等待输入或导入 JSON";
     [self ensureDefaultRows]; return self;
 }
 - (void)ensureDefaultRows { while(self.rows.count<10)[self.rows addObject:[ZNBinaryPatchRow new]]; }
@@ -99,9 +107,15 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
     r.enabledText=text?:@""; r.validated=NO; r.validator=nil; r.originalHex=@""; r.statusText=@"";
 }
 - (void)updateDefaultTarget:(NSString *)text {
-    if(self.hasAnyApplied)return; NSString *t=[text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    self.defaultTarget=t.length?t:@"main";
-    for(ZNBinaryPatchRow *r in self.rows) if(!r.explicitTarget){r.validated=NO;r.validator=nil;r.originalHex=@"";r.statusText=@"";}
+    if(self.hasAnyApplied)return;
+    NSString *t=[text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    self.defaultTarget=t.length?t:@"自动";
+    for(ZNBinaryPatchRow *r in self.rows){
+        r.validated=NO;r.validator=nil;r.originalHex=@"";r.statusText=@"";
+    }
+    self.lastStatus=ZNW44TargetIsAuto(self.defaultTarget)
+        ? @"Target：自动（允许 JSON/行 Target）"
+        : [NSString stringWithFormat:@"Target：强制 %@",self.defaultTarget];
 }
 - (void)refreshJSONFiles {
     self.jsonFiles=[ZNPatchJSONImporter discoverJSONFiles];
@@ -119,7 +133,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
         r.group=[item[@"group"] length]?item[@"group"]:@"Imported"; r.sourcePath=item[@"path"]?:@"$";
         r.lowConfidence=[item[@"confidence"] doubleValue]<0.8; if(r.lowConfidence)low++;
         r.statusText=r.lowConfidence?@"⚠ 候选，需读取验证":@"待验证"; [rows addObject:r]; if(r.target.length)[targets addObject:r.target];
-        NSString *site=[NSString stringWithFormat:@"%@|%@",(r.target.length?r.target:self.defaultTarget).lowercaseString,r.offsetText.lowercaseString];
+        NSString *site=[NSString stringWithFormat:@"%@|%@",ZNW44TargetForRow(r,self.defaultTarget).lowercaseString,r.offsetText.lowercaseString];
         if(!sites[site])sites[site]=[NSMutableArray array]; [sites[site] addObject:r];
     }
     [sites enumerateKeysAndObjectsUsingBlock:^(NSString *key,NSMutableArray<ZNBinaryPatchRow *> *bucket,BOOL *stop){
@@ -128,7 +142,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
         NSString *status=v.count>1?@"↔ Shared Site：多个 Variant（临时应用/生成均合并）":@"↔ Shared Site：重复 Variant（临时应用/生成均合并）";
         for(ZNBinaryPatchRow *r in bucket){r.conflict=NO;if(!r.lowConfidence)r.statusText=status;}
     }];
-    self.rows=rows; [self ensureDefaultRows]; if(targets.count==1)self.defaultTarget=targets.anyObject; self.showJSONFiles=NO;
+    self.rows=rows; [self ensureDefaultRows]; self.showJSONFiles=NO;
     NSString *rel=[path hasPrefix:NSHomeDirectory()]?[path substringFromIndex:NSHomeDirectory().length]:path.lastPathComponent;
     self.lastStatus=[NSString stringWithFormat:@"已导入 %@ · Patch %lu · Shared Site %lu · 候选 %lu · JSON original 已忽略",rel,(unsigned long)items.count,(unsigned long)shared,(unsigned long)low]; return YES;
 }
@@ -226,6 +240,12 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
         [groups[key] addObject:r];
     }
 
+    if(!order.count){
+        self.lastStatus=@"没有可应用的 Button/Switch Patch；Number/Slider 仅生成后在菜单中调值";
+        if(error)*error=self.lastStatus;
+        return NO;
+    }
+
     NSMutableArray<NSDictionary *> *done=[NSMutableArray array];
     NSUInteger logicalCount=0,sharedCount=0;
     NSString *failure=nil;
@@ -294,53 +314,9 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
     }
 
 
-    // Typed value temporary test. Number uses the authoring-only test value
-    // field; Slider uses its authored Max. Neither value is emitted as Patch.
-    if(!failure){
-        for(NSUInteger i=0;i<self.rows.count;i++){
-            ZNBinaryPatchRow *r=self.rows[i];
-            if(!r.offsetText.length||!ZNW62IsValueRow(r))continue;
-            if(r.featureValueType==ZNValueTypeAuto){
-                failure=[NSString stringWithFormat:@"%@：请选择 ValueType",ZNW62FeatureName(r)];
-                failureRows=@[r];
-                break;
-            }
-            uint64_t rva=0;
-            if(!ZNW44RVA(r.offsetText,&rva)){
-                failure=[NSString stringWithFormat:@"%@：Offset 格式无效",ZNW62FeatureName(r)];
-                failureRows=@[r];
-                break;
-            }
-            NSString *value=nil;
-            if(r.featureControlType==ZNFeatureControlTypeSlider){
-                double max=ZNM585SliderMaximumForFeatureName(ZNW62FeatureName(r));
-                if(!isfinite(max)||max<=0.0){
-                    failure=[NSString stringWithFormat:@"%@：Slider Max 必须大于 0",ZNW62FeatureName(r)];
-                    failureRows=@[r];
-                    break;
-                }
-                value=[NSString stringWithFormat:@"%.17g",max];
-            }else{
-                value=[r.enabledText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-                if(!value.length){
-                    failure=[NSString stringWithFormat:@"%@：临时测试请输入测试值",ZNW62FeatureName(r)];
-                    failureRows=@[r];
-                    break;
-                }
-            }
-            NSString *target=ZNW44TargetForRow(r,self.defaultTarget);
-            uintptr_t address=0;NSString *typedError=nil;
-            if(!ZNM620TemporaryApplyOffsetValue(target,rva,r.featureValueType,value,&address,&typedError)){
-                failure=typedError?:@"Typed Value 临时应用失败";
-                failureRows=@[r];
-                break;
-            }
-            NSDictionary *session=@{@"address":@(address),@"row":r};
-            [self.temporaryValueSessions addObject:session];
-            r.statusText=[NSString stringWithFormat:@"✅ Typed Value 已应用（%@）",value];
-            logicalCount++;
-        }
-    }
+    // M6.3: Number/Slider are authoring metadata only.
+    // They do not participate in Builder Apply/Restore; actual values are
+    // exercised only from the generated runtime menu.
 
     if(failure){
         NSMutableArray *rollbackErrors=[NSMutableArray array];
