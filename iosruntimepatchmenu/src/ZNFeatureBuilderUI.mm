@@ -42,6 +42,7 @@ static const void *kZN50BExpandedFeatureKeys = &kZN50BExpandedFeatureKeys;
 static const NSInteger kZN50BExpandTagBase = 460000;
 static const NSInteger kZN50BAddPatchTagBase = 461000;
 static const NSInteger kZN50BRenameTagBase = 462000;
+static const NSInteger kZN50BDescriptionTagBase = 463000;
 
 static NSString *ZN50BTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -158,9 +159,18 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
         if ([ZN50BTrim(row.group) caseInsensitiveCompare:name] == NSOrderedSame) count++;
     }
 
+    NSString *existingDescription=@"";
+    for (ZNBinaryPatchRow *existing in self.rows) {
+        if ([ZN50BTrim(existing.group) caseInsensitiveCompare:name] == NSOrderedSame && existing.featureDescription.length) {
+            existingDescription=existing.featureDescription;
+            break;
+        }
+    }
+
     ZNBinaryPatchRow *row = [ZNBinaryPatchRow new];
     row.group = name;
     row.title = [NSString stringWithFormat:@"Patch #%lu", (unsigned long)count + 1];
+    row.featureDescription = existingDescription;
     row.statusText = @"待填写";
     [self.rows addObject:row];
     self.lastStatus = [NSString stringWithFormat:@"%@：已增加 Patch #%lu", name, (unsigned long)count + 1];
@@ -203,6 +213,28 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     return YES;
 }
 
+- (BOOL)setDescription:(NSString *)description forFeature:(NSString *)featureName error:(NSString **)error {
+    if (self.hasAnyApplied || self.isBuilding) {
+        if (error) *error=@"当前状态不可修改功能说明";
+        return NO;
+    }
+    NSString *name=ZN50BTrim(featureName);
+    NSString *desc=ZN50BTrim(description);
+    BOOL changed=NO;
+    for (ZNBinaryPatchRow *row in self.rows) {
+        if ([ZN50BTrim(row.group) caseInsensitiveCompare:name] == NSOrderedSame) {
+            row.featureDescription=desc ?: @"";
+            changed=YES;
+        }
+    }
+    if(!changed){
+        if(error)*error=@"找不到对应功能";
+        return NO;
+    }
+    self.lastStatus=desc.length?[NSString stringWithFormat:@"%@：说明已更新",name]:[NSString stringWithFormat:@"%@：说明已清空",name];
+    return YES;
+}
+
 @end
 
 @interface ZNRuntimeMenuControllerV040 (ZNFeatureBuilderUI)
@@ -211,6 +243,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
 - (void)zn50b_addFeature:(id)sender;
 - (void)zn50b_addPatch:(UIButton *)sender;
 - (void)zn50b_featureNameEnd:(UITextField *)field;
+- (void)zn50b_featureDescriptionEnd:(UITextField *)field;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureBuilderUI)
@@ -323,12 +356,40 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
         [self.contentView addSubview:nameCard];
         y += 56;
 
+        UIView *descriptionCard=[self cardAtY:y height:50 width:width compact:NO];
+        UILabel *descriptionLabel=[self label:@"功能说明" size:9.2 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
+        descriptionLabel.frame=CGRectMake(18,9,52,30);
+        [descriptionCard addSubview:descriptionLabel];
+        UITextField *descriptionField=[[UITextField alloc] initWithFrame:CGRectMake(72,9,descriptionCard.bounds.size.width-87,31)];
+        descriptionField.tag=kZN50BDescriptionTagBase+(NSInteger)featureIndex;
+        NSString *featureDescription=rows.firstObject.featureDescription ?: @"";
+        descriptionField.text=featureDescription;
+        descriptionField.placeholder=@"例如：开启后保持体力不减少";
+        descriptionField.enabled=!locked;
+        descriptionField.textColor=self.theme.primaryTextColor;
+        descriptionField.backgroundColor=self.theme.controlColor;
+        descriptionField.font=[UIFont systemFontOfSize:9.8 weight:UIFontWeightRegular];
+        descriptionField.autocorrectionType=UITextAutocorrectionTypeNo;
+        descriptionField.returnKeyType=UIReturnKeyDone;
+        descriptionField.clearButtonMode=UITextFieldViewModeWhileEditing;
+        descriptionField.layer.cornerRadius=7;
+        descriptionField.layer.borderWidth=1;
+        descriptionField.layer.borderColor=self.theme.borderColor.CGColor;
+        UIView *descriptionPad=[[UIView alloc] initWithFrame:CGRectMake(0,0,8,1)];
+        descriptionField.leftView=descriptionPad;
+        descriptionField.leftViewMode=UITextFieldViewModeAlways;
+        [descriptionField addTarget:self action:@selector(zn50b_featureDescriptionEnd:) forControlEvents:UIControlEventEditingDidEndOnExit|UIControlEventEditingDidEnd];
+        [descriptionCard addSubview:descriptionField];
+        [self.contentView addSubview:descriptionCard];
+        y += 56;
+
         for (NSUInteger patchIndex = 0; patchIndex < rows.count; patchIndex++) {
             ZNBinaryPatchRow *row = rows[patchIndex];
             NSUInteger globalIndex = [workspace.rows indexOfObjectIdenticalTo:row];
             if (globalIndex == NSNotFound) continue;
             UIView *patchCard = [self cardAtY:y height:94 width:width compact:NO];
-            NSString *effectiveTarget = (row.explicitTarget && row.target.length) ? row.target : workspace.defaultTarget;
+            BOOL autoTarget=[workspace.defaultTarget caseInsensitiveCompare:@"自动"]==NSOrderedSame || [workspace.defaultTarget caseInsensitiveCompare:@"auto"]==NSOrderedSame;
+            NSString *effectiveTarget = autoTarget ? ((row.explicitTarget&&row.target.length)?row.target:@"main") : workspace.defaultTarget;
             NSString *patchTitle = ZN50BTrim(row.title);
             if (!patchTitle.length || [patchTitle caseInsensitiveCompare:name] == NSOrderedSame) {
                 patchTitle = [NSString stringWithFormat:@"Patch #%lu", (unsigned long)patchIndex + 1];
@@ -522,6 +583,21 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     } else {
         workspace.lastStatus = [NSString stringWithFormat:@"重命名失败：%@", error ?: @"未知错误"];
         field.text = oldName;
+    }
+    [self.hostWindow endEditing:YES];
+    [self renderPage];
+}
+
+- (void)zn50b_featureDescriptionEnd:(UITextField *)field {
+    NSInteger index=field.tag-kZN50BDescriptionTagBase;
+    if(index<0)return;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    NSArray<NSDictionary *> *features=ZN50BFeatureGroups(workspace);
+    if((NSUInteger)index>=features.count)return;
+    NSString *name=features[(NSUInteger)index][@"name"]?:@"";
+    NSString *error=nil;
+    if(![workspace setDescription:field.text?:@"" forFeature:name error:&error]){
+        workspace.lastStatus=[NSString stringWithFormat:@"说明保存失败：%@",error?:@"未知错误"];
     }
     [self.hostWindow endEditing:YES];
     [self renderPage];
