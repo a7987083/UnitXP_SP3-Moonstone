@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSString *sourcePath;
 @property(nonatomic,copy) NSString *statusText;
+@property(nonatomic,copy) NSString *featureDescription;
 @property(nonatomic,assign) BOOL validated;
 @property(nonatomic,assign) BOOL lowConfidence;
 @property(nonatomic,assign) BOOL conflict;
@@ -51,6 +52,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)addFeature;
 - (void)addPatchToFeature:(NSString *)featureName;
 - (BOOL)renameFeature:(NSString *)oldName to:(NSString *)newName error:(NSString * _Nullable * _Nullable)error;
+- (BOOL)setDescription:(NSString *)description forFeature:(NSString *)featureName error:(NSString * _Nullable * _Nullable)error;
 @end
 
 NS_ASSUME_NONNULL_END
