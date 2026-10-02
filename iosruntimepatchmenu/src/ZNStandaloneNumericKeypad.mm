@@ -291,13 +291,14 @@ static NSString *ZNInputModeName(ZNInputMode mode) {
     vc.modalTransitionStyle=UIModalTransitionStyleCrossDissolve;
     __weak UITextField *weakField=field;
     __weak UIViewController *weakVC=vc;
+    ZNInputMode modeValue=vc.mode;
     vc.completion=^(NSString *value,BOOL accepted){
         UITextField *strongField=weakField;
         if(accepted&&strongField){
             strongField.text=value;
             [strongField sendActionsForControlEvents:UIControlEventEditingChanged];
             [strongField sendActionsForControlEvents:UIControlEventEditingDidEnd];
-            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.13-input] custom commit tag=%ld mode=%ld",(long)strongField.tag,(long)vc.mode]];
+            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.13-input] custom commit tag=%ld mode=%ld",(long)strongField.tag,(long)modeValue]];
         }
         [weakVC dismissViewControllerAnimated:NO completion:nil];
     };
