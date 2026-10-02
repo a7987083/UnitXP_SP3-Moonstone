@@ -44,6 +44,8 @@ RORK_USBMUX_COMMIT="9288f13deef5d109c96696a86892b9c54be87ebc"
 rm -rf "${BUILD_DIR}/RorkUsbmux"
 git clone "${RORK_USBMUX_URL}" "${BUILD_DIR}/RorkUsbmux"
 git -C "${BUILD_DIR}/RorkUsbmux" checkout "${RORK_USBMUX_COMMIT}"
+python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_rork_package_compat.py"
+git -C "${BUILD_DIR}/RorkUsbmux" diff --check
 
 git -C "${BUILD_DIR}/Zsign" apply "${HFASIGN_DIR}/patches/0017-Fix-Zsign-removeProvision-semantics.patch"
 
