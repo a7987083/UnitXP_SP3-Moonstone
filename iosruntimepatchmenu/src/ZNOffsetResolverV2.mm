@@ -356,23 +356,37 @@ static BOOL ZNOV2Write(uint64_t address, NSData *target, NSData *rollback, NSStr
     if (writeKR == KERN_SUCCESS && executable) sys_icache_invalidate((void *)(uintptr_t)address, target.length);
     NSData *written = nil;
     BOOL readOK = (writeKR == KERN_SUCCESS) && ZNOV2Read(address, target.length, &written, &e) && [written isEqualToData:target];
+    BOOL rollbackAttempted = NO;
+    BOOL rollbackConfirmed = NO;
     if (!readOK && rollback.length == target.length) {
-        vm_write(mach_task_self(), (vm_address_t)address, (vm_offset_t)(uintptr_t)rollback.bytes, (mach_msg_type_number_t)rollback.length);
-        if (executable) sys_icache_invalidate((void *)(uintptr_t)address, rollback.length);
+        rollbackAttempted = YES;
+        kern_return_t rollbackKR = vm_write(mach_task_self(), (vm_address_t)address, (vm_offset_t)(uintptr_t)rollback.bytes, (mach_msg_type_number_t)rollback.length);
+        if (rollbackKR == KERN_SUCCESS && executable) sys_icache_invalidate((void *)(uintptr_t)address, rollback.length);
+        NSData *rolledBack = nil;
+        rollbackConfirmed = rollbackKR == KERN_SUCCESS &&
+            ZNOV2Read(address, rollback.length, &rolledBack, NULL) &&
+            [rolledBack isEqualToData:rollback];
     }
     NSString *restoreError = nil;
     BOOL restoreOK = !changed || ZNOV2Protect(address, target.length, region.protection, &restoreError);
     if (!readOK) {
-        if (error) *error = writeKR != KERN_SUCCESS ? [NSString stringWithFormat:@"vm_write 失败：%d", writeKR] : (e ?: @"写入 read-back 不一致；已尝试回滚");
+        NSString *rollbackState = rollbackAttempted ? (rollbackConfirmed ? @"；回滚 read-back 已确认" : @"；回滚未确认") : @"；无可用回滚数据";
+        NSString *base = writeKR != KERN_SUCCESS ? [NSString stringWithFormat:@"vm_write 失败：%d", writeKR] : (e ?: @"写入 read-back 不一致");
+        if (error) *error = [base stringByAppendingString:rollbackState];
         return NO;
     }
     if (!restoreOK) {
+        BOOL protectRollbackConfirmed = NO;
         if (rollback.length == target.length) {
-            vm_write(mach_task_self(), (vm_address_t)address, (vm_offset_t)(uintptr_t)rollback.bytes, (mach_msg_type_number_t)rollback.length);
-            if (executable) sys_icache_invalidate((void *)(uintptr_t)address, rollback.length);
+            kern_return_t rollbackKR = vm_write(mach_task_self(), (vm_address_t)address, (vm_offset_t)(uintptr_t)rollback.bytes, (mach_msg_type_number_t)rollback.length);
+            if (rollbackKR == KERN_SUCCESS && executable) sys_icache_invalidate((void *)(uintptr_t)address, rollback.length);
+            NSData *rolledBack = nil;
+            protectRollbackConfirmed = rollbackKR == KERN_SUCCESS &&
+                ZNOV2Read(address, rollback.length, &rolledBack, NULL) &&
+                [rolledBack isEqualToData:rollback];
         }
         ZNOV2Protect(address, target.length, region.protection, NULL);
-        if (error) *error = restoreError ?: @"写入后恢复原保护失败；已回滚";
+        if (error) *error = [NSString stringWithFormat:@"%@；回滚%@确认", restoreError ?: @"写入后恢复原保护失败", protectRollbackConfirmed ? @"已" : @"未"];
         return NO;
     }
     NSData *final = nil;
@@ -445,6 +459,12 @@ static NSString *ZNOV2ResolutionLine(ZNOV2Resolution *r) {
         ZNOV2VMRegion region = {};
         if (!ZNOV2QueryRegion(r.runtimeVA, self.patchBytes.length, &region, &e)) {
             self.validated = NO; self.lastResult = e ?: @"VM region 查询失败"; if (error) *error = self.lastResult; return NO;
+        }
+        if ((region.protection & VM_PROT_EXECUTE) && ((r.runtimeVA & 3u) != 0 || (self.patchBytes.length & 3u) != 0)) {
+            self.validated = NO;
+            self.lastResult = @"ARM64 可执行页 Patch 要求地址与长度均为 4-byte 对齐";
+            if (error) *error = self.lastResult;
+            return NO;
         }
         NSData *now = nil;
         if (!ZNOV2Read(r.runtimeVA, self.patchBytes.length, &now, &e)) {
