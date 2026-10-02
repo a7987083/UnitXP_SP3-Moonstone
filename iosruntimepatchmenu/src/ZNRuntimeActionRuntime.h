@@ -6,6 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,assign,readonly) uint32_t actionID;
 @property(nonatomic,copy,readonly) NSString *title;
 @property(nonatomic,copy,readonly) NSString *group;
+@property(nonatomic,copy,readonly) NSString *featureDescription;
 @property(nonatomic,copy,readonly) NSString *assembly;
 @property(nonatomic,copy,readonly) NSString *namespaceName;
 @property(nonatomic,copy,readonly) NSString *className;
