@@ -101,7 +101,9 @@ static BOOL ZNM592PrepareHookRows(ZNBinaryPatchWorkspace *workspace,NSString **e
             if(error) *error=[NSString stringWithFormat:@"Offset 格式无效：%@",row.offsetText?:@""];
             return NO;
         }
-        NSString *target=(row.explicitTarget&&row.target.length)?row.target:workspace.defaultTarget;
+        NSString *global=[workspace.defaultTarget ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        BOOL autoTarget=!global.length||[global caseInsensitiveCompare:@"自动"]==NSOrderedSame||[global caseInsensitiveCompare:@"auto"]==NSOrderedSame;
+        NSString *target=autoTarget?((row.explicitTarget&&row.target.length)?row.target:@"main"):global;
         uintptr_t address=[[ZNModuleManager sharedManager] runtimeAddressForModule:target rva:rva];
         if(!address) {
             if(error) *error=[NSString stringWithFormat:@"%@+0x%llX 无法解析运行时地址",target,rva];
