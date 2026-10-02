@@ -12,6 +12,7 @@ typedef uint32_t ZNRuntimeActionKind;
 enum {
     ZNRuntimeActionKindInvalid = 0,
     ZNRuntimeActionKindIL2CPPMethodCall = 1,
+    ZNRuntimeActionKindDirectNativeCall = 2,
 };
 
 typedef uint32_t ZNRuntimeActionFlags;
@@ -27,6 +28,9 @@ enum {
     // M5.9.2 UI rebuild: reserved[5] -> UTF-8 customer-facing description.
     // This preserves the 64-byte Runtime entry ABI and v1 table format.
     ZNRuntimeActionFlagDescriptionText = 1u << 5,
+    // M5.9.4 Direct Native: reserved[0] carries UTF-8 JSON execution metadata.
+    // Mutually exclusive with legacy Argument0Text for Direct V1 (/0 only).
+    ZNRuntimeActionFlagExecutionMetadata = 1u << 6,
 };
 
 typedef struct {
