@@ -37,6 +37,7 @@ python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_inbox_restore.py"
 
 git -C "${BUILD_DIR}" diff --check
 git -C "${BUILD_DIR}" submodule update --init --recursive
+python3 "${HFASIGN_DIR}/scripts/apply_alphaone13_ios13_dependency_compat.py"
 git -C "${BUILD_DIR}/Zsign" apply "${HFASIGN_DIR}/patches/0017-Fix-Zsign-removeProvision-semantics.patch"
 
 echo "Reconstructed zonoe v3.0.0-alphaone13 from frozen alphaone10 baseline + additive alphaone11/alphaone12/alphaone13 transforms + iOS 13 compatibility + signing settings/Inbox recovery"
