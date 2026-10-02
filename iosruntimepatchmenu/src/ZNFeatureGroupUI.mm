@@ -4,6 +4,7 @@
 
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
+#include <mach/mach_time.h>
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
 #import "ZNFeatureMetadataCodec.h"
@@ -41,6 +42,12 @@
 @end
 
 static const NSInteger kZN50FeatureToggleTagBase = 450000;
+
+static double ZN50PerfMilliseconds(uint64_t start, uint64_t end) {
+    static mach_timebase_info_data_t tb = {0};
+    if (!tb.denom) mach_timebase_info(&tb);
+    return ((double)(end - start) * (double)tb.numer / (double)tb.denom) / 1000000.0;
+}
 
 typedef NS_ENUM(NSInteger, ZN50FeatureVisualState) {
     ZN50FeatureVisualStateOff = 0,
@@ -95,6 +102,25 @@ typedef NS_ENUM(NSInteger, ZN50FeatureVisualState) {
 - (void)setHighlighted:(BOOL)highlighted {
     [super setHighlighted:highlighted];
     self.alpha = highlighted ? 0.78 : 1.0;
+}
+
+- (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] toggle beginTracking tag=%ld", (long)self.tag]];
+    return [super beginTrackingWithTouch:touch withEvent:event];
+}
+
+- (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    return [super continueTrackingWithTouch:touch withEvent:event];
+}
+
+- (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] toggle endTracking tag=%ld", (long)self.tag]];
+    [super endTrackingWithTouch:touch withEvent:event];
+}
+
+- (void)cancelTrackingWithEvent:(UIEvent *)event {
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] toggle cancelTracking tag=%ld", (long)self.tag]];
+    [super cancelTrackingWithEvent:event];
 }
 
 - (void)layoutSubviews {
@@ -229,6 +255,8 @@ static ZN50FeatureVisualState ZN50VisualState(NSArray<ZNStaticPatchRecord *> *re
 }
 
 static BOOL ZN50SetFeatureEnabled(NSArray<ZNStaticPatchRecord *> *records, BOOL enabled, NSString **error) {
+    uint64_t probeStart = mach_absolute_time();
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] setFeature begin enabled=%d records=%lu", enabled, (unsigned long)records.count]];
     if (!records.count) {
         if (error) *error = @"Feature 没有 Patch";
         return NO;
@@ -257,6 +285,8 @@ static BOOL ZN50SetFeatureEnabled(NSArray<ZNStaticPatchRecord *> *records, BOOL 
         [changed addObject:record];
         [previous addObject:@(old)];
     }
+    uint64_t probeEnd = mach_absolute_time();
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] setFeature end enabled=%d records=%lu ms=%.3f", enabled, (unsigned long)records.count, ZN50PerfMilliseconds(probeStart, probeEnd)]];
     return YES;
 }
 
@@ -431,6 +461,8 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
 }
 
 - (void)zn50_toggleFeature:(UIControl *)sender {
+    uint64_t handlerStart = mach_absolute_time();
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] toggle handler ENTER tag=%ld", (long)sender.tag]];
     NSInteger index = sender.tag - kZN50FeatureToggleTagBase;
     if (index < 0) return;
 
@@ -462,6 +494,8 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
         toggle.visualState = ZN50VisualState(records);
         [toggle zn50_applyVisualState];
     }
+    uint64_t handlerEnd = mach_absolute_time();
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] toggle handler EXIT tag=%ld ms=%.3f", (long)sender.tag, ZN50PerfMilliseconds(handlerStart, handlerEnd)]];
 }
 
 @end
