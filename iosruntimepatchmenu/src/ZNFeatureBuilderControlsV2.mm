@@ -4,6 +4,7 @@
 
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNFeatureControlModel.h"
+#import "ZNValueTypeModel.h"
 #import "ZNTheme.h"
 
 // M5.5.1 recovery baseline: keep the proven M5.4 Builder layout intact.
@@ -15,6 +16,7 @@ static const NSInteger kZN64OffsetFieldTagBase = 441000;
 static const NSInteger kZN64TypeTagBase = 466000;
 static const NSInteger kZN64DeleteFeatureTagBase = 467000;
 static const NSInteger kZN64DeletePatchTagBase = 468000;
+static const NSInteger kZN64ValueTypeTagBase = 469000;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -81,6 +83,7 @@ static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
 - (void)zn64fb_cycleType:(UIButton *)sender;
 - (void)zn64fb_deleteFeature:(UIButton *)sender;
 - (void)zn64fb_deletePatch:(UIButton *)sender;
+- (void)zn64fb_cycleValueType:(UIButton *)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureBuilderControlsV2)
@@ -132,6 +135,9 @@ static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
         UIView *patchCard = offset.superview;
         if (!offset || !patchCard) continue;
 
+        ZNBinaryPatchRow *row=workspace.rows[globalIndex];
+        BOOL typed=(row.featureControlType==ZNFeatureControlTypeNumber||row.featureControlType==ZNFeatureControlTypeSlider);
+
         UIButton *deletePatch = [self zn40_button:@"删除"
                                           selector:@selector(zn64fb_deletePatch:)
                                              frame:CGRectMake(CGRectGetWidth(patchCard.bounds) - 58, 3, 45, 19)];
@@ -142,12 +148,25 @@ static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
         deletePatch.layer.borderColor = [UIColor.systemRedColor colorWithAlphaComponent:0.64].CGColor;
         [patchCard addSubview:deletePatch];
 
+        if(typed){
+            NSString *vt=row.featureValueType==ZNValueTypeAuto?@"未选":ZNValueTypeName(row.featureValueType);
+            UIButton *valueType=[self zn40_button:[NSString stringWithFormat:@"ValueType · %@",vt]
+                                          selector:@selector(zn64fb_cycleValueType:)
+                                             frame:CGRectMake(CGRectGetWidth(patchCard.bounds)-160,3,94,19)];
+            valueType.tag=kZN64ValueTypeTagBase+(NSInteger)globalIndex;
+            valueType.enabled=!locked;
+            valueType.titleLabel.font=[UIFont systemFontOfSize:7.7 weight:UIFontWeightSemibold];
+            valueType.titleLabel.adjustsFontSizeToFitWidth=YES;
+            valueType.titleLabel.minimumScaleFactor=.60;
+            [patchCard addSubview:valueType];
+        }
+
         for (UIView *child in patchCard.subviews) {
             if (![child isKindOfClass:UILabel.class]) continue;
             UILabel *label = (UILabel *)child;
             if (CGRectGetMinY(label.frame) <= 6.0 && CGRectGetMinX(label.frame) <= 20.0) {
                 CGRect f = label.frame;
-                f.size.width = MAX(40.0, CGRectGetWidth(patchCard.bounds) - CGRectGetMinX(f) - 76.0);
+                f.size.width = MAX(40.0, CGRectGetWidth(patchCard.bounds) - CGRectGetMinX(f) - (typed ? 170.0 : 76.0));
                 label.frame = f;
                 break;
             }
@@ -167,6 +186,24 @@ static UITextField *ZN64FieldWithTag(UIView *root, NSInteger tag) {
     NSString *error = nil;
     if (![workspace setControlType:next forFeature:name error:&error]) {
         workspace.lastStatus = [NSString stringWithFormat:@"修改控件类型失败：%@", error ?: @"未知错误"];
+    }
+    [self renderPage];
+}
+
+- (void)zn64fb_cycleValueType:(UIButton *)sender {
+    NSInteger globalIndex=sender.tag-kZN64ValueTypeTagBase;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    if(globalIndex<0||(NSUInteger)globalIndex>=workspace.rows.count)return;
+    ZNBinaryPatchRow *row=workspace.rows[(NSUInteger)globalIndex];
+    if(row.featureControlType!=ZNFeatureControlTypeNumber&&row.featureControlType!=ZNFeatureControlTypeSlider)return;
+
+    NSString *name=ZN64Trim(row.group);
+    if(!name.length||[name caseInsensitiveCompare:@"Imported"]==NSOrderedSame)name=ZN64Trim(row.title);
+    ZNValueType current=row.featureValueType;
+    ZNValueType next=(current<ZNValueTypeI32||current>=ZNValueTypeF64)?ZNValueTypeI32:(ZNValueType)(current+1);
+    NSString *error=nil;
+    if(![workspace setValueType:next forFeature:name error:&error]){
+        workspace.lastStatus=[NSString stringWithFormat:@"修改 ValueType 失败：%@",error?:@"未知错误"];
     }
     [self renderPage];
 }
