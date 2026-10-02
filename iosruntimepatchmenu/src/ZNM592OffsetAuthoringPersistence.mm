@@ -149,6 +149,7 @@ static NSDictionary *ZNM592EncodeRow(ZNBinaryPatchRow *row) {
         @"title":row.title?:@"",
         @"group":row.group?:@"Imported",
         @"sourcePath":row.sourcePath?:@"",
+        @"featureDescription":row.featureDescription?:@"",
         @"lowConfidence":@(row.lowConfidence),
         @"controlType":@((NSInteger)row.featureControlType),
         @"valueType":@((NSInteger)row.featureValueType)
@@ -197,6 +198,7 @@ static void ZNM592RestoreWorkspace(void) {
         row.title=[item[@"title"] isKindOfClass:NSString.class]?item[@"title"]:@"";
         row.group=[item[@"group"] isKindOfClass:NSString.class]?item[@"group"]:@"Imported";
         row.sourcePath=[item[@"sourcePath"] isKindOfClass:NSString.class]?item[@"sourcePath"]:@"";
+        row.featureDescription=[item[@"featureDescription"] isKindOfClass:NSString.class]?item[@"featureDescription"]:@"";
         row.lowConfidence=[item[@"lowConfidence"] boolValue];
         row.featureControlType=(ZNFeatureControlType)[item[@"controlType"] integerValue];
         row.featureValueType=(ZNValueType)[item[@"valueType"] integerValue];
@@ -301,6 +303,7 @@ static void ZNM592RestoreWorkspace(void) {
 - (BOOL)znm592_setValueType:(ZNValueType)type forFeature:(NSString *)featureName error:(NSString **)error;
 - (BOOL)znm592_removeFeatureNamed:(NSString *)featureName error:(NSString **)error;
 - (BOOL)znm592_removePatchAtGlobalIndex:(NSUInteger)index error:(NSString **)error;
+- (BOOL)znm592_setDescription:(NSString *)description forFeature:(NSString *)featureName error:(NSString **)error;
 @end
 
 @implementation ZNBinaryPatchWorkspace (ZNM592PersistenceSwizzles)
@@ -352,6 +355,7 @@ extern "C" void ZNInstallM592OffsetAuthoringPersistenceDeferred(void) {
         ZNM592SwapInstance(workspace,@selector(setValueType:forFeature:error:),@selector(znm592_setValueType:forFeature:error:));
         ZNM592SwapInstance(workspace,@selector(removeFeatureNamed:error:),@selector(znm592_removeFeatureNamed:error:));
         ZNM592SwapInstance(workspace,@selector(removePatchAtGlobalIndex:error:),@selector(znm592_removePatchAtGlobalIndex:error:));
+        ZNM592SwapInstance(workspace,@selector(setDescription:forFeature:error:),@selector(znm592_setDescription:forFeature:error:));
 
         Class builder=NSClassFromString(@"ZNStaticBinaryBuilder");
         Method b1=class_getClassMethod(builder,@selector(buildWorkspace:outputs:report:error:));
