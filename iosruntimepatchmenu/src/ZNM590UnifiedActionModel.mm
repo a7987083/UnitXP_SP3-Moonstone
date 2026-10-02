@@ -147,9 +147,6 @@ static UILabel *ZNM590LeftLabelForField(UITextField *field) {
 - (void)znm590_renderOther {
     [self znm590_renderOther];
     ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
-    NSArray *features=ZNM590BuilderFeatureGroups(workspace);
-    BOOL locked=workspace.hasAnyApplied||workspace.isBuilding;
-
     // M6.3: keep M5.8.5's dedicated Slider Max field visible.
     // The generic Enabled/Patch field is not used for Slider authoring.
 
