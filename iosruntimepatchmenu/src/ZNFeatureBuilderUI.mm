@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNFeatureControlModel.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
@@ -350,19 +351,47 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
                                             enabled:!locked];
             [patchCard addSubview:offset];
 
-            UILabel *enabledLabel = [self label:@"Enabled" size:9.0 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
-            enabledLabel.frame = CGRectMake(18, 54, 45, 28);
-            [patchCard addSubview:enabledLabel];
-            UITextField *enabled = [self zn44_field:CGRectMake(63, 53, patchCard.bounds.size.width - 78, 29)
-                                                text:row.enabledText
-                                         placeholder:@"ARM64 HEX"
-                                                 tag:442000 + (NSInteger)globalIndex
-                                             enabled:!locked];
-            enabled.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
-            [patchCard addSubview:enabled];
+            ZNFeatureControlType controlType = [workspace controlTypeForFeature:name];
+            BOOL isNumber = controlType == ZNFeatureControlTypeNumber;
+            BOOL isSlider = controlType == ZNFeatureControlTypeSlider;
+            BOOL isValueControl = isNumber || isSlider;
+
+            if (!isSlider) {
+                // M6.2 input contract:
+                //   Button/Switch -> Offset + Patch
+                //   Number        -> Offset + ValueType; this field is only an
+                //                    ephemeral test value and is never emitted as Patch.
+                NSString *valueLabel = isNumber ? @"测试值" : @"Patch";
+                NSString *placeholder = isNumber ? @"例如 1000" : @"ARM64 HEX";
+                UILabel *enabledLabel = [self label:valueLabel size:9.0 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
+                enabledLabel.frame = CGRectMake(18, 54, 45, 28);
+                [patchCard addSubview:enabledLabel];
+                UITextField *enabled = [self zn44_field:CGRectMake(63, 53, patchCard.bounds.size.width - 78, 29)
+                                                    text:row.enabledText
+                                             placeholder:placeholder
+                                                     tag:442000 + (NSInteger)globalIndex
+                                                 enabled:!locked];
+                if (isNumber) {
+                    enabled.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
+                    enabled.autocapitalizationType = UITextAutocapitalizationTypeNone;
+                } else {
+                    enabled.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+                }
+                [patchCard addSubview:enabled];
+            } else {
+                UILabel *hint = [self label:@"应用测试值使用上方 Max；生成物仅保存 ValueType + Max"
+                                       size:8.0
+                                     weight:UIFontWeightRegular
+                                      color:self.theme.secondaryTextColor];
+                hint.frame = CGRectMake(18, 57, patchCard.bounds.size.width - 36, 20);
+                hint.numberOfLines = 1;
+                hint.adjustsFontSizeToFitWidth = YES;
+                hint.minimumScaleFactor = 0.7;
+                [patchCard addSubview:hint];
+            }
 
             NSString *original = row.originalHex.length ? row.originalHex : @"-";
-            NSString *status = row.statusText.length ? row.statusText : @"待验证";
+            NSString *status = row.statusText.length ? row.statusText : (isValueControl ? @"待应用" : @"待应用");
             UILabel *originalLine = [self label:[NSString stringWithFormat:@"Original  %@   %@", original, status]
                                             size:8.2
                                           weight:UIFontWeightRegular
