@@ -383,15 +383,32 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
                                             enabled:!locked];
             [patchCard addSubview:offset];
 
-            UILabel *enabledLabel = [self label:@"Enabled" size:9.0 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
+            ZNFeatureControlType controlType = row.featureControlType;
+            BOOL sliderAuthoring = (controlType == ZNFeatureControlTypeSlider);
+            BOOL numberAuthoring = (controlType == ZNFeatureControlTypeNumber);
+            NSString *secondLabelText = sliderAuthoring ? @"Max" : (numberAuthoring ? @"模板" : @"Enabled");
+            UILabel *enabledLabel = [self label:secondLabelText size:9.0 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
             enabledLabel.frame = CGRectMake(18, 54, 45, 28);
             [patchCard addSubview:enabledLabel];
+
+            NSString *secondText = numberAuthoring ? @"自动从 Offset 读取" : row.enabledText;
+            NSString *secondPlaceholder = sliderAuthoring ? @"例如 31" : (numberAuthoring ? @"" : @"ARM64 HEX");
+            BOOL secondEnabled = !locked && !numberAuthoring;
             UITextField *enabled = [self zn44_field:CGRectMake(63, 53, patchCard.bounds.size.width - 78, 29)
-                                                text:row.enabledText
-                                         placeholder:@"ARM64 HEX"
+                                                text:secondText
+                                         placeholder:secondPlaceholder
                                                  tag:442000 + (NSInteger)globalIndex
-                                             enabled:!locked];
-            enabled.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+                                             enabled:secondEnabled];
+            if (sliderAuthoring) {
+                enabled.keyboardType = UIKeyboardTypeNumberPad;
+                enabled.autocapitalizationType = UITextAutocapitalizationTypeNone;
+                enabled.accessibilityLabel = [NSString stringWithFormat:@"%@ 滑块最大值", name];
+            } else if (numberAuthoring) {
+                enabled.userInteractionEnabled = NO;
+                enabled.accessibilityLabel = [NSString stringWithFormat:@"%@ Number 模板自动读取", name];
+            } else {
+                enabled.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+            }
             [patchCard addSubview:enabled];
 
             NSString *original = row.originalHex.length ? row.originalHex : @"-";
