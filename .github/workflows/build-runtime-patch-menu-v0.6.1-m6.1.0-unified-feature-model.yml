@@ -37,6 +37,12 @@ jobs:
           # Homebrew ldid pulls openssl@3. Unlink the legacy formula first so
           # dependency installation does not fail at brew link.
           brew unlink openssl@1.1 || true
+          # Current runner image leaves /opt/homebrew/bin/openssl as a stale
+          # openssl@1.1 symlink even when brew reports zero linked files.
+          # Remove only that Homebrew shim so openssl@3 can link cleanly.
+          if [ -L /opt/homebrew/bin/openssl ]; then
+            rm -f /opt/homebrew/bin/openssl
+          fi
           brew install ldid cmake
           command -v ldid
           command -v cmake
