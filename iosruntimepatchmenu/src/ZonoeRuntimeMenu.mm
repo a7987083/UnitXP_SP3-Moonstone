@@ -1872,8 +1872,14 @@ static void ZNInstallV049SharedSiteProbeUI(void) {
 - (void)zn53_applyTouchPolicy {
     NSString *cat = (self.selectedCategory >= 0 && self.selectedCategory < self.categories.count)
         ? self.categories[self.selectedCategory] : @"";
-    BOOL developerPage = [cat isEqualToString:@"诊断"] || [cat isEqualToString:@"Debug"];
-    self.contentScroll.delaysContentTouches = !developerPage;
+    BOOL immediatePage = self.compactMode ||
+                         [cat isEqualToString:@"功能"] ||
+                         [cat isEqualToString:@"诊断"] ||
+                         [cat isEqualToString:@"Debug"];
+
+    // M6.3: Feature controls must dispatch on a normal tap. Keep cancellation
+    // enabled so UIScrollView can still take ownership once the user drags.
+    self.contentScroll.delaysContentTouches = !immediatePage;
     self.contentScroll.canCancelContentTouches = YES;
 }
 
@@ -1899,8 +1905,12 @@ static void ZNInstallV049SharedSiteProbeUI(void) {
 }
 
 - (void)zn53_renderPage {
-    [self zn53_applyTouchPolicy];
     [self zn53_renderPage];
+
+    // Legacy V0402 is inside the historical render chain and may restore
+    // delaysContentTouches=YES for normal pages. Apply the current policy last
+    // so Feature/compact surfaces keep immediate touch semantics.
+    [self zn53_applyTouchPolicy];
 }
 
 - (void)zn53_renderDebug {
