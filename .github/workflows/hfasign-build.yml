@@ -227,17 +227,9 @@ jobs:
           git commit -m "Publish zonoe alphaone13 SHA256 [skip ci]" || true
           git push origin HEAD:feature/zonoe-v3.0.0-alphaone13 || true
 
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Preserve historical alphaone13 release
         run: |
-          gh release delete v3.0.0-alphaone13 --cleanup-tag -y || true
-          gh release create v3.0.0-alphaone13 \
-            HFASign/dist/zonoe_v3.0.0-alphaone13_TrollStore.ipa \
-            HFASign/dist/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" \
-            --title "zonoe v3.0.0-alphaone13" \
-            --notes "alphaone13: remove source announcement and automatic source recognition, use native system alerts for source add and unlock-code entry, while preserving the alphaone12 canonical build/release pipeline."
+          echo "v3.0.0-alphaone13 is an immutable historical release; branch CI publishes Actions artifacts only."
 
       - uses: actions/upload-artifact@v4
         if: always()
