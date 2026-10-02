@@ -259,13 +259,13 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
 
     // Target + JSON import. JSON is authoring-time only; it is not a runtime dependency.
     UIView *targetCard = [self cardAtY:y height:56 width:width compact:NO];
-    UILabel *binaryLabel = [self label:@"二进制" size:11.2 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    UILabel *binaryLabel = [self label:@"Target" size:11.2 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
     binaryLabel.frame = CGRectMake(13, 11, 50, 32);
     [targetCard addSubview:binaryLabel];
     CGFloat importW = 78.0;
     UITextField *target = [self zn44_field:CGRectMake(65, 11, targetCard.bounds.size.width - 65 - importW - 18, 32)
                                         text:workspace.defaultTarget
-                                 placeholder:@"UnityFramework"
+                                 placeholder:@"自动 / UnityFramework"
                                          tag:440000
                                      enabled:!locked];
     [targetCard addSubview:target];
