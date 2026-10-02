@@ -1,3 +1,4 @@
+#import "ZNBinaryPatchWorkspace.h"
 // Zonoe Runtime Patch Menu — consolidated current source
 // v0.5.5 full deferred bootstrap
 // Historical V0xx menu sources are retained by Git history only; this file is
