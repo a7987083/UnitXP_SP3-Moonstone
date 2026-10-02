@@ -5,6 +5,7 @@
 #import "ZNRuntimeActionModel.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
+#import "ZNInputService.h"
 
 static const NSInteger kZNRMCBuilderDeleteTagBase = 671000;
 static const NSInteger kZNRMCBuilderTitleTagBase = 672000;
@@ -104,6 +105,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             name.placeholder = action.methodName;
             [name addTarget:self action:@selector(znrmc_titleEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
             [card addSubview:name];
+            ZNInputServiceBindField(name, ZNInputModeSystemText);
 
             UIButton *deleteButton = [self zn40_button:@"删除"
                                                selector:@selector(znrmc_deleteAuthoringAction:)
@@ -121,6 +123,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             description.font = [UIFont systemFontOfSize:9.4 weight:UIFontWeightRegular];
             [description addTarget:self action:@selector(znrmc_descriptionEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
             [card addSubview:description];
+            ZNInputServiceBindField(description, ZNInputModeSystemText);
 
             UILabel *identity = [self label:action.canonicalIdentity
                                         size:7.8
@@ -144,6 +147,7 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
                 [argument addTarget:self action:@selector(znrmc_argumentEditingChanged:) forControlEvents:UIControlEventEditingChanged];
                 [argument addTarget:self action:@selector(znrmc_argumentEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
                 [card addSubview:argument];
+                ZNInputServiceBindField(argument, ZNInputModeNumericFlexible);
             }
 
             [self.contentView addSubview:card];
