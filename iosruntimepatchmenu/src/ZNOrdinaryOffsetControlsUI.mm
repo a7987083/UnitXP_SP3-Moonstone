@@ -5,6 +5,7 @@
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNFeatureControlModel.h"
 #import "ZNTheme.h"
+#import "ZNInputService.h"
 
 // UI-only decorator for Ordinary Offset authoring.
 // This file intentionally owns NO patch/write/runtime backend.
@@ -180,8 +181,11 @@ static ZNValueType ZNOONextValueType(ZNValueType current) {
     // Keep ordinary Offset/Patch rows unchanged. Only restore per-row delete affordance.
     for (NSUInteger globalIndex = 0; globalIndex < workspace.rows.count; globalIndex++) {
         UITextField *offset = ZNOOField(self.contentView, kZNOOOffsetFieldTagBase + (NSInteger)globalIndex);
+        UITextField *enabledHex = ZNOOField(self.contentView, 442000 + (NSInteger)globalIndex);
         UIView *patchCard = offset.superview;
         if (!offset || !patchCard) continue;
+        ZNInputServiceBindField(offset, ZNInputModeHexAddress);
+        if (enabledHex) ZNInputServiceBindField(enabledHex, ZNInputModeHexBytes);
         UIButton *deletePatch = [self zn40_button:@"删除"
                                           selector:@selector(znoo_deletePatch:)
                                              frame:CGRectMake(CGRectGetWidth(patchCard.bounds) - 58, 3, 45, 19)];
