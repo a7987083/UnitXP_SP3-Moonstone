@@ -6,6 +6,7 @@
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNFeatureControlModel.h"
 #import "ZNFeatureMetadataCodec.h"
+#import "ZNFeatureSnapshotProvider.h"
 #import "ZNRangeControl.h"
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
@@ -239,29 +240,7 @@ static NSDictionary *ZNM590Display(ZNStaticPatchRecord *record){
 }
 
 static NSArray<NSDictionary *> *ZNM590RuntimeFeatures(void){
-    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];
-    [runtime refresh];
-    NSMutableArray *order=[NSMutableArray array];
-    NSMutableDictionary *members=[NSMutableDictionary dictionary],*metadata=[NSMutableDictionary dictionary];
-    for(ZNStaticPatchRecord *record in runtime.records){
-        NSDictionary *display=ZNM590Display(record);
-        NSString *group=ZNM590Trim(display[@"group"]),*title=ZNM590Trim(display[@"title"]);
-        uint64_t featureID=[display[@"featureID"] unsignedLongLongValue];
-        BOOL explicitFeature=[display[@"explicitGroup"] boolValue]||(group.length&&[group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame);
-        NSString *key=featureID?[NSString stringWithFormat:@"id:%016llx",featureID]:(explicitFeature?[@"group:" stringByAppendingString:group.lowercaseString]:[NSString stringWithFormat:@"patch:%@:%u",record.target.lowercaseString?:@"",record.patchID]);
-        if(!members[key]){
-            members[key]=[NSMutableArray array];
-            ZNFeatureControlType ct=record.entry?ZNFeatureControlTypeFromFlags(record.entry->flags):ZNFeatureControlTypeSwitch;
-            ZNValueType vt=record.entry?ZNFeatureValueTypeFromFlags(record.entry->flags):ZNValueTypeAuto;
-            NSNumber *sliderMax=[display[@"sliderMax"] isKindOfClass:NSNumber.class]?display[@"sliderMax"]:@0;
-            metadata[key]=[@{@"key":key,@"featureID":@(featureID),@"title":explicitFeature&&group.length?group:(title.length?title:@"功能"),@"controlType":@(ct),@"valueType":@(vt),@"sliderMax":sliderMax} mutableCopy];
-            [order addObject:key];
-        }
-        [members[key] addObject:record];
-    }
-    NSMutableArray *out=[NSMutableArray array];
-    for(NSString *key in order){NSMutableDictionary *item=[metadata[key] mutableCopy];item[@"records"]=[members[key] copy];[out addObject:[item copy]];}
-    return out;
+    return [[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
 }
 
 static NSDictionary *ZNM590EventInfo(NSDictionary *feature,NSNumber *value,NSString *valueText){
@@ -275,7 +254,7 @@ static NSMutableSet<NSString *> *ZNM590RestoredTypedValueKeys(void){
     static NSMutableSet *set;static dispatch_once_t once;dispatch_once(&once,^{set=[NSMutableSet set];});return set;
 }
 
-static void ZNM590RestorePersistedTypedValues(UIView *contentView){
+extern "C" void ZNM630RestorePersistedTypedValues(UIView *contentView){
     NSArray *features=ZNM590RuntimeFeatures();
     NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
     NSMutableSet *restored=ZNM590RestoredTypedValueKeys();
@@ -320,7 +299,7 @@ static void ZNM590RestorePersistedTypedValues(UIView *contentView){
 @implementation ZNRuntimeMenuControllerV040 (ZNM590StaticPersistence)
 - (void)znm590_decorateCompact:(BOOL)compact {
     [self znm590_decorateCompact:compact];
-    ZNM590RestorePersistedTypedValues(self.contentView);
+    ZNM630RestorePersistedTypedValues(self.contentView);
 }
 @end
 
@@ -335,10 +314,8 @@ extern "C" void ZNInstallM590UnifiedActionModelDeferred(void){
         Method r1=class_getInstanceMethod(controller,@selector(zn64fb_renderOther));
         Method r2=class_getInstanceMethod(controller,@selector(znm590_renderOther));
         if(r1&&r2)method_exchangeImplementations(r1,r2);
-        Method d1=class_getInstanceMethod(controller,@selector(zn65fc_decorateCompact:));
-        Method d2=class_getInstanceMethod(controller,@selector(znm590_decorateCompact:));
-        if(d1&&d2)method_exchangeImplementations(d1,d2);
-
-        [[ZNRuntimeLogger sharedLogger]log:@"[m5.9.0] unified action model bridge installed in-place; no second UI hierarchy"];
+        // M6.3: typed-value persistence restore is called directly from
+        // ZNFeatureRuntimeControlsV2. Do not add another decorator swizzle.
+        [[ZNRuntimeLogger sharedLogger]log:@"[m6.3-ui] M5.9.0 builder semantics retained; typed restore consolidated into runtime controls"];
     });
 }
