@@ -315,7 +315,6 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     if (index < 0) return;
 
     ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
     if ((NSUInteger)index >= runtime.records.count) return;
     ZNRuntimeMethodActionRecord *record = runtime.records[(NSUInteger)index];
     NSArray<NSString *> *storedValues = ZNM582StoredValues(record);
