@@ -1,5 +1,24 @@
 # CHANGELOG_DEV
 
+## 2026-10-02 — M5.12 Cross-dylib Activation API
+
+### 实际修改
+
+- 基线分支 `recovery/m5.12-historical-offset-closure`，父提交 `6f4baa44d612551c3a0a25013d960719bc468f06`。
+- 新增稳定 C ABI：`ZonoePatchActivate()`，供其他 dylib 通过 `dlsym` 调用。
+- 新入口不直接初始化 Runtime/Resolver/UI；它复用原 `ZNDeferredBootstrap` 的 Cold -> Loading -> Ready 路径，因此与用户点击 ZN launcher 的初始化顺序一致。
+- 调用具备幂等性，可从非主线程调用；Failed 状态返回 `false`。
+- 新增 `src/ZonoePatchAPI.h` 与 `docs/EXTERNAL_API.md`，明确跨 dylib 使用方式。
+- 现有 `ZonoePatchStart/Show/Hide/IsVisible` 行为未改。
+
+### 验证边界
+
+- 已修改：YES。
+- 已提交：提交后更新。
+- 已编译：NO。
+- 已运行：NO。
+- 已实机验证：NO。
+
 只记录已经实际发生的修改和验证；计划项放在 `ROADMAP.md`。
 
 ## 2026-09-28 — M5.8.3 Slider Authored Max + Action Identity

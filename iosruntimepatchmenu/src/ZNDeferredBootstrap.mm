@@ -27,7 +27,7 @@ static void ZNRunActivationStage(NSString *name,void(^block)(void)){(void)name;b
 extern "C" BOOL ZNDeferredBootstrapIsActivated(void){int state=gZNDeferredState.load(std::memory_order_acquire);return state==ZNDeferredStateLoading||state==ZNDeferredStateReady;}
 extern "C" BOOL ZNDeferredBootstrapIsReady(void){return gZNDeferredState.load(std::memory_order_acquire)==ZNDeferredStateReady;}
 static UIWindow *ZNDeferredCurrentWindow(void){UIApplication *app=UIApplication.sharedApplication;if(@available(iOS 13.0,*)){UIWindow *fallback=nil;for(UIScene *scene in app.connectedScenes){if(![scene isKindOfClass:UIWindowScene.class])continue;if(scene.activationState!=UISceneActivationStateForegroundActive&&scene.activationState!=UISceneActivationStateForegroundInactive)continue;for(UIWindow *window in ((UIWindowScene*)scene).windows){if(window.hidden||window.alpha<=0.01)continue;if(window.isKeyWindow)return window;if(!fallback&&window.windowLevel==UIWindowLevelNormal&&window.rootViewController)fallback=window;}}if(fallback)return fallback;}if(app.keyWindow&&!app.keyWindow.hidden)return app.keyWindow;for(UIWindow *window in app.windows.reverseObjectEnumerator)if(!window.hidden&&window.windowLevel==UIWindowLevelNormal&&window.rootViewController)return window;return nil;}
-@interface ZNDeferredLauncher:NSObject @property(nonatomic,strong)UIButton *button; @property(nonatomic,weak)UIWindow *hostWindow; - (void)installIfPossible; @end
+@interface ZNDeferredLauncher:NSObject @property(nonatomic,strong)UIButton *button; @property(nonatomic,weak)UIWindow *hostWindow; - (void)installIfPossible; - (void)zn_activate:(id)sender; @end
 @implementation ZNDeferredLauncher
 + (instancetype)sharedLauncher{static ZNDeferredLauncher *launcher;static dispatch_once_t once;dispatch_once(&once,^{launcher=[ZNDeferredLauncher new];});return launcher;}
 - (instancetype)init{self=[super init];if(!self)return nil;NSNotificationCenter *nc=NSNotificationCenter.defaultCenter;[nc addObserver:self selector:@selector(zn_windowChanged:) name:UIApplicationDidBecomeActiveNotification object:nil];[nc addObserver:self selector:@selector(zn_windowChanged:) name:UIWindowDidBecomeKeyNotification object:nil];return self;}
@@ -41,4 +41,18 @@ static UIWindow *ZNDeferredCurrentWindow(void){UIApplication *app=UIApplication.
 - (void)zn_beginActivation{@try{ZNRunActivationStage(@"PublicCompactLayout",^{ZNInstallPublicCompactLayoutDeferred();});ZNRunActivationStage(@"StaticDispatchPrepare",^{ZNPrepareStaticDispatchRuntimeDeferred();});dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(.45*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[self zn_finishActivation];});}@catch(NSException *exception){[self zn_markFailed:exception];}}
 - (void)zn_activate:(id)sender{(void)sender;int expected=ZNDeferredStateCold;if(!gZNDeferredState.compare_exchange_strong(expected,ZNDeferredStateLoading,std::memory_order_acq_rel))return;self.button.enabled=NO;self.button.alpha=.78;[self.button setTitle:@"…" forState:UIControlStateNormal];dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(.12*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[self zn_beginActivation];});}
 @end
+
+extern "C" BOOL ZNDeferredBootstrapActivate(void){
+    int state=gZNDeferredState.load(std::memory_order_acquire);
+    if(state==ZNDeferredStateFailed)return NO;
+    if(state==ZNDeferredStateLoading||state==ZNDeferredStateReady)return YES;
+    void (^activate)(void)=^{
+        ZNDeferredLauncher *launcher=[ZNDeferredLauncher sharedLauncher];
+        [launcher installIfPossible];
+        [launcher zn_activate:nil];
+    };
+    if(NSThread.isMainThread)activate();else dispatch_async(dispatch_get_main_queue(),activate);
+    return YES;
+}
+
 __attribute__((constructor(200))) static void ZNDeferredColdLauncherBootstrap(void){dispatch_async(dispatch_get_main_queue(),^{[[ZNDeferredLauncher sharedLauncher] installIfPossible];});}

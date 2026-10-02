@@ -12,6 +12,11 @@ FOUNDATION_EXPORT BOOL ZNDeferredBootstrapIsActivated(void)
 FOUNDATION_EXPORT BOOL ZNDeferredBootstrapIsReady(void)
     __attribute__((visibility("hidden")));
 
+// Programmatic entry used by the exported cross-dylib API. It preserves the
+// exact deferred bootstrap path used by the launcher tap and is idempotent.
+FOUNDATION_EXPORT BOOL ZNDeferredBootstrapActivate(void)
+    __attribute__((visibility("hidden")));
+
 #ifdef __cplusplus
 }
 #endif

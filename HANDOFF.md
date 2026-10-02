@@ -2,64 +2,30 @@
 
 ## Current work line
 
-ZonoPatch Runtime Patch Menu `v0.5.8-dev` — **M5.8.3 Slider Authored Max + Action Identity**.
+ZonoPatch `v0.5.12 / M5.12 OffsetClosure`.
 
 - Repository: `a7987083/UnitXP_SP3-Moonstone`
-- Active branch: `fix/m5.8.3-slider-max-action-identity`
-- Baseline: M5.8.2 `59eebc1d21c7a6894f27a5480bf8100bbf4f2094`
-- Business-code CI anchor: `8fcdb5af93e2cf8884f2e5189acad3acf744abcc`
-- Run: `36364086245` — SUCCESS
-- Job: `108746902686`
-- Artifact ID: `10947010903`
-- Artifact digest: `sha256:344f603bc385d8d86e044b37709ce14f76282c366fdaa49cf71ee2889f0b30cc`
-- Dylib: `ZonoPatch_v0.5.8_M5.8.3_SliderMax_ActionIdentity.dylib`
+- Active branch: `recovery/m5.12-historical-offset-closure`
+- Baseline before this change: `6f4baa44d612551c3a0a25013d960719bc468f06`
+- Current task: cross-dylib activation API
+- Build/device validation: pending
 
-## Why M5.8.3
+## Cross-dylib activation
 
-M5.8.2 device feedback confirmed Slider interaction/value display works, but exposed two authoring/identity bugs: an authored Slider value such as `31` did not become `max=31`, and display-layer dedupe merged distinct Fixed/Number/Slider Builder actions targeting the same IL2CPP method.
+The exported C ABI now includes `ZonoePatchActivate()` in `iosruntimepatchmenu/src/ZonoePatchAPI.h`.
 
-## Runtime customer architecture
+`ZonoePatchActivate()` enters the existing deferred bootstrap path; it does not bypass the Cold/Loading/Ready state machine. When Ready, the existing path calls `ZonoePatchStart()` and `ZonoePatchShow()`.
 
-`ZNM58UnifiedControlRuntime` remains the only Runtime customer renderer. No new UI/controller/nested renderer was added.
+Caller dylibs should resolve the symbol with `dlsym(RTLD_DEFAULT, "ZonoePatchActivate")`. See `iosruntimepatchmenu/docs/EXTERNAL_API.md`.
 
-- UI-level title/method collapse was removed.
-- `ZNRuntimeActionRuntime` remains the exact embedded-record dedupe owner.
-- Separate Builder actions targeting the same method stay separate.
-- Fixed actions retain `执行`.
-- Number actions retain input + `执行`.
-- Slider keeps live in-row value display and release-only invoke.
-- Runtime value persistence remains `zonoe.m5.8.2.runtime-values.v1`, preserving values across the M5.8.2 → M5.8.3 upgrade.
+## Validation boundary
 
-## Slider authoring contract
+- Source changed: YES
+- Commit: pending until this handoff update is committed
+- Compile: NO
+- Runtime: NO
+- Device: NO
 
-Only Slider is generation-time value-required.
+## Existing open work
 
-- Builder argument field live-syncs during EditingChanged.
-- Before Runtime Action embedding, every enabled Slider validates the current authored value.
-- Missing / invalid / non-finite / `<= 0` value fails generation.
-- Valid Slider metadata becomes `min=0`, `max=<authored value>`, `step=1`, `default=<authored value>`.
-- Number / Fixed / Switch / Button have no new pre-generation value requirement.
-
-## CI history
-
-- Run `36363946557`: build succeeded; Binary Verify failed only because CI searched a Chinese Objective-C NSString with `strings -a`.
-- Commit `8fcdb5af93e2cf8884f2e5189acad3acf744abcc` changed only the verification marker to ASCII.
-- Run `36364086245`: Build / Binary Verify / Artifact Upload all SUCCESS.
-
-## Immediate device checklist
-
-1. Footer `0.5.8 · M5.8.3`.
-2. Slider authored with `31` has maximum exactly `31`.
-3. Empty/invalid Slider value is rejected at generation.
-4. Number/Fixed can generate without a mandatory authored value.
-5. Same-method Fixed + Number + Slider actions all appear; none are collapsed by title/method identity.
-6. Fixed shows `执行`; Number shows input + `执行`.
-7. Slider value label follows drag; drag itself does not Invoke; release invokes once.
-8. Persisted Runtime values restore after restart.
-
-## Open boundaries
-
-- M5.8.3 device validation is pending; CI success is not device success.
-- Slider currently uses authored max as its generated default/initial value as well. Change this only if product behavior is explicitly revised.
-- Static controls still need regression on a freshly generated M5.8+ target.
-- Builder renderer / Method Finder Phase 2 consolidation remains open. Do not add another renderer layer.
+M5.12 OffsetClosure behavior must remain unchanged by this API addition. The external entry is only an activation bridge; offset parsing, patch validation, runtime action behavior, and existing menu APIs are not reimplemented here.

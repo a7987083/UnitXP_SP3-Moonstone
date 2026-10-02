@@ -1,54 +1,28 @@
 # ROADMAP
 
-## Current milestone — M5.8.3 Slider Authored Max + Action Identity
+## Current milestone — M5.12 OffsetClosure
 
-Repository: `a7987083/UnitXP_SP3-Moonstone`
+Repository: `a7987083/UnitXP_SP3-Moonstone`  
+Branch: `recovery/m5.12-historical-offset-closure`  
+Baseline before cross-dylib API: `6f4baa44d612551c3a0a25013d960719bc468f06`
 
-Branch: `fix/m5.8.3-slider-max-action-identity`
+### Current change
 
-Baseline: M5.8.2 `59eebc1d21c7a6894f27a5480bf8100bbf4f2094`
+- Add one stable external activation entry: `ZonoePatchActivate()`.
+- Keep the existing deferred bootstrap state machine as the single activation owner.
+- Keep `ZonoePatchStart/Show/Hide/IsVisible` behavior unchanged.
+- Provide a C header and `dlsym` caller contract for peer dylibs.
 
-Business-code CI anchor: `8fcdb5af93e2cf8884f2e5189acad3acf744abcc` / Run `36364086245` / SUCCESS.
+### Acceptance
 
-### M5.8.3 completed
+- Build succeeds with `-fvisibility=hidden`.
+- Binary export table contains `_ZonoePatchActivate`.
+- `dlsym(RTLD_DEFAULT, "ZonoePatchActivate")` resolves from a peer dylib.
+- Calling once from Cold enters the existing activation path and shows ZonoPatch.
+- Repeated calls while Loading/Ready do not duplicate bootstrap/installers.
+- Existing launcher tap still works.
+- Existing M5.12 OffsetClosure functions regress cleanly.
 
-- Keep `ZNM58UnifiedControlRuntime` as the single Runtime customer renderer; no nested/second Runtime UI was added.
-- Remove the M5.8.2 display-layer `title + canonicalIdentity` collapse. `ZNRuntimeActionRuntime` remains responsible for exact embedded-record dedupe, while separate Builder actions targeting the same IL2CPP method remain separate cards.
-- Fixed / Number / Slider variants for the same method are preserved as distinct Runtime actions.
-- Only Slider has a generation-time value requirement.
-- Slider authored value is validated as finite and `> 0`; generation fails closed with a clear error if missing/invalid.
-- At generation, Slider metadata is normalized to `min=0`, `max=<authored value>`, `step=1`, `default=<authored value>` before Runtime Action embedding.
-- Builder argument fields live-sync into `ZNRuntimeActionStore` while typing, so tapping Build without ending text editing cannot embed a stale Slider max.
-- Number / Fixed / Switch / Button gain no new generation-time value requirement.
-- Existing M5.8.2 live Slider value label and Runtime value persistence remain unchanged.
-- ABI unchanged: Static Entry 128 bytes; Runtime Action Entry 64 bytes.
+### Validation status
 
-### CI / artifact
-
-- Workflow: `Build Runtime Patch Menu v0.5.8 M5.8.3 Slider Max Action Identity`
-- Run: `36364086245`
-- Job: `108746902686`
-- Result: SUCCESS
-- Build: SUCCESS
-- Binary Verify: SUCCESS
-- Artifact Upload: SUCCESS
-- Artifact ID: `10947010903`
-- Artifact digest: `sha256:344f603bc385d8d86e044b37709ce14f76282c366fdaa49cf71ee2889f0b30cc`
-- Dylib: `ZonoPatch_v0.5.8_M5.8.3_SliderMax_ActionIdentity.dylib`
-
-First Run `36363946557` also compiled successfully; it failed only in Binary Verify because `strings -a` was incorrectly used to assert a Chinese Objective-C NSString. The CI assertion was corrected to an ASCII binary marker; business code was unchanged.
-
-### Immediate device acceptance
-
-1. Footer shows `0.5.8 · M5.8.3`.
-2. Create Slider with authored value `31`; generated Runtime Slider must stop at `31` and display its current value.
-3. Attempt to generate a Slider with empty/invalid value; generation must be rejected.
-4. Number / Fixed actions must still generate without a mandatory authored value.
-5. Create Fixed + Number + Slider actions for the same method; all intended actions must remain visible instead of being collapsed.
-6. Fixed actions must expose `执行`; Number actions must expose input + `执行`.
-7. Slider drag remains UI-only and release invokes once.
-8. Runtime value persistence survives menu reopen/app restart.
-
-### Next phase
-
-Do not add another renderer layer. After M5.8.3 device acceptance, continue M5.8 Phase 2 Builder/Method Finder consolidation only if the current Runtime surface remains stable.
+Source change is being committed. Compile, binary export verification, runtime, and device acceptance are still pending.
