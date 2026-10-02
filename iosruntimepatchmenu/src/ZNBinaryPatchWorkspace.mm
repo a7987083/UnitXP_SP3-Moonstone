@@ -6,6 +6,7 @@
 #import "ZNPatchCore.h"
 #import <errno.h>
 #import <stdlib.h>
+#include <math.h>
 
 
 extern "C" double ZNM585SliderMaximumForFeatureName(NSString *featureName);
