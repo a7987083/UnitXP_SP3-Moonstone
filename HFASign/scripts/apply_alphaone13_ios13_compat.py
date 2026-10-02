@@ -244,6 +244,58 @@ for importer_callsite_path in importer_callsite_paths:
     importer_callsite = importer_callsite.replace("[UTType.item]", "[.item]")
     importer_callsite_path.write_text(importer_callsite)
 
+nimble_grid_path = root / "NimbleKit/Sources/NimbleViews/Views/NBGrid.swift"
+nimble_grid = nimble_grid_path.read_text()
+old_grid_columns = '''\tprivate var _adaptiveColumns: [GridItem] {
+\t\t[GridItem(.adaptive(minimum: 340), spacing: 16)]
+\t}
+'''
+new_grid_columns = '''\t@available(iOS 14.0, *)
+\tprivate var _adaptiveColumns: [GridItem] {
+\t\t[GridItem(.adaptive(minimum: 340), spacing: 16)]
+\t}
+'''
+grid_columns_count = nimble_grid.count(old_grid_columns)
+if grid_columns_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NBGrid columns declaration, found {grid_columns_count}"
+    )
+nimble_grid = nimble_grid.replace(old_grid_columns, new_grid_columns, 1)
+
+old_grid_body = '''\tpublic var body: some View {
+\t\tScrollView {
+\t\t\tLazyVGrid(columns: _adaptiveColumns, spacing: 16) {
+\t\t\t\t_content
+\t\t\t}.padding()
+\t\t}
+\t}
+'''
+new_grid_body = '''\t@ViewBuilder
+\tpublic var body: some View {
+\t\tScrollView {
+\t\t\tif #available(iOS 14.0, *) {
+\t\t\t\tLazyVGrid(columns: _adaptiveColumns, spacing: 16) {
+\t\t\t\t\t_content
+\t\t\t\t}
+\t\t\t\t.padding()
+\t\t\t} else {
+\t\t\t\tVStack(spacing: 16) {
+\t\t\t\t\t_content
+\t\t\t\t}
+\t\t\t\t.padding()
+\t\t\t}
+\t\t}
+\t}
+'''
+grid_body_count = nimble_grid.count(old_grid_body)
+if grid_body_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NBGrid body, found {grid_body_count}"
+    )
+nimble_grid = nimble_grid.replace(old_grid_body, new_grid_body, 1)
+nimble_grid = "\n".join(line.rstrip() for line in nimble_grid.splitlines()) + "\n"
+nimble_grid_path.write_text(nimble_grid)
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -354,5 +406,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, search, and document picker compatibility applied; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, search, document picker, and grid compatibility applied; Color bridge guarded for iOS 14+"
 )
