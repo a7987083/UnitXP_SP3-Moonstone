@@ -39,6 +39,11 @@
 @property(nonatomic,assign) NSUInteger refreshRequestCount;
 @property(nonatomic,assign) NSUInteger refreshExecutionCount;
 @property(nonatomic,assign) NSUInteger refreshCoalescedCount;
+@property(nonatomic,assign) BOOL discoveryDirty;
+@property(nonatomic,assign) BOOL refreshInProgress;
+@property(nonatomic,assign) uint32_t lastScannedImageCount;
+@property(nonatomic,assign) uint64_t snapshotGeneration;
+@property(nonatomic,assign) NSUInteger refreshCacheHitCount;
 @end
 
 static NSString *ZN44StringFromFixed(const char *bytes, size_t cap, NSString *fallback) {
@@ -102,6 +107,11 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
         s = [ZNStaticDispatchRuntime new];
         s.records = @[];
         s.ownerOrderBySite = [NSMutableDictionary dictionary];
+        s.discoveryDirty = YES;
+        s.refreshInProgress = NO;
+        s.lastScannedImageCount = 0;
+        s.snapshotGeneration = 0;
+        s.refreshCacheHitCount = 0;
         [[NSNotificationCenter defaultCenter] addObserver:s selector:@selector(zn44_imageAdded:) name:@"ZNModuleManagerImageAdded" object:nil];
     });
     return s;
@@ -149,6 +159,7 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
 }
 
 - (void)zn44_imageAdded:(NSNotification *)note {
+    self.discoveryDirty = YES;
     NSUInteger burst = [note.userInfo[@"burstCount"] unsignedIntegerValue];
     ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch] image notification received · burst=%lu",
                           (unsigned long)MAX((NSUInteger)1, burst)]);
@@ -235,11 +246,33 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
 }
 
 - (void)refresh {
+    // M6.2.1 discovery cache: legacy UI layers still call refresh() as if it
+    // were a getter. Keep those callers untouched for now, but make repeated
+    // calls O(1) unless the dyld image set changed or an image-added event
+    // explicitly invalidated discovery.
+    uint32_t imageCount = _dyld_image_count();
+    if (!self.discoveryDirty && self.lastScannedImageCount == imageCount) {
+        self.refreshCacheHitCount += 1;
+        if (self.refreshCacheHitCount <= 3 || (self.refreshCacheHitCount % 100) == 0) {
+            ZNActivationTraceLog([NSString stringWithFormat:@"[static-dispatch-cache] HIT generation=%llu images=%u hits=%lu records=%lu",
+                                  self.snapshotGeneration,
+                                  imageCount,
+                                  (unsigned long)self.refreshCacheHitCount,
+                                  (unsigned long)self.records.count]);
+        }
+        return;
+    }
+    if (self.refreshInProgress) {
+        self.discoveryDirty = YES;
+        ZNActivationTraceLog(@"[static-dispatch-cache] refresh already in progress; invalidation retained");
+        return;
+    }
+
+    self.refreshInProgress = YES;
     double refreshStart = ZNActivationTraceNow();
     NSMutableArray<ZNStaticPatchRecord *> *found = [NSMutableArray array];
     NSMutableSet<NSString *> *liveSiteKeys = [NSMutableSet set];
     NSString *bundleRoot = NSBundle.mainBundle.bundlePath.stringByStandardizingPath;
-    uint32_t imageCount = _dyld_image_count();
     NSUInteger bundleImages = 0;
     NSUInteger directImages = 0;
     NSUInteger fallbackImages = 0;
@@ -412,15 +445,21 @@ static BOOL ZN44CurrentTargetValid(const ZN44StaticHeader *header,
     for (ZNStaticPatchRecord *r in found) if (r.payloadProtectionV2) payloadV2++;
 
     self.lastRefreshMilliseconds = (ZNActivationTraceNow() - refreshStart) * 1000.0;
+    self.lastScannedImageCount = imageCount;
+    self.snapshotGeneration += 1;
+    self.discoveryDirty = NO;
+    self.refreshInProgress = NO;
     NSString *mode = found.count ? @"generated-static" : @"original-binary/no-static-metadata";
-    self.lastDiscoverySummary = [NSString stringWithFormat:@"mode=%@ direct=%lu fallback=%lu probes=%llu requests=%lu executions=%lu coalesced=%lu",
+    self.lastDiscoverySummary = [NSString stringWithFormat:@"mode=%@ generation=%llu direct=%lu fallback=%lu probes=%llu requests=%lu executions=%lu coalesced=%lu cacheHits=%lu",
                                  mode,
+                                 self.snapshotGeneration,
                                  (unsigned long)directImages,
                                  (unsigned long)fallbackImages,
                                  fallbackProbes,
                                  (unsigned long)self.refreshRequestCount,
                                  (unsigned long)self.refreshExecutionCount,
-                                 (unsigned long)self.refreshCoalescedCount];
+                                 (unsigned long)self.refreshCoalescedCount,
+                                 (unsigned long)self.refreshCacheHitCount];
 
     if (found.count == 0) {
         ZNActivationTraceLog(@"[static-dispatch] original-binary mode · no generated Static metadata found");
