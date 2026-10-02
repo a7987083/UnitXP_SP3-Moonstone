@@ -199,7 +199,8 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
         }
         if (exposed==0) needsManualExecute=YES;
 
-        CGFloat rowH=34.0,baseH=compact?42.0:48.0;
+        NSString *runtimeDescription=record.featureDescription?:@"";
+        CGFloat rowH=34.0,baseH=compact?42.0:(runtimeDescription.length?60.0:48.0);
         CGFloat height=baseH+exposed*rowH;
         UIView *card=[self cardAtY:y height:height width:width compact:compact];
 
@@ -207,10 +208,17 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
                               size:(compact?10.5:11.2)
                             weight:UIFontWeightSemibold
                              color:self.theme.primaryTextColor];
-        name.frame=CGRectMake(compact?9.0:13.0,8.0,
+        name.frame=CGRectMake(compact?9.0:13.0,runtimeDescription.length&&!compact?5.0:8.0,
                               CGRectGetWidth(card.bounds)-(needsManualExecute?92.0:26.0),24.0);
         name.lineBreakMode=NSLineBreakByTruncatingTail;
         [card addSubview:name];
+        if (!compact && runtimeDescription.length) {
+            UILabel *detail=[self label:runtimeDescription size:8.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            detail.frame=CGRectMake(13.0,29.0,MAX(40.0,CGRectGetWidth(card.bounds)-(needsManualExecute?100.0:26.0)),22.0);
+            detail.numberOfLines=1;
+            detail.lineBreakMode=NSLineBreakByTruncatingTail;
+            [card addSubview:detail];
+        }
 
         if (needsManualExecute) {
             UIButton *execute=[UIButton buttonWithType:UIButtonTypeSystem];
@@ -231,12 +239,6 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
             NSDictionary *cfg=configs.count?configs[arg]:nil;
             if (![cfg[@"enabled"] boolValue]) continue;
 
-            NSString *typeName=arg<record.parameterTypeNames.count?record.parameterTypeNames[arg]:@"?";
-            UILabel *label=[self label:[NSString stringWithFormat:@"参数%lu · %@",(unsigned long)arg+1,ZNM630RuntimeShortType(typeName)]
-                                  size:8.0 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-            label.frame=CGRectMake(13.0,rowY,82.0,28.0);
-            [card addSubview:label];
-
             NSInteger slot=(NSInteger)(i*ZN_RUNTIME_ACTION_MAX_ARGUMENTS+arg);
             NSString *fallback=arg<record.argumentValues.count?record.argumentValues[arg]:@"";
             NSString *defaultValue=(stored.count==record.argumentCount)?stored[arg]:fallback;
@@ -256,8 +258,8 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
                 if (!isfinite(min)) min=0.0;
                 if (!isfinite(max)||max<=min) max=min+1.0;
                 CGFloat valueW=46.0;
-                CGFloat sliderW=MAX(70.0,CGRectGetWidth(card.bounds)-109.0-valueW-5.0);
-                ZNRangeControl *control=[[ZNRangeControl alloc] initWithFrame:CGRectMake(96.0,rowY,sliderW,28.0)];
+                CGFloat sliderW=MAX(70.0,CGRectGetWidth(card.bounds)-26.0-valueW-5.0);
+                ZNRangeControl *control=[[ZNRangeControl alloc] initWithFrame:CGRectMake(13.0,rowY,sliderW,28.0)];
                 control.minimumValue=min;
                 control.maximumValue=max;
                 control.value=ZNM630RuntimeQuantize(defaultValue.doubleValue,cfg,min,max);
@@ -289,7 +291,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
                 [button addTarget:self action:@selector(znm58_execute:) forControlEvents:UIControlEventTouchUpInside];
                 [card addSubview:button];
             } else {
-                UITextField *field=[[UITextField alloc] initWithFrame:CGRectMake(96.0,rowY,CGRectGetWidth(card.bounds)-109.0,28.0)];
+                UITextField *field=[[UITextField alloc] initWithFrame:CGRectMake(13.0,rowY,CGRectGetWidth(card.bounds)-26.0,28.0)];
                 field.text=defaultValue;
                 field.placeholder=defaultValue;
                 field.textColor=self.theme.primaryTextColor;
