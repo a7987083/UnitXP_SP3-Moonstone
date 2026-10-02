@@ -7,6 +7,7 @@
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
 #import "ZNFeatureMetadataCodec.h"
+#import "ZNFeatureSnapshotProvider.h"
 
 // Public Feature UI intentionally contains display name + switch only.
 // Technical fields (Target/RVA/Original/Enabled/Shared Site/Owner/Variant) stay
@@ -203,48 +204,8 @@ static NSDictionary<NSString *, id> *ZN50DisplayMetadata(ZNStaticPatchRecord *re
 }
 
 static NSArray<NSDictionary *> *ZN50FeatureGroups(NSArray<ZNStaticPatchRecord *> *records) {
-    NSMutableArray<NSString *> *order = [NSMutableArray array];
-    NSMutableDictionary<NSString *, NSMutableArray<ZNStaticPatchRecord *> *> *members = [NSMutableDictionary dictionary];
-    NSMutableDictionary<NSString *, NSString *> *titles = [NSMutableDictionary dictionary];
-    NSMutableDictionary<NSString *, NSNumber *> *featureIDs = [NSMutableDictionary dictionary];
-
-    for (ZNStaticPatchRecord *record in records) {
-        NSDictionary<NSString *, id> *display = ZN50DisplayMetadata(record);
-        NSString *group = ZN50Trim(display[@"group"]);
-        NSString *title = ZN50Trim(display[@"title"]);
-        uint64_t featureID = [display[@"featureID"] unsignedLongLongValue];
-        BOOL explicitFeature = [display[@"explicitGroup"] boolValue] ||
-                               (group.length && [group caseInsensitiveCompare:@"Imported"] != NSOrderedSame);
-        NSString *key = nil;
-
-        if (featureID) {
-            key = [NSString stringWithFormat:@"id:%016llx", featureID];
-        } else if (explicitFeature) {
-            key = [@"group:" stringByAppendingString:group.lowercaseString];
-            title = group;
-        } else {
-            key = [NSString stringWithFormat:@"patch:%@:%u", record.target.lowercaseString ?: @"", record.patchID];
-        }
-
-        if (!members[key]) {
-            members[key] = [NSMutableArray array];
-            titles[key] = title.length ? title : [NSString stringWithFormat:@"功能 #%u", record.patchID];
-            featureIDs[key] = @(featureID);
-            [order addObject:key];
-        }
-        [members[key] addObject:record];
-    }
-
-    NSMutableArray<NSDictionary *> *result = [NSMutableArray arrayWithCapacity:order.count];
-    for (NSString *key in order) {
-        [result addObject:@{
-            @"key": key,
-            @"featureID": featureIDs[key] ?: @0,
-            @"title": titles[key] ?: @"功能",
-            @"records": [members[key] copy] ?: @[],
-        }];
-    }
-    return result;
+    (void)records;
+    return [[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
 }
 
 static BOOL ZN50AllEnabled(NSArray<ZNStaticPatchRecord *> *records) {
