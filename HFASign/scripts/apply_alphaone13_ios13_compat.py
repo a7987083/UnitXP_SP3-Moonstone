@@ -77,6 +77,23 @@ if search_scope_count != 1:
     )
 nimble_search_path.write_text(nimble_search.replace(old_search_scope, new_search_scope, 1))
 
+nimble_search_placement_path = root / "NimbleKit/Sources/NimbleExtensions/View/View+platformDrawerPlacement.swift"
+nimble_search_placement = nimble_search_placement_path.read_text()
+old_search_placement_extension = "extension SearchFieldPlacement {\n"
+new_search_placement_extension = "@available(iOS 15.0, *)\nextension SearchFieldPlacement {\n"
+search_placement_count = nimble_search_placement.count(old_search_placement_extension)
+if search_placement_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit SearchFieldPlacement extension, found {search_placement_count}"
+    )
+nimble_search_placement_path.write_text(
+    nimble_search_placement.replace(
+        old_search_placement_extension,
+        new_search_placement_extension,
+        1,
+    )
+)
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -187,5 +204,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, and searchScopes compatibility applied; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, searchScopes, and search placement compatibility applied; Color bridge guarded for iOS 14+"
 )
