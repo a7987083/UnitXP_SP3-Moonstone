@@ -1,9 +1,10 @@
-name: Build M5.12 Ordinary Offset Closure
+name: Build M5.13 Input Service
 
 on:
   push:
     branches:
       - recovery/m5.12-historical-offset-closure
+      - feature/m5.13-input-service-v1
   workflow_dispatch:
 
 jobs:
@@ -16,9 +17,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ordinary Offset closure contract
+      - name: Input Service + Ordinary Offset contract
         run: |
           set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNInputService.h
+          grep -q 'ZNInputModeHexAddress' iosruntimepatchmenu/src/ZNInputService.h
+          grep -q 'ZNInputModeNumericFlexible' iosruntimepatchmenu/src/ZNInputService.h
+          grep -q 'no custom keyWindow' iosruntimepatchmenu/src/ZNStandaloneNumericKeypad.mm
+          ! grep -q 'makeKeyAndVisible' iosruntimepatchmenu/src/ZNStandaloneNumericKeypad.mm
+          grep -q 'ZNInputServiceBindField(offset, ZNInputModeHexAddress)' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'ZNInputServiceBindField(enabledHex, ZNInputModeHexBytes)' iosruntimepatchmenu/src/ZNOrdinaryOffsetControlsUI.mm
+          grep -q 'ZNInputServiceBindField(argument, ZNInputModeNumericFlexible)' iosruntimepatchmenu/src/ZNRuntimeMethodCallBuilderUI.mm
+          grep -q 'ZNInputServiceBindField(name, ZNInputModeSystemText)' iosruntimepatchmenu/src/ZNRuntimeMethodCallBuilderUI.mm
           test -f iosruntimepatchmenu/src/ZNPatchRuntimeValidator.mm
           grep -q 'src/ZNPatchRuntimeValidator.mm' iosruntimepatchmenu/Makefile
           ! grep -q 'src/ZNOffsetCore.mm' iosruntimepatchmenu/Makefile
@@ -109,8 +119,8 @@ jobs:
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m5.12-offset-closure
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_Normal.dylib
+          mkdir -p dist-m5.13-input-service
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_Normal.dylib
 
       - name: Build ExternalOnly variant
         run: |
@@ -118,16 +128,17 @@ jobs:
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 ZN_EXTERNAL_ONLY=1
-          cp .theos/obj/ZonoePatchV03.dylib dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_ExternalOnly.dylib
+          cp .theos/obj/ZonoePatchV03.dylib dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_ExternalOnly.dylib
 
       - name: Verify both binary contracts
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
-          normal=dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_Normal.dylib
-          external=dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_ExternalOnly.dylib
+          normal=dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_Normal.dylib
+          external=dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_ExternalOnly.dylib
           for out in "$normal" "$external"; do
             file "$out" | grep -q 'arm64'
+            strings -a "$out" | grep -q '\[m5.13-input\]'
             nm -gU "$out" | grep -q '_ZonoePatchActivate'
             nm -gU "$out" | grep -q '_ZonoePatchShow'
             strings -a "$out" > /tmp/zono_m512_strings.txt
@@ -141,19 +152,19 @@ jobs:
           {
             shasum -a 256 "$normal"
             shasum -a 256 "$external"
-          } | tee dist-m5.12-offset-closure/SHA256.txt
+          } | tee dist-m5.13-input-service/SHA256.txt
           {
             stat -f '%z %N' "$normal"
             stat -f '%z %N' "$external"
-          } | tee dist-m5.12-offset-closure/SIZE.txt
+          } | tee dist-m5.13-input-service/SIZE.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.5.12-M5.12-OffsetClosure-Dual
+          name: ZonoPatch-v0.5.13-M5.13-InputService-Dual
           path: |
-            iosruntimepatchmenu/dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_Normal.dylib
-            iosruntimepatchmenu/dist-m5.12-offset-closure/ZonoPatch_v0.5.12_M5.12_OffsetClosure_ExternalOnly.dylib
-            iosruntimepatchmenu/dist-m5.12-offset-closure/SHA256.txt
-            iosruntimepatchmenu/dist-m5.12-offset-closure/SIZE.txt
+            iosruntimepatchmenu/dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_Normal.dylib
+            iosruntimepatchmenu/dist-m5.13-input-service/ZonoPatch_v0.5.13_M5.13_InputService_ExternalOnly.dylib
+            iosruntimepatchmenu/dist-m5.13-input-service/SHA256.txt
+            iosruntimepatchmenu/dist-m5.13-input-service/SIZE.txt
           if-no-files-found: error
