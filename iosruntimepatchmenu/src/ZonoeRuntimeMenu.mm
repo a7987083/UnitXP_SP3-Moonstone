@@ -1499,8 +1499,70 @@ static void ZNInstallV043RuntimeValidation(void) {
 - (void)zn44_jsonTapped:(UIButton *)sender {ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];NSUInteger i=(NSUInteger)(sender.tag-446000);if(i>=ws.jsonFiles.count)return;NSString *e=nil;if(![ws importJSONAtPath:ws.jsonFiles[i] error:&e])ws.lastStatus=[NSString stringWithFormat:@"导入失败：%@",e?:@"未知错误"];[self renderPage];}
 - (void)zn44_addOffset:(id)sender {(void)sender;[[ZNBinaryPatchWorkspace sharedWorkspace] addEmptyRow];[self renderPage];}
 - (void)zn44_validateAll:(id)sender {(void)sender;[self.hostWindow endEditing:YES];ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];NSString *e=nil;[ws validateAll:&e];if(e.length&&![ws.lastStatus containsString:e])[[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder] validate: %@",e]];[self renderPage];}
-- (void)zn44_applyAll:(id)sender {(void)sender;[self.hostWindow endEditing:YES];ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];NSString *e=nil;if(![ws applyAll:&e]&&e.length)[[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder] apply: %@",e]];[self renderPage];}
-- (void)zn44_restoreAll:(id)sender {(void)sender;ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];NSString *e=nil;if(![ws restoreAll:&e]&&e.length)[[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder] restore: %@",e]];[self renderPage];}
+static dispatch_queue_t ZN44PatchExecutionQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue=dispatch_queue_create("com.zonoe.patch.workspace.execution", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
+- (void)zn44_applyAll:(id)sender {
+    (void)sender;
+    [self.hostWindow endEditing:YES];
+    ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];
+    if(ws.isBuilding)return;
+
+    ws.building=YES;
+    ws.lastStatus=@"正在应用 Runtime Patch…";
+    [self renderPage];
+
+    __weak typeof(self) weakSelf=self;
+    dispatch_async(ZN44PatchExecutionQueue(), ^{
+        @autoreleasepool {
+            NSString *e=nil;
+            BOOL ok=[ws applyAll:&e];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                ws.building=NO;
+                if(!ok&&e.length){
+                    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder] apply: %@",e]];
+                    if(!ws.lastStatus.length||[ws.lastStatus isEqualToString:@"正在应用 Runtime Patch…"])
+                        ws.lastStatus=[NSString stringWithFormat:@"应用失败：%@",e];
+                }
+                [weakSelf renderPage];
+            });
+        }
+    });
+}
+
+- (void)zn44_restoreAll:(id)sender {
+    (void)sender;
+    [self.hostWindow endEditing:YES];
+    ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];
+    if(ws.isBuilding)return;
+
+    ws.building=YES;
+    ws.lastStatus=@"正在恢复 Runtime Patch…";
+    [self renderPage];
+
+    __weak typeof(self) weakSelf=self;
+    dispatch_async(ZN44PatchExecutionQueue(), ^{
+        @autoreleasepool {
+            NSString *e=nil;
+            BOOL ok=[ws restoreAll:&e];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                ws.building=NO;
+                if(!ok&&e.length){
+                    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder] restore: %@",e]];
+                    if(!ws.lastStatus.length||[ws.lastStatus isEqualToString:@"正在恢复 Runtime Patch…"])
+                        ws.lastStatus=[NSString stringWithFormat:@"恢复失败：%@",e];
+                }
+                [weakSelf renderPage];
+            });
+        }
+    });
+}
 - (void)zn44_buildBinary:(id)sender {(void)sender;[self.hostWindow endEditing:YES];ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];if(ws.isBuilding)return;if(ws.hasAnyApplied){ws.lastStatus=@"生成前必须先恢复 Runtime Patch";[self renderPage];return;}ws.building=YES;ws.lastStatus=@"正在生成：验证 Mach-O / 安全 gap / relocation…";[self renderPage];__weak typeof(self) weakSelf=self;dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{NSArray *paths=nil;NSString *report=nil,*error=nil;BOOL ok=[ZNStaticBinaryBuilder buildWorkspace:ws outputs:&paths report:&report error:&error];dispatch_async(dispatch_get_main_queue(),^{ws.building=NO;if(ok)[ws setBuildOutputs:paths status:report?:@"生成成功"];else[ws setBuildOutputs:@[] status:[NSString stringWithFormat:@"生成失败：%@",error?:@"未知错误"]];[weakSelf renderPage];});});}
 - (void)zn44_toggleStatic:(UIButton *)sender {ZNStaticDispatchRuntime *rt=[ZNStaticDispatchRuntime sharedRuntime];NSUInteger i=(NSUInteger)(sender.tag-447000);if(i>=rt.records.count)return;ZNStaticPatchRecord *r=rt.records[i];NSString *e=nil;if(![rt setEnabled:!r.enabled forRecord:r error:&e])[[ZNBinaryPatchWorkspace sharedWorkspace] setBuildOutputs:[ZNBinaryPatchWorkspace sharedWorkspace].lastOutputPaths status:[NSString stringWithFormat:@"Static Dispatch 切换失败：%@",e?:@"未知错误"]];[self renderPage];}
 @end
