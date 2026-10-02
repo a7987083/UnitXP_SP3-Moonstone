@@ -489,12 +489,20 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     CGFloat inner = width - 26.0;
     CGFloat buttonW = (inner - gap) / 2.0;
 
-    // M6.2: authoring test flow is Apply -> Restore. Validation/preparation is
-    // internal to Apply/Build; there is no separate user-facing preflight step.
+    BOOL hasRawPatch=NO;
+    for(ZNBinaryPatchRow *candidate in workspace.rows){
+        if(!candidate.offsetText.length)continue;
+        if(candidate.featureControlType==ZNFeatureControlTypeButton||candidate.featureControlType==ZNFeatureControlTypeSwitch){
+            if(candidate.enabledText.length){hasRawPatch=YES;break;}
+        }
+    }
+
+    // M6.3: Apply/Restore test raw Button/Switch only.
+    // Number/Slider are configured here and exercised after binary generation.
     UIView *actions1 = [self cardAtY:y height:52 width:width compact:NO];
     UIButton *apply = [self zn40_button:@"应用" selector:@selector(zn44_applyAll:)
                                   frame:CGRectMake(13, 9, inner, 34)];
-    apply.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0;
+    apply.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && hasRawPatch;
     [actions1 addSubview:apply];
     [self.contentView addSubview:actions1];
     y += 60;
