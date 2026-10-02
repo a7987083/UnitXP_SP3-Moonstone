@@ -84,6 +84,10 @@ static BOOL ZNM592PrepareHookRows(ZNBinaryPatchWorkspace *workspace,NSString **e
     for(ZNBinaryPatchRow *row in workspace.rows) {
         if(!ZNM592IsHookRow(row)) continue;
         NSString *feature=ZNM592FeatureName(row);
+        if(row.featureValueType==ZNValueTypeAuto) {
+            if(error) *error=[NSString stringWithFormat:@"%@：请选择 ValueType；M6.2 不根据字节自动猜测",feature];
+            return NO;
+        }
         if(row.featureControlType==ZNFeatureControlTypeSlider) {
             id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZNM592SliderKey(feature)];
             double max=[stored isKindOfClass:NSNumber.class]?[stored doubleValue]:0.0;
@@ -273,8 +277,11 @@ static void ZNM592RestoreWorkspace(void) {
                        report:(NSString **)report
                         error:(NSString **)error {
     NSString *prepareError=nil;
-    if(!ZNM592PrepareHookRows(workspace,&prepareError)) {
-        if(error)*error=prepareError?:@"M5.9.2 Offset Hook 自动准备失败";
+    // M6.2 has no separate user-facing Read/Validate step. Build performs the
+    // same preparation internally: typed rows get synthetic build validators,
+    // while Button/Switch rows capture and verify their live Original here.
+    if(![workspace validateAll:&prepareError]) {
+        if(error)*error=prepareError?:@"M6.2 Offset 自动准备失败";
         return NO;
     }
     return [self znm592_buildWorkspace:workspace outputs:outputs report:report error:error];
