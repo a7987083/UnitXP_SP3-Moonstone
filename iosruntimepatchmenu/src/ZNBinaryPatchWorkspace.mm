@@ -1,9 +1,34 @@
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNPatchJSONImporter.h"
 #import "ZNPatchRuntimeValidator.h"
+#import "ZNFeatureControlModel.h"
+#import "ZNValueTypeModel.h"
 #import "ZNPatchCore.h"
 #import <errno.h>
 #import <stdlib.h>
+
+
+extern "C" double ZNM585SliderMaximumForFeatureName(NSString *featureName);
+extern "C" BOOL ZNM620TemporaryApplyOffsetValue(NSString *target,
+                                                 uint64_t rva,
+                                                 ZNValueType type,
+                                                 NSString *text,
+                                                 uintptr_t *outAddress,
+                                                 NSString **error);
+extern "C" BOOL ZNM620TemporaryRestoreOffsetValue(uintptr_t address, NSString **error);
+
+static BOOL ZNW62IsValueRow(ZNBinaryPatchRow *row) {
+    ZNFeatureControlType type=row.featureControlType;
+    return type==ZNFeatureControlTypeNumber || type==ZNFeatureControlTypeSlider;
+}
+
+static NSString *ZNW62FeatureName(ZNBinaryPatchRow *row) {
+    NSString *group=[row.group ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if(group.length && [group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame)return group;
+    NSString *title=[row.title ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return title.length?title:@"功能";
+}
+
 
 @implementation ZNBinaryPatchRow
 - (instancetype)init {
@@ -43,6 +68,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
 @property(nonatomic,copy,readwrite) NSArray<NSString *> *jsonFiles;
 @property(nonatomic,copy,readwrite) NSArray<NSString *> *lastOutputPaths;
 @property(nonatomic,strong) NSMutableArray<NSDictionary *> *temporarySharedSessions;
+@property(nonatomic,strong) NSMutableArray<NSDictionary *> *temporaryValueSessions;
 @end
 
 @implementation ZNBinaryPatchWorkspace
@@ -52,7 +78,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
 }
 - (instancetype)init {
     self=[super init]; if(!self)return nil;
-    _rows=[NSMutableArray array]; _jsonFiles=@[]; _lastOutputPaths=@[]; _temporarySharedSessions=[NSMutableArray array];
+    _rows=[NSMutableArray array]; _jsonFiles=@[]; _lastOutputPaths=@[]; _temporarySharedSessions=[NSMutableArray array]; _temporaryValueSessions=[NSMutableArray array];
     NSString *name=[ZNModuleManager sharedManager].mainExecutable[@"name"];
     if(!name.length) name=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleExecutable"];
     _defaultTarget=name.length?name:@"main"; _lastStatus=@"等待输入或导入 JSON";
@@ -108,6 +134,7 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
 - (NSUInteger)filledCount { NSUInteger n=0;for(ZNBinaryPatchRow *r in self.rows)if(r.offsetText.length||r.enabledText.length)n++;return n; }
 - (NSUInteger)validatedCount { NSUInteger n=0;for(ZNBinaryPatchRow *r in self.rows)if(r.validated)n++;return n; }
 - (BOOL)hasAnyApplied {
+    if(self.temporaryValueSessions.count)return YES;
     for(ZNBinaryPatchRow *r in self.rows)if(r.validator.isApplied)return YES;
     for(NSDictionary *session in self.temporarySharedSessions){ZNPatchRuntimeValidator *v=session[@"validator"];if(v.isApplied)return YES;}
     return NO;
@@ -155,16 +182,43 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
 }
 
 - (BOOL)applyAll:(NSString **)error {
-    if(!self.filledCount){if(error)*error=@"没有填写 Patch";return NO;}
-    if(self.hasAnyApplied){if(error)*error=@"当前已有临时 Patch，请先恢复";return NO;}
+    if(!self.filledCount){if(error)*error=@"没有可应用的 Offset";return NO;}
+    if(self.hasAnyApplied){if(error)*error=@"当前已有临时修改，请先恢复";return NO;}
     [self.temporarySharedSessions removeAllObjects];
+    [self.temporaryValueSessions removeAllObjects];
+    [self znw44RecheckConflicts];
 
+    // M6.2: Raw Patch rows auto-capture/validate Original inside Apply.
+    // Number/Slider are routed later to the typed Offset test API and never
+    // require or consume Patch bytes.
     NSMutableDictionary<NSString *,NSMutableArray<ZNBinaryPatchRow *> *> *groups=[NSMutableDictionary dictionary];
     NSMutableArray<NSString *> *order=[NSMutableArray array];
     for(NSUInteger i=0;i<self.rows.count;i++){
         ZNBinaryPatchRow *r=self.rows[i];
         if(!r.offsetText.length&&!r.enabledText.length)continue;
-        if(!r.validated||!r.validator){if(error)*error=[NSString stringWithFormat:@"#%lu 尚未通过读取验证",(unsigned long)i+1];return NO;}
+        if(ZNW62IsValueRow(r))continue;
+        if(r.conflict){if(error)*error=[NSString stringWithFormat:@"#%lu %@",(unsigned long)i+1,r.statusText?:@"Offset 冲突"];return NO;}
+        if(!r.offsetText.length||!r.enabledText.length){
+            if(error)*error=[NSString stringWithFormat:@"#%lu Button/Switch 需要 Offset + Patch",(unsigned long)i+1];
+            return NO;
+        }
+        if(!r.validated||!r.validator){
+            NSString *target=ZNW44TargetForRow(r,self.defaultTarget);
+            ZNPatchRuntimeValidator *v=[ZNPatchRuntimeValidator new];NSString *prepareError=nil;
+            if(![v configureTarget:target offsetString:r.offsetText patchHex:r.enabledText error:&prepareError]||
+               ![v validate:&prepareError]){
+                r.validated=NO;r.validator=nil;r.originalHex=@"";
+                r.statusText=[NSString stringWithFormat:@"❌ %@",prepareError?:@"自动准备失败"];
+                if(error)*error=[NSString stringWithFormat:@"#%lu 自动准备失败：%@",(unsigned long)i+1,prepareError?:@"未知错误"];
+                return NO;
+            }
+            r.validator=v;
+            r.validated=YES;
+            r.offsetText=[NSString stringWithFormat:@"0x%llX",v.rva];
+            r.enabledText=ZNW44Hex(v.patchBytes);
+            r.originalHex=ZNW44Hex(v.capturedOriginalBytes);
+            r.statusText=@"✅ 已自动准备";
+        }
         NSString *key=ZNW44SiteKeyForRow(r,self.defaultTarget);
         if(!key.length){if(error)*error=[NSString stringWithFormat:@"#%lu Shared Site key 解析失败",(unsigned long)i+1];return NO;}
         if(!groups[key]){groups[key]=[NSMutableArray array];[order addObject:key];}
@@ -238,8 +292,65 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
         for(ZNBinaryPatchRow *r in bucket)r.statusText=shared?@"✅ 临时已应用（Shared Site）":@"✅ 临时已应用";
     }
 
+
+    // Typed value temporary test. Number uses the authoring-only test value
+    // field; Slider uses its authored Max. Neither value is emitted as Patch.
+    if(!failure){
+        for(NSUInteger i=0;i<self.rows.count;i++){
+            ZNBinaryPatchRow *r=self.rows[i];
+            if(!r.offsetText.length||!ZNW62IsValueRow(r))continue;
+            if(r.featureValueType==ZNValueTypeAuto){
+                failure=[NSString stringWithFormat:@"%@：请选择 ValueType",ZNW62FeatureName(r)];
+                failureRows=@[r];
+                break;
+            }
+            uint64_t rva=0;
+            if(!ZNW44RVA(r.offsetText,&rva)){
+                failure=[NSString stringWithFormat:@"%@：Offset 格式无效",ZNW62FeatureName(r)];
+                failureRows=@[r];
+                break;
+            }
+            NSString *value=nil;
+            if(r.featureControlType==ZNFeatureControlTypeSlider){
+                double max=ZNM585SliderMaximumForFeatureName(ZNW62FeatureName(r));
+                if(!isfinite(max)||max<=0.0){
+                    failure=[NSString stringWithFormat:@"%@：Slider Max 必须大于 0",ZNW62FeatureName(r)];
+                    failureRows=@[r];
+                    break;
+                }
+                value=[NSString stringWithFormat:@"%.17g",max];
+            }else{
+                value=[r.enabledText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+                if(!value.length){
+                    failure=[NSString stringWithFormat:@"%@：临时测试请输入测试值",ZNW62FeatureName(r)];
+                    failureRows=@[r];
+                    break;
+                }
+            }
+            NSString *target=ZNW44TargetForRow(r,self.defaultTarget);
+            uintptr_t address=0;NSString *typedError=nil;
+            if(!ZNM620TemporaryApplyOffsetValue(target,rva,r.featureValueType,value,&address,&typedError)){
+                failure=typedError?:@"Typed Value 临时应用失败";
+                failureRows=@[r];
+                break;
+            }
+            NSDictionary *session=@{@"address":@(address),@"row":r};
+            [self.temporaryValueSessions addObject:session];
+            r.statusText=[NSString stringWithFormat:@"✅ Typed Value 已应用（%@）",value];
+            logicalCount++;
+        }
+    }
+
     if(failure){
         NSMutableArray *rollbackErrors=[NSMutableArray array];
+        for(NSDictionary *session in [self.temporaryValueSessions reverseObjectEnumerator]){
+            NSString *re=nil;
+            if(!ZNM620TemporaryRestoreOffsetValue((uintptr_t)[session[@"address"] unsignedLongLongValue],&re))
+                [rollbackErrors addObject:re?:@"Typed Value 回滚失败"];
+            ZNBinaryPatchRow *row=session[@"row"];
+            row.statusText=@"待应用";
+        }
+        [self.temporaryValueSessions removeAllObjects];
         for(NSDictionary *session in [done reverseObjectEnumerator]){
             ZNPatchRuntimeValidator *v=session[@"validator"]; NSString *re=nil;
             if(v.isApplied&&![v restoreOriginal:&re])[rollbackErrors addObject:re?:@"回滚失败"];
@@ -252,12 +363,26 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
         return NO;
     }
 
-    self.lastStatus=[NSString stringWithFormat:@"临时应用成功：%lu 个 Patch%@ · 请回游戏验证功能",(unsigned long)logicalCount,sharedCount?[NSString stringWithFormat:@" · Shared Site %lu",(unsigned long)sharedCount]:@""];
+    self.lastStatus=[NSString stringWithFormat:@"应用成功：%lu 个 Offset%@ · 请回游戏验证功能",(unsigned long)logicalCount,sharedCount?[NSString stringWithFormat:@" · Shared Site %lu",(unsigned long)sharedCount]:@""];
     return YES;
 }
 
 - (BOOL)restoreAll:(NSString **)error {
     NSMutableArray *errs=[NSMutableArray array];NSUInteger n=0;
+
+    for(NSDictionary *session in [self.temporaryValueSessions reverseObjectEnumerator]){
+        NSString *e=nil;
+        uintptr_t address=(uintptr_t)[session[@"address"] unsignedLongLongValue];
+        ZNBinaryPatchRow *row=session[@"row"];
+        if(!ZNM620TemporaryRestoreOffsetValue(address,&e)){
+            [errs addObject:e?:@"Typed Value 恢复失败"];
+            row.statusText=[NSString stringWithFormat:@"❌ %@",e?:@"Typed Value 恢复失败"];
+        }else{
+            row.statusText=@"待应用";
+            n++;
+        }
+    }
+    if(!errs.count)[self.temporaryValueSessions removeAllObjects];
 
     for(NSDictionary *session in [self.temporarySharedSessions reverseObjectEnumerator]){
         ZNPatchRuntimeValidator *v=session[@"validator"]; NSArray<ZNBinaryPatchRow *> *rows=session[@"rows"];
