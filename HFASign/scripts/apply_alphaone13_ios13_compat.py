@@ -94,6 +94,28 @@ nimble_search_placement_path.write_text(
     )
 )
 
+nimble_exporter_path = root / "NimbleKit/Sources/NimbleViews/UIKit/FileExporterRepresentableView.swift"
+nimble_exporter = nimble_exporter_path.read_text()
+old_exporter_picker = "        let picker = UIDocumentPickerViewController(forExporting: urlsToExport, asCopy: asCopy)\n"
+new_exporter_picker = '''        let picker: UIDocumentPickerViewController
+        if #available(iOS 14.0, *) {
+            picker = UIDocumentPickerViewController(forExporting: urlsToExport, asCopy: asCopy)
+        } else {
+            picker = UIDocumentPickerViewController(
+                urls: urlsToExport,
+                in: asCopy ? .exportToService : .moveToService
+            )
+        }
+'''
+exporter_picker_count = nimble_exporter.count(old_exporter_picker)
+if exporter_picker_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit exporter picker construction, found {exporter_picker_count}"
+    )
+nimble_exporter_path.write_text(
+    nimble_exporter.replace(old_exporter_picker, new_exporter_picker, 1)
+)
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -204,5 +226,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, searchScopes, and search placement compatibility applied; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, search, and file exporter compatibility applied; Color bridge guarded for iOS 14+"
 )
