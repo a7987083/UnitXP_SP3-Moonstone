@@ -296,6 +296,60 @@ nimble_grid = nimble_grid.replace(old_grid_body, new_grid_body, 1)
 nimble_grid = "\n".join(line.rstrip() for line in nimble_grid.splitlines()) + "\n"
 nimble_grid_path.write_text(nimble_grid)
 
+nimble_list_path = root / "NimbleKit/Sources/NimbleViews/Views/NBList.swift"
+nimble_list = nimble_list_path.read_text()
+old_list_body = '''\tpublic var body: some View {
+\t\tGroup {
+\t\t\tswitch _type {
+\t\t\tcase .form:
+\t\t\t\tForm {
+\t\t\t\t\t_content
+\t\t\t\t}
+\t\t\tcase .list:
+\t\t\t\tList {
+\t\t\t\t\t_content
+\t\t\t\t}
+\t\t\t}
+\t\t}
+\t\t.navigationTitle(_title)
+\t\t.navigationBarTitleDisplayMode(_mode)
+\t}
+'''
+new_list_body = '''\t@ViewBuilder
+\tpublic var body: some View {
+\t\tif #available(iOS 14.0, *) {
+\t\t\t_listContent
+\t\t\t\t.navigationTitle(_title)
+\t\t\t\t.navigationBarTitleDisplayMode(_mode)
+\t\t} else {
+\t\t\t_listContent
+\t\t\t\t.navigationBarTitle(_title, displayMode: _mode)
+\t\t}
+\t}
+
+\t@ViewBuilder
+\tprivate var _listContent: some View {
+\t\tswitch _type {
+\t\tcase .form:
+\t\t\tForm {
+\t\t\t\t_content
+\t\t\t}
+\t\tcase .list:
+\t\t\tList {
+\t\t\t\t_content
+\t\t\t}
+\t\t}
+\t}
+'''
+list_body_count = nimble_list.count(old_list_body)
+if list_body_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NBList body, found {list_body_count}"
+    )
+nimble_list = nimble_list.replace(old_list_body, new_list_body, 1)
+nimble_list = "\n".join(line.rstrip() for line in nimble_list.splitlines()) + "\n"
+nimble_list_path.write_text(nimble_list)
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -406,5 +460,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, search, document picker, and grid compatibility applied; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, search, document picker, grid, and list compatibility applied; Color bridge guarded for iOS 14+"
 )
