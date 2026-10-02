@@ -918,7 +918,9 @@ static BOOL ZNV3BuildTarget(NSString *target,
         }
         if(localError)break;
         codeNeeded+=64;
-        dataNeeded=ZNV3Align(sizeof(ZN44StaticHeader)+logicals.size()*sizeof(ZN44StaticEntry),8);
+        uint64_t staticTableBytes=ZNV3Align(sizeof(ZN44StaticHeader)+logicals.size()*sizeof(ZN44StaticEntry),8);
+        uint64_t descriptionBytes=sizeof(ZN44FeatureDescriptionHeader)+logicals.size()*sizeof(ZN44FeatureDescriptionEntry);
+        dataNeeded=ZNV3Align(staticTableBytes+descriptionBytes,8);
         codeSegmentSize=ZNV3Align(codeNeeded,kZNV3Page);
         dataSegmentSize=ZNV3Align(dataNeeded,kZNV3Page);
 
