@@ -1274,9 +1274,14 @@ static NSString *ZN43HexString(NSData *data) {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"配置运行时 Patch"
                                                                    message:@"只使用 target + offset + patch。JSON original 不参与验证，OFF 基线从当前原版进程现场读取。"
                                                             preferredStyle:UIAlertControllerStyleAlert];
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    NSString *globalTarget=[workspace.defaultTarget ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    BOOL autoTarget=!globalTarget.length||[globalTarget caseInsensitiveCompare:@"自动"]==NSOrderedSame||[globalTarget caseInsensitiveCompare:@"auto"]==NSOrderedSame;
     [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
         field.placeholder = @"Target，例如 UnityFramework";
-        field.text = validator.target.length ? validator.target : @"UnityFramework";
+        field.text = autoTarget ? (validator.target.length ? validator.target : @"UnityFramework") : globalTarget;
+        field.enabled = autoTarget;
+        field.textColor = autoTarget ? UIColor.labelColor : UIColor.secondaryLabelColor;
         field.autocorrectionType = UITextAutocorrectionTypeNo;
         field.autocapitalizationType = UITextAutocapitalizationTypeNone;
     }];
@@ -1296,7 +1301,8 @@ static NSString *ZN43HexString(NSData *data) {
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         NSString *error = nil;
-        BOOL ok = [validator configureTarget:alert.textFields[0].text ?: @""
+        NSString *effectiveTarget=autoTarget?(alert.textFields[0].text?:@""):globalTarget;
+        BOOL ok = [validator configureTarget:effectiveTarget
                                 offsetString:alert.textFields[1].text ?: @""
                                     patchHex:alert.textFields[2].text ?: @""
                                        error:&error];
@@ -1454,10 +1460,10 @@ static void ZNInstallV043RuntimeValidation(void) {
     [self addSection:@"二进制生成" subtitle:@"q 开发者工具 · Inline Patch Editor · Universal JSON · Static Dispatch / No-JIT" y:&y width:width];
 
     UIView *targetCard=[self cardAtY:y height:58 width:width compact:NO];
-    UILabel *tl=[self label:@"二进制" size:11.5 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];tl.frame=CGRectMake(13,7,56,18);[targetCard addSubview:tl];
-    CGFloat buttonW=76; UITextField *target=[self zn44_field:CGRectMake(68,7,targetCard.bounds.size.width-68-buttonW-20,34) text:ws.defaultTarget placeholder:@"默认主程序，可输入" tag:440000 enabled:!locked];[targetCard addSubview:target];
+    UILabel *tl=[self label:@"全局 Target" size:11.5 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];tl.frame=CGRectMake(13,7,56,18);[targetCard addSubview:tl];
+    CGFloat buttonW=76; UITextField *target=[self zn44_field:CGRectMake(68,7,targetCard.bounds.size.width-68-buttonW-20,34) text:ws.defaultTarget placeholder:@"自动 / UnityFramework" tag:440000 enabled:!locked];[targetCard addSubview:target];
     UIButton *import=[self zn40_button:ws.showJSONFiles?@"收起 JSON":@"导入 JSON" selector:@selector(zn44_importJSON:) frame:CGRectMake(targetCard.bounds.size.width-buttonW-9,7,buttonW,34)];import.enabled=!locked;[targetCard addSubview:import];
-    UILabel *hint=[self label:@"target 可为主程序 / UnityFramework / framework / dylib 名称" size:8.7 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];hint.frame=CGRectMake(13,42,targetCard.bounds.size.width-26,13);[targetCard addSubview:hint];
+    UILabel *hint=[self label:@"自动=允许 JSON/诊断自行选择；填写模块名=所有路径强制使用该 Target" size:8.7 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];hint.frame=CGRectMake(13,42,targetCard.bounds.size.width-26,13);[targetCard addSubview:hint];
     [self.contentView addSubview:targetCard];y+=66;
 
     if(ws.showJSONFiles){
