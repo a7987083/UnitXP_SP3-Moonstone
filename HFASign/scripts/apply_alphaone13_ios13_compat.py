@@ -116,6 +116,128 @@ nimble_exporter_path.write_text(
     nimble_exporter.replace(old_exporter_picker, new_exporter_picker, 1)
 )
 
+nimble_importer_path = root / "NimbleKit/Sources/NimbleViews/UIKit/FileImporterRepresentableView.swift"
+nimble_importer = nimble_importer_path.read_text()
+old_importer_types = '''public struct FileImporterRepresentableView: UIViewControllerRepresentable {
+    public var allowedContentTypes: [UTType]
+    public var allowsMultipleSelection: Bool = false
+    public var onDocumentsPicked: ([URL]) -> Void
+    
+    public init(
+        allowedContentTypes: [UTType],
+        allowsMultipleSelection: Bool = false,
+        onDocumentsPicked: @escaping ([URL]) -> Void
+    ) {
+'''
+new_importer_types = '''public enum FileImporterContentType {
+    case xmlPropertyList
+    case plist
+    case entitlements
+    case p12
+    case mobileProvision
+    case item
+    case image
+    case ipa
+    case tipa
+    case mobiledevicepairing
+
+    @available(iOS 14.0, *)
+    fileprivate var modernType: UTType {
+        switch self {
+        case .xmlPropertyList:
+            return .xmlPropertyList
+        case .item:
+            return .item
+        case .image:
+            return .image
+        case .plist:
+            return UTType(filenameExtension: "plist", conformingTo: .data) ?? .data
+        case .entitlements:
+            return UTType(filenameExtension: "entitlements", conformingTo: .data) ?? .data
+        case .p12:
+            return UTType(filenameExtension: "p12", conformingTo: .data) ?? .data
+        case .mobileProvision:
+            return UTType(filenameExtension: "mobileprovision", conformingTo: .data) ?? .data
+        case .ipa:
+            return UTType(filenameExtension: "ipa", conformingTo: .data) ?? .data
+        case .tipa:
+            return UTType(filenameExtension: "tipa", conformingTo: .data) ?? .data
+        case .mobiledevicepairing:
+            return UTType(filenameExtension: "mobiledevicepairing", conformingTo: .data) ?? .data
+        }
+    }
+
+    fileprivate var legacyIdentifier: String {
+        switch self {
+        case .xmlPropertyList:
+            return "com.apple.xml-property-list"
+        case .plist:
+            return "com.apple.property-list"
+        case .item:
+            return "public.item"
+        case .image:
+            return "public.image"
+        default:
+            return "public.data"
+        }
+    }
+}
+
+public struct FileImporterRepresentableView: UIViewControllerRepresentable {
+    public var allowedContentTypes: [FileImporterContentType]
+    public var allowsMultipleSelection: Bool = false
+    public var onDocumentsPicked: ([URL]) -> Void
+    
+    public init(
+        allowedContentTypes: [FileImporterContentType],
+        allowsMultipleSelection: Bool = false,
+        onDocumentsPicked: @escaping ([URL]) -> Void
+    ) {
+'''
+importer_types_count = nimble_importer.count(old_importer_types)
+if importer_types_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit importer type declaration, found {importer_types_count}"
+    )
+nimble_importer = nimble_importer.replace(old_importer_types, new_importer_types, 1)
+
+old_importer_picker = "        let picker = UIDocumentPickerViewController(forOpeningContentTypes: allowedContentTypes, asCopy: true)\n"
+new_importer_picker = '''        let picker: UIDocumentPickerViewController
+        if #available(iOS 14.0, *) {
+            picker = UIDocumentPickerViewController(
+                forOpeningContentTypes: allowedContentTypes.map { $0.modernType },
+                asCopy: true
+            )
+        } else {
+            picker = UIDocumentPickerViewController(
+                documentTypes: allowedContentTypes.map { $0.legacyIdentifier },
+                in: .import
+            )
+        }
+'''
+importer_picker_count = nimble_importer.count(old_importer_picker)
+if importer_picker_count != 1:
+    raise SystemExit(
+        f"iOS13 compat: expected one NimbleKit importer picker construction, found {importer_picker_count}"
+    )
+nimble_importer_path.write_text(
+    nimble_importer.replace(old_importer_picker, new_importer_picker, 1)
+)
+
+importer_callsite_paths = [
+    root / "Ksign/Views/Settings/Certificates/CertificatesAddView.swift",
+    root / "Ksign/Views/Files/FilesView.swift",
+]
+for importer_callsite_path in importer_callsite_paths:
+    importer_callsite = importer_callsite_path.read_text()
+    importer_callsite = importer_callsite.replace("[UTType.p12]", "[.p12]")
+    importer_callsite = importer_callsite.replace(
+        "[UTType.mobileProvision]",
+        "[.mobileProvision]",
+    )
+    importer_callsite = importer_callsite.replace("[UTType.item]", "[.item]")
+    importer_callsite_path.write_text(importer_callsite)
+
 alt_color_path = root / "AltSourceKit/Sources/AltSourceKit/Extensions/Color/Color+Codable.swift"
 alt_color = alt_color_path.read_text()
 old_color_components = '''#if canImport(UIKit)
@@ -226,5 +348,5 @@ sources_path.write_text(sources)
 
 print(
     f"iOS13 compat applied; deployment target replacements: {count}; "
-    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, search, and file exporter compatibility applied; Color bridge guarded for iOS 14+"
+    f"AltSourceKit and NimbleKit targets lowered to iOS 13; Date.now, Namespace, search, and document picker compatibility applied; Color bridge guarded for iOS 14+"
 )
