@@ -207,8 +207,8 @@ if namespace_count != 3:
     raise SystemExit(f"rork-usbmux compat: expected 3 Namespace properties, found {namespace_count}")
 if transition_call_count < 7:
     raise SystemExit(f"rork-usbmux compat: expected >=7 transition calls, found {transition_call_count}")
-if searchable_count != 4:
-    raise SystemExit(f"rork-usbmux compat: expected 4 platform searchable calls, found {searchable_count}")
+if searchable_count != 3:
+    raise SystemExit(f"rork-usbmux compat: expected 3 remaining platform searchable calls, found {searchable_count}")
 
 # IDeviceSwift supplied three app-visible types. Keep the Zonoe API/UI shape and
 # replace only the implementation underneath it.
@@ -529,7 +529,8 @@ checks = {
     "NimbleKit iOS13": ".iOS(.v13)" in nimble_package_path.read_text(),
     "Nimble Date.now backport": "Date = Date()" in nimble_date_path.read_text(),
     "Nimble namespace removed": "@Namespace" not in all_swift,
-    "Nimble compat searchable": searchable_count == 3,\n    "No raw platform searchable": "placement: .platform()" not in all_swift,
+    "Nimble compat searchable": searchable_count == 3,
+    "No raw platform searchable": "placement: .platform()" not in all_swift,
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
