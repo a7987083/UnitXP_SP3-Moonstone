@@ -5,6 +5,7 @@
 
 #import "ZNFeatureControlModel.h"
 #import "ZNFeatureMetadataCodec.h"
+#import "ZNFeatureSnapshotProvider.h"
 #import "ZNRangeControl.h"
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNStaticPatchFormat.h"
@@ -38,10 +39,9 @@ static NSDictionary<NSString *, id> *ZN65DisplayMetadata(ZNStaticPatchRecord *re
     return @{@"featureID":@0,@"title":title,@"group":group,@"explicitGroup":@([group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame),@"controlType":@(ZNFeatureControlTypeSwitch),@"valueType":@(ZNValueTypeAuto)};
 }
 static NSArray<NSDictionary *> *ZN65FeatureGroups(void) {
-    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];[runtime refresh];NSMutableArray<NSString *> *order=[NSMutableArray array];NSMutableDictionary *members=[NSMutableDictionary dictionary],*metadata=[NSMutableDictionary dictionary];
-    for(ZNStaticPatchRecord *record in runtime.records){NSDictionary *display=ZN65DisplayMetadata(record);NSString *group=ZN65Trim(display[@"group"]),*title=ZN65Trim(display[@"title"]);uint64_t featureID=[display[@"featureID"] unsignedLongLongValue];BOOL explicitFeature=[display[@"explicitGroup"] boolValue]||(group.length&&[group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame);NSString *key=featureID?[NSString stringWithFormat:@"id:%016llx",featureID]:(explicitFeature?[@"group:" stringByAppendingString:group.lowercaseString]:[NSString stringWithFormat:@"patch:%@:%u",record.target.lowercaseString?:@"",record.patchID]);if(!members[key]){members[key]=[NSMutableArray array];ZNFeatureControlType ct=record.entry?ZNFeatureControlTypeFromFlags(record.entry->flags):ZNFeatureControlTypeSwitch;ZNValueType vt=record.entry?ZNFeatureValueTypeFromFlags(record.entry->flags):ZNValueTypeAuto;metadata[key]=[@{@"key":key,@"featureID":@(featureID),@"title":explicitFeature&&group.length?group:(title.length?title:@"功能"),@"controlType":@(ct),@"valueType":@(vt)} mutableCopy];[order addObject:key];}[members[key] addObject:record];}
-    NSMutableArray *out=[NSMutableArray array];for(NSString *key in order){NSMutableDictionary *item=[metadata[key] mutableCopy];item[@"records"]=[members[key] copy];[out addObject:[item copy]];}return out;
+    return [[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
 }
+
 static NSString *ZN65PreferenceKey(NSDictionary *feature,NSString *suffix){uint64_t featureID=[feature[@"featureID"] unsignedLongLongValue];NSString *identity=featureID?[NSString stringWithFormat:@"%016llx",featureID]:[feature[@"key"] description];return [NSString stringWithFormat:@"zn.fc.%@.%@",identity?:@"feature",suffix?:@"value"];}
 static double ZN65StoredValue(NSDictionary *feature,double fallback){id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZN65PreferenceKey(feature,@"value")];return [stored isKindOfClass:NSNumber.class]?[stored doubleValue]:fallback;}
 static NSString *ZN65StoredText(NSDictionary *feature,NSString *fallback){id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZN65PreferenceKey(feature,@"valueText")];return [stored isKindOfClass:NSString.class]&&[(NSString *)stored length]?(NSString *)stored:(fallback?:@"1");}
