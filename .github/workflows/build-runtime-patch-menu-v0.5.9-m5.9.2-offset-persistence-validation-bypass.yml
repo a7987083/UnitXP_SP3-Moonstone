@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
+          # macos-15 runner may retain an openssl@1.1 link while ldid pulls openssl@3.
+          # Unlink only the stale keg; do not upgrade the compiler/SDK/toolchain.
+          brew unlink openssl@1.1 || true
           brew install ldid cmake
       - name: Install Theos
         run: |
