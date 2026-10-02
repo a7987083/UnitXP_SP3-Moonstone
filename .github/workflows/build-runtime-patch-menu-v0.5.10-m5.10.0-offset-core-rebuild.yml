@@ -71,8 +71,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew update
-          brew install ldid cmake
+          set -euxo pipefail
+          # Hosted macOS arm64 images may keep openssl@1.1 linked while Homebrew
+          # installs openssl@3 as an ldid dependency. Homebrew then exits 1 even
+          # though ldid itself is installed successfully. Verify the actual tools.
+          brew install ldid cmake || true
+          command -v ldid
+          command -v cmake
+          ldid -h >/dev/null 2>&1 || test $? -le 1
+          cmake --version
 
       - name: Install Theos
         run: |
