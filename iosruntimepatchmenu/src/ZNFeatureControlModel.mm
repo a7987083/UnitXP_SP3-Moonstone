@@ -105,7 +105,14 @@ NSString *ZNFeatureControlTypeName(ZNFeatureControlType type) {
     NSUInteger changed = 0;
     for (ZNBinaryPatchRow *row in self.rows) {
         if (!ZNFCFeatureMatches(row, name)) continue;
+        if (row.featureControlType == type) continue;
         row.featureControlType = type;
+        // M6.2: control semantics changed. Never carry a validator/original
+        // captured for the previous control class into the new one.
+        row.validated = NO;
+        row.validator = nil;
+        row.originalHex = @"";
+        row.statusText = @"待应用";
         changed++;
     }
     if (!changed) {
@@ -140,7 +147,14 @@ NSString *ZNFeatureControlTypeName(ZNFeatureControlType type) {
     NSUInteger changed = 0;
     for (ZNBinaryPatchRow *row in self.rows) {
         if (!ZNFCFeatureMatches(row, name)) continue;
+        if (row.featureValueType == type) continue;
         row.featureValueType = type;
+        // M6.2: Number/Slider ValueType is part of the execution contract.
+        // Changing it invalidates any previous address/value session.
+        row.validated = NO;
+        row.validator = nil;
+        row.originalHex = @"";
+        row.statusText = @"待应用";
         changed++;
     }
     if (!changed) {
