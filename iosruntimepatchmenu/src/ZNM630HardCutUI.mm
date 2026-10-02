@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#include <math.h>
 
 #import "ZNFeatureControlModel.h"
 #import "ZNFeatureSnapshotProvider.h"
@@ -10,6 +11,10 @@
 
 static const NSInteger kZNM630HardCutSwitchTagBase = 963000;
 static const NSInteger kZNM630HardCutButtonTagBase = 964000;
+static const NSInteger kZNM630HardCutNumberFieldTagBase = 965000;
+static const NSInteger kZNM630HardCutNumberExecuteTagBase = 966000;
+static const NSInteger kZNM630HardCutSliderTagBase = 967000;
+static const NSInteger kZNM630HardCutSliderValueTagBase = 968000;
 
 @interface ZNStaticPatchRecord (ZNM630HardCutRecord)
 @property(nonatomic,assign,getter=isEnabled) BOOL enabled;
@@ -72,12 +77,45 @@ static NSDictionary *ZNM630EventInfo(NSDictionary *feature) {
     };
 }
 
+static NSString *ZNM630PreferenceKey(NSDictionary *feature, NSString *suffix) {
+    uint64_t featureID=[feature[@"featureID"] unsignedLongLongValue];
+    NSString *identity=featureID?[NSString stringWithFormat:@"%016llx",featureID]:[feature[@"key"] description];
+    return [NSString stringWithFormat:@"zn.fc.%@.%@",identity?:@"feature",suffix?:@"value"];
+}
+
+static NSString *ZNM630StoredText(NSDictionary *feature, NSString *fallback) {
+    id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZNM630PreferenceKey(feature,@"valueText")];
+    return [stored isKindOfClass:NSString.class]&&[(NSString *)stored length]?(NSString *)stored:(fallback?:@"0");
+}
+
+static double ZNM630StoredValue(NSDictionary *feature, double fallback) {
+    id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZNM630PreferenceKey(feature,@"value")];
+    return [stored isKindOfClass:NSNumber.class]?[stored doubleValue]:fallback;
+}
+
+static void ZNM630PersistValue(NSDictionary *feature, double value, NSString *text) {
+    [NSUserDefaults.standardUserDefaults setDouble:value forKey:ZNM630PreferenceKey(feature,@"value")];
+    if (text.length) [NSUserDefaults.standardUserDefaults setObject:text forKey:ZNM630PreferenceKey(feature,@"valueText")];
+}
+
+static NSDictionary *ZNM630ValueEventInfo(NSDictionary *feature, double value, NSString *text) {
+    NSMutableDictionary *info=[ZNM630EventInfo(feature) mutableCopy];
+    info[@"value"]=@(value);
+    if (text.length) info[@"valueText"]=text;
+    return info;
+}
+
 @interface ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
 - (void)znm630_hardCutRenderFullPage;
 - (void)znm630_hardCutRenderCompactPage;
 - (void)znm630_hardCutRenderFeatures:(BOOL)compact;
 - (void)znm630_hardCutSwitchChanged:(UISwitch *)sender;
 - (void)znm630_hardCutButtonTapped:(UIButton *)sender;
+- (void)znm630_hardCutNumberChanged:(UITextField *)sender;
+- (void)znm630_hardCutNumberReturn:(UITextField *)sender;
+- (void)znm630_hardCutNumberExecute:(UIButton *)sender;
+- (void)znm630_hardCutSliderChanged:(UISlider *)sender;
+- (void)znm630_hardCutSliderCommitted:(UISlider *)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
@@ -135,14 +173,69 @@ static NSDictionary *ZNM630EventInfo(NSDictionary *feature) {
             button.layer.borderColor=self.theme.borderColor.CGColor;
             [button addTarget:self action:@selector(znm630_hardCutButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
             [card addSubview:button];
-        } else {
-            UILabel *kind=[self label:(type==ZNFeatureControlTypeNumber?@"Number":@"Slider")
-                                  size:(compact?8.8:9.2)
-                                weight:UIFontWeightMedium
-                                 color:self.theme.secondaryTextColor];
-            kind.textAlignment=NSTextAlignmentCenter;
-            kind.frame=CGRectMake(CGRectGetWidth(card.bounds)-(compact?72:88),0,compact?62:76,h);
-            [card addSubview:kind];
+        } else if (type==ZNFeatureControlTypeNumber) {
+            CGFloat executeW=compact?44.0:50.0;
+            CGFloat gap=4.0;
+            CGFloat totalW=compact?118.0:138.0;
+            CGFloat x=CGRectGetWidth(card.bounds)-totalW-(compact?7.0:10.0);
+
+            UITextField *field=[[UITextField alloc] initWithFrame:CGRectMake(x,compact?7.0:8.0,totalW-executeW-gap,compact?28.0:32.0)];
+            field.tag=kZNM630HardCutNumberFieldTagBase+(NSInteger)i;
+            field.text=ZNM630StoredText(feature,@"0");
+            field.textAlignment=NSTextAlignmentCenter;
+            field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;
+            field.returnKeyType=UIReturnKeyDone;
+            field.textColor=self.theme.primaryTextColor;
+            field.backgroundColor=[self.theme.controlColor colorWithAlphaComponent:.82];
+            field.font=[UIFont systemFontOfSize:(compact?9.0:9.6) weight:UIFontWeightSemibold];
+            field.layer.cornerRadius=7.0;
+            field.layer.borderWidth=1.0;
+            field.layer.borderColor=self.theme.borderColor.CGColor;
+            [field addTarget:self action:@selector(znm630_hardCutNumberChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
+            [field addTarget:self action:@selector(znm630_hardCutNumberReturn:) forControlEvents:UIControlEventEditingDidEndOnExit];
+            [card addSubview:field];
+
+            UIButton *execute=[UIButton buttonWithType:UIButtonTypeSystem];
+            execute.tag=kZNM630HardCutNumberExecuteTagBase+(NSInteger)i;
+            execute.frame=CGRectMake(CGRectGetMaxX(field.frame)+gap,field.frame.origin.y,executeW,field.frame.size.height);
+            [execute setTitle:@"执行" forState:UIControlStateNormal];
+            [execute setTitleColor:self.theme.primaryTextColor forState:UIControlStateNormal];
+            execute.backgroundColor=self.theme.controlColor;
+            execute.layer.cornerRadius=7.0;
+            execute.layer.borderWidth=1.0;
+            execute.layer.borderColor=self.theme.borderColor.CGColor;
+            [execute addTarget:self action:@selector(znm630_hardCutNumberExecute:) forControlEvents:UIControlEventTouchUpInside];
+            [card addSubview:execute];
+        } else if (type==ZNFeatureControlTypeSlider) {
+            double max=[feature[@"sliderMax"] doubleValue];
+            if (!isfinite(max)||max<=0.0) max=10.0;
+            double stored=ZNM630StoredValue(feature,0.0);
+            if (!isfinite(stored)) stored=0.0;
+            double value=MAX(0.0,MIN(max,round(stored)));
+
+            CGFloat valueW=compact?38.0:44.0;
+            CGFloat left=compact?72.0:92.0;
+            CGFloat right=valueW+(compact?8.0:10.0);
+            UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(left,compact?7.0:8.0,MAX(40.0,CGRectGetWidth(card.bounds)-left-right),compact?28.0:32.0)];
+            slider.tag=kZNM630HardCutSliderTagBase+(NSInteger)i;
+            slider.minimumValue=0.0f;
+            slider.maximumValue=(float)max;
+            slider.value=(float)value;
+            slider.minimumTrackTintColor=self.theme.accentColor;
+            slider.maximumTrackTintColor=[self.theme.borderColor colorWithAlphaComponent:.55];
+            slider.continuous=YES;
+            [slider addTarget:self action:@selector(znm630_hardCutSliderChanged:) forControlEvents:UIControlEventValueChanged];
+            [slider addTarget:self action:@selector(znm630_hardCutSliderCommitted:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
+            [card addSubview:slider];
+
+            UILabel *valueLabel=[self label:[NSString stringWithFormat:@"%.0f",value]
+                                      size:(compact?9.0:9.5)
+                                    weight:UIFontWeightSemibold
+                                     color:self.theme.secondaryTextColor];
+            valueLabel.tag=kZNM630HardCutSliderValueTagBase+(NSInteger)i;
+            valueLabel.textAlignment=NSTextAlignmentCenter;
+            valueLabel.frame=CGRectMake(CGRectGetWidth(card.bounds)-right+2.0,0,valueW,h);
+            [card addSubview:valueLabel];
         }
 
         [self.contentView addSubview:card];
@@ -198,6 +291,66 @@ static NSDictionary *ZNM630EventInfo(NSDictionary *feature) {
     [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureActionRequestedNotification
                                                       object:self
                                                     userInfo:ZNM630EventInfo(feature)];
+}
+
+- (void)znm630_hardCutNumberChanged:(UITextField *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutNumberFieldTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    NSString *text=[sender.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!text.length) text=@"0";
+    NSDecimalNumber *number=[NSDecimalNumber decimalNumberWithString:text locale:@{NSLocaleDecimalSeparator:@"."}];
+    if (![number isEqualToNumber:NSDecimalNumber.notANumber])
+        ZNM630PersistValue(feature,number.doubleValue,text);
+}
+
+- (void)znm630_hardCutNumberReturn:(UITextField *)sender {
+    [self znm630_hardCutNumberChanged:sender];
+    [sender resignFirstResponder];
+}
+
+- (void)znm630_hardCutNumberExecute:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutNumberExecuteTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    NSString *text=ZNM630StoredText(feature,@"0");
+    NSDecimalNumber *number=[NSDecimalNumber decimalNumberWithString:text locale:@{NSLocaleDecimalSeparator:@"."}];
+    if ([number isEqualToNumber:NSDecimalNumber.notANumber]) return;
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureNumberValueDidChangeNotification
+                                                      object:self
+                                                    userInfo:ZNM630ValueEventInfo(feature,number.doubleValue,text)];
+}
+
+- (void)znm630_hardCutSliderChanged:(UISlider *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutSliderTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    double max=[feature[@"sliderMax"] doubleValue];
+    if (!isfinite(max)||max<=0.0) max=10.0;
+    double value=MAX(0.0,MIN(max,round(sender.value)));
+    UILabel *label=[self.contentView viewWithTag:kZNM630HardCutSliderValueTagBase+index];
+    if ([label isKindOfClass:UILabel.class]) label.text=[NSString stringWithFormat:@"%.0f",value];
+}
+
+- (void)znm630_hardCutSliderCommitted:(UISlider *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutSliderTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    double max=[feature[@"sliderMax"] doubleValue];
+    if (!isfinite(max)||max<=0.0) max=10.0;
+    double value=MAX(0.0,MIN(max,round(sender.value)));
+    sender.value=(float)value;
+    NSString *text=[NSString stringWithFormat:@"%.0f",value];
+    ZNM630PersistValue(feature,value,text);
+    UILabel *label=[self.contentView viewWithTag:kZNM630HardCutSliderValueTagBase+index];
+    if ([label isKindOfClass:UILabel.class]) label.text=text;
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureSliderValueDidChangeNotification
+                                                      object:self
+                                                    userInfo:ZNM630ValueEventInfo(feature,value,text)];
 }
 
 @end
