@@ -6,6 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy,readonly) NSString *target;
 @property(nonatomic,copy,readonly) NSString *title;
 @property(nonatomic,copy,readonly) NSString *group;
+@property(nonatomic,copy,readonly) NSString *featureDescription;
 @property(nonatomic,assign,readonly) uint64_t siteRVA;
 @property(nonatomic,assign,readonly) uint32_t patchID;
 @property(nonatomic,assign,readonly,getter=isEnabled) BOOL enabled;
