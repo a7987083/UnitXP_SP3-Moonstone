@@ -182,11 +182,6 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
             NSDictionary *cfg = configs.count ? configs[arg] : nil;
             if (![cfg[@"enabled"] boolValue]) continue;
 
-            NSString *typeName = arg < record.parameterTypeNames.count ? record.parameterTypeNames[arg] : @"?";
-            UILabel *label = [self label:[NSString stringWithFormat:@"参数%lu · %@", (unsigned long)arg + 1, ZNM58ShortType(typeName)]
-                                      size:8.0 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-            label.frame = CGRectMake(13, rowY, 82, 28);
-            [card addSubview:label];
 
             NSInteger slot = (NSInteger)(i * ZN_RUNTIME_ACTION_MAX_ARGUMENTS + arg);
             NSString *defaultValue = (storedValues.count == record.argumentCount) ? storedValues[arg] : (arg < record.argumentValues.count ? record.argumentValues[arg] : @"");
@@ -229,7 +224,7 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
                 button.tag = kZNM58ExecTag + (NSInteger)i;
                 [card addSubview:button];
             } else {
-                UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(96, rowY, card.bounds.size.width - 109, 28)];
+                UITextField *field = [[UITextField alloc] initWithFrame:CGRectMake(13, rowY, card.bounds.size.width - 26, 28)];
                 field.text = defaultValue;
                 field.placeholder = defaultValue;
                 field.textColor = self.theme.primaryTextColor;
