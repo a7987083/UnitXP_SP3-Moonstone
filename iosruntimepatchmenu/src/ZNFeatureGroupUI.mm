@@ -58,6 +58,7 @@ typedef NS_ENUM(NSInteger, ZN50FeatureVisualState) {
                         theme:(ZNTheme *)theme
                         state:(ZN50FeatureVisualState)state
                       compact:(BOOL)compact;
+- (void)zn50_applyVisualState;
 @end
 
 @implementation ZN50FeatureToggleControl
@@ -444,13 +445,23 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
     NSString *localError = nil;
     if (!ZN50SetFeatureEnabled(records, desired, &localError)) {
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature] toggle rollback: %@", localError ?: @"unknown"]];
-    } else {
-        uint64_t featureID = [feature[@"featureID"] unsignedLongLongValue];
-        NSString *preferenceKey = ZN50FeaturePreferenceKey(featureID);
-        if (preferenceKey.length) [NSUserDefaults.standardUserDefaults setBool:desired forKey:preferenceKey];
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature] %@ %@ (%lu patches)", desired ? @"ON" : @"OFF", feature[@"title"] ?: @"功能", (unsigned long)records.count]];
+        return;
     }
-    [self renderPage];
+
+    uint64_t featureID = [feature[@"featureID"] unsignedLongLongValue];
+    NSString *preferenceKey = ZN50FeaturePreferenceKey(featureID);
+    if (preferenceKey.length) [NSUserDefaults.standardUserDefaults setBool:desired forKey:preferenceKey];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[feature] %@ %@ (%lu patches)", desired ? @"ON" : @"OFF", feature[@"title"] ?: @"功能", (unsigned long)records.count]];
+
+    // M6.3: the feature card already owns the live record objects. Reflect the
+    // actual backend state in-place instead of destroying/rebuilding the page.
+    // Shared-Site or rollback semantics are therefore preserved: the visual
+    // state comes from records after setEnabled completes, not from optimism.
+    if ([sender isKindOfClass:ZN50FeatureToggleControl.class]) {
+        ZN50FeatureToggleControl *toggle = (ZN50FeatureToggleControl *)sender;
+        toggle.visualState = ZN50VisualState(records);
+        [toggle zn50_applyVisualState];
+    }
 }
 
 @end
