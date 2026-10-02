@@ -1,9 +1,9 @@
-name: Build Runtime Patch Menu v0.6.2 M6.2.0 Offset API Refactor
+name: Build Runtime Patch Menu v0.6.1 M6.1.0 Unified Feature Model
 
 on:
   push:
     branches:
-      - feature/m6.2-offset-api-refactor
+      - feature/m6.1-unified-feature-model
   workflow_dispatch:
 
 jobs:
@@ -18,25 +18,28 @@ jobs:
       - name: Source contract assertions
         run: |
           set -euxo pipefail
-          grep -q '0.6.2 · M6.2.0' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q 'Offset API Refactor' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q '0.6.1 · M6.1.0' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'ZNM610UnifiedFeatureModel.mm' iosruntimepatchmenu/Makefile
+          grep -q 'ZNInstallM610UnifiedFeatureModelDeferred' iosruntimepatchmenu/src/ZNIL2CPPMethodFinderMenuBinding.mm
           grep -q 'Offset/Runtime separated' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'no Offset->Runtime promotion' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'Offset stays Static/Offset backend' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'Runtime stays explicit IL2CPP backend' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
           ! grep -q 'ZNM610PromoteRow' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
-          grep -q 'UIButton \*apply = .*@"应用"' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
-          ! grep -q 'zn40_button:@"读取验证"' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
-          grep -q 'Button/Switch -> Offset + Patch' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
-          grep -q 'Number        -> Offset + ValueType' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
-          grep -q 'ZNM620TemporaryApplyOffsetValue' iosruntimepatchmenu/src/ZNM600UnifiedFeatureSurface.mm
-          grep -q 'ZNM620TemporaryRestoreOffsetValue' iosruntimepatchmenu/src/ZNM600UnifiedFeatureSurface.mm
-          grep -q 'M6.2 不根据字节自动猜测' iosruntimepatchmenu/src/ZNM592OffsetAuthoringPersistence.mm
-          grep -q 'F32 超出可表示范围' iosruntimepatchmenu/src/ZNM600UnifiedFeatureSurface.mm
+          ! grep -q 'method_exchangeImplementations' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
       - name: Install dependencies
         run: |
           set -euxo pipefail
           brew update
+          # macos-15-arm64 runner currently ships openssl@1.1 linked while
+          # Homebrew ldid pulls openssl@3. Unlink the legacy formula first so
+          # dependency installation does not fail at brew link.
           brew unlink openssl@1.1 || true
+          # Current runner image leaves /opt/homebrew/bin/openssl as a stale
+          # openssl@1.1 symlink even when brew reports zero linked files.
+          # Remove only that Homebrew shim so openssl@3 can link cleanly.
           if [ -L /opt/homebrew/bin/openssl ]; then
             rm -f /opt/homebrew/bin/openssl
           fi
@@ -81,31 +84,31 @@ jobs:
           PY
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
-      - name: Build M6.2.0
+      - name: Build M6.1.0
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1
-          mkdir -p dist-m6.2.0
-          cp .theos/obj/ZonoePatchV03.dylib dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_OffsetAPIRefactor.dylib
-          shasum -a 256 dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_OffsetAPIRefactor.dylib | tee dist-m6.2.0/SHA256.txt
+          mkdir -p dist-m6.1.0
+          cp .theos/obj/ZonoePatchV03.dylib dist-m6.1.0/ZonoPatch_v0.6.1_M6.1.0_UnifiedFeatureModel.dylib
+          shasum -a 256 dist-m6.1.0/ZonoPatch_v0.6.1_M6.1.0_UnifiedFeatureModel.dylib | tee dist-m6.1.0/SHA256.txt
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_OffsetAPIRefactor.dylib
+          out=iosruntimepatchmenu/dist-m6.1.0/ZonoPatch_v0.6.1_M6.1.0_UnifiedFeatureModel.dylib
           file "$out" | grep -q 'arm64'
-          otool -L "$out" | tee /tmp/zono_m620_load_commands.txt
-          strings -a "$out" > /tmp/zono_m620_strings.txt
-          grep -q '\[m6.1-split\]' /tmp/zono_m620_strings.txt
-          grep -q '\[m6.2-temp-value\]' /tmp/zono_m620_strings.txt
-          grep -q '请选择 ValueType' /tmp/zono_m620_strings.txt
-          ! grep -qi 'dobby' /tmp/zono_m620_load_commands.txt
+          otool -L "$out" | tee /tmp/zono_m610_load_commands.txt
+          strings -a "$out" > /tmp/zono_m610_strings.txt
+          grep -q '\[m6.1-split\]' /tmp/zono_m610_strings.txt
+          grep -q 'Offset/Runtime separated' /tmp/zono_m610_strings.txt
+          ! grep -q 'm6.1-model] promoted' /tmp/zono_m610_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m610_load_commands.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.6.2-M6.2.0-OffsetAPIRefactor
+          name: ZonoPatch-v0.6.1-M6.1.0-UnifiedFeatureModel
           path: |
-            iosruntimepatchmenu/dist-m6.2.0/ZonoPatch_v0.6.2_M6.2.0_OffsetAPIRefactor.dylib
-            iosruntimepatchmenu/dist-m6.2.0/SHA256.txt
+            iosruntimepatchmenu/dist-m6.1.0/ZonoPatch_v0.6.1_M6.1.0_UnifiedFeatureModel.dylib
+            iosruntimepatchmenu/dist-m6.1.0/SHA256.txt
           if-no-files-found: error
