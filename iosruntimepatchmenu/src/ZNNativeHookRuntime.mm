@@ -94,6 +94,100 @@ static ZNM47DobbyInstrumentCallback const gZNNativeSlotCallbacks[kZNNativeMaxSlo
     ZNNativeSlotCallback12,ZNNativeSlotCallback13,ZNNativeSlotCallback14,ZNNativeSlotCallback15
 };
 
+
+static const NSUInteger kZNManagedCallbackMaxSlots = 8;
+
+typedef void *(*ZNManagedObjectGetClassFn)(void *);
+typedef const void *(*ZNManagedClassGetMethodFromNameFn)(void *, const char *, int);
+typedef void *(*ZNManagedRuntimeInvokeFn)(const void *, void *, void **, void **);
+
+typedef struct {
+    std::atomic<uintptr_t> target;
+    std::atomic<uintptr_t> original;
+    std::atomic<uint32_t> callbackRegister;
+    std::atomic<uint32_t> callbackValue;
+    std::atomic<uint64_t> hits;
+    std::atomic<uint64_t> callbackSuccess;
+    std::atomic<uint64_t> callbackFailure;
+    std::atomic<uint32_t> actionID;
+} ZNManagedCallbackSlot;
+
+static ZNManagedCallbackSlot gZNManagedCallbackSlots[kZNManagedCallbackMaxSlots];
+
+static ZNManagedCallbackSlot *ZNManagedCallbackSlotForTarget(uintptr_t target) {
+    if(!target)return NULL;
+    for(NSUInteger i=0;i<kZNManagedCallbackMaxSlots;i++)
+        if(gZNManagedCallbackSlots[i].target.load(std::memory_order_acquire)==target)return &gZNManagedCallbackSlots[i];
+    return NULL;
+}
+
+static ZNManagedCallbackSlot *ZNManagedCallbackFreeSlot(void) {
+    for(NSUInteger i=0;i<kZNManagedCallbackMaxSlots;i++)
+        if(gZNManagedCallbackSlots[i].target.load(std::memory_order_acquire)==0)return &gZNManagedCallbackSlots[i];
+    return NULL;
+}
+
+static BOOL ZNManagedInvokeBoolCallback(uintptr_t callbackObject, BOOL value) {
+    if(!callbackObject)return NO;
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    if(!resolver.isAvailable)return NO;
+    ZNManagedObjectGetClassFn objectGetClass=(ZNManagedObjectGetClassFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_object_get_class");
+    ZNManagedClassGetMethodFromNameFn classGetMethod=(ZNManagedClassGetMethodFromNameFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_class_get_method_from_name");
+    ZNManagedRuntimeInvokeFn runtimeInvoke=(ZNManagedRuntimeInvokeFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_runtime_invoke");
+    if(!objectGetClass||!classGetMethod||!runtimeInvoke)return NO;
+    void *klass=objectGetClass((void *)callbackObject);
+    if(!klass)return NO;
+    const void *invoke=classGetMethod(klass,"Invoke",1);
+    if(!invoke)return NO;
+    uint8_t boolValue=value?1:0;
+    void *params[1]={&boolValue};
+    void *exception=NULL;
+    (void)runtimeInvoke(invoke,(void *)callbackObject,params,&exception);
+    return exception==NULL;
+}
+
+static uintptr_t ZNManagedCallbackHandle(NSUInteger index,
+                                         uintptr_t x0,uintptr_t x1,uintptr_t x2,uintptr_t x3,
+                                         uintptr_t x4,uintptr_t x5,uintptr_t x6,uintptr_t x7) {
+    if(index>=kZNManagedCallbackMaxSlots)return 0;
+    ZNManagedCallbackSlot *slot=&gZNManagedCallbackSlots[index];
+    if(!slot->target.load(std::memory_order_acquire))return 0;
+    uintptr_t regs[8]={x0,x1,x2,x3,x4,x5,x6,x7};
+    uint32_t reg=slot->callbackRegister.load(std::memory_order_relaxed);
+    slot->hits.fetch_add(1,std::memory_order_relaxed);
+    if(reg>=8||!regs[reg]){
+        slot->callbackFailure.fetch_add(1,std::memory_order_relaxed);
+        return 0;
+    }
+    BOOL ok=ZNManagedInvokeBoolCallback(regs[reg],slot->callbackValue.load(std::memory_order_relaxed)!=0);
+    if(ok)slot->callbackSuccess.fetch_add(1,std::memory_order_relaxed);
+    else slot->callbackFailure.fetch_add(1,std::memory_order_relaxed);
+    return 0; // M6.5 V1 only accepts void targets; original is intentionally skipped.
+}
+
+#define ZN_MANAGED_CALLBACK_REPLACEMENT(N) \
+    static uintptr_t ZNManagedCallbackReplacement##N(uintptr_t x0,uintptr_t x1,uintptr_t x2,uintptr_t x3, \
+                                                     uintptr_t x4,uintptr_t x5,uintptr_t x6,uintptr_t x7) { \
+        return ZNManagedCallbackHandle((N),x0,x1,x2,x3,x4,x5,x6,x7); \
+    }
+
+ZN_MANAGED_CALLBACK_REPLACEMENT(0)
+ZN_MANAGED_CALLBACK_REPLACEMENT(1)
+ZN_MANAGED_CALLBACK_REPLACEMENT(2)
+ZN_MANAGED_CALLBACK_REPLACEMENT(3)
+ZN_MANAGED_CALLBACK_REPLACEMENT(4)
+ZN_MANAGED_CALLBACK_REPLACEMENT(5)
+ZN_MANAGED_CALLBACK_REPLACEMENT(6)
+ZN_MANAGED_CALLBACK_REPLACEMENT(7)
+
+static void * const gZNManagedCallbackReplacements[kZNManagedCallbackMaxSlots]={
+    (void *)&ZNManagedCallbackReplacement0,(void *)&ZNManagedCallbackReplacement1,
+    (void *)&ZNManagedCallbackReplacement2,(void *)&ZNManagedCallbackReplacement3,
+    (void *)&ZNManagedCallbackReplacement4,(void *)&ZNManagedCallbackReplacement5,
+    (void *)&ZNManagedCallbackReplacement6,(void *)&ZNManagedCallbackReplacement7
+};
+
 static NSString *ZNNativeString(id value) {
     return [value isKindOfClass:NSString.class]?value:@"";
 }
@@ -307,6 +401,33 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     return indices;
 }
 
+- (NSArray<NSNumber *> *)supportedManagedBoolCallbackArgumentIndicesForCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                                          reason:(NSString **)reason {
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    if(![abi[@"available"] boolValue]||params.count!=argc){
+        if(reason)*reason=ZNNativeString(abi[@"reason"]).length?ZNNativeString(abi[@"reason"]):@"参数 ABI 不完整";
+        return @[];
+    }
+    if((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindVoid){
+        if(reason)*reason=@"ManagedCallbackShortCircuit V1 仅支持 void 目标方法";
+        return @[];
+    }
+    NSMutableArray<NSNumber *> *indices=[NSMutableArray array];
+    for(NSUInteger i=0;i<params.count;i++){
+        NSDictionary *p=params[i];
+        NSString *type=ZNNativeString(p[@"name"]).lowercaseString;
+        BOOL actionBool=[type containsString:@"system.action"]&&[type containsString:@"system.boolean"];
+        if((ZNIL2CPPABIValueKind)[p[@"kind"] integerValue]==ZNIL2CPPABIValueKindObjectReference&&actionBool)
+            [indices addObject:@(i)];
+    }
+    if(!indices.count&&reason)*reason=@"未找到 System.Action<bool> 托管回调参数";
+    return indices;
+}
+
+
 - (BOOL)installResolvedTarget:(uintptr_t)target
                     isStatic:(BOOL)isStatic
                argumentIndex:(NSUInteger)argumentIndex
@@ -377,6 +498,69 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                  error:error];
 }
 
+
+- (BOOL)installTemporaryManagedCallbackShortCircuitForCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                   argumentIndex:(NSUInteger)argumentIndex
+                                                   callbackValue:(BOOL)callbackValue
+                                                           error:(NSString **)error {
+    NSArray<NSNumber *> *supported=[self supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:error];
+    if(![supported containsObject:@(argumentIndex)])return NO;
+    NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNativeString(candidate[@"namespace"]);
+    NSString *cls=ZNNativeString(candidate[@"class"]);
+    NSString *method=ZNNativeString(candidate[@"method"]);
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
+    if(!resolved)return NO;
+    uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
+    if(ZNNativeSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装 ArgScaleInt32 Hook，请先恢复原方法";
+        return NO;
+    }
+    uint32_t reg=0;
+    if(!ZNNativeHookArgRegisterIndex([resolved[@"static"] boolValue],argumentIndex,argc,&reg)){
+        if(error)*error=@"Managed callback 参数无法映射到 ARM64 x0~x7";
+        return NO;
+    }
+    ZNManagedCallbackSlot *existing=ZNManagedCallbackSlotForTarget(target);
+    if(existing){
+        if(existing->callbackRegister.load(std::memory_order_relaxed)!=reg){
+            if(error)*error=@"同一 target 已安装不同 callback 参数的 Hook，请先恢复原方法";
+            return NO;
+        }
+        existing->callbackValue.store(callbackValue?1u:0u,std::memory_order_release);
+        return YES;
+    }
+    ZNManagedCallbackSlot *slot=ZNManagedCallbackFreeSlot();
+    if(!slot){if(error)*error=@"ManagedCallback Hook slot 已满";return NO;}
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNManagedCallbackSlots);
+    slot->callbackRegister.store(reg,std::memory_order_relaxed);
+    slot->callbackValue.store(callbackValue?1u:0u,std::memory_order_relaxed);
+    slot->hits.store(0,std::memory_order_relaxed);
+    slot->callbackSuccess.store(0,std::memory_order_relaxed);
+    slot->callbackFailure.store(0,std::memory_order_relaxed);
+    slot->actionID.store(0,std::memory_order_relaxed);
+    slot->original.store(0,std::memory_order_relaxed);
+    slot->target.store(target,std::memory_order_release);
+
+    void *original=NULL;
+    NSString *hookError=nil;
+    if(slotIndex>=kZNManagedCallbackMaxSlots||
+       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
+                                                              replacement:gZNManagedCallbackReplacements[slotIndex]
+                                                                 original:&original
+                                                                    error:&hookError]){
+        slot->target.store(0,std::memory_order_release);
+        if(error)*error=hookError?:@"Dobby replacement 安装失败";
+        return NO;
+    }
+    slot->original.store((uintptr_t)original,std::memory_order_release);
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[managed-callback-hook] installed target=0x%llX callbackReg=x%u value=%@ original=0x%llX",
+                                       (unsigned long long)target,reg,callbackValue?@"true":@"false",
+                                       (unsigned long long)(uintptr_t)original]];
+    return YES;
+}
+
 - (BOOL)removeTemporaryHookForCandidate:(NSDictionary<NSString *,id> *)candidate error:(NSString **)error {
     NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
     NSString *ns=ZNNativeString(candidate[@"namespace"]);
@@ -387,13 +571,18 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(!resolved)return NO;
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
-    if(!slot)return YES;
+    ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
+    if(!slot&&!callbackSlot)return YES;
     NSString *destroyError=nil;
     if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:&destroyError]){
         if(error)*error=destroyError;return NO;
     }
-    slot->target.store(0,std::memory_order_release);
-    slot->actionID.store(0,std::memory_order_relaxed);
+    if(slot){slot->target.store(0,std::memory_order_release);slot->actionID.store(0,std::memory_order_relaxed);}
+    if(callbackSlot){
+        callbackSlot->target.store(0,std::memory_order_release);
+        callbackSlot->original.store(0,std::memory_order_relaxed);
+        callbackSlot->actionID.store(0,std::memory_order_relaxed);
+    }
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook] restored target=0x%llX",(unsigned long long)target]];
     return YES;
 }
@@ -401,13 +590,24 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 - (NSString *)diagnosticsForCandidate:(NSDictionary<NSString *,id> *)candidate {
     uintptr_t target=[candidate[@"methodPointer"] unsignedLongLongValue];
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
-    if(!slot)return @"Hook 状态：未安装";
-    return [NSString stringWithFormat:@"Hook 状态：已安装\nTarget：0x%llX\nHits：%llu\n最近参数：%d → %d\n倍率：x%d",
-            (unsigned long long)target,
-            (unsigned long long)slot->hits.load(std::memory_order_relaxed),
-            slot->lastBefore.load(std::memory_order_relaxed),
-            slot->lastAfter.load(std::memory_order_relaxed),
-            slot->multiplier.load(std::memory_order_relaxed)];
+    if(slot){
+        return [NSString stringWithFormat:@"Hook 状态：已安装\nTarget：0x%llX\nHits：%llu\n最近参数：%d → %d\n倍率：x%d",
+                (unsigned long long)target,
+                (unsigned long long)slot->hits.load(std::memory_order_relaxed),
+                slot->lastBefore.load(std::memory_order_relaxed),
+                slot->lastAfter.load(std::memory_order_relaxed),
+                slot->multiplier.load(std::memory_order_relaxed)];
+    }
+    ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
+    if(callbackSlot){
+        return [NSString stringWithFormat:@"Hook 状态：已安装 · Skip Original\nTarget：0x%llX\nHits：%llu\nCallback Success：%llu\nCallback Failed：%llu\nInvoke：%@",
+                (unsigned long long)target,
+                (unsigned long long)callbackSlot->hits.load(std::memory_order_relaxed),
+                (unsigned long long)callbackSlot->callbackSuccess.load(std::memory_order_relaxed),
+                (unsigned long long)callbackSlot->callbackFailure.load(std::memory_order_relaxed),
+                callbackSlot->callbackValue.load(std::memory_order_relaxed)?@"true":@"false"];
+    }
+    return @"Hook 状态：未安装";
 }
 
 - (BOOL)installAction:(ZNNativeHookAction *)action value:(NSInteger)value error:(NSString **)error {
