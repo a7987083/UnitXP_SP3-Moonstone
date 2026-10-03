@@ -28,6 +28,10 @@ int main(void) {
 
         assert([ZNNativeHookTemplateKey(ZNNativeHookTemplateArgScaleInt32)
                 isEqualToString:@"arg-scale-int32"]);
+        assert([ZNNativeHookTemplateKey(ZNNativeHookTemplateManagedCallbackShortCircuit)
+                isEqualToString:@"managed-callback-short-circuit"]);
+        assert([ZNNativeHookTemplateKey(ZNNativeHookTemplateReturnBoolOverride)
+                isEqualToString:@"return-bool-override"]);
     }
     return 0;
 }
