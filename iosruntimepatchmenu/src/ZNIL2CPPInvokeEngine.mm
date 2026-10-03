@@ -4,8 +4,8 @@
 #import "ZNIL2CPPABIMetadata.h"
 #import "ZNIL2CPPInstanceResolver.h"
 #import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNPatchCore.h"
-#import <dlfcn.h>
 #import <errno.h>
 #import <limits.h>
 #import <ctype.h>
@@ -16,19 +16,6 @@ static thread_local uintptr_t gZNExplicitReceiverOverride = 0;
 typedef void *(*ZNRuntimeInvokeFn)(const void *method, void *object, void **params, void **exception);
 typedef uint32_t (*ZNMethodGetFlagsFn)(const void *method, uint32_t *iflags);
 typedef void *(*ZNStringNewFn)(const char *utf8);
-
-static void *ZNInvokeResolveSymbol(NSString *unityPath, const char *name) {
-    if (!name) return NULL;
-    void *symbol = dlsym(RTLD_DEFAULT, name);
-    if (symbol) return symbol;
-    if (!unityPath.length) return NULL;
-#ifdef RTLD_NOLOAD
-    void *handle = dlopen(unityPath.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
-#else
-    void *handle = dlopen(unityPath.fileSystemRepresentation, RTLD_LAZY);
-#endif
-    return handle ? dlsym(handle, name) : NULL;
-}
 
 static NSString *ZNInvokeTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -135,9 +122,9 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
 - (NSDictionary<NSString *,id> *)capabilities {
     ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
     [resolver refresh];
-    ZNRuntimeInvokeFn runtimeInvoke = (ZNRuntimeInvokeFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
-    ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
-    ZNStringNewFn stringNew = (ZNStringNewFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_string_new");
+    ZNRuntimeInvokeFn runtimeInvoke = (ZNRuntimeInvokeFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
+    ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
+    ZNStringNewFn stringNew = (ZNStringNewFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_string_new");
     NSDictionary *instanceCap = [[ZNIL2CPPInstanceResolver sharedResolver] capabilities];
     BOOL base = resolver.isAvailable && runtimeInvoke != NULL && methodGetFlags != NULL;
     return @{
@@ -234,13 +221,13 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
         return nil;
     }
 
-    ZNRuntimeInvokeFn runtimeInvoke = (ZNRuntimeInvokeFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
+    ZNRuntimeInvokeFn runtimeInvoke = (ZNRuntimeInvokeFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
     if (!runtimeInvoke) {
         if (error) *error = @"FAILED_INVOKE_UNAVAILABLE：il2cpp_runtime_invoke 未导出";
         return nil;
     }
 
-    ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
+    ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
     if (!methodGetFlags) {
         if (error) *error = @"FAILED_STATIC_STATE_UNAVAILABLE：无法确认方法 static/instance 属性";
         return nil;
@@ -332,7 +319,7 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
         parameterType = param[@"name"] ?: @"?";
         ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
         if (ZNInvokeIsStringType(parameterType)) {
-            ZNStringNewFn stringNew = (ZNStringNewFn)ZNInvokeResolveSymbol(resolver.unityPath, "il2cpp_string_new");
+            ZNStringNewFn stringNew = (ZNStringNewFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_string_new");
             if (!stringNew) {
                 if (error) *error = @"FAILED_STRING_API：il2cpp_string_new 未导出";
                 return nil;
