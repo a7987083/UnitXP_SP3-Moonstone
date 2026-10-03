@@ -44,9 +44,62 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
                               argumentIndex:(NSUInteger)argumentIndex
                                      source:(UIButton *)source;
+- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
+                                           source:(UIButton *)source {
+    (void)source;
+    NSString *method=ZNM52XString(candidate[@"method"]);
+    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
+    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n模板：ReturnBoolOverride\n测试值：true\nOriginal：执行后覆盖返回值\n\n%@",
+                       ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,diag?:@""];
+
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Return Bool Override 测试"
+                                                                  message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:YES error:&error];
+        [weakSelf zn60v3_setStatus:ok
+            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → true；实时状态见筛选栏下方",method]
+            : (error?:@"ReturnBoolOverride 安装失败")];
+        [weakSelf renderPage];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · false" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:NO error:&error];
+        [weakSelf zn60v3_setStatus:ok
+            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → false；实时状态见筛选栏下方",method]
+            : (error?:@"ReturnBoolOverride 安装失败")];
+        [weakSelf renderPage];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
+        [weakSelf zn60v3_setStatus:ok?@"ReturnBoolOverride 已移除，目标已恢复":(error?:@"恢复原方法失败")];
+        [weakSelf renderPage];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法 · force true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        NSString *title=[NSString stringWithFormat:@"%@ Override",method.length?method:@"Return Bool"];
+        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addReturnBoolOverrideCandidate:candidate
+                                                                                             title:title
+                                                                                             value:YES
+                                                                                             error:&error];
+        [weakSelf zn60v3_setStatus:created
+            ? [NSString stringWithFormat:@"已创建 ReturnBoolOverride：%@ · Switch",created.title]
+            : (error?:@"创建 ReturnBoolOverride 失败")];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(top)[top presentViewController:alert animated:YES completion:nil];
+}
+
+
 - (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
                                          argumentIndex:(NSUInteger)argumentIndex
                                                 source:(UIButton *)source;
+- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
+                                           source:(UIButton *)source;
 @end
 
 static NSString *ZNM52XString(id value) {
@@ -267,9 +320,10 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
 
-    NSString *reason=nil,*callbackReason=nil;
+    NSString *reason=nil,*callbackReason=nil,*returnReason=nil;
     NSArray<NSNumber *> *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
     NSArray<NSNumber *> *callbackArgs=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
+    BOOL returnBool=[[ZNNativeHookRuntime sharedRuntime] supportsReturnBoolOverrideForCandidate:candidate reason:&returnReason];
     UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"测试方式"
                                                                    message:@"Runtime Call 保持左侧测试/捕获；这里选择 Direct 或 IL2CPP Native Hook"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
@@ -280,10 +334,10 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     UIAlertAction *hook=[UIAlertAction actionWithTitle:@"IL2CPP Native Hook" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
         [weakSelf zn64_hookTestTapped:sender];
     }];
-    hook.enabled=(hookArgs.count>0||callbackArgs.count>0);
+    hook.enabled=(hookArgs.count>0||callbackArgs.count>0||returnBool);
     [picker addAction:hook];
     if(!hook.enabled){
-        NSString *detail=callbackReason.length?callbackReason:reason;
+        NSString *detail=returnReason.length?returnReason:(callbackReason.length?callbackReason:reason);
         if(detail.length)picker.message=[picker.message stringByAppendingFormat:@"\nNative Hook：%@",detail];
     }
     [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -298,33 +352,44 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 - (void)zn64_hookTestTapped:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
-    NSString *reason=nil,*callbackReason=nil;
-    NSArray<NSNumber *> *indices=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
-    NSArray<NSNumber *> *callbackIndices=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
 
-    if(callbackIndices.count&&indices.count){
+    NSString *argReason=nil,*callbackReason=nil,*returnReason=nil;
+    NSArray<NSNumber *> *indices=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&argReason];
+    NSArray<NSNumber *> *callbackIndices=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
+    BOOL returnBool=[[ZNNativeHookRuntime sharedRuntime] supportsReturnBoolOverrideForCandidate:candidate reason:&returnReason];
+
+    NSUInteger templateCount=(indices.count?1:0)+(callbackIndices.count?1:0)+(returnBool?1:0);
+    if(templateCount>1){
         UIAlertController *templates=[UIAlertController alertControllerWithTitle:@"选择 Native Hook 模板"
-                                                                         message:@"M6.5"
+                                                                         message:@"M6.6"
                                                                   preferredStyle:UIAlertControllerStyleActionSheet];
         __weak typeof(self) weakSelf=self;
-        [templates addAction:[UIAlertAction actionWithTitle:@"ArgScaleInt32" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-            [weakSelf zn64_presentHookConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:sender];
-        }]];
-        [templates addAction:[UIAlertAction actionWithTitle:@"Managed Callback Short Circuit" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-            [weakSelf zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];
-        }]];
+        if(indices.count){
+            [templates addAction:[UIAlertAction actionWithTitle:@"ArgScaleInt32" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+                [weakSelf zn64_presentHookConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:sender];
+            }]];
+        }
+        if(callbackIndices.count){
+            [templates addAction:[UIAlertAction actionWithTitle:@"Managed Callback Short Circuit" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+                [weakSelf zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];
+            }]];
+        }
+        if(returnBool){
+            [templates addAction:[UIAlertAction actionWithTitle:@"Return Bool Override" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+                [weakSelf zn66_presentReturnBoolConfigForCandidate:candidate source:sender];
+            }]];
+        }
         [templates addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
         UIViewController *top=ZNM52XTop(self.hostWindow);
         if(top)[top presentViewController:templates animated:YES completion:nil];
         return;
     }
-    if(callbackIndices.count){
-        [self zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];
-        return;
-    }
+
+    if(returnBool){[self zn66_presentReturnBoolConfigForCandidate:candidate source:sender];return;}
+    if(callbackIndices.count){[self zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];return;}
     if(!indices.count){
-        NSString *why=callbackReason.length?callbackReason:reason;
-        [self zn60v3_setStatus:why.length?why:@"当前方法没有可用的 Native Hook V1/V2 模板"];
+        NSString *why=returnReason.length?returnReason:(callbackReason.length?callbackReason:argReason);
+        [self zn60v3_setStatus:why.length?why:@"当前方法没有可用的 Native Hook 模板"];
         return;
     }
     if(indices.count==1){
@@ -335,7 +400,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
     NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
     UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"选择 Hook 参数"
-                                                                   message:@"Native Hook V1 · ArgScaleInt32"
+                                                                   message:@"Native Hook · ArgScaleInt32"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf=self;
     for(NSNumber *n in indices){
