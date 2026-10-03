@@ -13,11 +13,18 @@ FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
 
 - (NSArray<NSNumber *> *)supportedInt32ArgumentIndicesForCandidate:(NSDictionary<NSString *, id> *)candidate
                                                             reason:(NSString * _Nullable * _Nullable)reason;
+- (NSArray<NSNumber *> *)supportedManagedBoolCallbackArgumentIndicesForCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                                          reason:(NSString * _Nullable * _Nullable)reason;
 
 - (BOOL)installTemporaryArgScaleInt32ForCandidate:(NSDictionary<NSString *, id> *)candidate
                                      argumentIndex:(NSUInteger)argumentIndex
                                         multiplier:(NSInteger)multiplier
                                              error:(NSString * _Nullable * _Nullable)error;
+
+- (BOOL)installTemporaryManagedCallbackShortCircuitForCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                   argumentIndex:(NSUInteger)argumentIndex
+                                                   callbackValue:(BOOL)callbackValue
+                                                           error:(NSString * _Nullable * _Nullable)error;
 
 - (BOOL)removeTemporaryHookForCandidate:(NSDictionary<NSString *, id> *)candidate
                                   error:(NSString * _Nullable * _Nullable)error;
