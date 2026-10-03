@@ -11,6 +11,8 @@
 #import <atomic>
 #import <limits.h>
 
+const void * const ZNNativeHookCandidateAssociationKey = &ZNNativeHookCandidateAssociationKey;
+
 static const uint32_t kZNNativeMethodAttributeStatic = 0x0010u;
 static const NSUInteger kZNNativeMaxSlots = 32;
 
