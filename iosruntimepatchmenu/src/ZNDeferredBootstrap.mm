@@ -12,6 +12,8 @@ extern "C" void ZNInstallFeatureGroupUIDeferred(void);
 extern "C" void ZNInstallPublicCompactDefaultsDeferred(void);
 extern "C" void ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(void);
 extern "C" void ZNInstallFeatureBuilderUIDeferred(void);
+extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void);
+extern "C" void ZNInstallMethodFinderUnifiedUIDeferred(void);
 extern "C" void ZNInstallM630HardCutUIDeferred(void);
 
 extern "C" void ZonoePatchStart(void);
@@ -178,6 +180,8 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
         ZNRunActivationStage(@"IL2CPPNamedOffsetWorkspace", ^{ ZNInstallIL2CPPNamedOffsetWorkspaceDeferred(); });
         ZNRunActivationStage(@"FeatureBuilderUI", ^{ ZNInstallFeatureBuilderUIDeferred(); });
+        ZNRunActivationStage(@"RuntimeMethodBuilderUI", ^{ ZNInstallRuntimeMethodCallBuilderUIDeferred(); });
+        ZNRunActivationStage(@"MethodFinderUnifiedUI", ^{ ZNInstallMethodFinderUnifiedUIDeferred(); });
         ZNRunActivationStage(@"M630HardCutUI", ^{ ZNInstallM630HardCutUIDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
