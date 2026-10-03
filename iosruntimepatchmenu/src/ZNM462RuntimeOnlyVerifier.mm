@@ -55,6 +55,21 @@ static BOOL ZNM462ArgumentVectorValid(const uint8_t *table,
     return YES;
 }
 
+static BOOL ZNM462NativeHookConfigValid(const uint8_t *table,
+                                        const ZNRuntimeActionHeader *header,
+                                        const ZNRuntimeMethodCallEntry *entry) {
+    if (!entry || entry->kind != ZNRuntimeActionKindIL2CPPNativeHook ||
+        (entry->flags & ZNRuntimeActionFlagNativeHookConfig) == 0) return NO;
+    NSString *json = ZNM462ReadString(table, header, entry->reserved[0]);
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *cfg = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![cfg isKindOfClass:NSDictionary.class]) return NO;
+    if (![cfg[@"template"] isEqual:@"arg-scale-int32"]) return NO;
+    NSUInteger arg = [cfg[@"argumentIndex"] unsignedIntegerValue];
+    NSInteger min = [cfg[@"min"] integerValue], max = [cfg[@"max"] integerValue], def = [cfg[@"default"] integerValue];
+    return arg < entry->argumentCount && min >= 1 && max >= min && def >= min && def <= max;
+}
+
 static BOOL ZNM462VerifyPath(NSString *path,
                              NSUInteger expectedActionCount,
                              NSString **error) {
@@ -162,32 +177,43 @@ static BOOL ZNM462VerifyPath(NSString *path,
         const ZNRuntimeMethodCallEntry *entries = (const ZNRuntimeMethodCallEntry *)(table + sizeof(*header));
         for (uint32_t i = 0; i < header->count; i++) {
             const ZNRuntimeMethodCallEntry *entry = &entries[i];
-            if (entry->kind != ZNRuntimeActionKindIL2CPPMethodCall || entry->argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) {
-                localError = [NSString stringWithFormat:@"M4.7 verifier：entry %u kind/argc 无效", i];
+            if (entry->argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS ||
+                (entry->kind != ZNRuntimeActionKindIL2CPPMethodCall &&
+                 entry->kind != ZNRuntimeActionKindIL2CPPNativeHook)) {
+                localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u kind/argc 无效", i];
                 break;
             }
             uint32_t required[] = {entry->titleOffset, entry->groupOffset, entry->assemblyOffset,
                                    entry->namespaceOffset, entry->classOffset, entry->methodOffset};
-            for (NSUInteger s = 0; s < sizeof(required) / sizeof(required[0]); s++) {
-                if (!ZNM462StringOffsetValid(table, header, required[s])) {
-                    localError = [NSString stringWithFormat:@"M4.6.2 verifier：entry %u string offset 无效", i];
+            for (NSUInteger si = 0; si < sizeof(required) / sizeof(required[0]); si++) {
+                if (!ZNM462StringOffsetValid(table, header, required[si])) {
+                    localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u string offset 无效", i];
                     break;
                 }
             }
             if (localError) break;
-            if (entry->argumentCount == 1 && (entry->flags & ZNRuntimeActionFlagArgument0Text) != 0 &&
-                !ZNM462StringOffsetValid(table, header, entry->reserved[0])) {
-                localError = [NSString stringWithFormat:@"M4.6.2 verifier：entry %u argument0 string 无效", i];
-                break;
-            }
-            if (!ZNM462ArgumentVectorValid(table, header, entry)) {
-                localError = [NSString stringWithFormat:@"M4.7 verifier：entry %u 参数向量缺失/损坏", i];
-                break;
-            }
+
             if ((entry->flags & ZNRuntimeActionFlagParameterSignature) == 0 ||
                 !ZNM462StringOffsetValid(table, header, entry->reserved[1])) {
-                localError = [NSString stringWithFormat:@"M4.6.2 verifier：entry %u 缺少/损坏 Full Signature", i];
+                localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u 缺少/损坏 Full Signature", i];
                 break;
+            }
+
+            if (entry->kind == ZNRuntimeActionKindIL2CPPMethodCall) {
+                if (entry->argumentCount == 1 && (entry->flags & ZNRuntimeActionFlagArgument0Text) != 0 &&
+                    !ZNM462StringOffsetValid(table, header, entry->reserved[0])) {
+                    localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u argument0 string 无效", i];
+                    break;
+                }
+                if (!ZNM462ArgumentVectorValid(table, header, entry)) {
+                    localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u 参数向量缺失/损坏", i];
+                    break;
+                }
+            } else {
+                if (!ZNM462NativeHookConfigValid(table, header, entry)) {
+                    localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u Native Hook config 无效", i];
+                    break;
+                }
             }
         }
         if (localError) break;
@@ -232,10 +258,10 @@ BOOL ZNM462VerifyRuntimeOnlyOutputs(NSArray<NSString *> *outputs,
         return NO;
     }
     if (report) {
-        *report = [NSString stringWithFormat:@"M5.7 Runtime-only Verify：%lu 个 suffixless Mach-O · %lu Runtime Actions · Static count=0 · Full Signature + /0-/8 argument vector + section bounds/RW protection 全部通过",
+        *report = [NSString stringWithFormat:@"M6.4 Runtime-only Verify：%lu 个 suffixless Mach-O · %lu Runtime/Hook Actions · Static count=0 · Full Signature + action config + section bounds/RW protection 全部通过",
                    (unsigned long)verified, (unsigned long)expectedActionCount];
     }
-    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.7-runtime-only-verify] targets=%lu actions=%lu suffixless=YES PASS",
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.4-runtime-only-verify] targets=%lu actions=%lu suffixless=YES PASS",
                                          (unsigned long)verified,
                                          (unsigned long)expectedActionCount]];
     return YES;
