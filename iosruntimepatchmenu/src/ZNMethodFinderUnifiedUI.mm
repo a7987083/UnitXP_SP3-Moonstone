@@ -238,14 +238,23 @@ static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
     BOOL callable=metadataOK;
     BOOL argScale=NO;
     BOOL callbackShortCircuit=NO;
+    BOOL returnBoolOverride=metadataOK&&((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]==ZNIL2CPPABIValueKindBool)&&
+                            ![abi[@"generic"] boolValue]&&![abi[@"inflated"] boolValue];
     NSMutableArray<NSString *> *types=[NSMutableArray array];
 
     if(argc&&metadataOK){
         for(NSDictionary *param in params){
             NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"?";
             [types addObject:type];
-            if(ZNM54UnsupportedReason(param).length)callable=NO;
+            NSString *unsupported=ZNM54UnsupportedReason(param);
+            if(unsupported.length)callable=NO;
             if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]==ZNIL2CPPABIValueKindSigned32)argScale=YES;
+            ZNIL2CPPABIValueKind pk=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+            BOOL gpr=(pk==ZNIL2CPPABIValueKindBool||pk==ZNIL2CPPABIValueKindSigned32||
+                      pk==ZNIL2CPPABIValueKindUnsigned32||pk==ZNIL2CPPABIValueKindSigned64||
+                      pk==ZNIL2CPPABIValueKindUnsigned64||pk==ZNIL2CPPABIValueKindPointer||
+                      pk==ZNIL2CPPABIValueKindObjectReference);
+            if(!gpr||[param[@"byRef"] boolValue])returnBoolOverride=NO;
             NSString *lower=type.lowercaseString;
             if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]==ZNIL2CPPABIValueKindObjectReference &&
                [lower containsString:@"system.action"] && [lower containsString:@"system.boolean"]){
@@ -254,6 +263,8 @@ static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
         }
     }
     if((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindVoid)callbackShortCircuit=NO;
+    NSUInteger returnGPR=([abi[@"instance"] boolValue]?1u:0u)+argc;
+    if(returnGPR>7u)returnBoolOverride=NO;
 
     NSDictionary *analysis=@{
         @"abi":abi,
@@ -261,7 +272,7 @@ static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
         @"metadataOK":@(metadataOK),
         @"callable":@(callable),
         @"types":[types copy],
-        @"hookEnabled":@(argScale||callbackShortCircuit)
+        @"hookEnabled":@(argScale||callbackShortCircuit||returnBoolOverride)
     };
     [ZNM54AnalysisCache() setObject:analysis forKey:key];
     return analysis;
