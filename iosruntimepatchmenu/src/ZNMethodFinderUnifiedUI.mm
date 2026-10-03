@@ -530,7 +530,6 @@ static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
         NSDictionary *analysis=ZNM54AnalyzeCandidate(candidate);
         NSDictionary *abi=analysis[@"abi"];
         NSArray<NSDictionary *> *params=analysis[@"params"];
-        BOOL metadataOK=[analysis[@"metadataOK"] boolValue];
         BOOL callable=[analysis[@"callable"] boolValue];
         NSArray<NSString *> *types=analysis[@"types"];
 
