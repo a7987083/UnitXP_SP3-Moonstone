@@ -25,6 +25,7 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (NSInteger)znm42_filter;
 - (void)zn60v3_setStatus:(NSString *)status;
 - (void)renderPage;
+- (UIButton *)zn40_button:(NSString *)title selector:(SEL)selector frame:(CGRect)frame;
 - (void)zn52_chainTapped:(UIButton *)sender;
 @end
 
