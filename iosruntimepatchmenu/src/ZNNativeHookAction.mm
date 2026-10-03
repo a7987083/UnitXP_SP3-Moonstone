@@ -36,6 +36,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     _callbackArgumentIndex=NSNotFound;
     _callbackValue=YES;
     _skipOriginal=YES;
+    _returnBoolValue=YES;
     _fallbackUUID=@"";
     return self;
 }
@@ -52,7 +53,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     c.argumentCount=self.argumentCount;c.parameterTypeNames=self.parameterTypeNames;c.signatureAvailable=self.signatureAvailable;
     c.templateKind=self.templateKind;c.argumentIndex=self.argumentIndex;c.minValue=self.minValue;c.maxValue=self.maxValue;
     c.defaultValue=self.defaultValue;c.callbackArgumentIndex=self.callbackArgumentIndex;
-    c.callbackValue=self.callbackValue;c.skipOriginal=self.skipOriginal;
+    c.callbackValue=self.callbackValue;c.skipOriginal=self.skipOriginal;c.returnBoolValue=self.returnBoolValue;
     c.fallbackRVA=self.fallbackRVA;c.fallbackUUID=self.fallbackUUID;
     return c;
 }
@@ -90,6 +91,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         @"min":@(a.minValue),@"max":@(a.maxValue),@"default":@(a.defaultValue),
         @"callbackArgumentIndex":@(a.callbackArgumentIndex==NSNotFound?NSUIntegerMax:a.callbackArgumentIndex),
         @"callbackValue":@(a.callbackValue),@"skipOriginal":@(a.skipOriginal),
+        @"returnBoolValue":@(a.returnBoolValue),
         @"fallbackRVA":@(a.fallbackRVA),@"fallbackUUID":a.fallbackUUID?:@""
     };
 }
@@ -115,6 +117,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.callbackArgumentIndex=(storedCallback==NSUIntegerMax)?NSNotFound:storedCallback;
     a.callbackValue=d[@"callbackValue"]?[d[@"callbackValue"] boolValue]:YES;
     a.skipOriginal=d[@"skipOriginal"]?[d[@"skipOriginal"] boolValue]:YES;
+    a.returnBoolValue=d[@"returnBoolValue"]?[d[@"returnBoolValue"] boolValue]:YES;
     a.fallbackRVA=[d[@"fallbackRVA"] unsignedLongLongValue];
     a.fallbackUUID=[d[@"fallbackUUID"] isKindOfClass:NSString.class]?d[@"fallbackUUID"]:@"";
     if(!a.actionID||!a.className.length||!a.methodName.length)return nil;
@@ -122,6 +125,8 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         if(a.argumentIndex>=a.argumentCount)return nil;
     }else if(a.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
         if(a.callbackArgumentIndex==NSNotFound||a.callbackArgumentIndex>=a.argumentCount||!a.skipOriginal)return nil;
+    }else if(a.templateKind==ZNNativeHookTemplateReturnBoolOverride){
+        // No additional persisted parameter index is required.
     }else{
         return nil;
     }
@@ -186,6 +191,63 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     return [a copy];
 }
 
+
+
+- (ZNNativeHookAction *)addReturnBoolOverrideCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                 title:(NSString *)title
+                                                 value:(BOOL)value
+                                                 error:(NSString **)error {
+    NSString *assembly=ZNNHTrim([candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"");
+    if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNHTrim([candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"");
+    NSString *cls=ZNNHTrim([candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"");
+    NSString *methodName=ZNNHTrim([candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"");
+    NSInteger argc=[candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)]?[candidate[@"argumentCount"] integerValue]:-1;
+    if(!cls.length||!methodName.length||argc<0){if(error)*error=@"ReturnBoolOverride 方法身份无效";return nil;}
+
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(![abi[@"available"] boolValue]||params.count!=(NSUInteger)argc){if(error)*error=@"ReturnBoolOverride 需要完整 IL2CPP ABI";return nil;}
+    if((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindBool){if(error)*error=@"ReturnBoolOverride V1 仅支持 bool 返回";return nil;}
+    if([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue]){if(error)*error=@"ReturnBoolOverride V1 不支持 generic/inflated 方法";return nil;}
+    for(NSDictionary *p in params){
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
+        BOOL gpr=(kind==ZNIL2CPPABIValueKindBool||kind==ZNIL2CPPABIValueKindSigned32||
+                  kind==ZNIL2CPPABIValueKindUnsigned32||kind==ZNIL2CPPABIValueKindSigned64||
+                  kind==ZNIL2CPPABIValueKindUnsigned64||kind==ZNIL2CPPABIValueKindPointer||
+                  kind==ZNIL2CPPABIValueKindObjectReference);
+        if(!gpr||[p[@"byRef"] boolValue]){
+            if(error)*error=@"ReturnBoolOverride V1 仅支持 ARM64 GPR-safe 参数";
+            return nil;
+        }
+    }
+
+    NSMutableArray *types=[NSMutableArray arrayWithCapacity:params.count];
+    for(NSDictionary *p in params)[types addObject:[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?"];
+
+    ZNNativeHookAction *a=[ZNNativeHookAction new];
+    a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=methodName;a.argumentCount=(NSUInteger)argc;
+    a.parameterTypeNames=[types copy];a.signatureAvailable=YES;a.templateKind=ZNNativeHookTemplateReturnBoolOverride;
+    a.returnBoolValue=value;a.minValue=0;a.maxValue=1;a.defaultValue=0;
+    a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Override",methodName];
+    a.featureDescription=[NSString stringWithFormat:@"Return Bool Override · force %@",value?@"true":@"false"];
+    a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
+
+    @synchronized(self){
+        uint32_t serial=0;BOOL collision=NO;
+        do{
+            NSString *seed=[NSString stringWithFormat:@"%@|%@|return-bool:%d|%u",a.canonicalIdentity,a.title,value?1:0,serial++];
+            a.actionID=ZNNHFNV1a32(seed);collision=NO;
+            for(ZNNativeHookAction *e in self.mutableActions)if(e.actionID==a.actionID){collision=YES;break;}
+        }while(collision);
+        [self.mutableActions addObject:a];
+        [self persist];
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-authoring] add id=%u %@ template=%@ value=%@",
+                                       a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),value?@"true":@"false"]];
+    return [a copy];
+}
 
 - (ZNNativeHookAction *)addManagedCallbackShortCircuitCandidate:(NSDictionary<NSString *,id> *)candidate
                                                           title:(NSString *)title
