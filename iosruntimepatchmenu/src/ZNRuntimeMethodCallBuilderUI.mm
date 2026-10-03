@@ -179,10 +179,18 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             del.tag=kZNNativeHookDeleteTagBase+(NSInteger)i;[card addSubview:del];
             UILabel *identity=[self label:hook.canonicalIdentity size:7.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
             identity.frame=CGRectMake(13,35,card.bounds.size.width-26,20);identity.lineBreakMode=NSLineBreakByTruncatingMiddle;[card addSubview:identity];
-            NSString *info=[NSString stringWithFormat:@"%@ · arg%lu · Slider %ld~%ld · default=%ld · RVA=%@",
-                            ZNNativeHookTemplateKey(hook.templateKind),(unsigned long)hook.argumentIndex,
-                            (long)hook.minValue,(long)hook.maxValue,(long)hook.defaultValue,
-                            hook.fallbackRVA?[NSString stringWithFormat:@"0x%llX",(unsigned long long)hook.fallbackRVA]:@"—"];
+            NSString *info=nil;
+            if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
+                info=[NSString stringWithFormat:@"%@ · callback arg%lu · value=%@ · SkipOriginal · RVA=%@",
+                      ZNNativeHookTemplateKey(hook.templateKind),(unsigned long)hook.callbackArgumentIndex,
+                      hook.callbackValue?@"true":@"false",
+                      hook.fallbackRVA?[NSString stringWithFormat:@"0x%llX",(unsigned long long)hook.fallbackRVA]:@"—"];
+            }else{
+                info=[NSString stringWithFormat:@"%@ · arg%lu · Slider %ld~%ld · default=%ld · RVA=%@",
+                      ZNNativeHookTemplateKey(hook.templateKind),(unsigned long)hook.argumentIndex,
+                      (long)hook.minValue,(long)hook.maxValue,(long)hook.defaultValue,
+                      hook.fallbackRVA?[NSString stringWithFormat:@"0x%llX",(unsigned long long)hook.fallbackRVA]:@"—"];
+            }
             UILabel *meta=[self label:info size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
             meta.frame=CGRectMake(13,60,card.bounds.size.width-26,18);meta.adjustsFontSizeToFitWidth=YES;meta.minimumScaleFactor=.65;[card addSubview:meta];
             UILabel *desc=[self label:(hook.featureDescription.length?hook.featureDescription:@"Native Hook V1 · Dobby")
