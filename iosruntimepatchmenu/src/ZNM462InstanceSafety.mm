@@ -80,7 +80,7 @@ static void ZNM462ReleaseSelection(ZNM462Selection *selection) {
 - (uintptr_t)znm462_selectedInstanceForAssembly:(NSString *)assembly
                                        namespace:(NSString *)namespaceName
                                        className:(NSString *)className {
-    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPConservativeInstanceKey(assembly, namespaceName, className);
     __block ZNM462Selection *selection = nil;
     @synchronized (ZNM462Store()) {
         selection = ZNM462Store()[key];
@@ -157,7 +157,7 @@ static void ZNM462ReleaseSelection(ZNM462Selection *selection) {
         selection.fallbackAddress = address;
     }
 
-    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPConservativeInstanceKey(assembly, namespaceName, className);
     ZNM462Selection *previous = nil;
     @synchronized (ZNM462Store()) {
         previous = ZNM462Store()[key];
@@ -176,7 +176,7 @@ static void ZNM462ReleaseSelection(ZNM462Selection *selection) {
 - (void)znm462_clearSelectedInstanceForAssembly:(NSString *)assembly
                                         namespace:(NSString *)namespaceName
                                         className:(NSString *)className {
-    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPConservativeInstanceKey(assembly, namespaceName, className);
     ZNM462Selection *selection = nil;
     @synchronized (ZNM462Store()) {
         selection = ZNM462Store()[key];
