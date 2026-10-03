@@ -127,14 +127,12 @@ static ZNReturnBoolSlot *ZNReturnBoolFreeSlot(void) {
 static uint8_t ZNReturnBoolHandle(NSUInteger index,
                                   uintptr_t x0,uintptr_t x1,uintptr_t x2,uintptr_t x3,
                                   uintptr_t x4,uintptr_t x5,uintptr_t x6,uintptr_t x7) {
+    (void)x0;(void)x1;(void)x2;(void)x3;(void)x4;(void)x5;(void)x6;(void)x7;
     if(index>=kZNReturnBoolMaxSlots)return 0;
     ZNReturnBoolSlot *slot=&gZNReturnBoolSlots[index];
-    uintptr_t originalAddr=slot->original.load(std::memory_order_acquire);
-    if(!slot->target.load(std::memory_order_acquire)||!originalAddr)return 0;
-    ZNReturnBoolOriginalFn original=(ZNReturnBoolOriginalFn)originalAddr;
-    uint8_t originalValue=original(x0,x1,x2,x3,x4,x5,x6,x7)?1:0;
+    if(!slot->target.load(std::memory_order_acquire))return 0;
     uint8_t overrideValue=slot->forcedValue.load(std::memory_order_relaxed)?1:0;
-    slot->lastOriginal.store(originalValue,std::memory_order_relaxed);
+    slot->lastOriginal.store(UINT32_MAX,std::memory_order_relaxed); // skipped by design
     slot->lastOverride.store(overrideValue,std::memory_order_relaxed);
     slot->hits.fetch_add(1,std::memory_order_relaxed);
     return overrideValue;
@@ -678,7 +676,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSUInteger slotIndex=(NSUInteger)(slot-gZNReturnBoolSlots);
     slot->forcedValue.store(value?1u:0u,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
-    slot->lastOriginal.store(0,std::memory_order_relaxed);
+    slot->lastOriginal.store(UINT32_MAX,std::memory_order_relaxed);
     slot->lastOverride.store(value?1u:0u,std::memory_order_relaxed);
     slot->actionID.store(0,std::memory_order_relaxed);
     slot->original.store(0,std::memory_order_relaxed);
@@ -851,7 +849,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         return [NSString stringWithFormat:@"Hook 状态：已安装 ✅\nTarget：0x%llX\nHits：%llu\nOriginal Return：%@\nOverride Return：%@",
                 (unsigned long long)target,
                 (unsigned long long)returnBoolSlot->hits.load(std::memory_order_relaxed),
-                returnBoolSlot->lastOriginal.load(std::memory_order_relaxed)?@"true":@"false",
+                returnBoolSlot->lastOriginal.load(std::memory_order_relaxed)==UINT32_MAX?@"Skipped":
+                    (returnBoolSlot->lastOriginal.load(std::memory_order_relaxed)?@"true":@"false"),
                 returnBoolSlot->lastOverride.load(std::memory_order_relaxed)?@"true":@"false"];
     }
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
