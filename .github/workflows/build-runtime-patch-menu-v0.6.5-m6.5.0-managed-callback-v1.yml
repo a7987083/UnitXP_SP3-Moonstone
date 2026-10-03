@@ -19,7 +19,9 @@ jobs:
         run: |
           set -euxo pipefail
           grep -q '0.6.5 · M6.5.0' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q 'IL2CPP Native Hook V1' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Managed Callback Short Circuit V1' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Dobby Replacement' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Skip Original' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNM630RestorePersistedTypedValues' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
           grep -q 'slider.minimumValue=0.0' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
           grep -q 'slider.maximumValue=max' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
