@@ -8,6 +8,8 @@ FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
 
 @interface ZNNativeHookRuntime : NSObject
 + (instancetype)sharedRuntime;
+@property(nonatomic,copy,readonly) NSArray<ZNNativeHookAction *> *generatedActions;
+- (void)refreshGeneratedActions;
 
 - (NSArray<NSNumber *> *)supportedInt32ArgumentIndicesForCandidate:(NSDictionary<NSString *, id> *)candidate
                                                             reason:(NSString * _Nullable * _Nullable)reason;
