@@ -441,7 +441,7 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
             }
         }
 
-        CGFloat rightW = 80.0;
+        CGFloat rightW = 164.0;
         CGFloat leftW = width - rightW - 24.0;
         CGFloat rowH = 34.0;
         CGFloat argsH = argc ? argc * rowH : 0.0;
