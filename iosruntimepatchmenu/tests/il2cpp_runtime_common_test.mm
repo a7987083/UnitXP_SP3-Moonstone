@@ -23,6 +23,11 @@ int main(void) {
                                         @" MotionComponent "),
                     @"assembly-csharp|Game.Player|MotionComponent");
 
+        // Preserve the two historical edge semantics exactly:
+        // M4.4 stripped a bare ".dll"; M4.6.2 kept it because it required name.length > 4.
+        AssertEqual(ZNIL2CPPInstanceKey(@".dll", @"", @""), @"||");
+        AssertEqual(ZNIL2CPPConservativeInstanceKey(@".dll", @"", @""), @".dll||");
+
         void *mallocSymbol = ZNIL2CPPResolveSymbol(@"", "malloc");
         assert(mallocSymbol != NULL);
 
