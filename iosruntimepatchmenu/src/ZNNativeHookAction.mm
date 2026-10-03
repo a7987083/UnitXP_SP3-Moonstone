@@ -224,6 +224,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.parameterTypeNames=[types copy];a.signatureAvailable=YES;
     a.templateKind=ZNNativeHookTemplateManagedCallbackShortCircuit;
     a.callbackArgumentIndex=argumentIndex;a.callbackValue=callbackValue;a.skipOriginal=YES;
+    a.minValue=0;a.maxValue=1;a.defaultValue=0;
     a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Short Circuit",method];
     a.featureDescription=@"Managed callback short circuit · Skip Original";
     a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
