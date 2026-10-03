@@ -208,6 +208,65 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
     return out;
 }
 
+static NSCache<NSString *, NSDictionary *> *ZNM54AnalysisCache(void) {
+    static NSCache<NSString *, NSDictionary *> *cache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        cache=[NSCache new];
+        cache.countLimit=512;
+    });
+    return cache;
+}
+
+static NSString *ZNM54AnalysisKey(NSDictionary *candidate) {
+    return [NSString stringWithFormat:@"%@|mi:%llX|mp:%llX",
+            ZNM54CandidateIdentity(candidate),
+            (unsigned long long)[candidate[@"methodInfo"] unsignedLongLongValue],
+            (unsigned long long)[candidate[@"methodPointer"] unsignedLongLongValue]];
+}
+
+static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
+    NSString *key=ZNM54AnalysisKey(candidate);
+    NSDictionary *cached=[ZNM54AnalysisCache() objectForKey:key];
+    if(cached)return cached;
+
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate)?:@{};
+    NSArray<NSDictionary *> *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    BOOL metadataOK=argc==0||([abi[@"available"] boolValue]&&params.count==argc&&argc<=ZN_RUNTIME_ACTION_MAX_ARGUMENTS);
+    BOOL callable=metadataOK;
+    BOOL argScale=NO;
+    BOOL callbackShortCircuit=NO;
+    NSMutableArray<NSString *> *types=[NSMutableArray array];
+
+    if(argc&&metadataOK){
+        for(NSDictionary *param in params){
+            NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"?";
+            [types addObject:type];
+            if(ZNM54UnsupportedReason(param).length)callable=NO;
+            if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]==ZNIL2CPPABIValueKindSigned32)argScale=YES;
+            NSString *lower=type.lowercaseString;
+            if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]==ZNIL2CPPABIValueKindObjectReference &&
+               [lower containsString:@"system.action"] && [lower containsString:@"system.boolean"]){
+                callbackShortCircuit=YES;
+            }
+        }
+    }
+    if((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindVoid)callbackShortCircuit=NO;
+
+    NSDictionary *analysis=@{
+        @"abi":abi,
+        @"params":params,
+        @"metadataOK":@(metadataOK),
+        @"callable":@(callable),
+        @"types":[types copy],
+        @"hookEnabled":@(argScale||callbackShortCircuit)
+    };
+    [ZNM54AnalysisCache() setObject:analysis forKey:key];
+    return analysis;
+}
+
 @implementation ZNRuntimeMenuControllerV040 (ZNMethodFinderUnifiedUI)
 
 - (void)znm65_stopLiveHookStatusTimer {
@@ -467,18 +526,13 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
     [self znm65_startLiveHookStatusTimer];
 
     for (NSDictionary *candidate in visible) {
-        NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
-        NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
-        NSArray<NSDictionary *> *params = [abi[@"parameters"] isKindOfClass:NSArray.class] ? abi[@"parameters"] : @[];
-        BOOL metadataOK = argc == 0 || ([abi[@"available"] boolValue] && params.count == argc && argc <= ZN_RUNTIME_ACTION_MAX_ARGUMENTS);
-        BOOL callable = metadataOK;
-        NSMutableArray<NSString *> *types = [NSMutableArray array];
-        if (argc && metadataOK) {
-            for (NSDictionary *param in params) {
-                [types addObject:([param[@"name"] isKindOfClass:NSString.class] ? param[@"name"] : @"?")];
-                if (ZNM54UnsupportedReason(param).length) callable = NO;
-            }
-        }
+        NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+        NSDictionary *analysis=ZNM54AnalyzeCandidate(candidate);
+        NSDictionary *abi=analysis[@"abi"];
+        NSArray<NSDictionary *> *params=analysis[@"params"];
+        BOOL metadataOK=[analysis[@"metadataOK"] boolValue];
+        BOOL callable=[analysis[@"callable"] boolValue];
+        NSArray<NSString *> *types=analysis[@"types"];
 
         CGFloat rightW = 164.0;
         CGFloat leftW = width - rightW - 24.0;
@@ -564,9 +618,7 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
 
         UIButton *hook = [self zn40_button:@"Hook 测试" selector:@selector(zn64_hookTestTapped:) frame:CGRectMake(actionX1, 7, actionColW, 28)];
         objc_setAssociatedObject(hook, ZNNativeHookCandidateAssociationKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        NSString *hookReason=nil;
-        NSArray *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&hookReason];
-        hook.enabled=hookArgs.count>0;
+        hook.enabled=[analysis[@"hookEnabled"] boolValue];
         hook.alpha=hook.enabled?1.0:.48;
         hook.titleLabel.font=[self menuFont:8.2 weight:UIFontWeightSemibold];
         [card addSubview:hook];
@@ -602,9 +654,10 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
         return;
     }
 
-    NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
-    NSArray<NSDictionary *> *params = [abi[@"parameters"] isKindOfClass:NSArray.class] ? abi[@"parameters"] : @[];
-    NSDictionary *ret = [abi[@"return"] isKindOfClass:NSDictionary.class] ? abi[@"return"] : @{};
+    NSDictionary *analysis=ZNM54AnalyzeCandidate(candidate);
+    NSDictionary *abi=analysis[@"abi"];
+    NSArray<NSDictionary *> *params=analysis[@"params"];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
     [lines addObject:[NSString stringWithFormat:@"Assembly    %@", candidate[@"assembly"] ?: @"?"]];
     [lines addObject:[NSString stringWithFormat:@"Namespace   %@", candidate[@"namespace"] ?: @""]];
