@@ -1,0 +1,174 @@
+name: Build Runtime Patch Menu v0.6.6 M6.6.0 Return Bool Override V1
+
+on:
+  push:
+    branches:
+      - feature/m6.6-return-bool-override-v1
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Source contract assertions
+        run: |
+          set -euxo pipefail
+          grep -q '0.6.6 · M6.6.0' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Return Bool Override V1' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Dobby Replacement' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Original Return Diagnostics' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'ZNM630RestorePersistedTypedValues' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
+          grep -q 'slider.minimumValue=0.0' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
+          grep -q 'slider.maximumValue=max' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
+          grep -q 'M5.8.5 Slider runtime semantics consolidated' iosruntimepatchmenu/src/ZNM585StaticRuntimeRange.mm
+          ! grep -A12 'ZNInstallM585StaticRuntimeRangeDeferred' iosruntimepatchmenu/src/ZNM585StaticRuntimeRange.mm | grep -q 'method_exchangeImplementations'
+          grep -q 'M5.9.0 builder semantics retained; typed restore consolidated' iosruntimepatchmenu/src/ZNM590UnifiedActionModel.mm
+          grep -q 'ZNM630RestorePersistedTypedValues' iosruntimepatchmenu/src/ZNM590UnifiedActionModel.mm
+          grep -q 'Offset/Runtime separated' iosruntimepatchmenu/src/ZNM610UnifiedFeatureModel.mm
+          grep -q 'ZNM620TemporaryApplyOffsetValue' iosruntimepatchmenu/src/ZNM600UnifiedFeatureSurface.mm
+          grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'rightW = 164.0' iosruntimepatchmenu/src/ZNMethodFinderUnifiedUI.mm
+          grep -q '重新选择实例' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q '批量测试实例' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'executeAction:(ZNRuntimeMethodAction \*)action' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.h
+          grep -q 'receiver:(uintptr_t)receiver' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.h
+          grep -q 'DobbyHook' iosruntimepatchmenu/src/ZNM47DobbyCompat.h
+          grep -q 'Hook 测试' iosruntimepatchmenu/src/ZNMethodFinderUnifiedUI.mm
+          grep -q 'RuntimeMethodBuilderUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          grep -q 'MethodFinderUnifiedUI' iosruntimepatchmenu/src/ZNDeferredBootstrap.mm
+          grep -q 'ZNNativeHookTemplateArgScaleInt32' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
+          grep -q 'installTemporaryArgScaleInt32ForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'IL2CPP Native Hook' iosruntimepatchmenu/src/ZNRuntimeMethodCallBuilderUI.mm
+          grep -q 'ZNRuntimeActionKindIL2CPPNativeHook = 2' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'nativeHook' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'refreshGeneratedActions' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'kZNM640NativeHookSliderTagBase' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          grep -q 'BOOL ok=\[\[ZNNativeHookRuntime sharedRuntime\] setValue:value forAction:hook error:&error\];' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          ! grep -q 'value==1.*removeAction' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          grep -q '测试方式' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'Direct Native Call：当前分支尚未接入 backend' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'IL2CPP Native Hook' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'methods=%lu hooks=%lu' iosruntimepatchmenu/src/ZNRuntimeActionSignaturePostprocess.mm
+          grep -q 'ZNNativeHookTemplateManagedCallbackShortCircuit' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
+          grep -q 'supportedManagedBoolCallbackArgumentIndicesForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'installTemporaryManagedCallbackShortCircuitForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'callbackArgumentIndex' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'callbackValue' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'skipOriginal' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'control.*switch' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'Original Return Diagnostics' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'kZNM650NativeHookSwitchTagBase' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          grep -q 'ZNNativeHookTemplateReturnBoolOverride' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
+          grep -q 'supportsReturnBoolOverrideForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'installTemporaryReturnBoolOverrideForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'Original Return' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'returnBoolValue' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'Return Bool Override' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+      - name: Runtime helper unit tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/il2cpp_runtime_common_test.mm \
+            -o /tmp/zn_il2cpp_runtime_common_test
+          /tmp/zn_il2cpp_runtime_common_test
+          ! grep -q 'static NSString \*ZNM44NormalizedAssembly' iosruntimepatchmenu/src/ZNIL2CPPInstanceSelectionV2.mm
+          ! grep -q 'static NSString \*ZNM462Assembly' iosruntimepatchmenu/src/ZNM462InstanceSafety.mm
+          ! grep -q 'static void \*ZNInvokeResolveSymbol' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm
+          ! grep -q 'static void \*ZNM52XResolveSymbol' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/native_hook_template_test.mm \
+            -o /tmp/zn_native_hook_template_test
+          /tmp/zn_native_hook_template_test
+
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          brew update
+          brew unlink openssl@1.1 || true
+          if [ -L /opt/homebrew/bin/openssl ]; then rm -f /opt/homebrew/bin/openssl; fi
+          brew install ldid cmake
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+      - name: Build pinned Dobby for iPhone arm64
+        run: |
+          set -euxo pipefail
+          mkdir -p vendor
+          git clone https://github.com/jmpews/Dobby.git vendor/Dobby
+          cd vendor/Dobby
+          git checkout 5dfc8546954ce3b3198132ab13fddb89ee92cdd7
+          sed -i '' '/^import pipes$/d' scripts/platform_builder.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('include/dobby.h')
+          s = p.read_text()
+          old = '''#ifdef __cplusplus
+          extern "C" {
+          #endif
+
+          #include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+          '''
+          new = '''#include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          '''
+          if old not in s:
+              raise SystemExit('unexpected Dobby header layout')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
+          test -f build/iphoneos/arm64/libdobby.a
+      - name: Build M6.6.0
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 2>&1 | tee build-m6.6.0.log
+          mkdir -p dist-m6.6.0
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          OUT="dist-m6.6.0/ZonoPatch_M6.6_ReturnBoolOverrideV1_${SHORT_SHA}.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib "$OUT"
+          shasum -a 256 "$OUT" | tee dist-m6.6.0/SHA256.txt
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m6.6.0-build-log
+          path: iosruntimepatchmenu/build-m6.6.0.log
+          if-no-files-found: warn
+      - name: Verify binary
+        run: |
+          set -euxo pipefail
+          out="iosruntimepatchmenu/dist-m6.6.0/ZonoPatch_M6.6_ReturnBoolOverrideV1_${SHORT_SHA}.dylib"
+          file "$out" | grep -q 'arm64'
+          otool -L "$out" | tee /tmp/zono_m660_load_commands.txt
+          strings -a "$out" > /tmp/zono_m660_strings.txt
+          grep -q '\[m6.1-split\]' /tmp/zono_m660_strings.txt
+          grep -q '\[m6.2-temp-value\]' /tmp/zono_m660_strings.txt
+          grep -q '\[m6.3-ui\]' /tmp/zono_m660_strings.txt
+          grep -q '\[native-hook\]' /tmp/zono_m660_strings.txt
+          grep -q '\[m6.4-native-hook-ui\]' /tmp/zono_m660_strings.txt || true
+          grep -q 'arg-scale-int32' /tmp/zono_m660_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m660_load_commands.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZonoPatch-M6.6-ReturnBoolOverrideV1-${{ env.SHORT_SHA }}
+          path: |
+            iosruntimepatchmenu/dist-m6.6.0/ZonoPatch_M6.6_ReturnBoolOverrideV1_${{ env.SHORT_SHA }}.dylib
+            iosruntimepatchmenu/dist-m6.6.0/SHA256.txt
+          if-no-files-found: error
