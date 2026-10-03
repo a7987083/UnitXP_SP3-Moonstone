@@ -43,6 +43,8 @@ static const NSInteger kZN50BExpandTagBase = 460000;
 static const NSInteger kZN50BAddPatchTagBase = 461000;
 static const NSInteger kZN50BRenameTagBase = 462000;
 static const NSInteger kZN50BDescriptionTagBase = 463000;
+static const NSInteger kZN50BSliderMaxTagBase = 932000;
+static NSString * const kZN50BSliderMaxDefaultsPrefix = @"zonoe.m5.8.5.static-slider-max.v1";
 
 static NSString *ZN50BTrim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -50,6 +52,21 @@ static NSString *ZN50BTrim(NSString *value) {
 
 static NSString *ZN50BFeatureKey(NSString *name) {
     return ZN50BTrim(name).lowercaseString;
+}
+
+static NSString *ZN50BSliderMaxDefaultsKey(NSString *featureName) {
+    return [NSString stringWithFormat:@"%@.%@", kZN50BSliderMaxDefaultsPrefix, ZN50BTrim(featureName).lowercaseString];
+}
+
+static double ZN50BStoredSliderMax(NSString *featureName) {
+    id value=[NSUserDefaults.standardUserDefaults objectForKey:ZN50BSliderMaxDefaultsKey(featureName)];
+    return [value isKindOfClass:NSNumber.class]?[value doubleValue]:0.0;
+}
+
+static void ZN50BStoreSliderMax(NSString *featureName,double value) {
+    NSString *key=ZN50BSliderMaxDefaultsKey(featureName);
+    if(isfinite(value)&&value>0.0)[NSUserDefaults.standardUserDefaults setDouble:MIN(value,16383.0) forKey:key];
+    else [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
 }
 
 static void ZN50BNormalizeImportedGroups(ZNBinaryPatchWorkspace *workspace) {
@@ -244,6 +261,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
 - (void)zn50b_addPatch:(UIButton *)sender;
 - (void)zn50b_featureNameEnd:(UITextField *)field;
 - (void)zn50b_featureDescriptionEnd:(UITextField *)field;
+- (void)zn50b_sliderMaxChanged:(UITextField *)field;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureBuilderUI)
@@ -440,15 +458,22 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
                 }
                 [patchCard addSubview:enabled];
             } else {
-                UILabel *hint = [self label:@"应用测试值使用上方 Max；生成物仅保存 ValueType + Max"
-                                       size:8.0
-                                     weight:UIFontWeightRegular
-                                      color:self.theme.secondaryTextColor];
-                hint.frame = CGRectMake(18, 57, patchCard.bounds.size.width - 36, 20);
-                hint.numberOfLines = 1;
-                hint.adjustsFontSizeToFitWidth = YES;
-                hint.minimumScaleFactor = 0.7;
-                [patchCard addSubview:hint];
+                UILabel *maxLabel=[self label:@"Max" size:9.0 weight:UIFontWeightMedium color:self.theme.secondaryTextColor];
+                maxLabel.frame=CGRectMake(18,54,45,28);
+                [patchCard addSubview:maxLabel];
+
+                double sliderMax=ZN50BStoredSliderMax(name);
+                UITextField *maxField=[self zn44_field:CGRectMake(63,53,patchCard.bounds.size.width-78,29)
+                                                   text:(sliderMax>0.0?[NSString stringWithFormat:@"%.0f",sliderMax]:@"")
+                                            placeholder:@"例如 100"
+                                                    tag:kZN50BSliderMaxTagBase+(NSInteger)globalIndex
+                                                enabled:!locked];
+                maxField.keyboardType=UIKeyboardTypeNumberPad;
+                maxField.autocorrectionType=UITextAutocorrectionTypeNo;
+                maxField.accessibilityLabel=[NSString stringWithFormat:@"%@ Slider 最大值",name];
+                [maxField addTarget:self action:@selector(zn50b_sliderMaxChanged:)
+                   forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
+                [patchCard addSubview:maxField];
             }
 
             NSString *original = row.originalHex.length ? row.originalHex : @"-";
@@ -594,6 +619,32 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     }
     [self.hostWindow endEditing:YES];
     [self renderPage];
+}
+
+- (void)zn50b_sliderMaxChanged:(UITextField *)field {
+    NSInteger globalIndex=field.tag-kZN50BSliderMaxTagBase;
+    if(globalIndex<0)return;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    if((NSUInteger)globalIndex>=workspace.rows.count)return;
+    ZNBinaryPatchRow *row=workspace.rows[(NSUInteger)globalIndex];
+    if(row.featureControlType!=ZNFeatureControlTypeSlider)return;
+
+    NSString *name=ZN50BTrim(row.group);
+    if(!name.length||[name caseInsensitiveCompare:@"Imported"]==NSOrderedSame)name=ZN50BTrim(row.title);
+    if(!name.length)name=@"未命名功能";
+
+    NSString *text=ZN50BTrim(field.text);
+    NSDecimalNumber *number=[NSDecimalNumber decimalNumberWithString:text locale:@{NSLocaleDecimalSeparator:@"."}];
+    double value=(![number isEqualToNumber:NSDecimalNumber.notANumber])?number.doubleValue:0.0;
+    if(!isfinite(value)||value<=0.0)value=0.0;
+    if(value>16383.0){
+        value=16383.0;
+        field.text=@"16383";
+    }
+    ZN50BStoreSliderMax(name,value);
+    row.validated=NO;
+    row.validator=nil;
+    row.originalHex=@"";
 }
 
 - (void)zn50b_featureDescriptionEnd:(UITextField *)field {
