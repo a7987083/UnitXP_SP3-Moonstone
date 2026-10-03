@@ -13,6 +13,8 @@ FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
 
 - (NSArray<NSNumber *> *)supportedInt32ArgumentIndicesForCandidate:(NSDictionary<NSString *, id> *)candidate
                                                             reason:(NSString * _Nullable * _Nullable)reason;
+- (BOOL)supportsReturnBoolOverrideForCandidate:(NSDictionary<NSString *, id> *)candidate
+                                         reason:(NSString * _Nullable * _Nullable)reason;
 - (NSArray<NSNumber *> *)supportedManagedBoolCallbackArgumentIndicesForCandidate:(NSDictionary<NSString *, id> *)candidate
                                                                           reason:(NSString * _Nullable * _Nullable)reason;
 
@@ -21,6 +23,9 @@ FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
                                         multiplier:(NSInteger)multiplier
                                              error:(NSString * _Nullable * _Nullable)error;
 
+- (BOOL)installTemporaryReturnBoolOverrideForCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                   value:(BOOL)value
+                                                   error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)installTemporaryManagedCallbackShortCircuitForCandidate:(NSDictionary<NSString *, id> *)candidate
                                                    argumentIndex:(NSUInteger)argumentIndex
                                                    callbackValue:(BOOL)callbackValue
