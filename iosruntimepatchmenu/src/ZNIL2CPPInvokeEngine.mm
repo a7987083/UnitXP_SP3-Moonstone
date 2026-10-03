@@ -3,6 +3,7 @@
 #import "ZNIL2CPPResolver.h"
 #import "ZNIL2CPPABIMetadata.h"
 #import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPInstanceSelectionV2.h"
 #import "ZNPatchCore.h"
 #import <dlfcn.h>
 #import <errno.h>
@@ -10,6 +11,7 @@
 #import <ctype.h>
 
 static const uint32_t kZNMethodAttributeStatic = 0x0010u;
+static thread_local uintptr_t gZNExplicitReceiverOverride = 0;
 
 typedef void *(*ZNRuntimeInvokeFn)(const void *method, void *object, void **params, void **exception);
 typedef uint32_t (*ZNMethodGetFlagsFn)(const void *method, uint32_t *iflags);
@@ -165,6 +167,19 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
                            error:error];
 }
 
+- (NSDictionary<NSString *,id> *)executeAction:(ZNRuntimeMethodAction *)action
+                                       receiver:(uintptr_t)receiver
+                                          error:(NSString **)error {
+    if (!receiver) return [self executeAction:action error:error];
+    uintptr_t previous = gZNExplicitReceiverOverride;
+    gZNExplicitReceiverOverride = receiver;
+    @try {
+        return [self executeAction:action error:error];
+    } @finally {
+        gZNExplicitReceiverOverride = previous;
+    }
+}
+
 - (NSDictionary<NSString *,id> *)executeAssembly:(NSString *)assembly
                                        namespace:(NSString *)namespaceName
                                        className:(NSString *)className
@@ -237,15 +252,32 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
     void *targetObject = NULL;
     NSString *instanceDiagnostics = @"";
     if (!isStatic) {
-        NSString *instanceError = nil;
-        targetObject = [[ZNIL2CPPInstanceResolver sharedResolver] resolveUniqueInstanceForAssembly:assembly
-                                                                                        namespace:namespaceName ?: @""
-                                                                                        className:className
-                                                                                      diagnostics:&instanceDiagnostics
-                                                                                            error:&instanceError];
-        if (!targetObject) {
-            if (error) *error = instanceError ?: @"FAILED_INSTANCE_REQUIRED：无法解析对象实例";
-            return nil;
+        if (gZNExplicitReceiverOverride) {
+            NSString *validationError = nil;
+            BOOL valid = [[ZNIL2CPPInstanceResolver sharedResolver]
+                znm44_validateInstanceAddress:gZNExplicitReceiverOverride
+                                     assembly:assembly
+                                    namespace:namespaceName ?: @""
+                                    className:className
+                                        error:&validationError];
+            if (!valid) {
+                if (error) *error = validationError ?: @"FAILED_EXPLICIT_RECEIVER：receiver 验证失败";
+                return nil;
+            }
+            targetObject = (void *)gZNExplicitReceiverOverride;
+            instanceDiagnostics = [NSString stringWithFormat:@"explicit-receiver 0x%llX",
+                                   (unsigned long long)gZNExplicitReceiverOverride];
+        } else {
+            NSString *instanceError = nil;
+            targetObject = [[ZNIL2CPPInstanceResolver sharedResolver] resolveUniqueInstanceForAssembly:assembly
+                                                                                            namespace:namespaceName ?: @""
+                                                                                            className:className
+                                                                                          diagnostics:&instanceDiagnostics
+                                                                                                error:&instanceError];
+            if (!targetObject) {
+                if (error) *error = instanceError ?: @"FAILED_INSTANCE_REQUIRED：无法解析对象实例";
+                return nil;
+            }
         }
     }
 
