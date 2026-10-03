@@ -45,61 +45,10 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
                               argumentIndex:(NSUInteger)argumentIndex
                                      source:(UIButton *)source;
 - (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
-                                           source:(UIButton *)source {
-    (void)source;
-    NSString *method=ZNM52XString(candidate[@"method"]);
-    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
-    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n模板：ReturnBoolOverride\n测试值：true\nOriginal：执行后覆盖返回值\n\n%@",
-                       ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,diag?:@""];
-
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Return Bool Override 测试"
-                                                                  message:message
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    __weak typeof(self) weakSelf=self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:YES error:&error];
-        [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → true；实时状态见筛选栏下方",method]
-            : (error?:@"ReturnBoolOverride 安装失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · false" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:NO error:&error];
-        [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → false；实时状态见筛选栏下方",method]
-            : (error?:@"ReturnBoolOverride 安装失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
-        [weakSelf zn60v3_setStatus:ok?@"ReturnBoolOverride 已移除，目标已恢复":(error?:@"恢复原方法失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法 · force true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        NSString *title=[NSString stringWithFormat:@"%@ Override",method.length?method:@"Return Bool"];
-        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addReturnBoolOverrideCandidate:candidate
-                                                                                             title:title
-                                                                                             value:YES
-                                                                                             error:&error];
-        [weakSelf zn60v3_setStatus:created
-            ? [NSString stringWithFormat:@"已创建 ReturnBoolOverride：%@ · Switch",created.title]
-            : (error?:@"创建 ReturnBoolOverride 失败")];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    UIViewController *top=ZNM52XTop(self.hostWindow);
-    if(top)[top presentViewController:alert animated:YES completion:nil];
-}
-
-
+                                           source:(UIButton *)source;
 - (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
                                          argumentIndex:(NSUInteger)argumentIndex
                                                 source:(UIButton *)source;
-- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
-                                           source:(UIButton *)source;
 @end
 
 static NSString *ZNM52XString(id value) {
@@ -496,6 +445,56 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     if(top)[top presentViewController:alert animated:YES completion:nil];
 }
 
+
+- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
+                                           source:(UIButton *)source {
+    (void)source;
+    NSString *method=ZNM52XString(candidate[@"method"]);
+    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
+    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n模板：ReturnBoolOverride\n测试值：true\nOriginal：执行后覆盖返回值\n\n%@",
+                       ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,diag?:@""];
+
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Return Bool Override 测试"
+                                                                  message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:YES error:&error];
+        [weakSelf zn60v3_setStatus:ok
+            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → true；实时状态见筛选栏下方",method]
+            : (error?:@"ReturnBoolOverride 安装失败")];
+        [weakSelf renderPage];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · false" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:NO error:&error];
+        [weakSelf zn60v3_setStatus:ok
+            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → false；实时状态见筛选栏下方",method]
+            : (error?:@"ReturnBoolOverride 安装失败")];
+        [weakSelf renderPage];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
+        [weakSelf zn60v3_setStatus:ok?@"ReturnBoolOverride 已移除，目标已恢复":(error?:@"恢复原方法失败")];
+        [weakSelf renderPage];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法 · force true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        NSString *title=[NSString stringWithFormat:@"%@ Override",method.length?method:@"Return Bool"];
+        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addReturnBoolOverrideCandidate:candidate
+                                                                                             title:title
+                                                                                             value:YES
+                                                                                             error:&error];
+        [weakSelf zn60v3_setStatus:created
+            ? [NSString stringWithFormat:@"已创建 ReturnBoolOverride：%@ · Switch",created.title]
+            : (error?:@"创建 ReturnBoolOverride 失败")];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(top)[top presentViewController:alert animated:YES completion:nil];
+}
 
 - (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
                                          argumentIndex:(NSUInteger)argumentIndex
