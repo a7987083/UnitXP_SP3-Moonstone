@@ -47,6 +47,11 @@ jobs:
           grep -q 'nativeHook' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'refreshGeneratedActions' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
           grep -q 'kZNM640NativeHookSliderTagBase' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          grep -q 'BOOL ok=\[\[ZNNativeHookRuntime sharedRuntime\] setValue:value forAction:hook error:&error\];' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          ! grep -q 'value==1.*removeAction' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          grep -q '测试方式' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'Direct Native Call：当前分支尚未接入 backend' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'IL2CPP Native Hook' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
           grep -q 'methods=%lu hooks=%lu' iosruntimepatchmenu/src/ZNRuntimeActionSignaturePostprocess.mm
       - name: Runtime helper unit tests
         run: |
