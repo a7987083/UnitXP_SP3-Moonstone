@@ -8,6 +8,9 @@
 #import "ZNIL2CPPResolver.h"
 #import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNRuntimeActionModel.h"
+#import "ZNNativeHookAction.h"
+#import "ZNNativeHookRuntime.h"
+#import "ZNIL2CPPABIMetadata.h"
 #import "ZNPatchCore.h"
 
 static const void *kZNM52XActionKey = &kZNM52XActionKey;
@@ -36,6 +39,10 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)zn52x_reselectInstance:(UIButton *)sender;
 - (void)zn52x_batchTestInstances:(UIButton *)sender;
 - (void)zn52x_directUnavailable:(UIButton *)sender;
+- (void)zn64_hookTestTapped:(UIButton *)sender;
+- (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
+                              argumentIndex:(NSUInteger)argumentIndex
+                                     source:(UIButton *)source;
 @end
 
 static NSString *ZNM52XString(id value) {
@@ -177,13 +184,21 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
         UIButton *test=ZNM52XButtonWithTitles(card,@[@"测试/捕获",@"测试执行"]);
         UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
-        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Direct 测试"]);
+        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Hook 测试",@"Direct 测试"]);
         if(!direct){
-            direct=[self zn40_button:@"Direct 测试" selector:@selector(zn52x_directUnavailable:) frame:CGRectZero];
-            direct.enabled=NO;
-            direct.alpha=.48;
+            direct=[self zn40_button:@"Hook 测试" selector:@selector(zn64_hookTestTapped:) frame:CGRectZero];
             [card addSubview:direct];
+        } else {
+            [direct setTitle:@"Hook 测试" forState:UIControlStateNormal];
+            [direct removeTarget:self action:@selector(zn52x_directUnavailable:) forControlEvents:UIControlEventTouchUpInside];
+            [direct removeTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [direct addTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
         }
+        objc_setAssociatedObject(direct,kZNM52XCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSString *hookReason=nil;
+        NSArray<NSNumber *> *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&hookReason];
+        direct.enabled=hookArgs.count>0;
+        direct.alpha=direct.enabled?1.0:.48;
 
         BOOL known=NO;
         BOOL instance=ZNM52XMethodIsInstance(candidate,&known);
@@ -242,7 +257,118 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
 - (void)zn52x_directUnavailable:(UIButton *)sender {
     (void)sender;
-    [self zn60v3_setStatus:@"Direct 测试：当前分支尚未接入 Direct Native Call backend"];
+    [self zn60v3_setStatus:@"Direct Native Call 尚未接入；当前位置已用于 Native Hook V1 测试"];
+}
+
+- (void)zn64_hookTestTapped:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,kZNM52XCandidateKey);
+    if(!candidate)return;
+    NSString *reason=nil;
+    NSArray<NSNumber *> *indices=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
+    if(!indices.count){
+        [self zn60v3_setStatus:reason.length?reason:@"当前方法没有 V1 可用的 int32 参数"];
+        return;
+    }
+    if(indices.count==1){
+        [self zn64_presentHookConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:sender];
+        return;
+    }
+
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"选择 Hook 参数"
+                                                                   message:@"Native Hook V1 · ArgScaleInt32"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf=self;
+    for(NSNumber *n in indices){
+        NSUInteger idx=n.unsignedIntegerValue;
+        NSDictionary *param=idx<params.count?params[idx]:@{};
+        NSString *name=[param[@"paramName"] isKindOfClass:NSString.class]?param[@"paramName"]:@"";
+        NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"int32";
+        NSString *title=name.length?[NSString stringWithFormat:@"参数%lu · %@ · %@",(unsigned long)idx+1,name,type]:
+                                    [NSString stringWithFormat:@"参数%lu · %@",(unsigned long)idx+1,type];
+        [picker addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+            [weakSelf zn64_presentHookConfigForCandidate:candidate argumentIndex:idx source:sender];
+        }]];
+    }
+    [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(!top)return;
+    UIPopoverPresentationController *popover=picker.popoverPresentationController;
+    if(popover){popover.sourceView=sender;popover.sourceRect=sender.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
+    [top presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
+                              argumentIndex:(NSUInteger)argumentIndex
+                                     source:(UIButton *)source {
+    NSString *method=ZNM52XString(candidate[@"method"]);
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *param=argumentIndex<params.count?params[argumentIndex]:@{};
+    NSString *paramName=[param[@"paramName"] isKindOfClass:NSString.class]?param[@"paramName"]:@"";
+    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
+    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n参数：%lu%@\n模板：ArgScaleInt32\n\n%@",
+                       ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,
+                       (unsigned long)argumentIndex+1,
+                       paramName.length?[NSString stringWithFormat:@" · %@",paramName]:@"",
+                       diag?:@""];
+
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"IL2CPP Native Hook 测试"
+                                                                  message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){
+        field.placeholder=@"测试倍率，例如 5";
+        field.text=@"5";
+        field.keyboardType=UIKeyboardTypeNumberPad;
+    }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){
+        field.placeholder=@"创建后的 Slider Max，例如 20";
+        field.text=@"20";
+        field.keyboardType=UIKeyboardTypeNumberPad;
+    }];
+
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"安装 / 更新测试 Hook" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSInteger multiplier=alert.textFields.firstObject.text.integerValue;
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryArgScaleInt32ForCandidate:candidate
+                                                                                argumentIndex:argumentIndex
+                                                                                   multiplier:multiplier
+                                                                                        error:&error];
+        [weakSelf zn60v3_setStatus:ok
+            ? [NSString stringWithFormat:@"Native Hook 已安装 · %@ arg%lu ×%ld；回游戏触发后再点 Hook 测试看 Hits",
+               method,(unsigned long)argumentIndex,(long)multiplier]
+            : (error?:@"Native Hook 安装失败")];
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
+        [weakSelf zn60v3_setStatus:ok?@"Native Hook 已移除，目标已恢复":(error?:@"恢复原方法失败")];
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSInteger multiplier=MAX(1,alert.textFields.firstObject.text.integerValue);
+        NSInteger maxValue=MAX(multiplier,alert.textFields.count>1?alert.textFields[1].text.integerValue:20);
+        maxValue=MIN(MAX(maxValue,1),1000);
+        NSString *error=nil;
+        NSString *title=[NSString stringWithFormat:@"%@ Multiplier",method.length?method:@"Native Hook"];
+        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addArgScaleInt32Candidate:candidate
+                                                                                       title:title
+                                                                               argumentIndex:argumentIndex
+                                                                                         min:1
+                                                                                         max:maxValue
+                                                                                defaultValue:1
+                                                                                       error:&error];
+        [weakSelf zn60v3_setStatus:created
+            ? [NSString stringWithFormat:@"已创建 Native Hook：%@ · Slider 1~%ld",created.title,(long)maxValue]
+            : (error?:@"创建 Native Hook 失败")];
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(top)[top presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)zn52x_reselectInstance:(UIButton *)sender {
@@ -376,6 +502,6 @@ extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void) {
     dispatch_once(&onceToken, ^{
         Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (menu) ZNM52XSwap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(zn52x_renderResultsAtWidth:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m6.4-finder-grid] right-side 2-column actions + reselect/batch instance test installed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m6.4-native-hook-ui] 2-column finder actions + Dobby ArgScaleInt32 test/create installed"];
     });
 }
