@@ -8,6 +8,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSDictionary<NSString *, id> *)capabilities;
 - (nullable NSDictionary<NSString *, id> *)executeAction:(ZNRuntimeMethodAction *)action
                                                     error:(NSString * _Nullable * _Nullable)error;
+- (nullable NSDictionary<NSString *, id> *)executeAction:(ZNRuntimeMethodAction *)action
+                                                 receiver:(uintptr_t)receiver
+                                                    error:(NSString * _Nullable * _Nullable)error;
 - (nullable NSDictionary<NSString *, id> *)executeAssembly:(NSString *)assembly
                                                  namespace:(NSString *)namespaceName
                                                  className:(NSString *)className
