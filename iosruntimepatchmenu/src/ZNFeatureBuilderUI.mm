@@ -4,6 +4,8 @@
 
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNFeatureControlModel.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNNativeHookAction.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
