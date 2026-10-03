@@ -159,8 +159,9 @@ static void * const gZNFillSPReplacements[kZNFillSPMaxSlots]={
 
 static BOOL ZNIsFillSPSpecializedCandidate(NSDictionary *candidate, NSDictionary *abi, NSUInteger argumentIndex) {
     if(argumentIndex!=1||[candidate[@"argumentCount"] unsignedIntegerValue]!=2)return NO;
-    if(![ZNNativeString(candidate[@"class"]) isEqualToString:@"PlayerComp"]||
-       ![ZNNativeString(candidate[@"method"]) isEqualToString:@"FillSP"])return NO;
+    NSString *className=[candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"";
+    NSString *methodName=[candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"";
+    if(![className isEqualToString:@"PlayerComp"]||![methodName isEqualToString:@"FillSP"])return NO;
     NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
     NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
     if(params.count!=2||(ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindBool)return NO;
@@ -171,8 +172,6 @@ static BOOL ZNIsFillSPSpecializedCandidate(NSDictionary *candidate, NSDictionary
 }
 
 static const NSUInteger kZNReturnBoolMaxSlots = 8;
-typedef uint8_t (*ZNReturnBoolOriginalFn)(uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t);
-
 typedef struct {
     std::atomic<uintptr_t> target;
     std::atomic<uintptr_t> original;
