@@ -1,9 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
-#import <dlfcn.h>
 
 #import "ZNIL2CPPInstanceSelectionV2.h"
 #import "ZNIL2CPPResolver.h"
+#import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNPatchCore.h"
 
 // M4.6.2 receiver stability layer.
@@ -34,40 +34,15 @@ static NSMutableDictionary<NSString *, ZNM462Selection *> *ZNM462Store(void) {
     return store;
 }
 
-static NSString *ZNM462Trim(NSString *value) {
-    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-}
-
-static NSString *ZNM462Assembly(NSString *value) {
-    NSString *s = ZNM462Trim(value).lowercaseString;
-    return [s hasSuffix:@".dll"] && s.length > 4 ? [s substringToIndex:s.length - 4] : s;
-}
-
-static NSString *ZNM462Key(NSString *assembly, NSString *namespaceName, NSString *className) {
-    return [NSString stringWithFormat:@"%@|%@|%@",
-            ZNM462Assembly(assembly), ZNM462Trim(namespaceName), ZNM462Trim(className)];
-}
-
-static void *ZNM462Symbol(NSString *path, const char *name) {
-    void *symbol = dlsym(RTLD_DEFAULT, name);
-    if (symbol || !path.length) return symbol;
-#ifdef RTLD_NOLOAD
-    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
-#else
-    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY);
-#endif
-    return handle ? dlsym(handle, name) : NULL;
-}
-
 static BOOL ZNM462GCAPI(ZNM462GCHandleNewFn *newFn,
                         ZNM462GCHandleGetTargetFn *getFn,
                         ZNM462GCHandleFreeFn *freeFn) {
     ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
     [resolver refresh];
     NSString *path = resolver.unityPath ?: @"";
-    ZNM462GCHandleNewFn n = (ZNM462GCHandleNewFn)ZNM462Symbol(path, "il2cpp_gchandle_new");
-    ZNM462GCHandleGetTargetFn g = (ZNM462GCHandleGetTargetFn)ZNM462Symbol(path, "il2cpp_gchandle_get_target");
-    ZNM462GCHandleFreeFn f = (ZNM462GCHandleFreeFn)ZNM462Symbol(path, "il2cpp_gchandle_free");
+    ZNM462GCHandleNewFn n = (ZNM462GCHandleNewFn)ZNIL2CPPResolveSymbol(path, "il2cpp_gchandle_new");
+    ZNM462GCHandleGetTargetFn g = (ZNM462GCHandleGetTargetFn)ZNIL2CPPResolveSymbol(path, "il2cpp_gchandle_get_target");
+    ZNM462GCHandleFreeFn f = (ZNM462GCHandleFreeFn)ZNIL2CPPResolveSymbol(path, "il2cpp_gchandle_free");
     if (newFn) *newFn = n;
     if (getFn) *getFn = g;
     if (freeFn) *freeFn = f;
@@ -105,7 +80,7 @@ static void ZNM462ReleaseSelection(ZNM462Selection *selection) {
 - (uintptr_t)znm462_selectedInstanceForAssembly:(NSString *)assembly
                                        namespace:(NSString *)namespaceName
                                        className:(NSString *)className {
-    NSString *key = ZNM462Key(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
     __block ZNM462Selection *selection = nil;
     @synchronized (ZNM462Store()) {
         selection = ZNM462Store()[key];
@@ -182,7 +157,7 @@ static void ZNM462ReleaseSelection(ZNM462Selection *selection) {
         selection.fallbackAddress = address;
     }
 
-    NSString *key = ZNM462Key(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
     ZNM462Selection *previous = nil;
     @synchronized (ZNM462Store()) {
         previous = ZNM462Store()[key];
@@ -201,7 +176,7 @@ static void ZNM462ReleaseSelection(ZNM462Selection *selection) {
 - (void)znm462_clearSelectedInstanceForAssembly:(NSString *)assembly
                                         namespace:(NSString *)namespaceName
                                         className:(NSString *)className {
-    NSString *key = ZNM462Key(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
     ZNM462Selection *selection = nil;
     @synchronized (ZNM462Store()) {
         selection = ZNM462Store()[key];
