@@ -63,7 +63,7 @@ jobs:
           grep -q 'skipOriginal' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'control.*switch' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'Return Bool Override' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
-          grep -q 'ZNArgScaleBridgeArm64.s' iosruntimepatchmenu/Makefile
+          grep -q 'ZNArgScaleBridgeArm64.mm' iosruntimepatchmenu/Makefile
           grep -q 'ZNArgScaleBridgeOriginal' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
           grep -q 'ZNArgScaleBridgeMutate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
           grep -q 'gZNArgScaleBridgeReplacements' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
