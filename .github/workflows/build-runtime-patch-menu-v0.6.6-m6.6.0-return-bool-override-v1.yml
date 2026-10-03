@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/m6.6-return-bool-override-v1
+      - feature/m6.6-safe-rd2-hooks-v1
   workflow_dispatch:
 
 jobs:
