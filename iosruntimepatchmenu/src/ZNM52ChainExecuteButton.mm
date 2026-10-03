@@ -3,11 +3,19 @@
 #import <objc/runtime.h>
 
 #import "ZNIL2CPPInvokeEngine.h"
+#import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPResolver.h"
+#import <dlfcn.h>
 #import "ZNRuntimeActionModel.h"
 #import "ZNPatchCore.h"
 
 static const void *kZNM52XActionKey = &kZNM52XActionKey;
 static const void *kZNM52XIndexKey = &kZNM52XIndexKey;
+static const void *kZNM52XCandidateKey = &kZNM52XCandidateKey;
+static const uint32_t kZNM52XMethodAttributeStatic = 0x0010u;
+
+typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -24,6 +32,9 @@ static const void *kZNM52XIndexKey = &kZNM52XIndexKey;
 - (void)zn52x_renderResultsAtWidth:(CGFloat)width;
 - (void)zn52x_executeChainTapped:(UIButton *)sender;
 - (void)zn52x_restartChainLongPress:(UILongPressGestureRecognizer *)gesture;
+- (void)zn52x_reselectInstance:(UIButton *)sender;
+- (void)zn52x_batchTestInstances:(UIButton *)sender;
+- (void)zn52x_directUnavailable:(UIButton *)sender;
 @end
 
 static NSString *ZNM52XString(id value) {
@@ -48,6 +59,56 @@ static void ZNM52XCollectChainButtons(UIView *root, NSMutableArray<UIButton *> *
         }
         ZNM52XCollectChainButtons(view, out);
     }
+}
+
+static UIButton *ZNM52XButtonWithTitles(UIView *card, NSArray<NSString *> *titles) {
+    for (UIView *view in card.subviews) {
+        if (![view isKindOfClass:UIButton.class]) continue;
+        UIButton *button=(UIButton *)view;
+        NSString *title=[button titleForState:UIControlStateNormal] ?: @"";
+        if ([titles containsObject:title]) return button;
+    }
+    return nil;
+}
+
+static void *ZNM52XResolveSymbol(NSString *path,const char *name) {
+    void *symbol=dlsym(RTLD_DEFAULT,name);
+    if(symbol||!path.length)return symbol;
+#ifdef RTLD_NOLOAD
+    void *handle=dlopen(path.fileSystemRepresentation,RTLD_LAZY|RTLD_NOLOAD);
+#else
+    void *handle=dlopen(path.fileSystemRepresentation,RTLD_LAZY);
+#endif
+    return handle?dlsym(handle,name):NULL;
+}
+
+static BOOL ZNM52XMethodIsInstance(NSDictionary *candidate, BOOL *known) {
+    if(known)*known=NO;
+    uintptr_t methodInfo=[candidate[@"methodInfo"] unsignedLongLongValue];
+    if(!methodInfo)return NO;
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    ZNM52XMethodGetFlagsFn getFlags=(ZNM52XMethodGetFlagsFn)ZNM52XResolveSymbol(resolver.unityPath,"il2cpp_method_get_flags");
+    if(!getFlags)return NO;
+    uint32_t implFlags=0;
+    uint32_t flags=getFlags((const void *)methodInfo,&implFlags);
+    if(known)*known=YES;
+    return (flags&kZNM52XMethodAttributeStatic)==0;
+}
+
+static BOOL ZNM52XBatchSafe(NSDictionary *candidate) {
+    if([candidate[@"argumentCount"] unsignedIntegerValue]!=0)return NO;
+    NSString *method=ZNM52XString(candidate[@"method"]).lowercaseString;
+    return [method hasPrefix:@"get_"] || [method hasPrefix:@"is"] ||
+           [method hasPrefix:@"has"] || [method hasPrefix:@"can"];
+}
+
+static void ZNM52XStyleGridButton(UIButton *button,CGFloat x,CGFloat y,CGFloat w,CGFloat h) {
+    if(!button)return;
+    button.frame=CGRectMake(x,y,w,h);
+    button.titleLabel.font=[UIFont systemFontOfSize:8.1 weight:UIFontWeightSemibold];
+    button.titleLabel.adjustsFontSizeToFitWidth=YES;
+    button.titleLabel.minimumScaleFactor=.65;
 }
 
 static BOOL ZNM52XCandidateMatches(NSDictionary *candidate, ZNRuntimeMethodAction *action) {
@@ -94,34 +155,71 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
 - (void)zn52x_renderResultsAtWidth:(CGFloat)width {
     [self zn52x_renderResultsAtWidth:width];
-    NSArray<NSDictionary *> *visible = ZNM52XVisible(self);
-    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
-    ZNM52XCollectChainButtons(self.contentView, buttons);
-    if (!visible.count || buttons.count != visible.count) return;
+    NSArray<NSDictionary *> *visible=ZNM52XVisible(self);
+    NSMutableArray<UIButton *> *chainButtons=[NSMutableArray array];
+    ZNM52XCollectChainButtons(self.contentView,chainButtons);
+    if(!visible.count||chainButtons.count!=visible.count)return;
 
-    for (NSUInteger i = 0; i < buttons.count; i++) {
-        UIButton *button = buttons[i];
-        ZNRuntimeMethodAction *action = nil;
-        NSInteger actionIndex = ZNM52XFindChain(visible[i], &action);
-        if (actionIndex == NSNotFound || !action) continue;
+    for(NSUInteger i=0;i<chainButtons.count;i++){
+        NSDictionary *candidate=visible[i];
+        UIButton *chain=chainButtons[i];
+        UIView *card=chain.superview;
+        if(!card)continue;
 
-        [button setTitle:@"执行链" forState:UIControlStateNormal];
-        objc_setAssociatedObject(button, kZNM52XActionKey, action, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(button, kZNM52XIndexKey, @(actionIndex), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [button removeTarget:self action:@selector(zn52_chainTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [button removeTarget:self action:@selector(zn52x_executeChainTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [button addTarget:self action:@selector(zn52x_executeChainTapped:) forControlEvents:UIControlEventTouchUpInside];
-
-        BOOL hasLongPress = NO;
-        for (UIGestureRecognizer *g in button.gestureRecognizers) if ([g isKindOfClass:UILongPressGestureRecognizer.class]) { hasLongPress = YES; break; }
-        if (!hasLongPress) {
-            UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(zn52x_restartChainLongPress:)];
-            longPress.minimumPressDuration = 0.65;
-            [button addGestureRecognizer:longPress];
+        ZNRuntimeMethodAction *action=nil;
+        NSInteger actionIndex=ZNM52XFindChain(candidate,&action);
+        if(actionIndex!=NSNotFound&&action){
+            [chain setTitle:@"执行链" forState:UIControlStateNormal];
+            objc_setAssociatedObject(chain,kZNM52XActionKey,action,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(chain,kZNM52XIndexKey,@(actionIndex),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [chain removeTarget:self action:@selector(zn52_chainTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [chain removeTarget:self action:@selector(zn52x_executeChainTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [chain addTarget:self action:@selector(zn52x_executeChainTapped:) forControlEvents:UIControlEventTouchUpInside];
+            BOOL hasLongPress=NO;
+            for(UIGestureRecognizer *g in chain.gestureRecognizers)
+                if([g isKindOfClass:UILongPressGestureRecognizer.class]){hasLongPress=YES;break;}
+            if(!hasLongPress){
+                UILongPressGestureRecognizer *longPress=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(zn52x_restartChainLongPress:)];
+                longPress.minimumPressDuration=.65;
+                [chain addGestureRecognizer:longPress];
+            }
         }
+
+        UIButton *test=ZNM52XButtonWithTitles(card,@[@"测试/捕获",@"测试执行"]);
+        UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
+        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Direct 测试"]);
+        if(!direct){
+            direct=[self zn40_button:@"Direct 测试" selector:@selector(zn52x_directUnavailable:) frame:CGRectZero];
+            direct.enabled=NO;
+            direct.alpha=.48;
+            [card addSubview:direct];
+        }
+
+        BOOL known=NO;
+        BOOL instance=ZNM52XMethodIsInstance(candidate,&known);
+        UIButton *reselect=[self zn40_button:@"重新选择实例" selector:@selector(zn52x_reselectInstance:) frame:CGRectZero];
+        UIButton *batch=[self zn40_button:@"批量测试实例" selector:@selector(zn52x_batchTestInstances:) frame:CGRectZero];
+        objc_setAssociatedObject(reselect,kZNM52XCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(batch,kZNM52XCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        reselect.enabled=known&&instance;
+        batch.enabled=known&&instance&&ZNM52XBatchSafe(candidate);
+        reselect.alpha=reselect.enabled?1.0:.48;
+        batch.alpha=batch.enabled?1.0:.48;
+        [card addSubview:reselect];
+        [card addSubview:batch];
+
+        CGFloat gap=6.0,rightInset=10.0,gridW=164.0;
+        CGFloat colW=(gridW-gap)/2.0;
+        CGFloat x0=CGRectGetWidth(card.bounds)-rightInset-gridW;
+        CGFloat x1=x0+colW+gap;
+        ZNM52XStyleGridButton(test,x0,7,colW,28);
+        ZNM52XStyleGridButton(direct,x1,7,colW,28);
+        ZNM52XStyleGridButton(create,x0,41,colW,28);
+        ZNM52XStyleGridButton(chain,x1,41,colW,28);
+        ZNM52XStyleGridButton(reselect,x0,75,colW,28);
+        ZNM52XStyleGridButton(batch,x1,75,colW,28);
     }
 }
-
 - (void)zn52x_executeChainTapped:(UIButton *)sender {
     ZNRuntimeMethodAction *action = objc_getAssociatedObject(sender, kZNM52XActionKey);
     if (!action) return;
@@ -147,6 +245,112 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     if (top) {
         NSString *message = trace.length ? [NSString stringWithFormat:@"最终返回：%@ = %@\n\n%@", type.length ? type : @"return", value, trace] : [NSString stringWithFormat:@"最终返回：%@ = %@", type.length ? type : @"return", value];
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"执行链结果" message:message preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [top presentViewController:alert animated:YES completion:nil];
+    }
+}
+
+- (void)zn52x_directUnavailable:(UIButton *)sender {
+    (void)sender;
+    [self zn60v3_setStatus:@"Direct 测试：当前分支尚未接入 Direct Native Call backend"];
+}
+
+- (void)zn52x_reselectInstance:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,kZNM52XCandidateKey);
+    if(!candidate)return;
+    NSString *assembly=ZNM52XString(candidate[@"assembly"]); if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNM52XString(candidate[@"namespace"]);
+    NSString *cls=ZNM52XString(candidate[@"class"]);
+    ZNIL2CPPInstanceResolver *resolver=[ZNIL2CPPInstanceResolver sharedResolver];
+
+    uintptr_t previous=[resolver znm44_selectedInstanceForAssembly:assembly namespace:ns className:cls];
+    [resolver znm44_clearSelectedInstanceForAssembly:assembly namespace:ns className:cls];
+
+    NSString *diag=nil,*findError=nil;
+    NSArray<NSNumber *> *instances=[resolver candidateAddressesForAssembly:assembly namespace:ns className:cls limit:32 diagnostics:&diag error:&findError];
+    if(!instances.count){
+        [self zn60v3_setStatus:findError ?: @"重新选择实例：没有找到活实例"];
+        [self renderPage];
+        return;
+    }
+
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"重新选择实例 · %@",cls.length?cls:@"Object"]
+                                                                 message:[NSString stringWithFormat:@"发现 %lu 个活实例；旧 GCHandle 已释放",(unsigned long)instances.count]
+                                                          preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf=self;
+    for(NSUInteger i=0;i<instances.count;i++){
+        uintptr_t address=instances[i].unsignedLongLongValue;
+        NSString *mark=(previous&&address==previous)?@" · 原当前":@"";
+        NSString *title=[NSString stringWithFormat:@"实例 %lu · 0x%llX%@",(unsigned long)(i+1),(unsigned long long)address,mark];
+        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+            NSString *selectionError=nil;
+            BOOL ok=[[ZNIL2CPPInstanceResolver sharedResolver] znm44_selectInstanceAddress:address assembly:assembly namespace:ns className:cls error:&selectionError];
+            [weakSelf zn60v3_setStatus:ok
+                ? [NSString stringWithFormat:@"已重新选择 %@：0x%llX",cls.length?cls:@"Object",(unsigned long long)address]
+                : (selectionError ?: @"重新选择实例失败")];
+            [weakSelf renderPage];
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *a){
+        [weakSelf zn60v3_setStatus:@"已取消重新选择；旧 receiver 已释放"];
+        [weakSelf renderPage];
+    }]];
+
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(!top)return;
+    UIPopoverPresentationController *popover=alert.popoverPresentationController;
+    if(popover){popover.sourceView=sender;popover.sourceRect=sender.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
+    [top presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)zn52x_batchTestInstances:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,kZNM52XCandidateKey);
+    if(!candidate||!ZNM52XBatchSafe(candidate))return;
+    NSString *assembly=ZNM52XString(candidate[@"assembly"]); if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNM52XString(candidate[@"namespace"]);
+    NSString *cls=ZNM52XString(candidate[@"class"]);
+    NSString *method=ZNM52XString(candidate[@"method"]);
+
+    NSString *diag=nil,*findError=nil;
+    NSArray<NSNumber *> *instances=[[ZNIL2CPPInstanceResolver sharedResolver] candidateAddressesForAssembly:assembly namespace:ns className:cls limit:32 diagnostics:&diag error:&findError];
+    if(!instances.count){
+        [self zn60v3_setStatus:findError ?: @"批量测试实例：没有找到活实例"];
+        [self renderPage];
+        return;
+    }
+
+    ZNRuntimeMethodAction *action=[ZNRuntimeMethodAction new];
+    action.title=method.length?method:@"Batch Instance Test";
+    action.assembly=assembly;
+    action.namespaceName=ns;
+    action.className=cls;
+    action.methodName=method;
+    action.argumentCount=0;
+    action.argumentValues=@[];
+    action.immediateChain=@{};
+
+    NSMutableArray<NSString *> *lines=[NSMutableArray array];
+    NSUInteger success=0;
+    for(NSUInteger i=0;i<instances.count;i++){
+        uintptr_t address=instances[i].unsignedLongLongValue;
+        NSString *invokeError=nil;
+        NSDictionary *result=[[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action receiver:address error:&invokeError];
+        if(result){
+            success++;
+            NSString *value=[result[@"returnValue"] description];
+            if(!value.length)value=[NSString stringWithFormat:@"0x%llX",(unsigned long long)[result[@"result"] unsignedLongLongValue]];
+            [lines addObject:[NSString stringWithFormat:@"#%lu 0x%llX  ✅  %@",(unsigned long)(i+1),(unsigned long long)address,value]];
+        }else{
+            [lines addObject:[NSString stringWithFormat:@"#%lu 0x%llX  ❌  %@",(unsigned long)(i+1),(unsigned long long)address,invokeError ?: @"FAILED"]];
+        }
+    }
+
+    [self zn60v3_setStatus:[NSString stringWithFormat:@"批量测试完成：%lu/%lu 成功；当前 receiver 未改变",(unsigned long)success,(unsigned long)instances.count]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(top){
+        UIAlertController *alert=[UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"批量测试实例 · %@::%@",cls,method]
+                                                                     message:[lines componentsJoinedByString:@"\n"]
+                                                              preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
         [top presentViewController:alert animated:YES completion:nil];
     }
@@ -182,6 +386,6 @@ extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void) {
     dispatch_once(&onceToken, ^{
         Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (menu) ZNM52XSwap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(zn52x_renderResultsAtWidth:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.2-chain-ui] completed chain button: tap=execute, long-press=restart"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m6.4-finder-grid] right-side 2-column actions + reselect/batch instance test installed"];
     });
 }
