@@ -33,6 +33,9 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     _minValue=1;
     _maxValue=20;
     _defaultValue=1;
+    _callbackArgumentIndex=NSNotFound;
+    _callbackValue=YES;
+    _skipOriginal=YES;
     _fallbackUUID=@"";
     return self;
 }
@@ -48,7 +51,9 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     c.assembly=self.assembly;c.namespaceName=self.namespaceName;c.className=self.className;c.methodName=self.methodName;
     c.argumentCount=self.argumentCount;c.parameterTypeNames=self.parameterTypeNames;c.signatureAvailable=self.signatureAvailable;
     c.templateKind=self.templateKind;c.argumentIndex=self.argumentIndex;c.minValue=self.minValue;c.maxValue=self.maxValue;
-    c.defaultValue=self.defaultValue;c.fallbackRVA=self.fallbackRVA;c.fallbackUUID=self.fallbackUUID;
+    c.defaultValue=self.defaultValue;c.callbackArgumentIndex=self.callbackArgumentIndex;
+    c.callbackValue=self.callbackValue;c.skipOriginal=self.skipOriginal;
+    c.fallbackRVA=self.fallbackRVA;c.fallbackUUID=self.fallbackUUID;
     return c;
 }
 @end
@@ -83,6 +88,8 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         @"signatureAvailable":@(a.signatureAvailable),@"template":ZNNativeHookTemplateKey(a.templateKind),
         @"templateKind":@(a.templateKind),@"argumentIndex":@(a.argumentIndex),
         @"min":@(a.minValue),@"max":@(a.maxValue),@"default":@(a.defaultValue),
+        @"callbackArgumentIndex":@(a.callbackArgumentIndex==NSNotFound?NSUIntegerMax:a.callbackArgumentIndex),
+        @"callbackValue":@(a.callbackValue),@"skipOriginal":@(a.skipOriginal),
         @"fallbackRVA":@(a.fallbackRVA),@"fallbackUUID":a.fallbackUUID?:@""
     };
 }
@@ -104,9 +111,20 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.templateKind=(ZNNativeHookTemplateKind)[d[@"templateKind"] unsignedIntValue];
     a.argumentIndex=[d[@"argumentIndex"] unsignedIntegerValue];
     a.minValue=[d[@"min"] integerValue];a.maxValue=[d[@"max"] integerValue];a.defaultValue=[d[@"default"] integerValue];
+    NSUInteger storedCallback=[d[@"callbackArgumentIndex"] unsignedIntegerValue];
+    a.callbackArgumentIndex=(storedCallback==NSUIntegerMax)?NSNotFound:storedCallback;
+    a.callbackValue=d[@"callbackValue"]?[d[@"callbackValue"] boolValue]:YES;
+    a.skipOriginal=d[@"skipOriginal"]?[d[@"skipOriginal"] boolValue]:YES;
     a.fallbackRVA=[d[@"fallbackRVA"] unsignedLongLongValue];
     a.fallbackUUID=[d[@"fallbackUUID"] isKindOfClass:NSString.class]?d[@"fallbackUUID"]:@"";
-    if(!a.actionID||!a.className.length||!a.methodName.length||a.templateKind!=ZNNativeHookTemplateArgScaleInt32||a.argumentIndex>=a.argumentCount)return nil;
+    if(!a.actionID||!a.className.length||!a.methodName.length)return nil;
+    if(a.templateKind==ZNNativeHookTemplateArgScaleInt32){
+        if(a.argumentIndex>=a.argumentCount)return nil;
+    }else if(a.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
+        if(a.callbackArgumentIndex==NSNotFound||a.callbackArgumentIndex>=a.argumentCount||!a.skipOriginal)return nil;
+    }else{
+        return nil;
+    }
     return a;
 }
 
@@ -165,6 +183,64 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     }
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-authoring] add id=%u %@ template=%@ arg=%lu",
                                            a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),(unsigned long)a.argumentIndex]];
+    return [a copy];
+}
+
+
+- (ZNNativeHookAction *)addManagedCallbackShortCircuitCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                          title:(NSString *)title
+                                          callbackArgumentIndex:(NSUInteger)argumentIndex
+                                                  callbackValue:(BOOL)callbackValue
+                                                   skipOriginal:(BOOL)skipOriginal
+                                                          error:(NSString **)error {
+    NSString *assembly=ZNNHTrim([candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"");
+    if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNHTrim([candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"");
+    NSString *cls=ZNNHTrim([candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"");
+    NSString *method=ZNNHTrim([candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"");
+    NSInteger argc=[candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)]?[candidate[@"argumentCount"] integerValue]:-1;
+    if(!cls.length||!method.length||argc<=0||argumentIndex>=(NSUInteger)argc){if(error)*error=@"ManagedCallback 方法身份/参数索引无效";return nil;}
+    if(!skipOriginal){if(error)*error=@"M6.5 V1 只支持 Skip Original=YES";return nil;}
+
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    if(![abi[@"available"] boolValue]||params.count!=(NSUInteger)argc){if(error)*error=@"ManagedCallback 需要完整 IL2CPP 参数 ABI";return nil;}
+    if((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindVoid){if(error)*error=@"M6.5 V1 仅允许 void 目标方法做 Skip Original";return nil;}
+    NSDictionary *param=params[argumentIndex];
+    NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"";
+    NSString *lower=type.lowercaseString;
+    BOOL actionBool=[lower containsString:@"system.action"]&&[lower containsString:@"system.boolean"];
+    if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]!=ZNIL2CPPABIValueKindObjectReference||!actionBool){
+        if(error)*error=[NSString stringWithFormat:@"参数%lu 不是 System.Action<bool> 托管回调",(unsigned long)argumentIndex+1];
+        return nil;
+    }
+
+    NSMutableArray *types=[NSMutableArray arrayWithCapacity:params.count];
+    for(NSDictionary *p in params)[types addObject:[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?"];
+
+    ZNNativeHookAction *a=[ZNNativeHookAction new];
+    a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=method;a.argumentCount=(NSUInteger)argc;
+    a.parameterTypeNames=[types copy];a.signatureAvailable=YES;
+    a.templateKind=ZNNativeHookTemplateManagedCallbackShortCircuit;
+    a.callbackArgumentIndex=argumentIndex;a.callbackValue=callbackValue;a.skipOriginal=YES;
+    a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Short Circuit",method];
+    a.featureDescription=@"Managed callback short circuit · Skip Original";
+    a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
+
+    @synchronized(self){
+        uint32_t serial=0;BOOL collision=NO;
+        do{
+            NSString *seed=[NSString stringWithFormat:@"%@|%@|callback:%lu|%u",a.canonicalIdentity,a.title,(unsigned long)a.callbackArgumentIndex,serial++];
+            a.actionID=ZNNHFNV1a32(seed);collision=NO;
+            for(ZNNativeHookAction *e in self.mutableActions)if(e.actionID==a.actionID){collision=YES;break;}
+        }while(collision);
+        [self.mutableActions addObject:a];
+        [self persist];
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-authoring] add id=%u %@ template=%@ callbackArg=%lu value=%@",
+                                           a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),
+                                           (unsigned long)a.callbackArgumentIndex,a.callbackValue?@"true":@"false"]];
     return [a copy];
 }
 
