@@ -180,6 +180,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 
 - (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact {
     ZNRuntimeActionRuntime *runtime=[ZNRuntimeActionRuntime sharedRuntime];
+    [runtime refresh];
     NSArray<ZNRuntimeMethodActionRecord *> *records=runtime.records?:@[];
     if (!records.count) return y;
 
@@ -324,12 +325,19 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     CGFloat y=compact?7.0:9.0;
 
     if (!features.count) {
-        UIView *card=[self cardAtY:y height:(compact?40.0:46.0) width:width compact:compact];
-        UILabel *label=[self label:@"暂无功能" size:(compact?10.7:11.0) weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-        label.frame=CGRectMake(12,10,MAX(0.0,CGRectGetWidth(card.bounds)-24),22);
-        [card addSubview:label];
-        [self.contentView addSubview:card];
-        [self zn40_updateContentHeight:CGRectGetMaxY(card.frame)+8.0];
+        CGFloat runtimeStart=y;
+        y=[self znm630_hardCutRenderRuntimeAtY:y width:width compact:compact];
+        if (y==runtimeStart) {
+            UIView *card=[self cardAtY:y height:(compact?40.0:46.0) width:width compact:compact];
+            UILabel *label=[self label:@"暂无功能" size:(compact?10.7:11.0) weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+            label.frame=CGRectMake(12,10,MAX(0.0,CGRectGetWidth(card.bounds)-24),22);
+            [card addSubview:label];
+            [self.contentView addSubview:card];
+            y=CGRectGetMaxY(card.frame)+8.0;
+        }
+        [self zn40_updateContentHeight:y+4.0];
+        self.contentScroll.delaysContentTouches=NO;
+        self.contentScroll.canCancelContentTouches=YES;
         return;
     }
 

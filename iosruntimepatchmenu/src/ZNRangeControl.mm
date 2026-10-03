@@ -7,6 +7,7 @@
 @property(nonatomic,strong) UIView *thumbView;
 @property(nonatomic,weak) UIScrollView *suspendedScrollView;
 @property(nonatomic,assign) BOOL suspendedScrollWasEnabled;
+@property(nonatomic,assign) double trackingStartValue;
 @end
 
 @implementation ZNRangeControl
@@ -110,6 +111,7 @@
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
     (void)event;
+    self.trackingStartValue = self.value;
     [self zn_suspendScrollIfNeeded];
     [self zn_updateFromTouch:touch];
     [self sendActionsForControlEvents:UIControlEventValueChanged];
@@ -133,6 +135,8 @@
 
 - (void)cancelTrackingWithEvent:(UIEvent *)event {
     (void)event;
+    self.value = self.trackingStartValue;
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
     [self zn_restoreScrollIfNeeded];
 }
 
