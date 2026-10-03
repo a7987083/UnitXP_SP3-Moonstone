@@ -3,6 +3,7 @@
 #import "ZNIL2CPPMethodSignature.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
+#import "ZNNativeHookAction.h"
 #import "ZNStaticPatchFormat.h"
 #import "ZNPatchCore.h"
 #import <mach-o/loader.h>
@@ -111,9 +112,11 @@ static BOOL ZNM46AugmentPath(NSString *path,
             localError = @"M4.6 Runtime Action Header 无效";
             break;
         }
-        if (header->count != actions.count) {
-            localError = [NSString stringWithFormat:@"M4.6 Runtime Action 顺序契约不一致：table=%u actions=%lu",
-                          header->count, (unsigned long)actions.count];
+        NSUInteger hookCount = [[ZNNativeHookStore sharedStore] actionsSnapshot].count;
+        NSUInteger expectedTotal = actions.count + hookCount;
+        if (header->count != expectedTotal) {
+            localError = [NSString stringWithFormat:@"M6.4 Runtime Action 顺序契约不一致：table=%u methods=%lu hooks=%lu",
+                          header->count, (unsigned long)actions.count, (unsigned long)hookCount];
             break;
         }
         uint64_t entryBytes = (uint64_t)header->count * header->entrySize;
