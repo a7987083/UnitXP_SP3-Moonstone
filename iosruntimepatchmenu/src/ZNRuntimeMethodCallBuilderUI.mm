@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 
 #import "ZNRuntimeActionModel.h"
+#import "ZNNativeHookAction.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
@@ -10,6 +11,7 @@ static const NSInteger kZNRMCBuilderDeleteTagBase = 671000;
 static const NSInteger kZNRMCBuilderTitleTagBase = 672000;
 static const NSInteger kZNRMCBuilderArgumentTagBase = 674000;
 static const NSInteger kZNRMCBuilderDescriptionTagBase = 675000;
+static const NSInteger kZNNativeHookDeleteTagBase = 676000;
 
 @interface ZNRuntimeMenuControllerV040 : NSObject
 @property(nonatomic,strong) UIView *contentView;
@@ -55,6 +57,8 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
 - (void)znrmc_descriptionEditingEnded:(UITextField *)field;
 - (void)znrmc_argumentEditingChanged:(UITextField *)field;
 - (void)znrmc_argumentEditingEnded:(UITextField *)field;
+- (void)zn64_deleteNativeHook:(UIButton *)sender;
+- (void)zn64_clearNativeHooks:(id)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallBuilderUI)
@@ -145,12 +149,67 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             y += cardH + 10.0;
         }
     }
+    NSArray<ZNNativeHookAction *> *hooks=[[ZNNativeHookStore sharedStore] actionsSnapshot];
+    y += 4.0;
+    UIView *hookHeader=[self cardAtY:y height:48 width:width compact:NO];
+    UILabel *hookTitle=[self label:[NSString stringWithFormat:@"IL2CPP Native Hook · %lu",(unsigned long)hooks.count]
+                              size:10.8 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    hookTitle.frame=CGRectMake(13,8,hookHeader.bounds.size.width-96,31);
+    [hookHeader addSubview:hookTitle];
+    UIButton *hookClear=[self zn40_button:@"清空" selector:@selector(zn64_clearNativeHooks:) frame:CGRectMake(hookHeader.bounds.size.width-75,8,62,31)];
+    hookClear.enabled=hooks.count>0;hookClear.alpha=hookClear.enabled?1.0:.5;
+    [hookHeader addSubview:hookClear];
+    [self.contentView addSubview:hookHeader];
+    y += 56.0;
+
+    if(!hooks.count){
+        UIView *empty=[self cardAtY:y height:54 width:width compact:NO];
+        UILabel *label=[self label:@"方法查找 → Hook 测试 → 安装真机测试 Hook → 创建 Hook 方法。"
+                              size:8.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        label.frame=CGRectMake(13,8,empty.bounds.size.width-26,38);label.numberOfLines=2;
+        [empty addSubview:label];[self.contentView addSubview:empty];y+=62.0;
+    }else{
+        for(NSUInteger i=0;i<hooks.count;i++){
+            ZNNativeHookAction *hook=hooks[i];
+            UIView *card=[self cardAtY:y height:104 width:width compact:NO];
+            UILabel *name=[self label:hook.title.length?hook.title:hook.methodName
+                                size:10.0 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+            name.frame=CGRectMake(13,7,card.bounds.size.width-82,22);[card addSubview:name];
+            UIButton *del=[self zn40_button:@"删除" selector:@selector(zn64_deleteNativeHook:) frame:CGRectMake(card.bounds.size.width-65,7,52,27)];
+            del.tag=kZNNativeHookDeleteTagBase+(NSInteger)i;[card addSubview:del];
+            UILabel *identity=[self label:hook.canonicalIdentity size:7.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            identity.frame=CGRectMake(13,35,card.bounds.size.width-26,20);identity.lineBreakMode=NSLineBreakByTruncatingMiddle;[card addSubview:identity];
+            NSString *info=[NSString stringWithFormat:@"%@ · arg%lu · Slider %ld~%ld · default=%ld · RVA=%@",
+                            ZNNativeHookTemplateKey(hook.templateKind),(unsigned long)hook.argumentIndex,
+                            (long)hook.minValue,(long)hook.maxValue,(long)hook.defaultValue,
+                            hook.fallbackRVA?[NSString stringWithFormat:@"0x%llX",(unsigned long long)hook.fallbackRVA]:@"—"];
+            UILabel *meta=[self label:info size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            meta.frame=CGRectMake(13,60,card.bounds.size.width-26,18);meta.adjustsFontSizeToFitWidth=YES;meta.minimumScaleFactor=.65;[card addSubview:meta];
+            UILabel *desc=[self label:(hook.featureDescription.length?hook.featureDescription:@"Native Hook V1 · Dobby")
+                                size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            desc.frame=CGRectMake(13,81,card.bounds.size.width-26,16);[card addSubview:desc];
+            [self.contentView addSubview:card];y+=114.0;
+        }
+    }
+
     [self zn40_updateContentHeight:y];
 }
 
 - (void)znrmc_clearAuthoringActions:(id)sender {
     (void)sender;
     [[ZNRuntimeActionStore sharedStore] clear];
+    [self renderPage];
+}
+
+- (void)zn64_clearNativeHooks:(id)sender {
+    (void)sender;
+    [[ZNNativeHookStore sharedStore] clear];
+    [self renderPage];
+}
+
+- (void)zn64_deleteNativeHook:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNNativeHookDeleteTagBase;
+    if(index>=0)[[ZNNativeHookStore sharedStore] removeActionAtIndex:(NSUInteger)index];
     [self renderPage];
 }
 
