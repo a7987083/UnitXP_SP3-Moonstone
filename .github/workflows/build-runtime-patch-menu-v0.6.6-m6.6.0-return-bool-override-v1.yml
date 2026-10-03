@@ -62,7 +62,7 @@ jobs:
           grep -q 'callbackValue' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'skipOriginal' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'control.*switch' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
-          grep -q 'Original Return Diagnostics' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'Return Bool Override' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
           grep -q 'kZNM650NativeHookSwitchTagBase' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
           grep -q 'ZNNativeHookTemplateReturnBoolOverride' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
           grep -q 'supportsReturnBoolOverrideForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
