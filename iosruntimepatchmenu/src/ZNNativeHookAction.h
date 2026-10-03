@@ -20,6 +20,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,assign) NSInteger minValue;
 @property(nonatomic,assign) NSInteger maxValue;
 @property(nonatomic,assign) NSInteger defaultValue;
+@property(nonatomic,assign) NSUInteger callbackArgumentIndex;
+@property(nonatomic,assign) BOOL callbackValue;
+@property(nonatomic,assign) BOOL skipOriginal;
 @property(nonatomic,assign) uint64_t fallbackRVA;
 @property(nonatomic,copy) NSString *fallbackUUID;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
@@ -34,6 +37,12 @@ NS_ASSUME_NONNULL_BEGIN
                                                        max:(NSInteger)maxValue
                                               defaultValue:(NSInteger)defaultValue
                                                      error:(NSString * _Nullable * _Nullable)error;
+- (nullable ZNNativeHookAction *)addManagedCallbackShortCircuitCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                                   title:(nullable NSString *)title
+                                                   callbackArgumentIndex:(NSUInteger)argumentIndex
+                                                           callbackValue:(BOOL)callbackValue
+                                                            skipOriginal:(BOOL)skipOriginal
+                                                                   error:(NSString * _Nullable * _Nullable)error;
 - (NSArray<ZNNativeHookAction *> *)actionsSnapshot;
 - (BOOL)updateTitle:(nullable NSString *)title atIndex:(NSUInteger)index;
 - (BOOL)updateDescription:(nullable NSString *)featureDescription atIndex:(NSUInteger)index;
