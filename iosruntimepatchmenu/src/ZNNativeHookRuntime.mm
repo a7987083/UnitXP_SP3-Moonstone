@@ -26,6 +26,7 @@ typedef uint32_t (*ZNNativeMethodGetFlagsFn)(const void *, uint32_t *);
 
 typedef struct {
     std::atomic<uintptr_t> target;
+    std::atomic<uintptr_t> original;
     std::atomic<int32_t> multiplier;
     std::atomic<uint64_t> hits;
     std::atomic<int32_t> lastBefore;
@@ -49,127 +50,52 @@ static ZNNativeSlot *ZNNativeFreeSlot(void) {
     return NULL;
 }
 
-static void ZNNativeHandleSlot(NSUInteger index, ZNM47DobbyRegisterContextPrefix *context) {
-    if(!context||index>=kZNNativeMaxSlots)return;
+
+extern "C" {
+void ZNArgScaleBridgeSlot0(void);  void ZNArgScaleBridgeSlot1(void);
+void ZNArgScaleBridgeSlot2(void);  void ZNArgScaleBridgeSlot3(void);
+void ZNArgScaleBridgeSlot4(void);  void ZNArgScaleBridgeSlot5(void);
+void ZNArgScaleBridgeSlot6(void);  void ZNArgScaleBridgeSlot7(void);
+void ZNArgScaleBridgeSlot8(void);  void ZNArgScaleBridgeSlot9(void);
+void ZNArgScaleBridgeSlot10(void); void ZNArgScaleBridgeSlot11(void);
+void ZNArgScaleBridgeSlot12(void); void ZNArgScaleBridgeSlot13(void);
+void ZNArgScaleBridgeSlot14(void); void ZNArgScaleBridgeSlot15(void);
+}
+
+static void * const gZNArgScaleBridgeReplacements[kZNNativeMaxSlots]={
+    (void *)&ZNArgScaleBridgeSlot0,(void *)&ZNArgScaleBridgeSlot1,
+    (void *)&ZNArgScaleBridgeSlot2,(void *)&ZNArgScaleBridgeSlot3,
+    (void *)&ZNArgScaleBridgeSlot4,(void *)&ZNArgScaleBridgeSlot5,
+    (void *)&ZNArgScaleBridgeSlot6,(void *)&ZNArgScaleBridgeSlot7,
+    (void *)&ZNArgScaleBridgeSlot8,(void *)&ZNArgScaleBridgeSlot9,
+    (void *)&ZNArgScaleBridgeSlot10,(void *)&ZNArgScaleBridgeSlot11,
+    (void *)&ZNArgScaleBridgeSlot12,(void *)&ZNArgScaleBridgeSlot13,
+    (void *)&ZNArgScaleBridgeSlot14,(void *)&ZNArgScaleBridgeSlot15
+};
+
+extern "C" __attribute__((visibility("hidden")))
+void ZNArgScaleBridgeMutate(uint32_t index, uint64_t *savedGPRs) {
+    if(!savedGPRs||index>=kZNNativeMaxSlots)return;
     ZNNativeSlot *slot=&gZNNativeSlots[index];
     if(!slot->target.load(std::memory_order_acquire))return;
     uint32_t reg=slot->registerIndex.load(std::memory_order_relaxed);
-    if(reg>=8)return;
-    uint64_t raw=context->general.x[reg];
+    if(reg>8)return;
+    uint64_t raw=savedGPRs[reg];
     int32_t before=(int32_t)(uint32_t)raw;
     int32_t multiplier=slot->multiplier.load(std::memory_order_relaxed);
     int32_t after=ZNNativeHookScaleInt32(before,multiplier);
-    context->general.x[reg]=(uint64_t)(uint32_t)after;
+    savedGPRs[reg]=(uint64_t)(uint32_t)after;
     slot->lastBefore.store(before,std::memory_order_relaxed);
     slot->lastAfter.store(after,std::memory_order_relaxed);
     slot->hits.fetch_add(1,std::memory_order_relaxed);
 }
 
-#define ZN_NATIVE_SLOT_CALLBACK(N) \
-    static void ZNNativeSlotCallback##N(void *address, ZNM47DobbyRegisterContextPrefix *context) { \
-        (void)address; ZNNativeHandleSlot((N), context); \
-    }
-
-ZN_NATIVE_SLOT_CALLBACK(0)
-ZN_NATIVE_SLOT_CALLBACK(1)
-ZN_NATIVE_SLOT_CALLBACK(2)
-ZN_NATIVE_SLOT_CALLBACK(3)
-ZN_NATIVE_SLOT_CALLBACK(4)
-ZN_NATIVE_SLOT_CALLBACK(5)
-ZN_NATIVE_SLOT_CALLBACK(6)
-ZN_NATIVE_SLOT_CALLBACK(7)
-ZN_NATIVE_SLOT_CALLBACK(8)
-ZN_NATIVE_SLOT_CALLBACK(9)
-ZN_NATIVE_SLOT_CALLBACK(10)
-ZN_NATIVE_SLOT_CALLBACK(11)
-ZN_NATIVE_SLOT_CALLBACK(12)
-ZN_NATIVE_SLOT_CALLBACK(13)
-ZN_NATIVE_SLOT_CALLBACK(14)
-ZN_NATIVE_SLOT_CALLBACK(15)
-
-static ZNM47DobbyInstrumentCallback const gZNNativeSlotCallbacks[kZNNativeMaxSlots] = {
-    ZNNativeSlotCallback0,ZNNativeSlotCallback1,ZNNativeSlotCallback2,ZNNativeSlotCallback3,
-    ZNNativeSlotCallback4,ZNNativeSlotCallback5,ZNNativeSlotCallback6,ZNNativeSlotCallback7,
-    ZNNativeSlotCallback8,ZNNativeSlotCallback9,ZNNativeSlotCallback10,ZNNativeSlotCallback11,
-    ZNNativeSlotCallback12,ZNNativeSlotCallback13,ZNNativeSlotCallback14,ZNNativeSlotCallback15
-};
-
-
-
-
-static const NSUInteger kZNFillSPMaxSlots = 4;
-typedef uint8_t (*ZNFillSPOriginalFn)(uintptr_t,uintptr_t,int32_t);
-
-typedef struct {
-    std::atomic<uintptr_t> target;
-    std::atomic<uintptr_t> original;
-    std::atomic<int32_t> multiplier;
-    std::atomic<uint64_t> hits;
-    std::atomic<int32_t> lastBefore;
-    std::atomic<int32_t> lastAfter;
-    std::atomic<uint32_t> lastReturn;
-    std::atomic<uint32_t> actionID;
-} ZNFillSPSlot;
-
-static ZNFillSPSlot gZNFillSPSlots[kZNFillSPMaxSlots];
-
-static ZNFillSPSlot *ZNFillSPSlotForTarget(uintptr_t target) {
-    if(!target)return NULL;
-    for(NSUInteger i=0;i<kZNFillSPMaxSlots;i++)
-        if(gZNFillSPSlots[i].target.load(std::memory_order_acquire)==target)return &gZNFillSPSlots[i];
-    return NULL;
+extern "C" __attribute__((visibility("hidden")))
+uintptr_t ZNArgScaleBridgeOriginal(uint32_t index) {
+    if(index>=kZNNativeMaxSlots)return 0;
+    return gZNNativeSlots[index].original.load(std::memory_order_acquire);
 }
 
-static ZNFillSPSlot *ZNFillSPFreeSlot(void) {
-    for(NSUInteger i=0;i<kZNFillSPMaxSlots;i++)
-        if(gZNFillSPSlots[i].target.load(std::memory_order_acquire)==0)return &gZNFillSPSlots[i];
-    return NULL;
-}
-
-static uint8_t ZNFillSPHandle(NSUInteger index, uintptr_t self, uintptr_t frame, int32_t amount) {
-    if(index>=kZNFillSPMaxSlots)return 0;
-    ZNFillSPSlot *slot=&gZNFillSPSlots[index];
-    uintptr_t originalAddr=slot->original.load(std::memory_order_acquire);
-    if(!slot->target.load(std::memory_order_acquire)||!originalAddr)return 0;
-    int32_t multiplier=slot->multiplier.load(std::memory_order_relaxed);
-    int32_t modified=ZNNativeHookScaleInt32(amount,multiplier);
-    ZNFillSPOriginalFn original=(ZNFillSPOriginalFn)originalAddr;
-    uint8_t result=original(self,frame,modified)?1:0;
-    slot->lastBefore.store(amount,std::memory_order_relaxed);
-    slot->lastAfter.store(modified,std::memory_order_relaxed);
-    slot->lastReturn.store(result,std::memory_order_relaxed);
-    slot->hits.fetch_add(1,std::memory_order_relaxed);
-    return result;
-}
-
-#define ZN_FILLSP_REPLACEMENT(N) \
-    static uint8_t ZNFillSPReplacement##N(uintptr_t self,uintptr_t frame,int32_t amount) { \
-        return ZNFillSPHandle((N),self,frame,amount); \
-    }
-
-ZN_FILLSP_REPLACEMENT(0)
-ZN_FILLSP_REPLACEMENT(1)
-ZN_FILLSP_REPLACEMENT(2)
-ZN_FILLSP_REPLACEMENT(3)
-
-static void * const gZNFillSPReplacements[kZNFillSPMaxSlots]={
-    (void *)&ZNFillSPReplacement0,(void *)&ZNFillSPReplacement1,
-    (void *)&ZNFillSPReplacement2,(void *)&ZNFillSPReplacement3
-};
-
-static BOOL ZNIsFillSPSpecializedCandidate(NSDictionary *candidate, NSDictionary *abi, NSUInteger argumentIndex) {
-    if(argumentIndex!=1||[candidate[@"argumentCount"] unsignedIntegerValue]!=2)return NO;
-    NSString *className=[candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"";
-    NSString *methodName=[candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"";
-    if(![className isEqualToString:@"PlayerComp"]||![methodName isEqualToString:@"FillSP"])return NO;
-    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
-    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
-    if(params.count!=2||(ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindBool)return NO;
-    ZNIL2CPPABIValueKind p0=(ZNIL2CPPABIValueKind)[params[0][@"kind"] integerValue];
-    ZNIL2CPPABIValueKind p1=(ZNIL2CPPABIValueKind)[params[1][@"kind"] integerValue];
-    return (p0==ZNIL2CPPABIValueKindObjectReference||p0==ZNIL2CPPABIValueKindPointer)&&
-           p1==ZNIL2CPPABIValueKindSigned32;
-}
 
 static const NSUInteger kZNReturnBoolMaxSlots = 8;
 typedef struct {
@@ -647,7 +573,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(multiplier<1||multiplier>1000){if(error)*error=@"测试倍率必须在 1~1000";return NO;}
     uint32_t reg=0;
     if(!ZNNativeHookArgRegisterIndex(isStatic,argumentIndex,argumentCount,&reg)){
-        if(error)*error=@"ArgScaleInt32 V1 仅支持映射到 ARM64 x0~x7 的参数";
+        if(error)*error=@"ArgScaleInt32 V2 仅支持映射到 ARM64 x0~x7 的参数";
         return NO;
     }
 
@@ -670,72 +596,28 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->lastAfter.store(0,std::memory_order_relaxed);
     slot->registerIndex.store(reg,std::memory_order_relaxed);
     slot->actionID.store(actionID,std::memory_order_relaxed);
-    slot->target.store(target,std::memory_order_release);
-
-    NSUInteger slotIndex=(NSUInteger)(slot-gZNNativeSlots);
-    NSString *hookError=nil;
-    if(slotIndex>=kZNNativeMaxSlots ||
-       ![[ZNNativeHookBackend sharedBackend] installInstrumentAtAddress:target callback:gZNNativeSlotCallbacks[slotIndex] error:&hookError]){
-        slot->target.store(0,std::memory_order_release);
-        if(error)*error=hookError?:@"Dobby instrument 安装失败";
-        return NO;
-    }
-    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook] installed target=0x%llX reg=x%u multiplier=%ld action=%u",
-                                           (unsigned long long)target,reg,(long)multiplier,actionID]];
-    return YES;
-}
-
-
-- (BOOL)installFillSPSpecializedForCandidate:(NSDictionary<NSString *,id> *)candidate
-                                  multiplier:(NSInteger)multiplier
-                                    actionID:(uint32_t)actionID
-                                       error:(NSString **)error {
-    if(multiplier<1||multiplier>1000){if(error)*error=@"测试倍率必须在 1~1000";return NO;}
-    NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
-    NSString *ns=ZNNativeString(candidate[@"namespace"]);
-    NSString *cls=ZNNativeString(candidate[@"class"]);
-    NSString *method=ZNNativeString(candidate[@"method"]);
-    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
-    NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
-    if(!resolved)return NO;
-    uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
-    if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)){
-        if(error)*error=@"同一 target 已安装其他 Native Hook，请先恢复原方法";
-        return NO;
-    }
-    ZNFillSPSlot *existing=ZNFillSPSlotForTarget(target);
-    if(existing){
-        existing->multiplier.store((int32_t)multiplier,std::memory_order_release);
-        if(actionID)existing->actionID.store(actionID,std::memory_order_release);
-        return YES;
-    }
-    ZNFillSPSlot *slot=ZNFillSPFreeSlot();
-    if(!slot){if(error)*error=@"FillSP Hook slot 已满";return NO;}
-    NSUInteger slotIndex=(NSUInteger)(slot-gZNFillSPSlots);
-    slot->multiplier.store((int32_t)multiplier,std::memory_order_relaxed);
-    slot->hits.store(0,std::memory_order_relaxed);
-    slot->lastBefore.store(0,std::memory_order_relaxed);
-    slot->lastAfter.store(0,std::memory_order_relaxed);
-    slot->lastReturn.store(0,std::memory_order_relaxed);
-    slot->actionID.store(actionID,std::memory_order_relaxed);
     slot->original.store(0,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
 
-    void *original=NULL;NSString *hookError=nil;
-    if(slotIndex>=kZNFillSPMaxSlots||
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNNativeSlots);
+    void *original=NULL;
+    NSString *hookError=nil;
+    if(slotIndex>=kZNNativeMaxSlots ||
        ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
-                                                              replacement:gZNFillSPReplacements[slotIndex]
+                                                              replacement:gZNArgScaleBridgeReplacements[slotIndex]
                                                                  original:&original
                                                                     error:&hookError]){
         slot->target.store(0,std::memory_order_release);
-        if(error)*error=hookError?:@"FillSP DobbyHook 安装失败";
+        if(error)*error=hookError?:@"ArgScaleInt32 V2 DobbyHook 安装失败";
         return NO;
     }
     slot->original.store((uintptr_t)original,std::memory_order_release);
-    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[fillsp-hook] installed target=0x%llX multiplier=%ld original=0x%llX",
-                                       (unsigned long long)target,(long)multiplier,(unsigned long long)(uintptr_t)original]];
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-v2] installed target=0x%llX reg=x%u multiplier=%ld action=%u original=0x%llX",
+                                           (unsigned long long)target,reg,(long)multiplier,actionID,
+                                           (unsigned long long)(uintptr_t)original]];
     return YES;
 }
+
 
 - (BOOL)installTemporaryArgScaleInt32ForCandidate:(NSDictionary<NSString *,id> *)candidate
                                      argumentIndex:(NSUInteger)argumentIndex
@@ -743,19 +625,6 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                              error:(NSString **)error {
     NSArray *supported=[self supportedInt32ArgumentIndicesForCandidate:candidate reason:error];
     if(![supported containsObject:@(argumentIndex)])return NO;
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-    if(ZNIsFillSPSpecializedCandidate(candidate,abi,argumentIndex)){
-        BOOL ok=[self installFillSPSpecializedForCandidate:candidate multiplier:multiplier actionID:0 error:error];
-        if(ok){
-            NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
-            NSString *assembly0=ZNNativeString(candidate[@"assembly"]);if(!assembly0.length)assembly0=@"Assembly-CSharp.dll";
-            NSDictionary *resolved0=ZNNativeResolveDescriptor(assembly0,ZNNativeString(candidate[@"namespace"]),ZNNativeString(candidate[@"class"]),
-                                                              ZNNativeString(candidate[@"method"]),[candidate[@"argumentCount"] unsignedIntegerValue],candidate,NULL);
-            live[@"methodPointer"]=resolved0[@"methodPointer"]?:@0;
-            self.liveCandidate=[live copy];self.liveTemplate=@"FillSP ArgScaleInt32 · DobbyHook";self.liveLifecycle=@"installed";self.liveError=@"";
-        }
-        return ok;
-    }
     NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
     NSString *ns=ZNNativeString(candidate[@"namespace"]);
     NSString *cls=ZNNativeString(candidate[@"class"]);
@@ -773,7 +642,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
     live[@"methodPointer"]=resolved[@"methodPointer"]?:@0;
     self.liveCandidate=[live copy];
-    self.liveTemplate=@"ArgScaleInt32";
+    self.liveTemplate=@"ArgScaleInt32 V2 · ARM64 Register Bridge";
     self.liveLifecycle=ok?@"installed":@"failed";
     self.liveError=ok?@"":((error&&*error)?*error:@"Native Hook 安装失败");
     return ok;
@@ -939,8 +808,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
     ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
-    ZNFillSPSlot *fillSlot=ZNFillSPSlotForTarget(target);
-    if(!slot&&!callbackSlot&&!returnBoolSlot&&!fillSlot){
+    if(!slot&&!callbackSlot&&!returnBoolSlot){
         NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
         live[@"methodPointer"]=@(target);
         self.liveCandidate=[live copy];
@@ -952,7 +820,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:&destroyError]){
         if(error)*error=destroyError;return NO;
     }
-    if(slot){slot->target.store(0,std::memory_order_release);slot->actionID.store(0,std::memory_order_relaxed);}
+    if(slot){slot->target.store(0,std::memory_order_release);slot->original.store(0,std::memory_order_relaxed);slot->actionID.store(0,std::memory_order_relaxed);}
     if(callbackSlot){
         callbackSlot->target.store(0,std::memory_order_release);
         callbackSlot->original.store(0,std::memory_order_relaxed);
@@ -962,11 +830,6 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         returnBoolSlot->target.store(0,std::memory_order_release);
         returnBoolSlot->original.store(0,std::memory_order_relaxed);
         returnBoolSlot->actionID.store(0,std::memory_order_relaxed);
-    }
-    if(fillSlot){
-        fillSlot->target.store(0,std::memory_order_release);
-        fillSlot->original.store(0,std::memory_order_relaxed);
-        fillSlot->actionID.store(0,std::memory_order_relaxed);
     }
     NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
     live[@"methodPointer"]=@(target);
@@ -987,16 +850,6 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                 slot->lastBefore.load(std::memory_order_relaxed),
                 slot->lastAfter.load(std::memory_order_relaxed),
                 slot->multiplier.load(std::memory_order_relaxed)];
-    }
-    ZNFillSPSlot *fillSlot=ZNFillSPSlotForTarget(target);
-    if(fillSlot){
-        return [NSString stringWithFormat:@"Hook 状态：已安装 ✅\nTarget：0x%llX\nHits：%llu\namount：%d → %d\n倍率：x%d\nOriginal Return：%@",
-                (unsigned long long)target,
-                (unsigned long long)fillSlot->hits.load(std::memory_order_relaxed),
-                fillSlot->lastBefore.load(std::memory_order_relaxed),
-                fillSlot->lastAfter.load(std::memory_order_relaxed),
-                fillSlot->multiplier.load(std::memory_order_relaxed),
-                fillSlot->lastReturn.load(std::memory_order_relaxed)?@"true":@"false"];
     }
     ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
     if(returnBoolSlot){
@@ -1090,9 +943,6 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         return ok;
     }
     if(action.templateKind!=ZNNativeHookTemplateArgScaleInt32){if(error)*error=@"Native Hook Action 模板不受支持";return NO;}
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-    if(ZNIsFillSPSpecializedCandidate(candidate,abi,action.argumentIndex))
-        return [self installFillSPSpecializedForCandidate:candidate multiplier:value actionID:action.actionID error:error];
     NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
     if(!resolved)return NO;
     return [self installResolvedTarget:[resolved[@"methodPointer"] unsignedLongLongValue]
@@ -1114,8 +964,6 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
     if(!resolved)return NO;
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
-    ZNFillSPSlot *fillSlot=ZNFillSPSlotForTarget(target);
-    if(fillSlot){fillSlot->multiplier.store((int32_t)value,std::memory_order_release);return YES;}
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     if(!slot)return [self installAction:action value:value error:error];
     slot->multiplier.store((int32_t)value,std::memory_order_release);
@@ -1132,13 +980,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
     ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
-    ZNFillSPSlot *fillSlot=ZNFillSPSlotForTarget(target);
-    if(!slot&&!callbackSlot&&!returnBoolSlot&&!fillSlot)return YES;
+    if(!slot&&!callbackSlot&&!returnBoolSlot)return YES;
     if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:error])return NO;
     if(slot)slot->target.store(0,std::memory_order_release);
     if(callbackSlot){callbackSlot->target.store(0,std::memory_order_release);callbackSlot->original.store(0,std::memory_order_relaxed);}
     if(returnBoolSlot){returnBoolSlot->target.store(0,std::memory_order_release);returnBoolSlot->original.store(0,std::memory_order_relaxed);}
-    if(fillSlot){fillSlot->target.store(0,std::memory_order_release);fillSlot->original.store(0,std::memory_order_relaxed);}
+    if(slot){slot->original.store(0,std::memory_order_relaxed);}
     return YES;
 }
 
