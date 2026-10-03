@@ -525,7 +525,7 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
         [card addSubview:test];
 
         UIButton *hook = [self zn40_button:@"Hook 测试" selector:@selector(zn64_hookTestTapped:) frame:CGRectMake(actionX1, 7, actionColW, 28)];
-        objc_setAssociatedObject(hook, kZNM54CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(hook, ZNNativeHookCandidateAssociationKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         NSString *hookReason=nil;
         NSArray *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&hookReason];
         hook.enabled=hookArgs.count>0;
