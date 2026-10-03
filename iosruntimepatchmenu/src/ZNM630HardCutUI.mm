@@ -223,7 +223,8 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
         NSInteger value=stored?[stored integerValue]:hook.defaultValue;
         value=MIN(MAX(value,hook.minValue),hook.maxValue);
 
-        if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
+        if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
+           hook.templateKind==ZNNativeHookTemplateReturnBoolOverride){
             UISwitch *toggle=[UISwitch new];
             toggle.on=value!=0;
             toggle.tag=kZNM650NativeHookSwitchTagBase+(NSInteger)hidx;
@@ -613,7 +614,8 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
     if((NSUInteger)index>=hooks.count)return;
     ZNNativeHookAction *hook=hooks[(NSUInteger)index];
-    if(hook.templateKind!=ZNNativeHookTemplateManagedCallbackShortCircuit)return;
+    if(hook.templateKind!=ZNNativeHookTemplateManagedCallbackShortCircuit&&
+       hook.templateKind!=ZNNativeHookTemplateReturnBoolOverride)return;
 
     NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
     [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
@@ -622,7 +624,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     if(!ok){
         sender.on=!sender.isOn;
         [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
-        if(error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[managed-callback-hook] switch %@ failed: %@",hook.title,error]];
+        if(error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-switch] %@ failed: %@",hook.title,error]];
     }
 }
 
