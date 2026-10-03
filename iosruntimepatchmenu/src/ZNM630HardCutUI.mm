@@ -581,9 +581,9 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     [NSUserDefaults.standardUserDefaults setInteger:value forKey:key];
 
     NSString *error=nil;
-    BOOL ok=value==1
-        ? [[ZNNativeHookRuntime sharedRuntime] removeAction:hook error:&error]
-        : [[ZNNativeHookRuntime sharedRuntime] setValue:value forAction:hook error:&error];
+    // M6.4 contract: keep the hook installed even at multiplier=1.
+    // setValue installs on first use, then only updates the atomic multiplier.
+    BOOL ok=[[ZNNativeHookRuntime sharedRuntime] setValue:value forAction:hook error:&error];
     if(!ok&&error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] slider commit %@ failed: %@",hook.title,error]];
     [self znm640_nativeHookSliderChanged:sender];
 }
