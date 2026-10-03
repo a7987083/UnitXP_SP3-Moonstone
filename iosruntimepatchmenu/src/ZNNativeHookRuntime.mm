@@ -95,6 +95,73 @@ static ZNM47DobbyInstrumentCallback const gZNNativeSlotCallbacks[kZNNativeMaxSlo
 };
 
 
+
+static const NSUInteger kZNReturnBoolMaxSlots = 8;
+typedef uint8_t (*ZNReturnBoolOriginalFn)(uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+
+typedef struct {
+    std::atomic<uintptr_t> target;
+    std::atomic<uintptr_t> original;
+    std::atomic<uint32_t> forcedValue;
+    std::atomic<uint64_t> hits;
+    std::atomic<uint32_t> lastOriginal;
+    std::atomic<uint32_t> lastOverride;
+    std::atomic<uint32_t> actionID;
+} ZNReturnBoolSlot;
+
+static ZNReturnBoolSlot gZNReturnBoolSlots[kZNReturnBoolMaxSlots];
+
+static ZNReturnBoolSlot *ZNReturnBoolSlotForTarget(uintptr_t target) {
+    if(!target)return NULL;
+    for(NSUInteger i=0;i<kZNReturnBoolMaxSlots;i++)
+        if(gZNReturnBoolSlots[i].target.load(std::memory_order_acquire)==target)return &gZNReturnBoolSlots[i];
+    return NULL;
+}
+
+static ZNReturnBoolSlot *ZNReturnBoolFreeSlot(void) {
+    for(NSUInteger i=0;i<kZNReturnBoolMaxSlots;i++)
+        if(gZNReturnBoolSlots[i].target.load(std::memory_order_acquire)==0)return &gZNReturnBoolSlots[i];
+    return NULL;
+}
+
+static uint8_t ZNReturnBoolHandle(NSUInteger index,
+                                  uintptr_t x0,uintptr_t x1,uintptr_t x2,uintptr_t x3,
+                                  uintptr_t x4,uintptr_t x5,uintptr_t x6,uintptr_t x7) {
+    if(index>=kZNReturnBoolMaxSlots)return 0;
+    ZNReturnBoolSlot *slot=&gZNReturnBoolSlots[index];
+    uintptr_t originalAddr=slot->original.load(std::memory_order_acquire);
+    if(!slot->target.load(std::memory_order_acquire)||!originalAddr)return 0;
+    ZNReturnBoolOriginalFn original=(ZNReturnBoolOriginalFn)originalAddr;
+    uint8_t originalValue=original(x0,x1,x2,x3,x4,x5,x6,x7)?1:0;
+    uint8_t overrideValue=slot->forcedValue.load(std::memory_order_relaxed)?1:0;
+    slot->lastOriginal.store(originalValue,std::memory_order_relaxed);
+    slot->lastOverride.store(overrideValue,std::memory_order_relaxed);
+    slot->hits.fetch_add(1,std::memory_order_relaxed);
+    return overrideValue;
+}
+
+#define ZN_RETURN_BOOL_REPLACEMENT(N) \
+    static uint8_t ZNReturnBoolReplacement##N(uintptr_t x0,uintptr_t x1,uintptr_t x2,uintptr_t x3, \
+                                              uintptr_t x4,uintptr_t x5,uintptr_t x6,uintptr_t x7) { \
+        return ZNReturnBoolHandle((N),x0,x1,x2,x3,x4,x5,x6,x7); \
+    }
+
+ZN_RETURN_BOOL_REPLACEMENT(0)
+ZN_RETURN_BOOL_REPLACEMENT(1)
+ZN_RETURN_BOOL_REPLACEMENT(2)
+ZN_RETURN_BOOL_REPLACEMENT(3)
+ZN_RETURN_BOOL_REPLACEMENT(4)
+ZN_RETURN_BOOL_REPLACEMENT(5)
+ZN_RETURN_BOOL_REPLACEMENT(6)
+ZN_RETURN_BOOL_REPLACEMENT(7)
+
+static void * const gZNReturnBoolReplacements[kZNReturnBoolMaxSlots]={
+    (void *)&ZNReturnBoolReplacement0,(void *)&ZNReturnBoolReplacement1,
+    (void *)&ZNReturnBoolReplacement2,(void *)&ZNReturnBoolReplacement3,
+    (void *)&ZNReturnBoolReplacement4,(void *)&ZNReturnBoolReplacement5,
+    (void *)&ZNReturnBoolReplacement6,(void *)&ZNReturnBoolReplacement7
+};
+
 static const NSUInteger kZNManagedCallbackMaxSlots = 8;
 
 typedef void *(*ZNManagedObjectGetClassFn)(void *);
@@ -324,13 +391,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         NSString *templateKey=[cfg[@"template"] isKindOfClass:NSString.class]?cfg[@"template"]:@"";
         BOOL isArgScale=[templateKey isEqual:@"arg-scale-int32"];
         BOOL isManagedCallback=[templateKey isEqual:@"managed-callback-short-circuit"];
-        if(!isArgScale&&!isManagedCallback)continue;
+        BOOL isReturnBool=[templateKey isEqual:@"return-bool-override"];
+        if(!isArgScale&&!isManagedCallback&&!isReturnBool)continue;
 
         NSUInteger arg=[cfg[@"argumentIndex"] unsignedIntegerValue];
         NSInteger min=[cfg[@"min"] integerValue],max=[cfg[@"max"] integerValue],def=[cfg[@"default"] integerValue];
         NSUInteger callbackArg=[cfg[@"callbackArgumentIndex"] unsignedIntegerValue];
         BOOL callbackValue=[cfg[@"callbackValue"] boolValue];
         BOOL skipOriginal=[cfg[@"skipOriginal"] boolValue];
+        BOOL returnBoolValue=cfg[@"returnBoolValue"]?[cfg[@"returnBoolValue"] boolValue]:YES;
         if(isArgScale&&(arg>=entry->argumentCount||min<1||max<min||def<min||def>max))continue;
         if(isManagedCallback&&(callbackArg>=entry->argumentCount||!skipOriginal))continue;
 
@@ -349,9 +418,13 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         if(isArgScale){
             a.templateKind=ZNNativeHookTemplateArgScaleInt32;a.argumentIndex=arg;
             a.minValue=min;a.maxValue=max;a.defaultValue=def;
-        }else{
+        }else if(isManagedCallback){
             a.templateKind=ZNNativeHookTemplateManagedCallbackShortCircuit;
             a.callbackArgumentIndex=callbackArg;a.callbackValue=callbackValue;a.skipOriginal=YES;
+            a.minValue=0;a.maxValue=1;a.defaultValue=0;
+        }else{
+            a.templateKind=ZNNativeHookTemplateReturnBoolOverride;
+            a.returnBoolValue=returnBoolValue;
             a.minValue=0;a.maxValue=1;a.defaultValue=0;
         }
         a.fallbackRVA=[cfg[@"fallbackRVA"] unsignedLongLongValue];
@@ -426,6 +499,44 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
     if(!indices.count&&reason)*reason=@"当前 V1 只支持 int32/signed32 参数倍率";
     return indices;
+}
+
+
+- (BOOL)supportsReturnBoolOverrideForCandidate:(NSDictionary<NSString *,id> *)candidate
+                                         reason:(NSString **)reason {
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    if(![abi[@"available"] boolValue]||params.count!=argc){
+        if(reason)*reason=ZNNativeString(abi[@"reason"]).length?ZNNativeString(abi[@"reason"]):@"参数 ABI 不完整";
+        return NO;
+    }
+    if([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue]){
+        if(reason)*reason=@"ReturnBoolOverride V1 不支持 generic/inflated 方法";
+        return NO;
+    }
+    if((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindBool){
+        if(reason)*reason=@"ReturnBoolOverride V1 仅支持 bool 返回值";
+        return NO;
+    }
+    NSUInteger gprCount=([abi[@"instance"] boolValue]?1u:0u)+argc;
+    if(gprCount>7u){
+        if(reason)*reason=@"ReturnBoolOverride V1 参数过多，需保留 hidden MethodInfo GPR";
+        return NO;
+    }
+    for(NSDictionary *p in params){
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
+        BOOL gpr=(kind==ZNIL2CPPABIValueKindBool||kind==ZNIL2CPPABIValueKindSigned32||
+                  kind==ZNIL2CPPABIValueKindUnsigned32||kind==ZNIL2CPPABIValueKindSigned64||
+                  kind==ZNIL2CPPABIValueKindUnsigned64||kind==ZNIL2CPPABIValueKindPointer||
+                  kind==ZNIL2CPPABIValueKindObjectReference);
+        if(!gpr||[p[@"byRef"] boolValue]){
+            if(reason)*reason=@"ReturnBoolOverride V1 仅支持 ARM64 GPR-safe 参数";
+            return NO;
+        }
+    }
+    return YES;
 }
 
 - (NSArray<NSNumber *> *)supportedManagedBoolCallbackArgumentIndicesForCandidate:(NSDictionary<NSString *,id> *)candidate
@@ -533,6 +644,69 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 }
 
 
+
+- (BOOL)installTemporaryReturnBoolOverrideForCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                  value:(BOOL)value
+                                                  error:(NSString **)error {
+    NSString *reason=nil;
+    if(![self supportsReturnBoolOverrideForCandidate:candidate reason:&reason]){
+        if(error)*error=reason?:@"ReturnBoolOverride ABI 不支持";
+        return NO;
+    }
+    NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNativeString(candidate[@"namespace"]);
+    NSString *cls=ZNNativeString(candidate[@"class"]);
+    NSString *method=ZNNativeString(candidate[@"method"]);
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
+    if(!resolved)return NO;
+    uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
+    if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装其他 Native Hook，请先恢复原方法";
+        return NO;
+    }
+    ZNReturnBoolSlot *existing=ZNReturnBoolSlotForTarget(target);
+    if(existing){
+        existing->forcedValue.store(value?1u:0u,std::memory_order_release);
+        NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+        live[@"methodPointer"]=@(target);
+        self.liveCandidate=[live copy];self.liveTemplate=@"ReturnBoolOverride";self.liveLifecycle=@"installed";self.liveError=@"";
+        return YES;
+    }
+    ZNReturnBoolSlot *slot=ZNReturnBoolFreeSlot();
+    if(!slot){if(error)*error=@"ReturnBoolOverride Hook slot 已满";return NO;}
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNReturnBoolSlots);
+    slot->forcedValue.store(value?1u:0u,std::memory_order_relaxed);
+    slot->hits.store(0,std::memory_order_relaxed);
+    slot->lastOriginal.store(0,std::memory_order_relaxed);
+    slot->lastOverride.store(value?1u:0u,std::memory_order_relaxed);
+    slot->actionID.store(0,std::memory_order_relaxed);
+    slot->original.store(0,std::memory_order_relaxed);
+    slot->target.store(target,std::memory_order_release);
+
+    void *original=NULL;NSString *hookError=nil;
+    if(slotIndex>=kZNReturnBoolMaxSlots||
+       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
+                                                              replacement:gZNReturnBoolReplacements[slotIndex]
+                                                                 original:&original
+                                                                    error:&hookError]){
+        slot->target.store(0,std::memory_order_release);
+        NSString *message=hookError?:@"ReturnBoolOverride DobbyHook 安装失败";
+        if(error)*error=message;
+        NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+        live[@"methodPointer"]=@(target);
+        self.liveCandidate=[live copy];self.liveTemplate=@"ReturnBoolOverride";self.liveLifecycle=@"failed";self.liveError=message;
+        return NO;
+    }
+    slot->original.store((uintptr_t)original,std::memory_order_release);
+    NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+    live[@"methodPointer"]=@(target);
+    self.liveCandidate=[live copy];self.liveTemplate=@"ReturnBoolOverride";self.liveLifecycle=@"installed";self.liveError=@"";
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[return-bool-hook] installed target=0x%llX force=%@ original=0x%llX",
+                                       (unsigned long long)target,value?@"true":@"false",(unsigned long long)(uintptr_t)original]];
+    return YES;
+}
+
 - (BOOL)installTemporaryManagedCallbackShortCircuitForCandidate:(NSDictionary<NSString *,id> *)candidate
                                                    argumentIndex:(NSUInteger)argumentIndex
                                                    callbackValue:(BOOL)callbackValue
@@ -547,8 +721,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
     if(!resolved)return NO;
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
-    if(ZNNativeSlotForTarget(target)){
-        if(error)*error=@"同一 target 已安装 ArgScaleInt32 Hook，请先恢复原方法";
+    if(ZNNativeSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装其他 Native Hook，请先恢复原方法";
         return NO;
     }
     uint32_t reg=0;
@@ -628,7 +802,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
-    if(!slot&&!callbackSlot){
+    ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
+    if(!slot&&!callbackSlot&&!returnBoolSlot){
         NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
         live[@"methodPointer"]=@(target);
         self.liveCandidate=[live copy];
@@ -645,6 +820,11 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         callbackSlot->target.store(0,std::memory_order_release);
         callbackSlot->original.store(0,std::memory_order_relaxed);
         callbackSlot->actionID.store(0,std::memory_order_relaxed);
+    }
+    if(returnBoolSlot){
+        returnBoolSlot->target.store(0,std::memory_order_release);
+        returnBoolSlot->original.store(0,std::memory_order_relaxed);
+        returnBoolSlot->actionID.store(0,std::memory_order_relaxed);
     }
     NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
     live[@"methodPointer"]=@(target);
@@ -665,6 +845,14 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                 slot->lastBefore.load(std::memory_order_relaxed),
                 slot->lastAfter.load(std::memory_order_relaxed),
                 slot->multiplier.load(std::memory_order_relaxed)];
+    }
+    ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
+    if(returnBoolSlot){
+        return [NSString stringWithFormat:@"Hook 状态：已安装 ✅\nTarget：0x%llX\nHits：%llu\nOriginal Return：%@\nOverride Return：%@",
+                (unsigned long long)target,
+                (unsigned long long)returnBoolSlot->hits.load(std::memory_order_relaxed),
+                returnBoolSlot->lastOriginal.load(std::memory_order_relaxed)?@"true":@"false",
+                returnBoolSlot->lastOverride.load(std::memory_order_relaxed)?@"true":@"false"];
     }
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
     if(callbackSlot){
@@ -725,6 +913,16 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
     NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
                               @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
+    if(action.templateKind==ZNNativeHookTemplateReturnBoolOverride){
+        if(value==0)return [self removeAction:action error:error];
+        BOOL ok=[self installTemporaryReturnBoolOverrideForCandidate:candidate value:action.returnBoolValue error:error];
+        if(ok){
+            NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
+            ZNReturnBoolSlot *slot=ZNReturnBoolSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
+            if(slot)slot->actionID.store(action.actionID,std::memory_order_release);
+        }
+        return ok;
+    }
     if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
         if(value==0)return [self removeAction:action error:error];
         BOOL ok=[self installTemporaryManagedCallbackShortCircuitForCandidate:candidate
@@ -752,7 +950,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
 - (BOOL)setValue:(NSInteger)value forAction:(ZNNativeHookAction *)action error:(NSString **)error {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
-    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit)
+    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
+       action.templateKind==ZNNativeHookTemplateReturnBoolOverride)
         return [self installAction:action value:value error:error];
     NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
                               @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
@@ -773,10 +972,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
-    if(!slot&&!callbackSlot)return YES;
+    ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
+    if(!slot&&!callbackSlot&&!returnBoolSlot)return YES;
     if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:error])return NO;
     if(slot)slot->target.store(0,std::memory_order_release);
     if(callbackSlot){callbackSlot->target.store(0,std::memory_order_release);callbackSlot->original.store(0,std::memory_order_relaxed);}
+    if(returnBoolSlot){returnBoolSlot->target.store(0,std::memory_order_release);returnBoolSlot->original.store(0,std::memory_order_relaxed);}
     return YES;
 }
 
