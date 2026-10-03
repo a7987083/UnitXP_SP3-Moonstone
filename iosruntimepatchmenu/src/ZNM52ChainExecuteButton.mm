@@ -395,15 +395,17 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
                                                                                    multiplier:multiplier
                                                                                         error:&error];
         [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"Native Hook 已安装 · %@ arg%lu ×%ld；回游戏触发后再点 Hook 测试看 Hits",
+            ? [NSString stringWithFormat:@"Native Hook 已安装 · %@ arg%lu ×%ld；实时状态见筛选栏下方",
                method,(unsigned long)argumentIndex,(long)multiplier]
             : (error?:@"Native Hook 安装失败")];
+        [weakSelf renderPage];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
         NSString *error=nil;
         BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
         [weakSelf zn60v3_setStatus:ok?@"Native Hook 已移除，目标已恢复":(error?:@"恢复原方法失败")];
+        [weakSelf renderPage];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
@@ -457,8 +459,9 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
                                                                                                callbackValue:YES
                                                                                                        error:&error];
         [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · Skip Original · callback(true)",method]
+            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · callback(true)；实时状态见筛选栏下方",method]
             : (error?:@"Managed Callback Hook 安装失败")];
+        [weakSelf renderPage];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · Callback(false)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
         NSString *error=nil;
@@ -467,13 +470,15 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
                                                                                                callbackValue:NO
                                                                                                        error:&error];
         [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · Skip Original · callback(false)",method]
+            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · callback(false)；实时状态见筛选栏下方",method]
             : (error?:@"Managed Callback Hook 安装失败")];
+        [weakSelf renderPage];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
         NSString *error=nil;
         BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
         [weakSelf zn60v3_setStatus:ok?@"Managed Callback Hook 已移除，目标已恢复":(error?:@"恢复原方法失败")];
+        [weakSelf renderPage];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法 · callback(true)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
         NSString *error=nil;
