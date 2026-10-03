@@ -4,6 +4,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
+
 @interface ZNNativeHookRuntime : NSObject
 + (instancetype)sharedRuntime;
 
