@@ -64,10 +64,17 @@ static BOOL ZNM462NativeHookConfigValid(const uint8_t *table,
     NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
     NSDictionary *cfg = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     if (![cfg isKindOfClass:NSDictionary.class]) return NO;
-    if (![cfg[@"template"] isEqual:@"arg-scale-int32"]) return NO;
-    NSUInteger arg = [cfg[@"argumentIndex"] unsignedIntegerValue];
-    NSInteger min = [cfg[@"min"] integerValue], max = [cfg[@"max"] integerValue], def = [cfg[@"default"] integerValue];
-    return arg < entry->argumentCount && min >= 1 && max >= min && def >= min && def <= max;
+    NSString *templateKey=[cfg[@"template"] isKindOfClass:NSString.class]?cfg[@"template"]:@"";
+    if ([templateKey isEqual:@"arg-scale-int32"]) {
+        NSUInteger arg = [cfg[@"argumentIndex"] unsignedIntegerValue];
+        NSInteger min = [cfg[@"min"] integerValue], max = [cfg[@"max"] integerValue], def = [cfg[@"default"] integerValue];
+        return arg < entry->argumentCount && min >= 1 && max >= min && def >= min && def <= max;
+    }
+    if ([templateKey isEqual:@"managed-callback-short-circuit"]) {
+        NSUInteger arg=[cfg[@"callbackArgumentIndex"] unsignedIntegerValue];
+        return arg < entry->argumentCount && [cfg[@"skipOriginal"] boolValue];
+    }
+    return NO;
 }
 
 static BOOL ZNM462VerifyPath(NSString *path,
