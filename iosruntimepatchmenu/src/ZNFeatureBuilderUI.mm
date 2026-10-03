@@ -538,7 +538,9 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
                                    selector:@selector(zn44_buildBinary:)
                                       frame:CGRectMake(13 + buttonW + gap, 9, buttonW, 34)];
     restore.enabled = !workspace.isBuilding && workspace.hasAnyApplied;
-    build.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0;
+    BOOL hasRuntimeAuthoring = [[ZNRuntimeActionStore sharedStore] actionsSnapshot].count > 0 ||
+                               [[ZNNativeHookStore sharedStore] actionsSnapshot].count > 0;
+    build.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && (workspace.filledCount > 0 || hasRuntimeAuthoring);
     [actions2 addSubview:restore];
     [actions2 addSubview:build];
     [self.contentView addSubview:actions2];
