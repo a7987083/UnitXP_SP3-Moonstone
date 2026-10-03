@@ -36,6 +36,18 @@ jobs:
           grep -q '批量测试实例' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
           grep -q 'executeAction:(ZNRuntimeMethodAction \*)action' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.h
           grep -q 'receiver:(uintptr_t)receiver' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.h
+      - name: Runtime helper unit tests
+        run: |
+          set -euxo pipefail
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/il2cpp_runtime_common_test.mm \
+            -o /tmp/zn_il2cpp_runtime_common_test
+          /tmp/zn_il2cpp_runtime_common_test
+          ! grep -q 'static NSString \*ZNM44NormalizedAssembly' iosruntimepatchmenu/src/ZNIL2CPPInstanceSelectionV2.mm
+          ! grep -q 'static NSString \*ZNM462Assembly' iosruntimepatchmenu/src/ZNM462InstanceSafety.mm
+          ! grep -q 'static void \*ZNInvokeResolveSymbol' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm
+          ! grep -q 'static void \*ZNM52XResolveSymbol' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+
       - name: Install dependencies
         run: |
           set -euxo pipefail
