@@ -1,0 +1,185 @@
+#import "ZNNativeHookAction.h"
+#import "ZNIL2CPPABIMetadata.h"
+#import "ZNIL2CPPMethodSignature.h"
+#import "ZNPatchCore.h"
+
+static NSString * const kZNNativeHookStoreKey = @"zonoe.native-hook-actions.v1";
+
+static NSString *ZNNHTrim(NSString *value) {
+    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static uint32_t ZNNHFNV1a32(NSString *text) {
+    NSData *data=[text dataUsingEncoding:NSUTF8StringEncoding]?:[NSData data];
+    const uint8_t *bytes=(const uint8_t *)data.bytes;
+    uint32_t h=UINT32_C(2166136261);
+    for(NSUInteger i=0;i<data.length;i++){h^=bytes[i];h*=UINT32_C(16777619);}
+    return h?:1u;
+}
+
+@implementation ZNNativeHookAction
+- (instancetype)init {
+    self=[super init];
+    if(!self)return nil;
+    _title=@"";
+    _group=@"Native Hooks";
+    _featureDescription=@"";
+    _assembly=@"Assembly-CSharp.dll";
+    _namespaceName=@"";
+    _className=@"";
+    _methodName=@"";
+    _parameterTypeNames=@[];
+    _templateKind=ZNNativeHookTemplateInvalid;
+    _minValue=1;
+    _maxValue=20;
+    _defaultValue=1;
+    _fallbackUUID=@"";
+    return self;
+}
+- (NSString *)canonicalIdentity {
+    if(self.signatureAvailable&&self.parameterTypeNames.count==self.argumentCount)
+        return ZNIL2CPPFullMethodIdentity(self.assembly?:@"",self.namespaceName?:@"",self.className?:@"",self.methodName?:@"",self.parameterTypeNames?:@[]);
+    NSString *owner=self.namespaceName.length?[NSString stringWithFormat:@"%@.%@",self.namespaceName,self.className]:self.className;
+    return [NSString stringWithFormat:@"%@!%@::%@/%lu",self.assembly?:@"",owner?:@"",self.methodName?:@"",(unsigned long)self.argumentCount];
+}
+- (id)copyWithZone:(NSZone *)zone {
+    ZNNativeHookAction *c=[[[self class] allocWithZone:zone]init];
+    c.actionID=self.actionID;c.title=self.title;c.group=self.group;c.featureDescription=self.featureDescription;
+    c.assembly=self.assembly;c.namespaceName=self.namespaceName;c.className=self.className;c.methodName=self.methodName;
+    c.argumentCount=self.argumentCount;c.parameterTypeNames=self.parameterTypeNames;c.signatureAvailable=self.signatureAvailable;
+    c.templateKind=self.templateKind;c.argumentIndex=self.argumentIndex;c.minValue=self.minValue;c.maxValue=self.maxValue;
+    c.defaultValue=self.defaultValue;c.fallbackRVA=self.fallbackRVA;c.fallbackUUID=self.fallbackUUID;
+    return c;
+}
+@end
+
+@interface ZNNativeHookStore ()
+@property(nonatomic,strong) NSMutableArray<ZNNativeHookAction *> *mutableActions;
+@end
+
+@implementation ZNNativeHookStore
+
++ (instancetype)sharedStore {
+    static ZNNativeHookStore *store;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ store=[ZNNativeHookStore new]; });
+    return store;
+}
+
+- (instancetype)init {
+    self=[super init];
+    if(!self)return nil;
+    _mutableActions=[NSMutableArray array];
+    [self loadPersisted];
+    return self;
+}
+
+- (NSDictionary *)dictionaryForAction:(ZNNativeHookAction *)a {
+    return @{
+        @"actionID":@(a.actionID),@"title":a.title?:@"",@"group":a.group?:@"Native Hooks",
+        @"description":a.featureDescription?:@"",@"assembly":a.assembly?:@"Assembly-CSharp.dll",
+        @"namespace":a.namespaceName?:@"",@"class":a.className?:@"",@"method":a.methodName?:@"",
+        @"argumentCount":@(a.argumentCount),@"parameterTypeNames":a.parameterTypeNames?:@[],
+        @"signatureAvailable":@(a.signatureAvailable),@"template":ZNNativeHookTemplateKey(a.templateKind),
+        @"templateKind":@(a.templateKind),@"argumentIndex":@(a.argumentIndex),
+        @"min":@(a.minValue),@"max":@(a.maxValue),@"default":@(a.defaultValue),
+        @"fallbackRVA":@(a.fallbackRVA),@"fallbackUUID":a.fallbackUUID?:@""
+    };
+}
+
+- (ZNNativeHookAction *)actionFromDictionary:(NSDictionary *)d {
+    if(![d isKindOfClass:NSDictionary.class])return nil;
+    ZNNativeHookAction *a=[ZNNativeHookAction new];
+    a.actionID=[d[@"actionID"] unsignedIntValue];
+    a.title=[d[@"title"] isKindOfClass:NSString.class]?d[@"title"]:@"";
+    a.group=[d[@"group"] isKindOfClass:NSString.class]?d[@"group"]:@"Native Hooks";
+    a.featureDescription=[d[@"description"] isKindOfClass:NSString.class]?d[@"description"]:@"";
+    a.assembly=[d[@"assembly"] isKindOfClass:NSString.class]?d[@"assembly"]:@"Assembly-CSharp.dll";
+    a.namespaceName=[d[@"namespace"] isKindOfClass:NSString.class]?d[@"namespace"]:@"";
+    a.className=[d[@"class"] isKindOfClass:NSString.class]?d[@"class"]:@"";
+    a.methodName=[d[@"method"] isKindOfClass:NSString.class]?d[@"method"]:@"";
+    a.argumentCount=[d[@"argumentCount"] unsignedIntegerValue];
+    a.parameterTypeNames=[d[@"parameterTypeNames"] isKindOfClass:NSArray.class]?d[@"parameterTypeNames"]:@[];
+    a.signatureAvailable=[d[@"signatureAvailable"] boolValue];
+    a.templateKind=(ZNNativeHookTemplateKind)[d[@"templateKind"] unsignedIntValue];
+    a.argumentIndex=[d[@"argumentIndex"] unsignedIntegerValue];
+    a.minValue=[d[@"min"] integerValue];a.maxValue=[d[@"max"] integerValue];a.defaultValue=[d[@"default"] integerValue];
+    a.fallbackRVA=[d[@"fallbackRVA"] unsignedLongLongValue];
+    a.fallbackUUID=[d[@"fallbackUUID"] isKindOfClass:NSString.class]?d[@"fallbackUUID"]:@"";
+    if(!a.actionID||!a.className.length||!a.methodName.length||a.templateKind!=ZNNativeHookTemplateArgScaleInt32||a.argumentIndex>=a.argumentCount)return nil;
+    return a;
+}
+
+- (void)loadPersisted {
+    NSArray *saved=[NSUserDefaults.standardUserDefaults objectForKey:kZNNativeHookStoreKey];
+    if(![saved isKindOfClass:NSArray.class])return;
+    for(id obj in saved){ZNNativeHookAction *a=[self actionFromDictionary:obj];if(a)[_mutableActions addObject:a];}
+}
+
+- (void)persist {
+    NSMutableArray *items=[NSMutableArray arrayWithCapacity:self.mutableActions.count];
+    for(ZNNativeHookAction *a in self.mutableActions)[items addObject:[self dictionaryForAction:a]];
+    [NSUserDefaults.standardUserDefaults setObject:items forKey:kZNNativeHookStoreKey];
+}
+
+- (ZNNativeHookAction *)addArgScaleInt32Candidate:(NSDictionary<NSString *,id> *)candidate
+                                             title:(NSString *)title
+                                     argumentIndex:(NSUInteger)argumentIndex
+                                               min:(NSInteger)minValue
+                                               max:(NSInteger)maxValue
+                                      defaultValue:(NSInteger)defaultValue
+                                             error:(NSString **)error {
+    NSString *assembly=ZNNHTrim([candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"");
+    if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNHTrim([candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"");
+    NSString *cls=ZNNHTrim([candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"");
+    NSString *method=ZNNHTrim([candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"");
+    NSInteger argc=[candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)]?[candidate[@"argumentCount"] integerValue]:-1;
+    if(!cls.length||!method.length||argc<=0||argumentIndex>=(NSUInteger)argc){if(error)*error=@"Native Hook 方法身份/参数索引无效";return nil;}
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(![abi[@"available"] boolValue]||params.count!=(NSUInteger)argc){if(error)*error=@"Native Hook 需要完整 IL2CPP 参数 ABI";return nil;}
+    NSDictionary *param=params[argumentIndex];
+    if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]!=ZNIL2CPPABIValueKindSigned32){if(error)*error=@"ArgScaleInt32 仅支持 int32/signed32 参数";return nil;}
+    if(minValue<1||maxValue<minValue||maxValue>1000||defaultValue<minValue||defaultValue>maxValue){if(error)*error=@"倍率范围无效";return nil;}
+
+    NSMutableArray *types=[NSMutableArray arrayWithCapacity:params.count];
+    for(NSDictionary *p in params)[types addObject:[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?"];
+
+    ZNNativeHookAction *a=[ZNNativeHookAction new];
+    a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=method;a.argumentCount=(NSUInteger)argc;
+    a.parameterTypeNames=[types copy];a.signatureAvailable=YES;a.templateKind=ZNNativeHookTemplateArgScaleInt32;
+    a.argumentIndex=argumentIndex;a.minValue=minValue;a.maxValue=maxValue;a.defaultValue=defaultValue;
+    a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Multiplier",method];
+    a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
+
+    @synchronized(self){
+        uint32_t serial=0;BOOL collision=NO;
+        do{
+            NSString *seed=[NSString stringWithFormat:@"%@|%@|%lu|%u",a.canonicalIdentity,a.title,(unsigned long)a.argumentIndex,serial++];
+            a.actionID=ZNNHFNV1a32(seed);collision=NO;
+            for(ZNNativeHookAction *e in self.mutableActions)if(e.actionID==a.actionID){collision=YES;break;}
+        }while(collision);
+        [self.mutableActions addObject:a];
+        [self persist];
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-authoring] add id=%u %@ template=%@ arg=%lu",
+                                           a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),(unsigned long)a.argumentIndex]];
+    return [a copy];
+}
+
+- (NSArray<ZNNativeHookAction *> *)actionsSnapshot {
+    @synchronized(self){NSMutableArray *out=[NSMutableArray arrayWithCapacity:self.mutableActions.count];for(ZNNativeHookAction *a in self.mutableActions)[out addObject:[a copy]];return [out copy];}
+}
+- (BOOL)updateTitle:(NSString *)title atIndex:(NSUInteger)index {
+    @synchronized(self){if(index>=self.mutableActions.count)return NO;ZNNativeHookAction *a=self.mutableActions[index];NSString *v=ZNNHTrim(title);a.title=v.length?v:a.methodName;[self persist];return YES;}
+}
+- (BOOL)updateDescription:(NSString *)featureDescription atIndex:(NSUInteger)index {
+    @synchronized(self){if(index>=self.mutableActions.count)return NO;self.mutableActions[index].featureDescription=ZNNHTrim(featureDescription);[self persist];return YES;}
+}
+- (BOOL)removeActionAtIndex:(NSUInteger)index {
+    @synchronized(self){if(index>=self.mutableActions.count)return NO;[self.mutableActions removeObjectAtIndex:index];[self persist];return YES;}
+}
+- (void)clear {@synchronized(self){[self.mutableActions removeAllObjects];[self persist];}}
+
+@end
