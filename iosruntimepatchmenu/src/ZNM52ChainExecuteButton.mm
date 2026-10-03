@@ -194,7 +194,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
             [direct removeTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
             [direct addTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
         }
-        objc_setAssociatedObject(direct,kZNM52XCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(direct,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         NSString *hookReason=nil;
         NSArray<NSNumber *> *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&hookReason];
         direct.enabled=hookArgs.count>0;
@@ -261,7 +261,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 }
 
 - (void)zn64_hookTestTapped:(UIButton *)sender {
-    NSDictionary *candidate=objc_getAssociatedObject(sender,kZNM52XCandidateKey);
+    NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
     NSString *reason=nil;
     NSArray<NSNumber *> *indices=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
