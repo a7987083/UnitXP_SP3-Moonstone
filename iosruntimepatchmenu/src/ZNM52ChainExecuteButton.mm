@@ -44,8 +44,7 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
                               argumentIndex:(NSUInteger)argumentIndex
                                      source:(UIButton *)source;
-- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
-                                                    source:(UIButton *)source;
+- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate source:(UIButton *)source;
 - (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
                                          argumentIndex:(NSUInteger)argumentIndex
                                                 source:(UIButton *)source;
