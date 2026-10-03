@@ -67,7 +67,8 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
         BOOL argScaleValid=hook.templateKind==ZNNativeHookTemplateArgScaleInt32&&hook.argumentIndex<hook.argumentCount;
         BOOL callbackValid=hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit&&
                            hook.callbackArgumentIndex<hook.argumentCount&&hook.skipOriginal;
-        if(!argScaleValid&&!callbackValid){
+        BOOL returnBoolValid=hook.templateKind==ZNNativeHookTemplateReturnBoolOverride;
+        if(!argScaleValid&&!callbackValid&&!returnBoolValid){
             if(error)*error=[NSString stringWithFormat:@"%@：Native Hook 配置无效",hook.canonicalIdentity?:hook.methodName];
             return nil;
         }
@@ -97,10 +98,14 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
             config[@"argumentIndex"]=@(hook.argumentIndex);
             config[@"control"]=@"slider";
             config[@"min"]=@(hook.minValue);config[@"max"]=@(hook.maxValue);config[@"default"]=@(hook.defaultValue);
-        }else{
+        }else if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
             config[@"callbackArgumentIndex"]=@(hook.callbackArgumentIndex);
             config[@"callbackValue"]=@(hook.callbackValue);
             config[@"skipOriginal"]=@(hook.skipOriginal);
+            config[@"control"]=@"switch";
+            config[@"default"]=@0;
+        }else{
+            config[@"returnBoolValue"]=@(hook.returnBoolValue);
             config[@"control"]=@"switch";
             config[@"default"]=@0;
         }
@@ -145,6 +150,7 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
                                @"template":ZNNativeHookTemplateKey(hook.templateKind),@"argumentIndex":@(hook.argumentIndex),
                                @"callbackArgumentIndex":@(hook.callbackArgumentIndex==NSNotFound?NSUIntegerMax:hook.callbackArgumentIndex),
                                @"callbackValue":@(hook.callbackValue),@"skipOriginal":@(hook.skipOriginal),
+                               @"returnBoolValue":@(hook.returnBoolValue),
                                @"min":@(hook.minValue),@"max":@(hook.maxValue),@"default":@(hook.defaultValue),
                                @"fallbackRVA":@(hook.fallbackRVA),@"fallbackUUID":hook.fallbackUUID?:@""}];
     }
