@@ -64,7 +64,10 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
 
     for(NSUInteger i=0;i<hooks.count;i++){
         ZNNativeHookAction *hook=hooks[i];
-        if(hook.templateKind!=ZNNativeHookTemplateArgScaleInt32||hook.argumentIndex>=hook.argumentCount){
+        BOOL argScaleValid=hook.templateKind==ZNNativeHookTemplateArgScaleInt32&&hook.argumentIndex<hook.argumentCount;
+        BOOL callbackValid=hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit&&
+                           hook.callbackArgumentIndex<hook.argumentCount&&hook.skipOriginal;
+        if(!argScaleValid&&!callbackValid){
             if(error)*error=[NSString stringWithFormat:@"%@：Native Hook 配置无效",hook.canonicalIdentity?:hook.methodName];
             return nil;
         }
@@ -84,17 +87,23 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
             if(error)*error=stringError?:@"Native Hook string pool 写入失败";return nil;
         }
 
-        NSDictionary *config=@{
+        NSMutableDictionary *config=[@{
             @"version":@1,
             @"template":ZNNativeHookTemplateKey(hook.templateKind),
-            @"argumentIndex":@(hook.argumentIndex),
-            @"control":@"slider",
-            @"min":@(hook.minValue),
-            @"max":@(hook.maxValue),
-            @"default":@(hook.defaultValue),
             @"fallbackRVA":@(hook.fallbackRVA),
             @"fallbackUUID":hook.fallbackUUID?:@""
-        };
+        } mutableCopy];
+        if(hook.templateKind==ZNNativeHookTemplateArgScaleInt32){
+            config[@"argumentIndex"]=@(hook.argumentIndex);
+            config[@"control"]=@"slider";
+            config[@"min"]=@(hook.minValue);config[@"max"]=@(hook.maxValue);config[@"default"]=@(hook.defaultValue);
+        }else{
+            config[@"callbackArgumentIndex"]=@(hook.callbackArgumentIndex);
+            config[@"callbackValue"]=@(hook.callbackValue);
+            config[@"skipOriginal"]=@(hook.skipOriginal);
+            config[@"control"]=@"switch";
+            config[@"default"]=@0;
+        }
         NSString *json=ZNRABEncodeJSON(config,&stringError);
         if(!json||!ZNRABAppendString(data,json,&configOffset,&stringError)){if(error)*error=stringError?:@"Native Hook config 编码失败";return nil;}
         if(hook.signatureAvailable){
@@ -134,6 +143,8 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
     for(ZNNativeHookAction *hook in hooks){
         [hookItems addObject:@{@"actionID":@(hook.actionID),@"title":hook.title?:@"",@"identity":hook.canonicalIdentity?:@"",
                                @"template":ZNNativeHookTemplateKey(hook.templateKind),@"argumentIndex":@(hook.argumentIndex),
+                               @"callbackArgumentIndex":@(hook.callbackArgumentIndex==NSNotFound?NSUIntegerMax:hook.callbackArgumentIndex),
+                               @"callbackValue":@(hook.callbackValue),@"skipOriginal":@(hook.skipOriginal),
                                @"min":@(hook.minValue),@"max":@(hook.maxValue),@"default":@(hook.defaultValue),
                                @"fallbackRVA":@(hook.fallbackRVA),@"fallbackUUID":hook.fallbackUUID?:@""}];
     }
