@@ -31,6 +31,7 @@ extern "C" {
 typedef void (*ZNM47DobbyInstrumentCallback)(void *address,
                                               ZNM47DobbyRegisterContextPrefix *context);
 int DobbyInstrument(void *address, ZNM47DobbyInstrumentCallback pre_handler);
+int DobbyHook(void *address, void *fake_func, void **out_origin_func);
 int DobbyDestroy(void *address);
 
 #ifdef __cplusplus
