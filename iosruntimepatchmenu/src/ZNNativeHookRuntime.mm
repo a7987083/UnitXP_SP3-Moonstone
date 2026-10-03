@@ -98,7 +98,7 @@ static ZNM47DobbyInstrumentCallback const gZNNativeSlotCallbacks[kZNNativeMaxSlo
 
 
 static const NSUInteger kZNFillSPMaxSlots = 4;
-typedef uint8_t (*ZNFillSPOriginalFn)(uintptr_t,uintptr_t,int32_t,uintptr_t);
+typedef uint8_t (*ZNFillSPOriginalFn)(uintptr_t,uintptr_t,int32_t);
 
 typedef struct {
     std::atomic<uintptr_t> target;
@@ -126,7 +126,7 @@ static ZNFillSPSlot *ZNFillSPFreeSlot(void) {
     return NULL;
 }
 
-static uint8_t ZNFillSPHandle(NSUInteger index, uintptr_t self, uintptr_t frame, int32_t amount, uintptr_t methodInfo) {
+static uint8_t ZNFillSPHandle(NSUInteger index, uintptr_t self, uintptr_t frame, int32_t amount) {
     if(index>=kZNFillSPMaxSlots)return 0;
     ZNFillSPSlot *slot=&gZNFillSPSlots[index];
     uintptr_t originalAddr=slot->original.load(std::memory_order_acquire);
@@ -134,7 +134,7 @@ static uint8_t ZNFillSPHandle(NSUInteger index, uintptr_t self, uintptr_t frame,
     int32_t multiplier=slot->multiplier.load(std::memory_order_relaxed);
     int32_t modified=ZNNativeHookScaleInt32(amount,multiplier);
     ZNFillSPOriginalFn original=(ZNFillSPOriginalFn)originalAddr;
-    uint8_t result=original(self,frame,modified,methodInfo)?1:0;
+    uint8_t result=original(self,frame,modified)?1:0;
     slot->lastBefore.store(amount,std::memory_order_relaxed);
     slot->lastAfter.store(modified,std::memory_order_relaxed);
     slot->lastReturn.store(result,std::memory_order_relaxed);
@@ -143,8 +143,8 @@ static uint8_t ZNFillSPHandle(NSUInteger index, uintptr_t self, uintptr_t frame,
 }
 
 #define ZN_FILLSP_REPLACEMENT(N) \
-    static uint8_t ZNFillSPReplacement##N(uintptr_t self,uintptr_t frame,int32_t amount,uintptr_t methodInfo) { \
-        return ZNFillSPHandle((N),self,frame,amount,methodInfo); \
+    static uint8_t ZNFillSPReplacement##N(uintptr_t self,uintptr_t frame,int32_t amount) { \
+        return ZNFillSPHandle((N),self,frame,amount); \
     }
 
 ZN_FILLSP_REPLACEMENT(0)
