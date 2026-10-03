@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - feature/m6.7-argscale-arm64-bridge-v1
-      -   workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -20,7 +20,7 @@ jobs:
           set -euxo pipefail
           grep -q '0.6.7 · M6.7.0' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ArgScaleInt32 V2' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q 'Dobby Replacement' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'DobbyHook' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'Generic ARM64 Register Bridge' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNM630RestorePersistedTypedValues' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
           grep -q 'slider.minimumValue=0.0' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
