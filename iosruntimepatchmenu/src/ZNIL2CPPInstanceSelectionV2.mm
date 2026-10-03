@@ -1,9 +1,9 @@
 #import "ZNIL2CPPInstanceSelectionV2.h"
 #import "ZNIL2CPPInstanceResolver.h"
 #import "ZNIL2CPPResolver.h"
+#import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNPatchCore.h"
 #import <objc/runtime.h>
-#import <dlfcn.h>
 
 typedef void *(*ZNM44DomainGetFn)(void);
 typedef const void **(*ZNM44DomainGetAssembliesFn)(const void *, size_t *);
@@ -20,37 +20,10 @@ static NSMutableDictionary<NSString *, NSNumber *> *ZNM44SelectionStore(void) {
     return store;
 }
 
-static NSString *ZNM44Trim(NSString *value) {
-    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-}
-
-static NSString *ZNM44NormalizedAssembly(NSString *value) {
-    NSString *s = ZNM44Trim(value).lowercaseString;
-    return [s hasSuffix:@".dll"] ? [s substringToIndex:s.length - 4] : s;
-}
-
-static NSString *ZNM44Key(NSString *assembly, NSString *namespaceName, NSString *className) {
-    return [NSString stringWithFormat:@"%@|%@|%@",
-            ZNM44NormalizedAssembly(assembly),
-            ZNM44Trim(namespaceName),
-            ZNM44Trim(className)];
-}
-
 static NSString *ZNM44String(const char *raw) {
     if (!raw) return @"";
     NSString *value = [NSString stringWithUTF8String:raw];
     return value ?: @"";
-}
-
-static void *ZNM44ResolveSymbol(NSString *path, const char *name) {
-    void *symbol = dlsym(RTLD_DEFAULT, name);
-    if (symbol || !path.length) return symbol;
-#ifdef RTLD_NOLOAD
-    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
-#else
-    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY);
-#endif
-    return handle ? dlsym(handle, name) : NULL;
 }
 
 static void *ZNM44ResolveClass(NSString *assembly,
@@ -64,11 +37,11 @@ static void *ZNM44ResolveClass(NSString *assembly,
         return NULL;
     }
     NSString *path = resolver.unityPath ?: @"";
-    ZNM44DomainGetFn domainGet = (ZNM44DomainGetFn)ZNM44ResolveSymbol(path, "il2cpp_domain_get");
-    ZNM44DomainGetAssembliesFn getAssemblies = (ZNM44DomainGetAssembliesFn)ZNM44ResolveSymbol(path, "il2cpp_domain_get_assemblies");
-    ZNM44AssemblyGetImageFn getImage = (ZNM44AssemblyGetImageFn)ZNM44ResolveSymbol(path, "il2cpp_assembly_get_image");
-    ZNM44ImageGetNameFn getName = (ZNM44ImageGetNameFn)ZNM44ResolveSymbol(path, "il2cpp_image_get_name");
-    ZNM44ClassFromNameFn classFromName = (ZNM44ClassFromNameFn)ZNM44ResolveSymbol(path, "il2cpp_class_from_name");
+    ZNM44DomainGetFn domainGet = (ZNM44DomainGetFn)ZNIL2CPPResolveSymbol(path, "il2cpp_domain_get");
+    ZNM44DomainGetAssembliesFn getAssemblies = (ZNM44DomainGetAssembliesFn)ZNIL2CPPResolveSymbol(path, "il2cpp_domain_get_assemblies");
+    ZNM44AssemblyGetImageFn getImage = (ZNM44AssemblyGetImageFn)ZNIL2CPPResolveSymbol(path, "il2cpp_assembly_get_image");
+    ZNM44ImageGetNameFn getName = (ZNM44ImageGetNameFn)ZNIL2CPPResolveSymbol(path, "il2cpp_image_get_name");
+    ZNM44ClassFromNameFn classFromName = (ZNM44ClassFromNameFn)ZNIL2CPPResolveSymbol(path, "il2cpp_class_from_name");
     if (!domainGet || !getAssemblies || !getImage || !getName || !classFromName) {
         if (error) *error = @"缺少 IL2CPP class validation API";
         return NULL;
@@ -76,12 +49,12 @@ static void *ZNM44ResolveClass(NSString *assembly,
     void *domain = domainGet();
     size_t count = 0;
     const void **assemblies = domain ? getAssemblies(domain, &count) : NULL;
-    NSString *wanted = ZNM44NormalizedAssembly(assembly);
+    NSString *wanted = ZNIL2CPPNormalizedAssembly(assembly);
     for (size_t i = 0; assemblies && i < count; i++) {
         const void *image = getImage(assemblies[i]);
         if (!image) continue;
         NSString *imageName = ZNM44String(getName(image));
-        if (wanted.length && ![ZNM44NormalizedAssembly(imageName) isEqualToString:wanted]) continue;
+        if (wanted.length && ![ZNIL2CPPNormalizedAssembly(imageName) isEqualToString:wanted]) continue;
         void *klass = classFromName(image,
                                     (namespaceName ?: @"").UTF8String ?: "",
                                     (className ?: @"").UTF8String ?: "");
@@ -104,7 +77,7 @@ static void *ZNM44ResolveClass(NSString *assembly,
 - (uintptr_t)znm44_selectedInstanceForAssembly:(NSString *)assembly
                                      namespace:(NSString *)namespaceName
                                      className:(NSString *)className {
-    NSString *key = ZNM44Key(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
     @synchronized (ZNM44SelectionStore()) {
         return [ZNM44SelectionStore()[key] unsignedLongLongValue];
     }
@@ -113,7 +86,7 @@ static void *ZNM44ResolveClass(NSString *assembly,
 - (void)znm44_clearSelectedInstanceForAssembly:(NSString *)assembly
                                       namespace:(NSString *)namespaceName
                                       className:(NSString *)className {
-    NSString *key = ZNM44Key(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
     @synchronized (ZNM44SelectionStore()) {
         [ZNM44SelectionStore() removeObjectForKey:key];
     }
@@ -137,8 +110,8 @@ static void *ZNM44ResolveClass(NSString *assembly,
     ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
     [resolver refresh];
     NSString *path = resolver.unityPath ?: @"";
-    ZNM44ObjectGetClassFn objectGetClass = (ZNM44ObjectGetClassFn)ZNM44ResolveSymbol(path, "il2cpp_object_get_class");
-    ZNM44ClassAssignableFn assignable = (ZNM44ClassAssignableFn)ZNM44ResolveSymbol(path, "il2cpp_class_is_assignable_from");
+    ZNM44ObjectGetClassFn objectGetClass = (ZNM44ObjectGetClassFn)ZNIL2CPPResolveSymbol(path, "il2cpp_object_get_class");
+    ZNM44ClassAssignableFn assignable = (ZNM44ClassAssignableFn)ZNIL2CPPResolveSymbol(path, "il2cpp_class_is_assignable_from");
     if (!objectGetClass || !assignable) {
         if (error) *error = @"缺少 il2cpp_object_get_class / il2cpp_class_is_assignable_from";
         return NO;
@@ -162,7 +135,7 @@ static void *ZNM44ResolveClass(NSString *assembly,
         if (error) *error = validationError;
         return NO;
     }
-    NSString *key = ZNM44Key(assembly, namespaceName, className);
+    NSString *key = ZNIL2CPPInstanceKey(assembly, namespaceName, className);
     @synchronized (ZNM44SelectionStore()) {
         ZNM44SelectionStore()[key] = @(address);
     }
