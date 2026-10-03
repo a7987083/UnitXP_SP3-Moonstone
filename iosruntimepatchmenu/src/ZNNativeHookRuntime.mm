@@ -14,7 +14,7 @@
 const void * const ZNNativeHookCandidateAssociationKey = &ZNNativeHookCandidateAssociationKey;
 
 static const uint32_t kZNNativeMethodAttributeStatic = 0x0010u;
-static const NSUInteger kZNNativeMaxSlots = 32;
+static const NSUInteger kZNNativeMaxSlots = 16;
 
 typedef uint32_t (*ZNNativeMethodGetFlagsFn)(const void *, uint32_t *);
 
@@ -43,11 +43,10 @@ static ZNNativeSlot *ZNNativeFreeSlot(void) {
     return NULL;
 }
 
-static void ZNNativeArgScaleInt32Callback(void *address, ZNM47DobbyRegisterContextPrefix *context) {
-    if(!address||!context)return;
-    uintptr_t target=(uintptr_t)address;
-    ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
-    if(!slot)return;
+static void ZNNativeHandleSlot(NSUInteger index, ZNM47DobbyRegisterContextPrefix *context) {
+    if(!context||index>=kZNNativeMaxSlots)return;
+    ZNNativeSlot *slot=&gZNNativeSlots[index];
+    if(!slot->target.load(std::memory_order_acquire))return;
     uint32_t reg=slot->registerIndex.load(std::memory_order_relaxed);
     if(reg>=8)return;
     uint64_t raw=context->general.x[reg];
@@ -59,6 +58,35 @@ static void ZNNativeArgScaleInt32Callback(void *address, ZNM47DobbyRegisterConte
     slot->lastAfter.store(after,std::memory_order_relaxed);
     slot->hits.fetch_add(1,std::memory_order_relaxed);
 }
+
+#define ZN_NATIVE_SLOT_CALLBACK(N) \
+    static void ZNNativeSlotCallback##N(void *address, ZNM47DobbyRegisterContextPrefix *context) { \
+        (void)address; ZNNativeHandleSlot((N), context); \
+    }
+
+ZN_NATIVE_SLOT_CALLBACK(0)
+ZN_NATIVE_SLOT_CALLBACK(1)
+ZN_NATIVE_SLOT_CALLBACK(2)
+ZN_NATIVE_SLOT_CALLBACK(3)
+ZN_NATIVE_SLOT_CALLBACK(4)
+ZN_NATIVE_SLOT_CALLBACK(5)
+ZN_NATIVE_SLOT_CALLBACK(6)
+ZN_NATIVE_SLOT_CALLBACK(7)
+ZN_NATIVE_SLOT_CALLBACK(8)
+ZN_NATIVE_SLOT_CALLBACK(9)
+ZN_NATIVE_SLOT_CALLBACK(10)
+ZN_NATIVE_SLOT_CALLBACK(11)
+ZN_NATIVE_SLOT_CALLBACK(12)
+ZN_NATIVE_SLOT_CALLBACK(13)
+ZN_NATIVE_SLOT_CALLBACK(14)
+ZN_NATIVE_SLOT_CALLBACK(15)
+
+static ZNM47DobbyInstrumentCallback const gZNNativeSlotCallbacks[kZNNativeMaxSlots] = {
+    ZNNativeSlotCallback0,ZNNativeSlotCallback1,ZNNativeSlotCallback2,ZNNativeSlotCallback3,
+    ZNNativeSlotCallback4,ZNNativeSlotCallback5,ZNNativeSlotCallback6,ZNNativeSlotCallback7,
+    ZNNativeSlotCallback8,ZNNativeSlotCallback9,ZNNativeSlotCallback10,ZNNativeSlotCallback11,
+    ZNNativeSlotCallback12,ZNNativeSlotCallback13,ZNNativeSlotCallback14,ZNNativeSlotCallback15
+};
 
 static NSString *ZNNativeString(id value) {
     return [value isKindOfClass:NSString.class]?value:@"";
@@ -164,8 +192,10 @@ static NSDictionary *ZNNativeResolveDescriptor(NSString *assembly,
     slot->actionID.store(actionID,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
 
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNNativeSlots);
     NSString *hookError=nil;
-    if(![[ZNNativeHookBackend sharedBackend] installInstrumentAtAddress:target callback:ZNNativeArgScaleInt32Callback error:&hookError]){
+    if(slotIndex>=kZNNativeMaxSlots ||
+       ![[ZNNativeHookBackend sharedBackend] installInstrumentAtAddress:target callback:gZNNativeSlotCallbacks[slotIndex] error:&hookError]){
         slot->target.store(0,std::memory_order_release);
         if(error)*error=hookError?:@"Dobby instrument 安装失败";
         return NO;
