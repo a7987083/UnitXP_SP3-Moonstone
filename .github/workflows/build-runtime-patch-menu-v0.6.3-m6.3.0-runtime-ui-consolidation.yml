@@ -31,6 +31,11 @@ jobs:
           grep -q 'ZNM620TemporaryApplyOffsetValue' iosruntimepatchmenu/src/ZNM600UnifiedFeatureSurface.mm
           grep -q 'sizeof(ZNRuntimeMethodCallEntry) == 64' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
           grep -q 'sizeof(ZN44StaticEntry) == 128' iosruntimepatchmenu/src/ZNStaticPatchFormat.h
+          grep -q 'rightW = 164.0' iosruntimepatchmenu/src/ZNMethodFinderUnifiedUI.mm
+          grep -q '重新选择实例' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q '批量测试实例' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'executeAction:(ZNRuntimeMethodAction \*)action' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.h
+          grep -q 'receiver:(uintptr_t)receiver' iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.h
       - name: Install dependencies
         run: |
           set -euxo pipefail
@@ -83,8 +88,11 @@ jobs:
           make clean
           make FINALPACKAGE=1 2>&1 | tee build-m6.3.0.log
           mkdir -p dist-m6.3.0
-          cp .theos/obj/ZonoePatchV03.dylib dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_RuntimeUIConsolidation.dylib
-          shasum -a 256 dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_RuntimeUIConsolidation.dylib | tee dist-m6.3.0/SHA256.txt
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          OUT="dist-m6.3.0/ZonoPatch_M6.3_FinderGrid_${SHORT_SHA}.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib "$OUT"
+          shasum -a 256 "$OUT" | tee dist-m6.3.0/SHA256.txt
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -95,7 +103,7 @@ jobs:
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out=iosruntimepatchmenu/dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_RuntimeUIConsolidation.dylib
+          out="iosruntimepatchmenu/dist-m6.3.0/ZonoPatch_M6.3_FinderGrid_${SHORT_SHA}.dylib"
           file "$out" | grep -q 'arm64'
           otool -L "$out" | tee /tmp/zono_m630_load_commands.txt
           strings -a "$out" > /tmp/zono_m630_strings.txt
@@ -106,8 +114,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-v0.6.3-M6.3.0-RuntimeUIConsolidation
+          name: ZonoPatch-M6.3-FinderGrid-${{ env.SHORT_SHA }}
           path: |
-            iosruntimepatchmenu/dist-m6.3.0/ZonoPatch_v0.6.3_M6.3.0_RuntimeUIConsolidation.dylib
+            iosruntimepatchmenu/dist-m6.3.0/ZonoPatch_M6.3_FinderGrid_${{ env.SHORT_SHA }}.dylib
             iosruntimepatchmenu/dist-m6.3.0/SHA256.txt
           if-no-files-found: error
