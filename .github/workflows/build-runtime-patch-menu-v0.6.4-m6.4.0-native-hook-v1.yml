@@ -43,6 +43,11 @@ jobs:
           grep -q 'ZNNativeHookTemplateArgScaleInt32' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
           grep -q 'installTemporaryArgScaleInt32ForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
           grep -q 'IL2CPP Native Hook' iosruntimepatchmenu/src/ZNRuntimeMethodCallBuilderUI.mm
+          grep -q 'ZNRuntimeActionKindIL2CPPNativeHook = 2' iosruntimepatchmenu/src/ZNRuntimeActionFormat.h
+          grep -q 'nativeHook' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'refreshGeneratedActions' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
+          grep -q 'kZNM640NativeHookSliderTagBase' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
+          grep -q 'methods=%lu hooks=%lu' iosruntimepatchmenu/src/ZNRuntimeActionSignaturePostprocess.mm
       - name: Runtime helper unit tests
         run: |
           set -euxo pipefail
