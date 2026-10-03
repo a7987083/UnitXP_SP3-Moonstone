@@ -6,6 +6,7 @@
 #import "ZNIL2CPPMethodSignature.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
+#import "ZNNativeHookRuntime.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
@@ -510,7 +511,12 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
         assembly.frame = CGRectMake(13, infoY, leftW - 8, 16);
         [card addSubview:assembly];
 
-        UIButton *test = [self zn40_button:@"测试执行" selector:@selector(znm43_testCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 7, rightW, 28)];
+        CGFloat actionGap=6.0;
+        CGFloat actionColW=(rightW-actionGap)/2.0;
+        CGFloat actionX0=card.bounds.size.width-rightW-10.0;
+        CGFloat actionX1=actionX0+actionColW+actionGap;
+
+        UIButton *test = [self zn40_button:@"测试执行" selector:@selector(znm43_testCandidate:) frame:CGRectMake(actionX0, 7, actionColW, 28)];
         test.enabled = callable;
         test.alpha = callable ? 1.0 : 0.48;
         test.titleLabel.font = [self menuFont:8.2 weight:UIFontWeightSemibold];
@@ -518,7 +524,16 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
         test.layer.borderColor = self.theme.accentColor.CGColor;
         [card addSubview:test];
 
-        UIButton *create = [self zn40_button:@"创建方法" selector:@selector(znm54_createCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 41, rightW, 28)];
+        UIButton *hook = [self zn40_button:@"Hook 测试" selector:@selector(zn64_hookTestTapped:) frame:CGRectMake(actionX1, 7, actionColW, 28)];
+        objc_setAssociatedObject(hook, kZNM54CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSString *hookReason=nil;
+        NSArray *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&hookReason];
+        hook.enabled=hookArgs.count>0;
+        hook.alpha=hook.enabled?1.0:.48;
+        hook.titleLabel.font=[self menuFont:8.2 weight:UIFontWeightSemibold];
+        [card addSubview:hook];
+
+        UIButton *create = [self zn40_button:@"创建方法" selector:@selector(znm54_createCandidate:) frame:CGRectMake(actionX0, 41, actionColW, 28)];
         objc_setAssociatedObject(create, kZNM54CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         create.enabled = callable;
         create.alpha = callable ? 1.0 : 0.48;
