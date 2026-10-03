@@ -23,6 +23,7 @@ static const NSInteger kZNM630HardCutSliderTagBase = 967000;
 static const NSInteger kZNM630HardCutSliderValueTagBase = 968000;
 static const NSInteger kZNM640NativeHookSliderTagBase = 973000;
 static const NSInteger kZNM640NativeHookValueTagBase = 974000;
+static const NSInteger kZNM650NativeHookSwitchTagBase = 975000;
 static NSString * const kZNM640NativeHookValuePrefix = @"zonoe.native-hook.runtime-value.v1";
 
 // Keep the proven M5.8 backend tag ABI, but only for execution/value lookup.
@@ -181,6 +182,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 - (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact;
 - (void)znm640_nativeHookSliderChanged:(UISlider *)sender;
 - (void)znm640_nativeHookSliderCommitted:(UISlider *)sender;
+- (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
@@ -221,33 +223,49 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
         NSInteger value=stored?[stored integerValue]:hook.defaultValue;
         value=MIN(MAX(value,hook.minValue),hook.maxValue);
 
-        CGFloat valueW=46.0;
-        CGFloat sliderW=MAX(70.0,CGRectGetWidth(card.bounds)-26.0-valueW-5.0);
-        UISlider *slider=[[UISlider alloc]initWithFrame:CGRectMake(13.0,sliderY,sliderW,28.0)];
-        slider.minimumValue=(float)hook.minValue;
-        slider.maximumValue=(float)hook.maxValue;
-        slider.value=(float)value;
-        slider.continuous=YES;
-        slider.minimumTrackTintColor=self.theme.accentColor;
-        slider.maximumTrackTintColor=[self.theme.borderColor colorWithAlphaComponent:.65];
-        slider.thumbTintColor=self.theme.primaryTextColor;
-        slider.tag=kZNM640NativeHookSliderTagBase+(NSInteger)hidx;
-        [slider addTarget:self action:@selector(znm640_nativeHookSliderChanged:) forControlEvents:UIControlEventValueChanged];
-        [slider addTarget:self action:@selector(znm640_nativeHookSliderCommitted:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
-        [card addSubview:slider];
+        if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
+            UISwitch *toggle=[UISwitch new];
+            toggle.on=value!=0;
+            toggle.tag=kZNM650NativeHookSwitchTagBase+(NSInteger)hidx;
+            toggle.transform=compact?CGAffineTransformMakeScale(.76,.76):CGAffineTransformMakeScale(.84,.84);
+            toggle.center=CGPointMake(CGRectGetWidth(card.bounds)-38.0,sliderY+14.0);
+            toggle.onTintColor=self.theme.accentColor;
+            [toggle addTarget:self action:@selector(znm650_nativeHookSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            [card addSubview:toggle];
+            if(toggle.isOn){
+                NSString *installError=nil;
+                [hookRuntime setValue:1 forAction:hook error:&installError];
+                if(installError.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] auto-install %@ failed: %@",hook.title,installError]];
+            }
+        }else{
+            CGFloat valueW=46.0;
+            CGFloat sliderW=MAX(70.0,CGRectGetWidth(card.bounds)-26.0-valueW-5.0);
+            UISlider *slider=[[UISlider alloc]initWithFrame:CGRectMake(13.0,sliderY,sliderW,28.0)];
+            slider.minimumValue=(float)hook.minValue;
+            slider.maximumValue=(float)hook.maxValue;
+            slider.value=(float)value;
+            slider.continuous=YES;
+            slider.minimumTrackTintColor=self.theme.accentColor;
+            slider.maximumTrackTintColor=[self.theme.borderColor colorWithAlphaComponent:.65];
+            slider.thumbTintColor=self.theme.primaryTextColor;
+            slider.tag=kZNM640NativeHookSliderTagBase+(NSInteger)hidx;
+            [slider addTarget:self action:@selector(znm640_nativeHookSliderChanged:) forControlEvents:UIControlEventValueChanged];
+            [slider addTarget:self action:@selector(znm640_nativeHookSliderCommitted:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
+            [card addSubview:slider];
 
-        UILabel *valueLabel=[self label:[NSString stringWithFormat:@"×%ld",(long)value]
-                                   size:8.4 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
-        valueLabel.textAlignment=NSTextAlignmentRight;
-        valueLabel.font=[UIFont monospacedDigitSystemFontOfSize:8.4 weight:UIFontWeightSemibold];
-        valueLabel.frame=CGRectMake(CGRectGetMaxX(slider.frame)+4.0,sliderY,valueW,28.0);
-        valueLabel.tag=kZNM640NativeHookValueTagBase+(NSInteger)hidx;
-        [card addSubview:valueLabel];
+            UILabel *valueLabel=[self label:[NSString stringWithFormat:@"×%ld",(long)value]
+                                       size:8.4 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+            valueLabel.textAlignment=NSTextAlignmentRight;
+            valueLabel.font=[UIFont monospacedDigitSystemFontOfSize:8.4 weight:UIFontWeightSemibold];
+            valueLabel.frame=CGRectMake(CGRectGetMaxX(slider.frame)+4.0,sliderY,valueW,28.0);
+            valueLabel.tag=kZNM640NativeHookValueTagBase+(NSInteger)hidx;
+            [card addSubview:valueLabel];
 
-        if(value!=1){
-            NSString *installError=nil;
-            [hookRuntime setValue:value forAction:hook error:&installError];
-            if(installError.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] auto-install %@ failed: %@",hook.title,installError]];
+            if(value!=1){
+                NSString *installError=nil;
+                [hookRuntime setValue:value forAction:hook error:&installError];
+                if(installError.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] auto-install %@ failed: %@",hook.title,installError]];
+            }
         }
 
         [self.contentView addSubview:card];
@@ -586,6 +604,26 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     BOOL ok=[[ZNNativeHookRuntime sharedRuntime] setValue:value forAction:hook error:&error];
     if(!ok&&error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] slider commit %@ failed: %@",hook.title,error]];
     [self znm640_nativeHookSliderChanged:sender];
+}
+
+- (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender {
+    NSInteger index=sender.tag-kZNM650NativeHookSwitchTagBase;
+    if(index<0)return;
+    [[ZNNativeHookRuntime sharedRuntime] refreshGeneratedActions];
+    NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
+    if((NSUInteger)index>=hooks.count)return;
+    ZNNativeHookAction *hook=hooks[(NSUInteger)index];
+    if(hook.templateKind!=ZNNativeHookTemplateManagedCallbackShortCircuit)return;
+
+    NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
+    [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
+    NSString *error=nil;
+    BOOL ok=[[ZNNativeHookRuntime sharedRuntime] setValue:(sender.isOn?1:0) forAction:hook error:&error];
+    if(!ok){
+        sender.on=!sender.isOn;
+        [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
+        if(error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[managed-callback-hook] switch %@ failed: %@",hook.title,error]];
+    }
 }
 
 - (void)znm630_hardCutSwitchChanged:(UISwitch *)sender {
