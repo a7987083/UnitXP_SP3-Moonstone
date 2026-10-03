@@ -6,7 +6,7 @@
 #import "ZNIL2CPPInstanceResolver.h"
 #import "ZNIL2CPPInstanceSelectionV2.h"
 #import "ZNIL2CPPResolver.h"
-#import <dlfcn.h>
+#import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNPatchCore.h"
 
@@ -72,24 +72,13 @@ static UIButton *ZNM52XButtonWithTitles(UIView *card, NSArray<NSString *> *title
     return nil;
 }
 
-static void *ZNM52XResolveSymbol(NSString *path,const char *name) {
-    void *symbol=dlsym(RTLD_DEFAULT,name);
-    if(symbol||!path.length)return symbol;
-#ifdef RTLD_NOLOAD
-    void *handle=dlopen(path.fileSystemRepresentation,RTLD_LAZY|RTLD_NOLOAD);
-#else
-    void *handle=dlopen(path.fileSystemRepresentation,RTLD_LAZY);
-#endif
-    return handle?dlsym(handle,name):NULL;
-}
-
 static BOOL ZNM52XMethodIsInstance(NSDictionary *candidate, BOOL *known) {
     if(known)*known=NO;
     uintptr_t methodInfo=[candidate[@"methodInfo"] unsignedLongLongValue];
     if(!methodInfo)return NO;
     ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
     [resolver refresh];
-    ZNM52XMethodGetFlagsFn getFlags=(ZNM52XMethodGetFlagsFn)ZNM52XResolveSymbol(resolver.unityPath,"il2cpp_method_get_flags");
+    ZNM52XMethodGetFlagsFn getFlags=(ZNM52XMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_method_get_flags");
     if(!getFlags)return NO;
     uint32_t implFlags=0;
     uint32_t flags=getFlags((const void *)methodInfo,&implFlags);
