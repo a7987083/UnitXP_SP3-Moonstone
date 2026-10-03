@@ -58,7 +58,10 @@ jobs:
           grep -q 'ZNNativeHookTemplateManagedCallbackShortCircuit' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
           grep -q 'supportedManagedBoolCallbackArgumentIndicesForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
           grep -q 'installTemporaryManagedCallbackShortCircuitForCandidate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
-          grep -q 'managed-callback-short-circuit' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'callbackArgumentIndex' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'callbackValue' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'skipOriginal' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
+          grep -q 'control.*switch' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'Skip Original' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
           grep -q 'kZNM650NativeHookSwitchTagBase' iosruntimepatchmenu/src/ZNM630HardCutUI.mm
       - name: Runtime helper unit tests
