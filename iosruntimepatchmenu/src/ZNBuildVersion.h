@@ -2,7 +2,7 @@
 
 #import <Foundation/Foundation.h>
 
-#define ZN_PRODUCT_VERSION @"0.6.4"
-#define ZN_MILESTONE_VERSION @"M6.4.0"
-#define ZN_MENU_VERSION_DISPLAY @"0.6.4 · M6.4.0"
-#define ZN_MENU_VERSION_FEATURE @"IL2CPP Native Hook V1 · Dobby Engine · ArgScaleInt32"
+#define ZN_PRODUCT_VERSION @"0.6.5"
+#define ZN_MILESTONE_VERSION @"M6.5.0"
+#define ZN_MENU_VERSION_DISPLAY @"0.6.5 · M6.5.0"
+#define ZN_MENU_VERSION_FEATURE @"Managed Callback Short Circuit V1 · Dobby Replacement · Skip Original"
