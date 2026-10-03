@@ -109,6 +109,9 @@ typedef struct {
     std::atomic<uint64_t> hits;
     std::atomic<uint64_t> callbackSuccess;
     std::atomic<uint64_t> callbackFailure;
+    std::atomic<uintptr_t> lastReceiver;
+    std::atomic<uintptr_t> lastCallback;
+    std::atomic<uint32_t> isStatic;
     std::atomic<uint32_t> actionID;
 } ZNManagedCallbackSlot;
 
@@ -156,6 +159,8 @@ static uintptr_t ZNManagedCallbackHandle(NSUInteger index,
     uintptr_t regs[8]={x0,x1,x2,x3,x4,x5,x6,x7};
     uint32_t reg=slot->callbackRegister.load(std::memory_order_relaxed);
     slot->hits.fetch_add(1,std::memory_order_relaxed);
+    slot->lastReceiver.store(slot->isStatic.load(std::memory_order_relaxed)?0:x0,std::memory_order_relaxed);
+    slot->lastCallback.store(reg<8?regs[reg]:0,std::memory_order_relaxed);
     if(reg>=8||!regs[reg]){
         slot->callbackFailure.fetch_add(1,std::memory_order_relaxed);
         return 0;
@@ -553,6 +558,9 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->hits.store(0,std::memory_order_relaxed);
     slot->callbackSuccess.store(0,std::memory_order_relaxed);
     slot->callbackFailure.store(0,std::memory_order_relaxed);
+    slot->lastReceiver.store(0,std::memory_order_relaxed);
+    slot->lastCallback.store(0,std::memory_order_relaxed);
+    slot->isStatic.store([resolved[@"static"] boolValue]?1u:0u,std::memory_order_relaxed);
     slot->actionID.store(0,std::memory_order_relaxed);
     slot->original.store(0,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
@@ -614,11 +622,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
     if(callbackSlot){
-        return [NSString stringWithFormat:@"Hook 状态：已安装 · Skip Original\nTarget：0x%llX\nHits：%llu\nCallback Success：%llu\nCallback Failed：%llu\nInvoke：%@",
+        uintptr_t receiver=callbackSlot->lastReceiver.load(std::memory_order_relaxed);
+        uintptr_t callback=callbackSlot->lastCallback.load(std::memory_order_relaxed);
+        return [NSString stringWithFormat:@"Hook 状态：已安装 ✅\nTarget：0x%llX\nHits：%llu\nCallback Success：%llu\nCallback Failed：%llu\n最近 receiver：%@\n最近 callback：%@\nInvoke：%@\nOriginal：Skipped",
                 (unsigned long long)target,
                 (unsigned long long)callbackSlot->hits.load(std::memory_order_relaxed),
                 (unsigned long long)callbackSlot->callbackSuccess.load(std::memory_order_relaxed),
                 (unsigned long long)callbackSlot->callbackFailure.load(std::memory_order_relaxed),
+                receiver?[NSString stringWithFormat:@"0x%llX",(unsigned long long)receiver]:@"—",
+                callback?[NSString stringWithFormat:@"0x%llX",(unsigned long long)callback]:@"—",
                 callbackSlot->callbackValue.load(std::memory_order_relaxed)?@"true":@"false"];
     }
     return @"Hook 状态：未安装";
