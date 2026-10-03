@@ -30,6 +30,9 @@ FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
                                   error:(NSString * _Nullable * _Nullable)error;
 
 - (NSString *)diagnosticsForCandidate:(NSDictionary<NSString *, id> *)candidate;
+- (NSString *)liveTestStatus;
+- (BOOL)hasLiveTestStatus;
+- (void)clearLiveTestStatus;
 
 - (BOOL)installAction:(ZNNativeHookAction *)action
                 value:(NSInteger)value
