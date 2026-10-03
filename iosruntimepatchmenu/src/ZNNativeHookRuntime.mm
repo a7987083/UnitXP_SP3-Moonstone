@@ -316,10 +316,18 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         NSString *configJSON=ZNNativeReadActionString(table,header,entry->reserved[0]);
         NSDictionary *cfg=ZNNativeDecodeDict(configJSON);
         if(!title||!group||!assembly||!ns||!cls||!method||!cfg)continue;
-        if(![cfg[@"template"] isEqual:@"arg-scale-int32"])continue;
+        NSString *templateKey=[cfg[@"template"] isKindOfClass:NSString.class]?cfg[@"template"]:@"";
+        BOOL isArgScale=[templateKey isEqual:@"arg-scale-int32"];
+        BOOL isManagedCallback=[templateKey isEqual:@"managed-callback-short-circuit"];
+        if(!isArgScale&&!isManagedCallback)continue;
+
         NSUInteger arg=[cfg[@"argumentIndex"] unsignedIntegerValue];
         NSInteger min=[cfg[@"min"] integerValue],max=[cfg[@"max"] integerValue],def=[cfg[@"default"] integerValue];
-        if(arg>=entry->argumentCount||min<1||max<min||def<min||def>max)continue;
+        NSUInteger callbackArg=[cfg[@"callbackArgumentIndex"] unsignedIntegerValue];
+        BOOL callbackValue=[cfg[@"callbackValue"] boolValue];
+        BOOL skipOriginal=[cfg[@"skipOriginal"] boolValue];
+        if(isArgScale&&(arg>=entry->argumentCount||min<1||max<min||def<min||def>max))continue;
+        if(isManagedCallback&&(callbackArg>=entry->argumentCount||!skipOriginal))continue;
 
         NSArray *types=@[];BOOL sig=NO;
         if(entry->flags&ZNRuntimeActionFlagParameterSignature){
@@ -333,8 +341,14 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         a.actionID=entry->actionID;a.title=title.length?title:method;a.group=group.length?group:@"Native Hooks";
         a.featureDescription=desc;a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=method;
         a.argumentCount=entry->argumentCount;a.parameterTypeNames=types;a.signatureAvailable=sig;
-        a.templateKind=ZNNativeHookTemplateArgScaleInt32;a.argumentIndex=arg;
-        a.minValue=min;a.maxValue=max;a.defaultValue=def;
+        if(isArgScale){
+            a.templateKind=ZNNativeHookTemplateArgScaleInt32;a.argumentIndex=arg;
+            a.minValue=min;a.maxValue=max;a.defaultValue=def;
+        }else{
+            a.templateKind=ZNNativeHookTemplateManagedCallbackShortCircuit;
+            a.callbackArgumentIndex=callbackArg;a.callbackValue=callbackValue;a.skipOriginal=YES;
+            a.minValue=0;a.maxValue=1;a.defaultValue=0;
+        }
         a.fallbackRVA=[cfg[@"fallbackRVA"] unsignedLongLongValue];
         a.fallbackUUID=[cfg[@"fallbackUUID"] isKindOfClass:NSString.class]?cfg[@"fallbackUUID"]:@"";
         NSString *key=[NSString stringWithFormat:@"%u|%@",a.actionID,a.canonicalIdentity];
@@ -611,9 +625,23 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 }
 
 - (BOOL)installAction:(ZNNativeHookAction *)action value:(NSInteger)value error:(NSString **)error {
-    if(!action||action.templateKind!=ZNNativeHookTemplateArgScaleInt32){if(error)*error=@"Native Hook Action 模板不受支持";return NO;}
+    if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
     NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
                               @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
+    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
+        if(value==0)return [self removeAction:action error:error];
+        BOOL ok=[self installTemporaryManagedCallbackShortCircuitForCandidate:candidate
+                                                                 argumentIndex:action.callbackArgumentIndex
+                                                                 callbackValue:action.callbackValue
+                                                                         error:error];
+        if(ok){
+            NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
+            ZNManagedCallbackSlot *slot=ZNManagedCallbackSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
+            if(slot)slot->actionID.store(action.actionID,std::memory_order_release);
+        }
+        return ok;
+    }
+    if(action.templateKind!=ZNNativeHookTemplateArgScaleInt32){if(error)*error=@"Native Hook Action 模板不受支持";return NO;}
     NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
     if(!resolved)return NO;
     return [self installResolvedTarget:[resolved[@"methodPointer"] unsignedLongLongValue]
@@ -627,6 +655,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
 - (BOOL)setValue:(NSInteger)value forAction:(ZNNativeHookAction *)action error:(NSString **)error {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
+    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit)
+        return [self installAction:action value:value error:error];
     NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
                               @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
     NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
@@ -645,9 +675,11 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(!resolved)return NO;
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
-    if(!slot)return YES;
+    ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
+    if(!slot&&!callbackSlot)return YES;
     if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:error])return NO;
-    slot->target.store(0,std::memory_order_release);
+    if(slot)slot->target.store(0,std::memory_order_release);
+    if(callbackSlot){callbackSlot->target.store(0,std::memory_order_release);callbackSlot->original.store(0,std::memory_order_relaxed);}
     return YES;
 }
 
