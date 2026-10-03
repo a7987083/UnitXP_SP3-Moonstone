@@ -367,6 +367,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 @property(nonatomic,assign) uint32_t generatedImageCount;
 @property(nonatomic,assign) uint64_t generatedImageFingerprint;
 @property(nonatomic,assign) BOOL generatedScanned;
+@property(nonatomic,copy) NSDictionary<NSString *, id> *liveCandidate;
+@property(nonatomic,copy) NSString *liveLifecycle;
+@property(nonatomic,copy) NSString *liveTemplate;
+@property(nonatomic,copy) NSString *liveError;
 @end
 
 @implementation ZNNativeHookRuntime
@@ -385,6 +389,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     _generatedImageCount=0;
     _generatedImageFingerprint=0;
     _generatedScanned=NO;
+    _liveCandidate=@{};
+    _liveLifecycle=@"";
+    _liveTemplate=@"";
+    _liveError=@"";
     return self;
 }
 
@@ -508,13 +516,20 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
     NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
     if(!resolved)return NO;
-    return [self installResolvedTarget:[resolved[@"methodPointer"] unsignedLongLongValue]
-                              isStatic:[resolved[@"static"] boolValue]
-                         argumentIndex:argumentIndex
-                         argumentCount:argc
-                            multiplier:multiplier
-                              actionID:0
-                                 error:error];
+    BOOL ok=[self installResolvedTarget:[resolved[@"methodPointer"] unsignedLongLongValue]
+                                      isStatic:[resolved[@"static"] boolValue]
+                                 argumentIndex:argumentIndex
+                                 argumentCount:argc
+                                    multiplier:multiplier
+                                      actionID:0
+                                         error:error];
+    NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+    live[@"methodPointer"]=resolved[@"methodPointer"]?:@0;
+    self.liveCandidate=[live copy];
+    self.liveTemplate=@"ArgScaleInt32";
+    self.liveLifecycle=ok?@"installed":@"failed";
+    self.liveError=ok?@"":((error&&*error)?*error:@"Native Hook 安装失败");
+    return ok;
 }
 
 
@@ -548,6 +563,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             return NO;
         }
         existing->callbackValue.store(callbackValue?1u:0u,std::memory_order_release);
+        NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+        live[@"methodPointer"]=resolved[@"methodPointer"]?:@0;
+        self.liveCandidate=[live copy];
+        self.liveTemplate=@"ManagedCallbackShortCircuit";
+        self.liveLifecycle=@"installed";
+        self.liveError=@"";
         return YES;
     }
     ZNManagedCallbackSlot *slot=ZNManagedCallbackFreeSlot();
@@ -573,10 +594,23 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                                  original:&original
                                                                     error:&hookError]){
         slot->target.store(0,std::memory_order_release);
-        if(error)*error=hookError?:@"Dobby replacement 安装失败";
+        NSString *message=hookError?:@"Dobby replacement 安装失败";
+        if(error)*error=message;
+        NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+        live[@"methodPointer"]=@(target);
+        self.liveCandidate=[live copy];
+        self.liveTemplate=@"ManagedCallbackShortCircuit";
+        self.liveLifecycle=@"failed";
+        self.liveError=message;
         return NO;
     }
     slot->original.store((uintptr_t)original,std::memory_order_release);
+    NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+    live[@"methodPointer"]=@(target);
+    self.liveCandidate=[live copy];
+    self.liveTemplate=@"ManagedCallbackShortCircuit";
+    self.liveLifecycle=@"installed";
+    self.liveError=@"";
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[managed-callback-hook] installed target=0x%llX callbackReg=x%u value=%@ original=0x%llX",
                                        (unsigned long long)target,reg,callbackValue?@"true":@"false",
                                        (unsigned long long)(uintptr_t)original]];
@@ -594,7 +628,14 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
-    if(!slot&&!callbackSlot)return YES;
+    if(!slot&&!callbackSlot){
+        NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+        live[@"methodPointer"]=@(target);
+        self.liveCandidate=[live copy];
+        self.liveLifecycle=@"restored";
+        self.liveError=@"";
+        return YES;
+    }
     NSString *destroyError=nil;
     if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:&destroyError]){
         if(error)*error=destroyError;return NO;
@@ -605,6 +646,11 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         callbackSlot->original.store(0,std::memory_order_relaxed);
         callbackSlot->actionID.store(0,std::memory_order_relaxed);
     }
+    NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+    live[@"methodPointer"]=@(target);
+    self.liveCandidate=[live copy];
+    self.liveLifecycle=@"restored";
+    self.liveError=@"";
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook] restored target=0x%llX",(unsigned long long)target]];
     return YES;
 }
@@ -634,6 +680,45 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                 callbackSlot->callbackValue.load(std::memory_order_relaxed)?@"true":@"false"];
     }
     return @"Hook 状态：未安装";
+}
+
+
+- (BOOL)hasLiveTestStatus {
+    return self.liveLifecycle.length>0;
+}
+
+- (void)clearLiveTestStatus {
+    self.liveCandidate=@{};
+    self.liveLifecycle=@"";
+    self.liveTemplate=@"";
+    self.liveError=@"";
+}
+
+- (NSString *)liveTestStatus {
+    NSString *life=self.liveLifecycle?:@"";
+    NSDictionary *candidate=self.liveCandidate?:@{};
+    NSString *cls=ZNNativeString(candidate[@"class"]);
+    NSString *method=ZNNativeString(candidate[@"method"]);
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSString *identity=(cls.length||method.length)?[NSString stringWithFormat:@"%@::%@/%lu",cls,method,(unsigned long)argc]:@"Native Hook";
+    uintptr_t target=[candidate[@"methodPointer"] unsignedLongLongValue];
+
+    if([life isEqualToString:@"failed"]){
+        return [NSString stringWithFormat:@"Hook：安装失败 ❌ · %@\n模板：%@ · Target：%@\n%@",
+                identity,self.liveTemplate.length?self.liveTemplate:@"—",
+                target?[NSString stringWithFormat:@"0x%llX",(unsigned long long)target]:@"—",
+                self.liveError.length?self.liveError:@"未知错误"];
+    }
+    if([life isEqualToString:@"restored"]){
+        return [NSString stringWithFormat:@"Hook：已恢复 ✅ · %@\nTarget：%@",
+                identity,target?[NSString stringWithFormat:@"0x%llX",(unsigned long long)target]:@"—"];
+    }
+    if([life isEqualToString:@"installed"]){
+        NSString *diag=[self diagnosticsForCandidate:candidate];
+        return [NSString stringWithFormat:@"%@\n模板：%@\n%@",
+                identity,self.liveTemplate.length?self.liveTemplate:@"Native Hook",diag.length?diag:@"Hook 状态：已安装 · 等待命中"];
+    }
+    return @"";
 }
 
 - (BOOL)installAction:(ZNNativeHookAction *)action value:(NSInteger)value error:(NSString **)error {
