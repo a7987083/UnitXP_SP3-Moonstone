@@ -39,6 +39,7 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)zn52x_reselectInstance:(UIButton *)sender;
 - (void)zn52x_batchTestInstances:(UIButton *)sender;
 - (void)zn52x_directUnavailable:(UIButton *)sender;
+- (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
                               argumentIndex:(NSUInteger)argumentIndex
@@ -184,21 +185,20 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
         UIButton *test=ZNM52XButtonWithTitles(card,@[@"测试/捕获",@"测试执行"]);
         UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
-        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Hook 测试",@"Direct 测试"]);
+        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"测试方式",@"Hook 测试",@"Direct 测试"]);
         if(!direct){
-            direct=[self zn40_button:@"Hook 测试" selector:@selector(zn64_hookTestTapped:) frame:CGRectZero];
+            direct=[self zn40_button:@"测试方式" selector:@selector(zn64_testModeTapped:) frame:CGRectZero];
             [card addSubview:direct];
         } else {
-            [direct setTitle:@"Hook 测试" forState:UIControlStateNormal];
+            [direct setTitle:@"测试方式" forState:UIControlStateNormal];
             [direct removeTarget:self action:@selector(zn52x_directUnavailable:) forControlEvents:UIControlEventTouchUpInside];
             [direct removeTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
-            [direct addTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [direct removeTarget:self action:@selector(zn64_testModeTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [direct addTarget:self action:@selector(zn64_testModeTapped:) forControlEvents:UIControlEventTouchUpInside];
         }
         objc_setAssociatedObject(direct,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        NSString *hookReason=nil;
-        NSArray<NSNumber *> *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&hookReason];
-        direct.enabled=hookArgs.count>0;
-        direct.alpha=direct.enabled?1.0:.48;
+        direct.enabled=YES;
+        direct.alpha=1.0;
 
         BOOL known=NO;
         BOOL instance=ZNM52XMethodIsInstance(candidate,&known);
@@ -257,7 +257,35 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
 - (void)zn52x_directUnavailable:(UIButton *)sender {
     (void)sender;
-    [self zn60v3_setStatus:@"Direct Native Call 尚未接入；当前位置已用于 Native Hook V1 测试"];
+    [self zn60v3_setStatus:@"Direct Native Call：当前分支尚未接入 backend；Native Hook 保持独立可用"];
+}
+
+- (void)zn64_testModeTapped:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
+    if(!candidate)return;
+
+    NSString *reason=nil;
+    NSArray<NSNumber *> *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
+    UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"测试方式"
+                                                                   message:@"Runtime Call 保持左侧测试/捕获；这里选择 Direct 或 IL2CPP Native Hook"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf=self;
+    [picker addAction:[UIAlertAction actionWithTitle:@"Direct Native Call" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        [weakSelf zn52x_directUnavailable:sender];
+    }]];
+    UIAlertAction *hook=[UIAlertAction actionWithTitle:@"IL2CPP Native Hook" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        [weakSelf zn64_hookTestTapped:sender];
+    }];
+    hook.enabled=hookArgs.count>0;
+    [picker addAction:hook];
+    if(!hookArgs.count&&reason.length)picker.message=[picker.message stringByAppendingFormat:@"\nNative Hook：%@",reason];
+    [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(!top)return;
+    UIPopoverPresentationController *popover=picker.popoverPresentationController;
+    if(popover){popover.sourceView=sender;popover.sourceRect=sender.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
+    [top presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)zn64_hookTestTapped:(UIButton *)sender {
