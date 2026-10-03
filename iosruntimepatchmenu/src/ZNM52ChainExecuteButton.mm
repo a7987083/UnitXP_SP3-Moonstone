@@ -44,6 +44,9 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
                               argumentIndex:(NSUInteger)argumentIndex
                                      source:(UIButton *)source;
+- (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
+                                         argumentIndex:(NSUInteger)argumentIndex
+                                                source:(UIButton *)source;
 @end
 
 static NSString *ZNM52XString(id value) {
@@ -264,8 +267,9 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
 
-    NSString *reason=nil;
+    NSString *reason=nil,*callbackReason=nil;
     NSArray<NSNumber *> *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
+    NSArray<NSNumber *> *callbackArgs=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
     UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"测试方式"
                                                                    message:@"Runtime Call 保持左侧测试/捕获；这里选择 Direct 或 IL2CPP Native Hook"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
@@ -276,9 +280,12 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     UIAlertAction *hook=[UIAlertAction actionWithTitle:@"IL2CPP Native Hook" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
         [weakSelf zn64_hookTestTapped:sender];
     }];
-    hook.enabled=hookArgs.count>0;
+    hook.enabled=(hookArgs.count>0||callbackArgs.count>0);
     [picker addAction:hook];
-    if(!hookArgs.count&&reason.length)picker.message=[picker.message stringByAppendingFormat:@"\nNative Hook：%@",reason];
+    if(!hook.enabled){
+        NSString *detail=callbackReason.length?callbackReason:reason;
+        if(detail.length)picker.message=[picker.message stringByAppendingFormat:@"\nNative Hook：%@",detail];
+    }
     [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
 
     UIViewController *top=ZNM52XTop(self.hostWindow);
@@ -291,10 +298,33 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 - (void)zn64_hookTestTapped:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
-    NSString *reason=nil;
+    NSString *reason=nil,*callbackReason=nil;
     NSArray<NSNumber *> *indices=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
+    NSArray<NSNumber *> *callbackIndices=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
+
+    if(callbackIndices.count&&indices.count){
+        UIAlertController *templates=[UIAlertController alertControllerWithTitle:@"选择 Native Hook 模板"
+                                                                         message:@"M6.5"
+                                                                  preferredStyle:UIAlertControllerStyleActionSheet];
+        __weak typeof(self) weakSelf=self;
+        [templates addAction:[UIAlertAction actionWithTitle:@"ArgScaleInt32" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+            [weakSelf zn64_presentHookConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:sender];
+        }]];
+        [templates addAction:[UIAlertAction actionWithTitle:@"Managed Callback Short Circuit" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+            [weakSelf zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];
+        }]];
+        [templates addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        UIViewController *top=ZNM52XTop(self.hostWindow);
+        if(top)[top presentViewController:templates animated:YES completion:nil];
+        return;
+    }
+    if(callbackIndices.count){
+        [self zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];
+        return;
+    }
     if(!indices.count){
-        [self zn60v3_setStatus:reason.length?reason:@"当前方法没有 V1 可用的 int32 参数"];
+        NSString *why=callbackReason.length?callbackReason:reason;
+        [self zn60v3_setStatus:why.length?why:@"当前方法没有可用的 Native Hook V1/V2 模板"];
         return;
     }
     if(indices.count==1){
@@ -394,6 +424,70 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
             : (error?:@"创建 Native Hook 失败")];
     }]];
 
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(top)[top presentViewController:alert animated:YES completion:nil];
+}
+
+
+- (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
+                                         argumentIndex:(NSUInteger)argumentIndex
+                                                source:(UIButton *)source {
+    NSString *method=ZNM52XString(candidate[@"method"]);
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *param=argumentIndex<params.count?params[argumentIndex]:@{};
+    NSString *paramName=[param[@"paramName"] isKindOfClass:NSString.class]?param[@"paramName"]:@"";
+    NSString *paramType=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"System.Action<bool>";
+    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
+    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\nCallback：参数%lu%@\n类型：%@\n模板：ManagedCallbackShortCircuit\nSkip Original：YES\n\n%@",
+                       ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,
+                       (unsigned long)argumentIndex+1,
+                       paramName.length?[NSString stringWithFormat:@" · %@",paramName]:@"",
+                       paramType,diag?:@""];
+
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Managed Callback Hook 测试"
+                                                                  message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · Callback(true)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryManagedCallbackShortCircuitForCandidate:candidate
+                                                                                               argumentIndex:argumentIndex
+                                                                                               callbackValue:YES
+                                                                                                       error:&error];
+        [weakSelf zn60v3_setStatus:ok
+            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · Skip Original · callback(true)",method]
+            : (error?:@"Managed Callback Hook 安装失败")];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · Callback(false)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryManagedCallbackShortCircuitForCandidate:candidate
+                                                                                               argumentIndex:argumentIndex
+                                                                                               callbackValue:NO
+                                                                                                       error:&error];
+        [weakSelf zn60v3_setStatus:ok
+            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · Skip Original · callback(false)",method]
+            : (error?:@"Managed Callback Hook 安装失败")];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
+        [weakSelf zn60v3_setStatus:ok?@"Managed Callback Hook 已移除，目标已恢复":(error?:@"恢复原方法失败")];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法 · callback(true)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *error=nil;
+        NSString *title=[NSString stringWithFormat:@"%@ Short Circuit",method.length?method:@"Managed Callback"];
+        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addManagedCallbackShortCircuitCandidate:candidate
+                                                                                                       title:title
+                                                                                       callbackArgumentIndex:argumentIndex
+                                                                                               callbackValue:YES
+                                                                                                skipOriginal:YES
+                                                                                                       error:&error];
+        [weakSelf zn60v3_setStatus:created
+            ? [NSString stringWithFormat:@"已创建 Managed Callback Hook：%@",created.title]
+            : (error?:@"创建 Managed Callback Hook 失败")];
+    }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     UIViewController *top=ZNM52XTop(self.hostWindow);
     if(top)[top presentViewController:alert animated:YES completion:nil];
