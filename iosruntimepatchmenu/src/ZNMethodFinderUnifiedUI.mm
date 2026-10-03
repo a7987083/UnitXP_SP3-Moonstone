@@ -19,6 +19,8 @@ static NSString * const kZNM54HistoryDefaultsKey = @"zonoe.m52.method-search-his
 static const NSUInteger kZNM54HistoryMax = 50;
 static const NSInteger kZNM54QueryTag = 954001;
 static const NSInteger kZNM54LimitTag = 954002;
+static const NSInteger kZNM65LiveHookStatusTag = 965501;
+static const void *kZNM65LiveHookTimerKey = &kZNM65LiveHookTimerKey;
 static const void *kZNM54CandidateKey = &kZNM54CandidateKey;
 static const void *kZNM54StoreKey = &kZNM54StoreKey;
 static const void *kZNM54FilterKey = &kZNM54FilterKey;
@@ -73,6 +75,9 @@ static const void *kZNM54HistoryKey = &kZNM54HistoryKey;
 - (void)znm54_done:(UITextField *)field;
 - (void)znm54_openDetail:(UIButton *)sender;
 - (void)znm54_createCandidate:(UIButton *)sender;
+- (void)znm65_refreshLiveHookStatus;
+- (void)znm65_startLiveHookStatusTimer;
+- (void)znm65_stopLiveHookStatusTimer;
 @end
 
 static NSString *ZNM54Trim(NSString *value) {
@@ -205,6 +210,31 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
 
 @implementation ZNRuntimeMenuControllerV040 (ZNMethodFinderUnifiedUI)
 
+- (void)znm65_stopLiveHookStatusTimer {
+    NSTimer *timer=objc_getAssociatedObject(self,kZNM65LiveHookTimerKey);
+    [timer invalidate];
+    objc_setAssociatedObject(self,kZNM65LiveHookTimerKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (void)znm65_refreshLiveHookStatus {
+    UILabel *label=(UILabel *)[self.contentView viewWithTag:kZNM65LiveHookStatusTag];
+    if(![label isKindOfClass:UILabel.class])return;
+    NSString *live=[[ZNNativeHookRuntime sharedRuntime] liveTestStatus];
+    if(live.length)label.text=live;
+}
+
+- (void)znm65_startLiveHookStatusTimer {
+    [self znm65_stopLiveHookStatusTimer];
+    if(![[ZNNativeHookRuntime sharedRuntime] hasLiveTestStatus])return;
+    __weak typeof(self) weakSelf=self;
+    NSTimer *timer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(__unused NSTimer *t){
+        [weakSelf znm65_refreshLiveHookStatus];
+    }];
+    objc_setAssociatedObject(self,kZNM65LiveHookTimerKey,timer,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+    [self znm65_refreshLiveHookStatus];
+}
+
 - (void)znm54_queryChanged:(UITextField *)field {
     [self zn57mf_setQuery:field.text ?: @""];
 }
@@ -232,6 +262,7 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
 }
 
 - (void)znm54_renderSearchAtWidth:(CGFloat)width {
+    [self znm65_stopLiveHookStatusTimer];
     CGFloat y = 9.0;
     UIView *card = [self cardAtY:y height:170.0 width:width compact:NO];
     UILabel *title = [self label:@"IL2CPP 方法查找 · Unified" size:12.6 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
@@ -417,16 +448,23 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
     [self.contentView addSubview:filterCard];
     y += 52.0;
 
-    NSString *statusText = [self zn60v3_status];
-    if (statusText.length) {
-        UIView *statusCard = [self cardAtY:y height:48 width:width compact:NO];
-        UILabel *status = [self label:statusText size:8.2 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
-        status.frame = CGRectMake(13, 6, statusCard.bounds.size.width - 26, 36);
-        status.numberOfLines = 2;
+    NSString *liveHookText=[[ZNNativeHookRuntime sharedRuntime] liveTestStatus];
+    NSString *statusText=liveHookText.length?liveHookText:[self zn60v3_status];
+    if(statusText.length){
+        BOOL live=liveHookText.length>0;
+        CGFloat statusHeight=live?88.0:48.0;
+        UIView *statusCard=[self cardAtY:y height:statusHeight width:width compact:NO];
+        UILabel *status=[self label:statusText size:(live?8.0:8.2) weight:UIFontWeightRegular
+                             color:(live?self.theme.primaryTextColor:self.theme.secondaryTextColor)];
+        status.tag=kZNM65LiveHookStatusTag;
+        status.frame=CGRectMake(13,6,statusCard.bounds.size.width-26,statusHeight-12);
+        status.numberOfLines=live?6:2;
+        status.font=[UIFont monospacedSystemFontOfSize:(live?7.9:8.2) weight:UIFontWeightRegular];
         [statusCard addSubview:status];
         [self.contentView addSubview:statusCard];
-        y += 56.0;
+        y+=statusHeight+8.0;
     }
+    [self znm65_startLiveHookStatusTimer];
 
     for (NSDictionary *candidate in visible) {
         NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
@@ -547,6 +585,7 @@ static NSArray<NSDictionary *> *ZNM54Visible(ZNRuntimeMenuControllerV040 *contro
 }
 
 - (void)znm54_renderDetailAtWidth:(CGFloat)width {
+    [self znm65_stopLiveHookStatusTimer];
     NSDictionary *candidate = [self zn60v3_selected];
     CGFloat y = 9.0;
     UIView *header = [self cardAtY:y height:48 width:width compact:NO];
