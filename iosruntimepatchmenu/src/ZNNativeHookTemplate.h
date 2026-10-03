@@ -8,12 +8,14 @@ typedef NS_ENUM(uint32_t, ZNNativeHookTemplateKind) {
     ZNNativeHookTemplateInvalid = 0,
     ZNNativeHookTemplateArgScaleInt32 = 1,
     ZNNativeHookTemplateManagedCallbackShortCircuit = 2,
+    ZNNativeHookTemplateReturnBoolOverride = 3,
 };
 
 static inline NSString *ZNNativeHookTemplateKey(ZNNativeHookTemplateKind kind) {
     switch (kind) {
         case ZNNativeHookTemplateArgScaleInt32: return @"arg-scale-int32";
         case ZNNativeHookTemplateManagedCallbackShortCircuit: return @"managed-callback-short-circuit";
+        case ZNNativeHookTemplateReturnBoolOverride: return @"return-bool-override";
         default: return @"invalid";
     }
 }
