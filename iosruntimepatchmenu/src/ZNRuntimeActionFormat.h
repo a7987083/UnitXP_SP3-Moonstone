@@ -12,6 +12,7 @@ typedef uint32_t ZNRuntimeActionKind;
 enum {
     ZNRuntimeActionKindInvalid = 0,
     ZNRuntimeActionKindIL2CPPMethodCall = 1,
+    ZNRuntimeActionKindIL2CPPNativeHook = 2,
 };
 
 typedef uint32_t ZNRuntimeActionFlags;
@@ -26,6 +27,8 @@ enum {
     ZNRuntimeActionFlagImmediateChain = 1u << 4,
     // M6.3 reserved[5] -> UTF-8 feature description.
     ZNRuntimeActionFlagFeatureDescription = 1u << 5,
+    // M6.4 Native Hook config JSON. For NativeHook entries reserved[0] points to it.
+    ZNRuntimeActionFlagNativeHookConfig = 1u << 6,
 };
 
 typedef struct {
