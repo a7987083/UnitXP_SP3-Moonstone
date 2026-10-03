@@ -7,6 +7,12 @@
 #import "ZNIL2CPPResolver.h"
 #import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNPatchCore.h"
+#import "ZNRuntimeActionFormat.h"
+#import "ZNStaticPatchFormat.h"
+#import "ZNIL2CPPMethodSignature.h"
+
+#import <mach-o/dyld.h>
+#import <mach-o/loader.h>
 
 #import <atomic>
 #import <limits.h>
@@ -130,6 +136,126 @@ static NSDictionary *ZNNativeResolveDescriptor(NSString *assembly,
     return @{@"methodInfo":@(methodInfo),@"methodPointer":@(pointer),@"static":@(isStatic),@"methodFlags":@(flags)};
 }
 
+static uint64_t ZNNativeAlign8(uint64_t value){return (value+7ULL)&~7ULL;}
+
+static uint64_t ZNNativeImageFingerprint(uint32_t count){
+    uint64_t h=UINT64_C(1469598103934665603);
+    for(uint32_t i=0;i<count;i++){
+        uintptr_t header=(uintptr_t)_dyld_get_image_header(i);
+        intptr_t slide=_dyld_get_image_vmaddr_slide(i);
+        const char *path=_dyld_get_image_name(i);
+        h^=(uint64_t)header;h*=UINT64_C(1099511628211);
+        h^=(uint64_t)slide;h*=UINT64_C(1099511628211);
+        if(path)for(const unsigned char *p=(const unsigned char *)path;*p;p++){h^=*p;h*=UINT64_C(1099511628211);}
+    }
+    return h;
+}
+
+static NSString *ZNNativeReadActionString(const uint8_t *table,const ZNRuntimeActionHeader *header,uint32_t offset){
+    if(!table||!header)return nil;
+    uint64_t poolStart=header->stringPoolOffset,poolEnd=(uint64_t)header->stringPoolOffset+header->stringPoolSize;
+    if(poolEnd>header->totalSize||offset<poolStart||offset>=poolEnd)return nil;
+    const uint8_t *start=table+offset,*end=table+poolEnd;
+    const uint8_t *nul=(const uint8_t *)memchr(start,0,(size_t)(end-start));
+    if(!nul)return nil;
+    NSData *data=[NSData dataWithBytes:start length:(NSUInteger)(nul-start)];
+    return [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
+}
+
+static NSDictionary *ZNNativeDecodeDict(NSString *json){
+    NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];
+    id obj=data.length?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    return [obj isKindOfClass:NSDictionary.class]?obj:nil;
+}
+
+static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNativeHookAction *> *out,NSMutableSet *dedupe){
+    const struct mach_header *raw=_dyld_get_image_header(imageIndex);
+    if(!raw||raw->magic!=MH_MAGIC_64)return;
+    const struct mach_header_64 *mh=(const struct mach_header_64 *)raw;
+    intptr_t slide=_dyld_get_image_vmaddr_slide(imageIndex);
+    const uint8_t *cursor=(const uint8_t *)(mh+1),*limit=cursor+mh->sizeofcmds;
+    const struct section_64 *zndata=NULL;
+    for(uint32_t i=0;i<mh->ncmds;i++){
+        if(cursor+sizeof(struct load_command)>limit)return;
+        const struct load_command *lc=(const struct load_command *)cursor;
+        if(lc->cmdsize<sizeof(*lc)||cursor+lc->cmdsize>limit)return;
+        if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(struct segment_command_64)){
+            const struct segment_command_64 *seg=(const struct segment_command_64 *)cursor;
+            uint64_t sectionBytes=(uint64_t)seg->nsects*sizeof(struct section_64);
+            if(lc->cmdsize<sizeof(*seg)+sectionBytes)return;
+            if(strncmp(seg->segname,"__ZNDATA",16)==0){
+                const struct section_64 *sections=(const struct section_64 *)(seg+1);
+                for(uint32_t j=0;j<seg->nsects;j++)
+                    if(strncmp(sections[j].sectname,"__zndata",16)==0){zndata=&sections[j];break;}
+            }
+        }
+        if(zndata)break;
+        cursor+=lc->cmdsize;
+    }
+    if(!zndata||zndata->size<sizeof(ZN44StaticHeader))return;
+    __int128 runtimeAddress=(__int128)zndata->addr+(__int128)slide;
+    if(runtimeAddress<=0||runtimeAddress>UINTPTR_MAX)return;
+    const uint8_t *section=(const uint8_t *)(uintptr_t)runtimeAddress;
+    const ZN44StaticHeader *sh=(const ZN44StaticHeader *)section;
+    if(sh->magic0!=ZN44_STATIC_MAGIC0||sh->magic1!=ZN44_STATIC_MAGIC1||sh->entrySize!=sizeof(ZN44StaticEntry)||sh->count>ZN44_STATIC_MAX_ENTRIES)return;
+    uint64_t staticBytes=ZNNativeAlign8(sizeof(ZN44StaticHeader)+(uint64_t)sh->count*sh->entrySize);
+    if(staticBytes>zndata->size||zndata->size-staticBytes<sizeof(ZNRuntimeActionHeader))return;
+    const uint8_t *table=section+staticBytes;
+    const ZNRuntimeActionHeader *header=(const ZNRuntimeActionHeader *)table;
+    if(header->magic!=ZN_RUNTIME_ACTION_MAGIC||header->version!=ZN_RUNTIME_ACTION_VERSION||
+       header->entrySize!=sizeof(ZNRuntimeMethodCallEntry)||header->count>ZN_RUNTIME_ACTION_MAX_ENTRIES||
+       header->totalSize>zndata->size-staticBytes)return;
+    uint64_t fixedEnd=sizeof(*header)+(uint64_t)header->count*header->entrySize;
+    if(fixedEnd>header->totalSize||header->stringPoolOffset<fixedEnd||header->stringPoolOffset>header->totalSize)return;
+
+    const ZNRuntimeMethodCallEntry *entries=(const ZNRuntimeMethodCallEntry *)(table+sizeof(*header));
+    for(uint32_t i=0;i<header->count;i++){
+        const ZNRuntimeMethodCallEntry *entry=&entries[i];
+        if(entry->kind!=ZNRuntimeActionKindIL2CPPNativeHook||entry->argumentCount>ZN_RUNTIME_ACTION_MAX_ARGUMENTS||
+           !(entry->flags&ZNRuntimeActionFlagNativeHookConfig))continue;
+        NSString *title=ZNNativeReadActionString(table,header,entry->titleOffset);
+        NSString *group=ZNNativeReadActionString(table,header,entry->groupOffset);
+        NSString *assembly=ZNNativeReadActionString(table,header,entry->assemblyOffset);
+        NSString *ns=ZNNativeReadActionString(table,header,entry->namespaceOffset);
+        NSString *cls=ZNNativeReadActionString(table,header,entry->classOffset);
+        NSString *method=ZNNativeReadActionString(table,header,entry->methodOffset);
+        NSString *configJSON=ZNNativeReadActionString(table,header,entry->reserved[0]);
+        NSDictionary *cfg=ZNNativeDecodeDict(configJSON);
+        if(!title||!group||!assembly||!ns||!cls||!method||!cfg)continue;
+        if(![cfg[@"template"] isEqual:@"arg-scale-int32"])continue;
+        NSUInteger arg=[cfg[@"argumentIndex"] unsignedIntegerValue];
+        NSInteger min=[cfg[@"min"] integerValue],max=[cfg[@"max"] integerValue],def=[cfg[@"default"] integerValue];
+        if(arg>=entry->argumentCount||min<1||max<min||def<min||def>max)continue;
+
+        NSArray *types=@[];BOOL sig=NO;
+        if(entry->flags&ZNRuntimeActionFlagParameterSignature){
+            NSString *encoded=ZNNativeReadActionString(table,header,entry->reserved[1]);
+            if(encoded){types=ZNIL2CPPDecodeParameterTypeNames(encoded);sig=types.count==entry->argumentCount;}
+        }
+        NSString *desc=@"";
+        if(entry->flags&ZNRuntimeActionFlagFeatureDescription)desc=ZNNativeReadActionString(table,header,entry->reserved[5])?:@"";
+
+        ZNNativeHookAction *a=[ZNNativeHookAction new];
+        a.actionID=entry->actionID;a.title=title.length?title:method;a.group=group.length?group:@"Native Hooks";
+        a.featureDescription=desc;a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=method;
+        a.argumentCount=entry->argumentCount;a.parameterTypeNames=types;a.signatureAvailable=sig;
+        a.templateKind=ZNNativeHookTemplateArgScaleInt32;a.argumentIndex=arg;
+        a.minValue=min;a.maxValue=max;a.defaultValue=def;
+        a.fallbackRVA=[cfg[@"fallbackRVA"] unsignedLongLongValue];
+        a.fallbackUUID=[cfg[@"fallbackUUID"] isKindOfClass:NSString.class]?cfg[@"fallbackUUID"]:@"";
+        NSString *key=[NSString stringWithFormat:@"%u|%@",a.actionID,a.canonicalIdentity];
+        if([dedupe containsObject:key])continue;
+        [dedupe addObject:key];[out addObject:a];
+    }
+}
+
+@interface ZNNativeHookRuntime ()
+@property(nonatomic,copy,readwrite) NSArray<ZNNativeHookAction *> *generatedActions;
+@property(nonatomic,assign) uint32_t generatedImageCount;
+@property(nonatomic,assign) uint64_t generatedImageFingerprint;
+@property(nonatomic,assign) BOOL generatedScanned;
+@end
+
 @implementation ZNNativeHookRuntime
 
 + (instancetype)sharedRuntime {
@@ -137,6 +263,30 @@ static NSDictionary *ZNNativeResolveDescriptor(NSString *assembly,
     static dispatch_once_t once;
     dispatch_once(&once, ^{ runtime=[ZNNativeHookRuntime new]; });
     return runtime;
+}
+
+- (instancetype)init {
+    self=[super init];
+    if(!self)return nil;
+    _generatedActions=@[];
+    _generatedImageCount=0;
+    _generatedImageFingerprint=0;
+    _generatedScanned=NO;
+    return self;
+}
+
+- (void)refreshGeneratedActions {
+    uint32_t count=_dyld_image_count();
+    uint64_t fingerprint=ZNNativeImageFingerprint(count);
+    if(self.generatedScanned&&self.generatedImageCount==count&&self.generatedImageFingerprint==fingerprint)return;
+    NSMutableArray<ZNNativeHookAction *> *found=[NSMutableArray array];
+    NSMutableSet *dedupe=[NSMutableSet set];
+    for(uint32_t i=0;i<count;i++)ZNNativeParseGeneratedImage(i,found,dedupe);
+    self.generatedActions=[found copy];
+    self.generatedImageCount=count;
+    self.generatedImageFingerprint=fingerprint;
+    self.generatedScanned=YES;
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] refresh -> %lu generated actions",(unsigned long)found.count]];
 }
 
 - (NSArray<NSNumber *> *)supportedInt32ArgumentIndicesForCandidate:(NSDictionary<NSString *,id> *)candidate
