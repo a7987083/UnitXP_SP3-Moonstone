@@ -17040,11 +17040,8 @@ static BOOL ZNM591InstallOrUpdate(uintptr_t address,ZNValueType type,uint64_t ra
 
 extern "C" void ZNInstallM591OffsetHookControlsDeferred(void) {
     static dispatch_once_t once;dispatch_once(&once,^{
-        Class builder=NSClassFromString(@"ZNStaticBinaryBuilder");Class meta=object_getClass(builder);
-        Method b1=class_getClassMethod(builder,@selector(buildWorkspace:outputs:report:error:));
-        Method b2=class_getClassMethod(builder,@selector(znm591_buildWorkspace:outputs:report:error:));
-        if(meta&&b1&&b2)method_exchangeImplementations(b1,b2);
-
+        // M6.8.4: historical M5.9.1 Builder swizzle is intentionally not installed.
+        // Build preparation is owned by ZNBuildManifest's active Static provider.
         Class controller=NSClassFromString(@"ZNRuntimeMenuControllerV040");
         Method r1=class_getInstanceMethod(controller,@selector(zn64fb_renderOther));
         Method r2=class_getInstanceMethod(controller,@selector(znm591_renderOther));
