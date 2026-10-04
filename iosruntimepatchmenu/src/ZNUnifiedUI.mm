@@ -31,6 +31,7 @@
 #import "ZNDeveloperGate.h"
 #import "ZNIL2CPPResolver.h"
 #import "ZNDeferredBootstrap.h"
+#import "ZNRuntimeCapabilityCoordinator.h"
 
 static void ZNInstallV040Swizzles(void);
 
