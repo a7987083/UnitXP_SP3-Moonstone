@@ -35,6 +35,7 @@ typedef struct {
     std::atomic<uint32_t> actionID;
     std::atomic<uint32_t> kind;
     std::atomic<uintptr_t> target;
+    std::atomic<uintptr_t> original;
     std::atomic<uintptr_t> slot;
 } ZNNativeHookRegistryEntry;
 
@@ -54,6 +55,7 @@ static ZNNativeHookRegistryEntry *ZNNativeHookRegistryFind(uint32_t actionID) {
 static BOOL ZNNativeHookRegistryBind(uint32_t actionID,
                                      ZNNativeHookSlotKind kind,
                                      uintptr_t target,
+                                     uintptr_t original,
                                      void *slot) {
     if(!actionID||kind==ZNNativeHookSlotKindInvalid||!target||!slot)return NO;
     ZNNativeHookRegistryEntry *freeEntry=NULL;
@@ -63,6 +65,7 @@ static BOOL ZNNativeHookRegistryBind(uint32_t actionID,
         if(existing==actionID){
             entry->kind.store((uint32_t)kind,std::memory_order_relaxed);
             entry->target.store(target,std::memory_order_relaxed);
+            entry->original.store(original,std::memory_order_relaxed);
             entry->slot.store((uintptr_t)slot,std::memory_order_release);
             return YES;
         }
@@ -71,6 +74,7 @@ static BOOL ZNNativeHookRegistryBind(uint32_t actionID,
     if(!freeEntry)return NO;
     freeEntry->kind.store((uint32_t)kind,std::memory_order_relaxed);
     freeEntry->target.store(target,std::memory_order_relaxed);
+    freeEntry->original.store(original,std::memory_order_relaxed);
     freeEntry->slot.store((uintptr_t)slot,std::memory_order_relaxed);
     freeEntry->actionID.store(actionID,std::memory_order_release);
     return YES;
@@ -80,6 +84,7 @@ static void ZNNativeHookRegistryUnbind(uint32_t actionID) {
     ZNNativeHookRegistryEntry *entry=ZNNativeHookRegistryFind(actionID);
     if(!entry)return;
     entry->slot.store(0,std::memory_order_release);
+    entry->original.store(0,std::memory_order_relaxed);
     entry->target.store(0,std::memory_order_relaxed);
     entry->kind.store((uint32_t)ZNNativeHookSlotKindInvalid,std::memory_order_relaxed);
     entry->actionID.store(0,std::memory_order_release);
@@ -936,7 +941,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         existing->enabled.store(multiplier!=1?1u:0u,std::memory_order_release);
         if(actionID){
             existing->actionID.store(actionID,std::memory_order_release);
-            if(!ZNNativeHookRegistryBind(actionID,ZNNativeHookSlotKindArgScale,target,existing)){
+            if(!ZNNativeHookRegistryBind(actionID,ZNNativeHookSlotKindArgScale,target,existing->original.load(std::memory_order_acquire),existing)){
                 if(error)*error=@"Permanent Hook registry 已满";
                 return NO;
             }
@@ -969,7 +974,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         return NO;
     }
     slot->original.store((uintptr_t)original,std::memory_order_release);
-    if(actionID&&!ZNNativeHookRegistryBind(actionID,ZNNativeHookSlotKindArgScale,target,slot)){
+    if(actionID&&!ZNNativeHookRegistryBind(actionID,ZNNativeHookSlotKindArgScale,target,(uintptr_t)original,slot)){
         if(error)*error=@"Permanent Hook registry 已满";
         return NO;
     }
@@ -1428,7 +1433,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         if(!slot){if(error)*error=@"ReturnBoolOverride 安装后未找到 runtime slot";return NO;}
         slot->actionID.store(action.actionID,std::memory_order_release);
         if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindReturnBool,
-                                     slot->target.load(std::memory_order_acquire),slot)){
+                                     slot->target.load(std::memory_order_acquire),
+                                     slot->original.load(std::memory_order_acquire),slot)){
             if(error)*error=@"Permanent Hook registry 已满";
             return NO;
         }
@@ -1448,7 +1454,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         if(!slot){if(error)*error=@"ManagedCallback 安装后未找到 runtime slot";return NO;}
         slot->actionID.store(action.actionID,std::memory_order_release);
         if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindManagedCallback,
-                                     slot->target.load(std::memory_order_acquire),slot)){
+                                     slot->target.load(std::memory_order_acquire),
+                                     slot->original.load(std::memory_order_acquire),slot)){
             if(error)*error=@"Permanent Hook registry 已满";
             return NO;
         }
@@ -1476,7 +1483,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         if(!slot){if(error)*error=@"StructFieldTransform 安装后未找到 runtime slot";return NO;}
         slot->actionID.store(action.actionID,std::memory_order_release);
         if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindStructField,
-                                     slot->target.load(std::memory_order_acquire),slot)){
+                                     slot->target.load(std::memory_order_acquire),
+                                     slot->original.load(std::memory_order_acquire),slot)){
             if(error)*error=@"Permanent Hook registry 已满";
             return NO;
         }
@@ -1595,9 +1603,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
 
     ZNNativeHookRegistryUnbind(action.actionID);
+    uintptr_t original=entry->original.load(std::memory_order_relaxed);
     [[ZNRuntimeLogger sharedLogger] log:
-     [NSString stringWithFormat:@"[native-hook-registry] teardown action=%u target=0x%llX kind=%u",
-      action.actionID,(unsigned long long)target,(unsigned)kind]];
+     [NSString stringWithFormat:@"[native-hook-registry] teardown action=%u target=0x%llX original=0x%llX kind=%u",
+      action.actionID,(unsigned long long)target,(unsigned long long)original,(unsigned)kind]];
     return YES;
 }
 
