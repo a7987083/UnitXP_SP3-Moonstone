@@ -8,6 +8,8 @@
 #line 1 "ZonoeRuntimeMenu.mm"
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNBuildCapabilityRegistry.h"
+#import "ZNBuildManifest.h"
+#import "ZNBuildExecutor.h"
 // Zonoe Runtime Patch Menu — consolidated current source
 // v0.5.5 full deferred bootstrap
 // Historical V0xx menu sources are retained by Git history only; this file is
@@ -1579,7 +1581,7 @@ static dispatch_queue_t ZN44PatchExecutionQueue(void) {
         }
     });
 }
-- (void)zn44_buildBinary:(id)sender {(void)sender;[self.hostWindow endEditing:YES];ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];if(ws.isBuilding)return;if(ws.hasAnyApplied){ws.lastStatus=@"生成前必须先恢复 Runtime Patch";[self renderPage];return;}ws.building=YES;ws.lastStatus=@"正在生成：验证 Mach-O / 安全 gap / relocation…";[self renderPage];__weak typeof(self) weakSelf=self;dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{NSArray *paths=nil;NSString *report=nil,*error=nil;BOOL ok=[ZNStaticBinaryBuilder buildWorkspace:ws outputs:&paths report:&report error:&error];dispatch_async(dispatch_get_main_queue(),^{ws.building=NO;if(ok)[ws setBuildOutputs:paths status:report?:@"生成成功"];else[ws setBuildOutputs:@[] status:[NSString stringWithFormat:@"生成失败：%@",error?:@"未知错误"]];[weakSelf renderPage];});});}
+- (void)zn44_buildBinary:(id)sender {(void)sender;[self.hostWindow endEditing:YES];ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];if(ws.isBuilding)return;ZNBuildManifest *manifest=[ZNBuildManifest manifestForWorkspace:ws];if(ws.hasAnyApplied){ws.lastStatus=@"生成前必须先恢复 Runtime Patch";[self renderPage];return;}if(!manifest.itemCount){ws.lastStatus=@"没有可生成的 BuildItem";[self renderPage];return;}ws.building=YES;ws.lastStatus=[NSString stringWithFormat:@"正在生成：BuildManifest %lu 项 · %@",(unsigned long)manifest.itemCount,[manifest.activeProviderIdentifiers componentsJoinedByString:@","]];[self renderPage];__weak typeof(self) weakSelf=self;dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{NSArray *paths=nil;NSString *report=nil,*error=nil;BOOL ok=ZNBuildExecutorBuildWorkspace(ws,&paths,&report,&error);dispatch_async(dispatch_get_main_queue(),^{ws.building=NO;if(ok)[ws setBuildOutputs:paths status:report?:@"生成成功"];else[ws setBuildOutputs:@[] status:[NSString stringWithFormat:@"生成失败：%@",error?:@"未知错误"]];[weakSelf renderPage];});});}
 - (void)zn44_toggleStatic:(UIButton *)sender {ZNStaticDispatchRuntime *rt=[ZNStaticDispatchRuntime sharedRuntime];NSUInteger i=(NSUInteger)(sender.tag-447000);if(i>=rt.records.count)return;ZNStaticPatchRecord *r=rt.records[i];NSString *e=nil;if(![rt setEnabled:!r.enabled forRecord:r error:&e])[[ZNBinaryPatchWorkspace sharedWorkspace] setBuildOutputs:[ZNBinaryPatchWorkspace sharedWorkspace].lastOutputPaths status:[NSString stringWithFormat:@"Static Dispatch 切换失败：%@",e?:@"未知错误"]];[self renderPage];}
 @end
 
@@ -7819,17 +7821,8 @@ static CGFloat ZNUXClampScrollY(UIScrollView *scroll, CGFloat y) {
 }
 
 - (void)znux_buildBinary:(id)sender {
-    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-    if (!workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0 &&
-        workspace.validatedCount != workspace.filledCount) {
-        NSString *error = nil;
-        if (![workspace validateAll:&error]) {
-            workspace.lastStatus = [NSString stringWithFormat:@"生成预检失败：%@", error ?: workspace.lastStatus ?: @"未知错误"];
-            [self renderPage];
-            return;
-        }
-        [[ZNRuntimeLogger sharedLogger] log:@"[builder] direct build: manual validate skipped; internal preflight passed"];
-    }
+    // M6.8.4: UI no longer owns build validation/routing.
+    // BuildManifest + provider prepare callbacks are the single build authority.
     [self znux_buildBinary:sender];
 }
 
@@ -15976,6 +15969,27 @@ static NSArray<NSDictionary *> *ZNM585FeatureGroups(ZNBinaryPatchWorkspace *work
 }
 @end
 
+extern "C" BOOL ZNLegacyM585PrepareStaticBuild(ZNBinaryPatchWorkspace *workspace, NSString **error) {
+    NSMutableSet *checked=[NSMutableSet set];
+    for (ZNBinaryPatchRow *row in workspace.rows) {
+        if (!row.offsetText.length) continue;
+        NSString *name=ZNM585FeatureNameForRow(row);
+        if ([checked containsObject:name.lowercaseString]) continue;
+        [checked addObject:name.lowercaseString];
+        if ([workspace controlTypeForFeature:name]!=ZNFeatureControlTypeSlider) continue;
+        double max=ZNM585StoredSliderMax(name);
+        if (!isfinite(max)||max<=0.0) {
+            if(error)*error=[NSString stringWithFormat:@"%@：滑块必须在生成时填写大于 0 的最大值（例如 31）",name];
+            return NO;
+        }
+        if (max>16383.0) {
+            if(error)*error=[NSString stringWithFormat:@"%@：Static Slider 当前最大值上限为 16383",name];
+            return NO;
+        }
+    }
+    return YES;
+}
+
 extern "C" void ZNInstallM585UnifiedControlSemanticsDeferred(void) {
     static dispatch_once_t onceToken; dispatch_once(&onceToken, ^{
         Class workspace=NSClassFromString(@"ZNBinaryPatchWorkspace");
@@ -15991,9 +16005,9 @@ extern "C" void ZNInstallM585UnifiedControlSemanticsDeferred(void) {
         Class builder=NSClassFromString(@"ZNStaticBinaryBuilder"); Class meta=object_getClass(builder);
         Method b1=class_getClassMethod(builder,@selector(buildWorkspace:outputs:report:error:));
         Method b2=class_getClassMethod(builder,@selector(znm585_buildWorkspace:outputs:report:error:));
-        if(meta&&b1&&b2)method_exchangeImplementations(b1,b2);
+        (void)meta;(void)b1;(void)b2; // M6.8.4: legacy Builder swizzle isolated; source retained for reference.
 
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8.5] unified controls installed: Static Slider max + Offset-only Number/Slider auto-template"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m5.8.5][legacy-isolated] UI/validation semantics installed; Builder swizzle disabled"];
     });
 }
 
@@ -16876,6 +16890,10 @@ static BOOL ZNM591PrepareOffsetHookRows(ZNBinaryPatchWorkspace *workspace,NSStri
         row.statusText=@"Offset Hook · 自动准备";
     }
     return YES;
+}
+
+extern "C" BOOL ZNLegacyM591PrepareStaticBuild(ZNBinaryPatchWorkspace *workspace, NSString **error) {
+    return ZNM591PrepareOffsetHookRows(workspace,error);
 }
 
 @interface ZNStaticBinaryBuilder (ZNM591OffsetHookBuild)
