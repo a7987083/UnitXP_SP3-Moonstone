@@ -9,6 +9,7 @@
 #import "ZNPatchCore.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNStaticPatchFormat.h"
+#import "ZNGeneratedDataLayout.h"
 #import "ZNIL2CPPMethodSignature.h"
 
 #import <mach-o/dyld.h>
@@ -491,13 +492,14 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     const uint8_t *section=(const uint8_t *)(uintptr_t)runtimeAddress;
     const ZN44StaticHeader *sh=(const ZN44StaticHeader *)section;
     if(sh->magic0!=ZN44_STATIC_MAGIC0||sh->magic1!=ZN44_STATIC_MAGIC1||sh->entrySize!=sizeof(ZN44StaticEntry)||sh->count>ZN44_STATIC_MAX_ENTRIES)return;
-    uint64_t staticBytes=ZNNativeAlign8(sizeof(ZN44StaticHeader)+(uint64_t)sh->count*sh->entrySize);
-    if(staticBytes>zndata->size||zndata->size-staticBytes<sizeof(ZNRuntimeActionHeader))return;
-    const uint8_t *table=section+staticBytes;
+    uint64_t actionRelative=0;
+    if(!ZNGeneratedDataLayoutV1LocateRuntimeAction(section,zndata->size,&actionRelative)||
+       actionRelative>zndata->size||zndata->size-actionRelative<sizeof(ZNRuntimeActionHeader))return;
+    const uint8_t *table=section+actionRelative;
     const ZNRuntimeActionHeader *header=(const ZNRuntimeActionHeader *)table;
     if(header->magic!=ZN_RUNTIME_ACTION_MAGIC||header->version!=ZN_RUNTIME_ACTION_VERSION||
        header->entrySize!=sizeof(ZNRuntimeMethodCallEntry)||header->count>ZN_RUNTIME_ACTION_MAX_ENTRIES||
-       header->totalSize>zndata->size-staticBytes)return;
+       header->totalSize>zndata->size-actionRelative)return;
     uint64_t fixedEnd=sizeof(*header)+(uint64_t)header->count*header->entrySize;
     if(fixedEnd>header->totalSize||header->stringPoolOffset<fixedEnd||header->stringPoolOffset>header->totalSize)return;
 
