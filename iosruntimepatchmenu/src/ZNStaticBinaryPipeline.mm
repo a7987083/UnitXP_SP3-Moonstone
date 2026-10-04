@@ -4,6 +4,7 @@
 #import "ZNRuntimeOnlyBinaryBuilder.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNBuildCapabilityRegistry.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
@@ -142,7 +143,9 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
     NSArray<ZNNativeHookAction *> *hooks = [[ZNNativeHookStore sharedStore] actionsSnapshot];
     NSUInteger partialStaticRows = 0;
     NSUInteger completeStaticRows = ZNCompleteStaticRowCount(workspace, &partialStaticRows);
-    BOOL runtimeOnly = (actions.count > 0 || hooks.count > 0) && completeStaticRows == 0;
+    BOOL runtimeOnly = completeStaticRows == 0 &&
+                       [[ZNBuildCapabilityRegistry sharedRegistry]
+                           hasBuildableContentOfKind:ZNBuildCapabilityKindRuntimeOwnedData];
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
         @"[builder-mode-m6.4] runtime=%lu nativeHook=%lu completeStatic=%lu partialStatic=%lu mode=%@",
