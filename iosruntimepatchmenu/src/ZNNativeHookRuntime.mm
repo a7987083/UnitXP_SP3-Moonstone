@@ -1602,8 +1602,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             break;
     }
 
-    ZNNativeHookRegistryUnbind(action.actionID);
     uintptr_t original=entry->original.load(std::memory_order_relaxed);
+    ZNNativeHookRegistryUnbind(action.actionID);
     [[ZNRuntimeLogger sharedLogger] log:
      [NSString stringWithFormat:@"[native-hook-registry] teardown action=%u target=0x%llX original=0x%llX kind=%u",
       action.actionID,(unsigned long long)target,(unsigned long long)original,(unsigned)kind]];
