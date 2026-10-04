@@ -48,6 +48,13 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     _codecSetterMethod=@"";
     _codecGetterArgumentCount=0;
     _codecSetterArgumentCount=1;
+    _preparedDescriptor=NO;
+    _preparedRVA=0;
+    _preparedUUID=@"";
+    _preparedStaticKnown=NO;
+    _preparedIsStatic=NO;
+    _preparedCodecGetterRVA=0;
+    _preparedCodecSetterRVA=0;
     _fallbackUUID=@"";
     return self;
 }
@@ -69,6 +76,9 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     c.fieldCodec=self.fieldCodec;c.codecAssembly=self.codecAssembly;c.codecNamespaceName=self.codecNamespaceName;
     c.codecClassName=self.codecClassName;c.codecGetterMethod=self.codecGetterMethod;c.codecSetterMethod=self.codecSetterMethod;
     c.codecGetterArgumentCount=self.codecGetterArgumentCount;c.codecSetterArgumentCount=self.codecSetterArgumentCount;
+    c.preparedDescriptor=self.preparedDescriptor;c.preparedRVA=self.preparedRVA;c.preparedUUID=self.preparedUUID;
+    c.preparedStaticKnown=self.preparedStaticKnown;c.preparedIsStatic=self.preparedIsStatic;
+    c.preparedCodecGetterRVA=self.preparedCodecGetterRVA;c.preparedCodecSetterRVA=self.preparedCodecSetterRVA;
     c.fallbackRVA=self.fallbackRVA;c.fallbackUUID=self.fallbackUUID;
     return c;
 }
@@ -115,6 +125,13 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         @"codecSetterMethod":a.codecSetterMethod?:@"",
         @"codecGetterArgumentCount":@(a.codecGetterArgumentCount),
         @"codecSetterArgumentCount":@(a.codecSetterArgumentCount),
+        @"preparedDescriptor":@(a.preparedDescriptor),
+        @"preparedRVA":@(a.preparedRVA),
+        @"preparedUUID":a.preparedUUID?:@"",
+        @"preparedStaticKnown":@(a.preparedStaticKnown),
+        @"preparedIsStatic":@(a.preparedIsStatic),
+        @"preparedCodecGetterRVA":@(a.preparedCodecGetterRVA),
+        @"preparedCodecSetterRVA":@(a.preparedCodecSetterRVA),
         @"fallbackRVA":@(a.fallbackRVA),@"fallbackUUID":a.fallbackUUID?:@""
     };
 }
@@ -153,6 +170,13 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.codecSetterMethod=[d[@"codecSetterMethod"] isKindOfClass:NSString.class]?d[@"codecSetterMethod"]:@"";
     a.codecGetterArgumentCount=[d[@"codecGetterArgumentCount"] unsignedIntegerValue];
     a.codecSetterArgumentCount=d[@"codecSetterArgumentCount"]?[d[@"codecSetterArgumentCount"] unsignedIntegerValue]:1;
+    a.preparedDescriptor=[d[@"preparedDescriptor"] boolValue];
+    a.preparedRVA=[d[@"preparedRVA"] unsignedLongLongValue];
+    a.preparedUUID=[d[@"preparedUUID"] isKindOfClass:NSString.class]?d[@"preparedUUID"]:@"";
+    a.preparedStaticKnown=[d[@"preparedStaticKnown"] boolValue];
+    a.preparedIsStatic=[d[@"preparedIsStatic"] boolValue];
+    a.preparedCodecGetterRVA=[d[@"preparedCodecGetterRVA"] unsignedLongLongValue];
+    a.preparedCodecSetterRVA=[d[@"preparedCodecSetterRVA"] unsignedLongLongValue];
     a.fallbackRVA=[d[@"fallbackRVA"] unsignedLongLongValue];
     a.fallbackUUID=[d[@"fallbackUUID"] isKindOfClass:NSString.class]?d[@"fallbackUUID"]:@"";
     if(!a.actionID||!a.className.length||!a.methodName.length)return nil;
@@ -420,6 +444,42 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
                                        a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),
                                        (unsigned long)a.fieldArgumentIndex,(unsigned long long)a.fieldOffset,a.fieldCodec]];
     return [a copy];
+}
+
+- (BOOL)updatePreparedDescriptor:(NSDictionary<NSString *,id> *)descriptor
+                         atIndex:(NSUInteger)index
+                           error:(NSString **)error {
+    if(![descriptor isKindOfClass:NSDictionary.class]){
+        if(error)*error=@"Prepared Native Hook descriptor 无效";
+        return NO;
+    }
+    @synchronized(self){
+        if(index>=self.mutableActions.count){
+            if(error)*error=@"Prepared Native Hook index 越界";
+            return NO;
+        }
+        uint64_t rva=[descriptor[@"rva"] unsignedLongLongValue];
+        NSString *uuid=[descriptor[@"uuid"] isKindOfClass:NSString.class]?descriptor[@"uuid"]:@"";
+        BOOL staticKnown=[descriptor[@"staticKnown"] boolValue];
+        if(!rva||!uuid.length||!staticKnown){
+            if(error)*error=@"Prepared Native Hook 缺少 RVA/UUID/static";
+            return NO;
+        }
+        ZNNativeHookAction *a=self.mutableActions[index];
+        a.preparedDescriptor=YES;
+        a.preparedRVA=rva;
+        a.preparedUUID=uuid;
+        a.preparedStaticKnown=YES;
+        a.preparedIsStatic=[descriptor[@"isStatic"] boolValue];
+        a.preparedCodecGetterRVA=[descriptor[@"codecGetterRVA"] unsignedLongLongValue];
+        a.preparedCodecSetterRVA=[descriptor[@"codecSetterRVA"] unsignedLongLongValue];
+
+        // Keep authoring hints synchronized for diagnostics only.
+        a.fallbackRVA=rva;
+        a.fallbackUUID=uuid;
+        [self persist];
+    }
+    return YES;
 }
 
 - (NSArray<ZNNativeHookAction *> *)actionsSnapshot {
