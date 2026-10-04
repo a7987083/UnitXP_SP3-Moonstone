@@ -10663,19 +10663,18 @@ static CGFloat ZNM461Bottom(UIView *root) {
 - (void)znm461_renderPage {
     [self znm461_renderPage];
 
-    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-    NSUInteger runtimeCount = [ZNRuntimeActionStore sharedStore].actionsSnapshot.count;
-    BOOL runtimeOnlyReady = runtimeCount > 0 && workspace.filledCount == 0;
-    if (!runtimeOnlyReady) return;
-
-    // ZNUXFixesV2 historically re-applies a Static-only filledCount gate after
-    // the Builder page renders. Runtime-only generation has its own safe path,
-    // so override that UI gate after the complete render chain.
+    // Final post-render reconciliation is capability-driven. Do not branch on
+    // Runtime/Native/Static types here: future build providers must work without
+    // any UI edit.
+    ZNBinaryBuildCoordinator *coordinator=[ZNBinaryBuildCoordinator sharedCoordinator];
     NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
     ZNM461CollectButtons(self.contentView, self, @selector(zn44_buildBinary:), buttons);
     for (UIButton *button in buttons) {
-        button.enabled = [ZNBinaryBuildCoordinator sharedCoordinator].canBuild;
+        button.enabled = coordinator.canBuild;
         button.alpha = button.enabled ? 1.0 : 0.5;
+        button.accessibilityHint = button.enabled
+            ? [NSString stringWithFormat:@"可生成：%@", [coordinator.activeProviderIdentifiers componentsJoinedByString:@", "]]
+            : coordinator.blockedReason;
     }
 }
 
