@@ -4,26 +4,13 @@
 #import "ZNRuntimeOnlyBinaryBuilder.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNBuilderPolicy.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNPatchCore.h"
 #include <math.h>
-
-static NSUInteger ZNCompleteStaticRowCount(ZNBinaryPatchWorkspace *workspace,
-                                           NSUInteger *partialRows) {
-    NSUInteger complete = 0;
-    NSUInteger partial = 0;
-    for (ZNBinaryPatchRow *row in workspace.rows ?: @[]) {
-        BOOL hasOffset = row.offsetText.length > 0;
-        BOOL hasEnabled = row.enabledText.length > 0;
-        if (hasOffset && hasEnabled) complete++;
-        else if (hasOffset || hasEnabled) partial++;
-    }
-    if (partialRows) *partialRows = partial;
-    return complete;
-}
 
 static NSString *ZNM583Trim(NSString *value) {
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -138,11 +125,13 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
     }
 
     // Re-snapshot after M5.8.3 normalized Slider control metadata.
-    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
-    NSArray<ZNNativeHookAction *> *hooks = [[ZNNativeHookStore sharedStore] actionsSnapshot];
-    NSUInteger partialStaticRows = 0;
-    NSUInteger completeStaticRows = ZNCompleteStaticRowCount(workspace, &partialStaticRows);
-    BOOL runtimeOnly = (actions.count > 0 || hooks.count > 0) && completeStaticRows == 0;
+    NSArray<ZNRuntimeMethodAction *> *actions=[[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    NSArray<ZNNativeHookAction *> *hooks=[[ZNNativeHookStore sharedStore] actionsSnapshot];
+    ZNBuilderPolicyInput policyInput=ZNBuilderPolicyCapture(workspace,actions.count,hooks.count);
+    ZNBuilderPolicyResult policy=ZNBuilderPolicyEvaluate(policyInput);
+    NSUInteger completeStaticRows=policyInput.completeStaticRows;
+    NSUInteger partialStaticRows=policyInput.partialStaticRows;
+    BOOL runtimeOnly=policy.runtimeOnly;
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
         @"[builder-mode-m6.4] runtime=%lu nativeHook=%lu completeStatic=%lu partialStatic=%lu mode=%@",
@@ -150,7 +139,7 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
         (unsigned long)hooks.count,
         (unsigned long)completeStaticRows,
         (unsigned long)partialStaticRows,
-        runtimeOnly ? @"runtime-only" : @"static/mixed"]];
+        ZNBuilderModeName(policy.mode)]];
 
     NSArray<NSString *> *builderOutputs = nil;
     NSString *builderReport = nil;
