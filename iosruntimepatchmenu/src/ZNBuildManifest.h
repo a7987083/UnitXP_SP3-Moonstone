@@ -2,6 +2,8 @@
 #import <Foundation/Foundation.h>
 #import "ZNBuildItem.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 @class ZNBinaryPatchWorkspace;
 @class ZNBuildManifest;
 
@@ -40,3 +42,5 @@ FOUNDATION_EXPORT BOOL ZNEmitBuildManifestProviders(ZNBuildManifest *manifest,
                                                     BOOL runtimeOnlyBase,
                                                     NSString * _Nullable * _Nullable report,
                                                     NSString * _Nullable * _Nullable error);
+
+NS_ASSUME_NONNULL_END
