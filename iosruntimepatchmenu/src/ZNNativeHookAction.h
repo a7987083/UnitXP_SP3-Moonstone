@@ -25,6 +25,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,assign) BOOL skipOriginal;
 @property(nonatomic,assign) BOOL returnBoolValue;
 @property(nonatomic,assign) NSUInteger fieldArgumentIndex;
+@property(nonatomic,copy) NSString *fieldArgumentMode;
 @property(nonatomic,assign) uint64_t fieldOffset;
 @property(nonatomic,copy) NSString *fieldCodec;
 @property(nonatomic,copy) NSString *codecAssembly;
@@ -58,6 +59,21 @@ NS_ASSUME_NONNULL_BEGIN
                                                            callbackValue:(BOOL)callbackValue
                                                             skipOriginal:(BOOL)skipOriginal
                                                                    error:(NSString * _Nullable * _Nullable)error;
+- (nullable ZNNativeHookAction *)addStructFieldTransformCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                            title:(nullable NSString *)title
+                                                    argumentIndex:(NSUInteger)argumentIndex
+                                                     argumentMode:(NSString *)argumentMode
+                                                      fieldOffset:(uint64_t)fieldOffset
+                                                       fieldCodec:(NSString *)fieldCodec
+                                                    codecAssembly:(NSString *)codecAssembly
+                                                   codecNamespace:(NSString *)codecNamespace
+                                                       codecClass:(NSString *)codecClass
+                                                      getterMethod:(NSString *)getterMethod
+                                                      setterMethod:(NSString *)setterMethod
+                                                            min:(NSInteger)minValue
+                                                            max:(NSInteger)maxValue
+                                                   defaultValue:(NSInteger)defaultValue
+                                                          error:(NSString * _Nullable * _Nullable)error;
 - (NSArray<ZNNativeHookAction *> *)actionsSnapshot;
 - (BOOL)updateTitle:(nullable NSString *)title atIndex:(NSUInteger)index;
 - (BOOL)updateDescription:(nullable NSString *)featureDescription atIndex:(NSUInteger)index;
