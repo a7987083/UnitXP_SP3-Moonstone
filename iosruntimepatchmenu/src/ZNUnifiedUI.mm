@@ -7,7 +7,7 @@
 #pragma mark - BEGIN ZonoeRuntimeMenu.mm
 #line 1 "ZonoeRuntimeMenu.mm"
 #import "ZNBinaryPatchWorkspace.h"
-#import "ZNBuildCapabilityRegistry.h"
+#import "ZNBuildPlan.h"
 // Zonoe Runtime Patch Menu — consolidated current source
 // v0.5.5 full deferred bootstrap
 // Historical V0xx menu sources are retained by Git history only; this file is
@@ -1579,7 +1579,7 @@ static dispatch_queue_t ZN44PatchExecutionQueue(void) {
         }
     });
 }
-- (void)zn44_buildBinary:(id)sender {(void)sender;[self.hostWindow endEditing:YES];ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];if(ws.isBuilding)return;if(ws.hasAnyApplied){ws.lastStatus=@"生成前必须先恢复 Runtime Patch";[self renderPage];return;}ws.building=YES;ws.lastStatus=@"正在生成：验证 Mach-O / 安全 gap / relocation…";[self renderPage];__weak typeof(self) weakSelf=self;dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{NSArray *paths=nil;NSString *report=nil,*error=nil;BOOL ok=[ZNStaticBinaryBuilder buildWorkspace:ws outputs:&paths report:&report error:&error];dispatch_async(dispatch_get_main_queue(),^{ws.building=NO;if(ok)[ws setBuildOutputs:paths status:report?:@"生成成功"];else[ws setBuildOutputs:@[] status:[NSString stringWithFormat:@"生成失败：%@",error?:@"未知错误"]];[weakSelf renderPage];});});}
+- (void)zn44_buildBinary:(id)sender {(void)sender;[self.hostWindow endEditing:YES];ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];if(ws.isBuilding)return;ZNBuildPlan *plan=[ZNBuildPlan currentPlan];if(!plan.canBuild){ws.lastStatus=plan.blockedReason.length?plan.blockedReason:@"当前内容不可生成";[self renderPage];return;}ws.building=YES;ws.lastStatus=[NSString stringWithFormat:@"正在生成：mode=%lu providers=%@",(unsigned long)plan.mode,[plan.activeProviders componentsJoinedByString:@","]];[self renderPage];__weak typeof(self) weakSelf=self;dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{NSArray *paths=nil;NSString *report=nil,*error=nil;BOOL ok=[ZNStaticBinaryBuilder buildWorkspace:ws outputs:&paths report:&report error:&error];dispatch_async(dispatch_get_main_queue(),^{ws.building=NO;if(ok)[ws setBuildOutputs:paths status:report?:@"生成成功"];else[ws setBuildOutputs:@[] status:[NSString stringWithFormat:@"生成失败：%@",error?:@"未知错误"]];[weakSelf renderPage];});});}
 - (void)zn44_toggleStatic:(UIButton *)sender {ZNStaticDispatchRuntime *rt=[ZNStaticDispatchRuntime sharedRuntime];NSUInteger i=(NSUInteger)(sender.tag-447000);if(i>=rt.records.count)return;ZNStaticPatchRecord *r=rt.records[i];NSString *e=nil;if(![rt setEnabled:!r.enabled forRecord:r error:&e])[[ZNBinaryPatchWorkspace sharedWorkspace] setBuildOutputs:[ZNBinaryPatchWorkspace sharedWorkspace].lastOutputPaths status:[NSString stringWithFormat:@"Static Dispatch 切换失败：%@",e?:@"未知错误"]];[self renderPage];}
 @end
 
@@ -7820,15 +7820,23 @@ static CGFloat ZNUXClampScrollY(UIScrollView *scroll, CGFloat y) {
 
 - (void)znux_buildBinary:(id)sender {
     ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-    if (!workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0 &&
-        workspace.validatedCount != workspace.filledCount) {
+    ZNBuildPlan *plan=[ZNBuildPlan currentPlan];
+    if(!plan.canBuild){
+        workspace.lastStatus=plan.blockedReason.length?plan.blockedReason:@"当前内容不可生成";
+        [self renderPage];
+        return;
+    }
+    BOOL needsStaticPreflight=(plan.mode==ZNBuildModeStaticOnly||plan.mode==ZNBuildModeMixed);
+    if (needsStaticPreflight && workspace.validatedCount != workspace.filledCount) {
         NSString *error = nil;
         if (![workspace validateAll:&error]) {
             workspace.lastStatus = [NSString stringWithFormat:@"生成预检失败：%@", error ?: workspace.lastStatus ?: @"未知错误"];
             [self renderPage];
             return;
         }
-        [[ZNRuntimeLogger sharedLogger] log:@"[builder] direct build: manual validate skipped; internal preflight passed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[builder][m6.8.2] static/mixed preflight passed"];
+    } else if (plan.mode==ZNBuildModeRuntimeOnly) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder][m6.8.2] runtime-only skips Static preflight providers=%@",[plan.activeProviders componentsJoinedByString:@","]]];
     }
     [self znux_buildBinary:sender];
 }
@@ -15963,6 +15971,8 @@ static NSArray<NSDictionary *> *ZNM585FeatureGroups(ZNBinaryPatchWorkspace *work
 
 @implementation ZNStaticBinaryBuilder (ZNM585UnifiedBuild)
 + (BOOL)znm585_buildWorkspace:(ZNBinaryPatchWorkspace *)workspace outputs:(NSArray<NSString *> **)outputs report:(NSString **)report error:(NSString **)error {
+    if([ZNBuildPlan executionPlan].mode==ZNBuildModeRuntimeOnly)
+        return [self znm585_buildWorkspace:workspace outputs:outputs report:report error:error];
     NSMutableSet *checked=[NSMutableSet set];
     for (ZNBinaryPatchRow *row in workspace.rows) {
         if (!row.offsetText.length) continue;
@@ -16883,6 +16893,8 @@ static BOOL ZNM591PrepareOffsetHookRows(ZNBinaryPatchWorkspace *workspace,NSStri
 @end
 @implementation ZNStaticBinaryBuilder (ZNM591OffsetHookBuild)
 + (BOOL)znm591_buildWorkspace:(ZNBinaryPatchWorkspace *)workspace outputs:(NSArray<NSString *> **)outputs report:(NSString **)report error:(NSString **)error {
+    if([ZNBuildPlan executionPlan].mode==ZNBuildModeRuntimeOnly)
+        return [self znm591_buildWorkspace:workspace outputs:outputs report:report error:error];
     NSString *prepareError=nil;
     if(!ZNM591PrepareOffsetHookRows(workspace,&prepareError)){if(error)*error=prepareError?:@"Offset Hook 自动准备失败";return NO;}
     return [self znm591_buildWorkspace:workspace outputs:outputs report:report error:error];
