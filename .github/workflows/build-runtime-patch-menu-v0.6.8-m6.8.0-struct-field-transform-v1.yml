@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/m6.8-struct-field-transform-v1
+      - refactor/m6.8-architecture-cleanup-v1
   workflow_dispatch:
 
 jobs:
@@ -63,6 +64,9 @@ jobs:
           grep -q 'skipOriginal' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'control.*switch' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'Return Bool Override' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
+          grep -q 'ZNBuilderPolicyCaptureCurrent' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
+          grep -q 'ZNBuilderPolicyCapture' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q 'builder_policy_test.mm' .github/workflows/build-runtime-patch-menu-v0.6.8-m6.8.0-struct-field-transform-v1.yml
           grep -q 'ZNNativeHookTemplateStructFieldTransform' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
           grep -q 'ZNStructFieldBridgeArm64.mm' iosruntimepatchmenu/Makefile
           grep -q 'ZNStructFieldBridgeMutate' iosruntimepatchmenu/src/ZNNativeHookRuntime.mm
@@ -98,6 +102,10 @@ jobs:
             iosruntimepatchmenu/tests/native_hook_template_test.mm \
             -o /tmp/zn_native_hook_template_test
           /tmp/zn_native_hook_template_test
+          clang++ -std=c++17 -fobjc-arc -framework Foundation -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/tests/builder_policy_test.mm \
+            -o /tmp/zn_builder_policy_test
+          /tmp/zn_builder_policy_test
 
       - name: Install dependencies
         run: |
