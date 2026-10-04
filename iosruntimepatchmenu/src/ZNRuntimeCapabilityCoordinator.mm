@@ -142,7 +142,13 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
 }
 
 - (void)requestRefresh {
+    uint32_t imageCount=_dyld_image_count();
     @synchronized(self) {
+        // O(1) fast path for UI callers. dyld add-image changes imageCount,
+        // so a stable count means the published immutable snapshot is current.
+        if(self.snapshotStorage.generation>0 &&
+           self.snapshotStorage.imageCount==imageCount &&
+           !self.refreshScheduled) return;
         self.refreshRequested=YES;
         if(self.refreshScheduled)return;
         self.refreshScheduled=YES;
