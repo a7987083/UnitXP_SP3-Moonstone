@@ -1,9 +1,9 @@
-name: Verify M6.8.3 Shadow Build Router
+name: Verify M6.8.4 BuildManifest V1
 
 on:
   push:
     branches:
-      - feature/m6.8.3-shadow-build-router
+      - feature/m6.8.4-build-manifest-v1
   workflow_dispatch:
 
 jobs:
@@ -21,18 +21,16 @@ jobs:
           set -euxo pipefail
           sh iosruntimepatchmenu/tests/single_ui_owner_contract.sh
 
-      - name: Verify M6.8.3 shadow router
+      - name: Verify M6.8.4 architecture contract
         run: |
           set -euxo pipefail
-          grep -q '#define ZN_PRODUCT_VERSION @"0.6.8.3"' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q '#define ZN_MILESTONE_VERSION @"M6.8.3"' iosruntimepatchmenu/src/ZNBuildVersion.h
-          clang++ -std=c++17 -fobjc-arc -framework Foundation \
-            iosruntimepatchmenu/src/ZNBuildRouterShadow.mm \
-            iosruntimepatchmenu/tests/build_router_shadow_test.mm \
-            -o /tmp/build_router_shadow_test
-          /tmp/build_router_shadow_test
-          grep -q '\[m6.8.3-shadow-router\]' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
-          grep -q 'BOOL runtimeOnly = (actions.count > 0 || hooks.count > 0) && completeStaticRows == 0;' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
+          grep -q '#define ZN_PRODUCT_VERSION @"0.6.8.4"' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q '#define ZN_MILESTONE_VERSION @"M6.8.4"' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'BuildManifest V1' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'ZNBuildExecutorBuildWorkspace' iosruntimepatchmenu/src/ZNUnifiedUI.mm
+          ! grep -q '\[ZNStaticBinaryBuilder buildWorkspace:ws' iosruntimepatchmenu/src/ZNUnifiedUI.mm
+          test -f iosruntimepatchmenu/src/legacy/ZNLegacyStaticBinaryPipeline.mm
+          test ! -e iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
 
       - name: Install dependencies
         run: |
@@ -91,14 +89,14 @@ jobs:
           make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/baseline-build.log
           cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_baseline.dylib
 
-      - name: Build M6.8.3 shadow router
+      - name: Build M6.8.4 BuildManifest V1
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/unified-build.log
           SHORT_SHA="$(git rev-parse --short=7 HEAD)"
-          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.8.3_${SHORT_SHA}.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.8.4_${SHORT_SHA}.dylib"
           cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_single_ui_owner.dylib
 
       - name: Compare binary interface and UI contracts
@@ -128,7 +126,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m6.8.3-shadow-build-router-verification
+          name: m6.8.4-build-manifest-v1-verification
           path: |
             /tmp/baseline-build.log
             /tmp/unified-build.log
@@ -137,5 +135,5 @@ jobs:
             /tmp/baseline-exports.txt
             /tmp/unified-exports.txt
             /tmp/ZonoePatch_single_ui_owner.dylib
-            /tmp/ZonoePatch_M6.8.3_*.dylib
+            /tmp/ZonoePatch_M6.8.4_*.dylib
           if-no-files-found: warn
