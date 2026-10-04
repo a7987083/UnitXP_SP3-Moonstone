@@ -411,10 +411,11 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
 
-    NSString *reason=nil,*callbackReason=nil,*returnReason=nil;
+    NSString *reason=nil,*callbackReason=nil,*returnReason=nil,*structReason=nil;
     NSArray<NSNumber *> *hookArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&reason];
     NSArray<NSNumber *> *callbackArgs=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
     BOOL returnBool=[[ZNNativeHookRuntime sharedRuntime] supportsReturnBoolOverrideForCandidate:candidate reason:&returnReason];
+    NSArray<NSNumber *> *structArgs=[[ZNNativeHookRuntime sharedRuntime] supportedStructFieldArgumentIndicesForCandidate:candidate reason:&structReason];
     UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"测试方式"
                                                                    message:@"Runtime Call 保持左侧测试/捕获；这里选择 Direct 或 IL2CPP Native Hook"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
@@ -425,10 +426,10 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     UIAlertAction *hook=[UIAlertAction actionWithTitle:@"IL2CPP Native Hook" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
         [weakSelf zn64_hookTestTapped:sender];
     }];
-    hook.enabled=(hookArgs.count>0||callbackArgs.count>0||returnBool);
+    hook.enabled=(hookArgs.count>0||callbackArgs.count>0||returnBool||structArgs.count>0);
     [picker addAction:hook];
     if(!hook.enabled){
-        NSString *detail=returnReason.length?returnReason:(callbackReason.length?callbackReason:reason);
+        NSString *detail=structReason.length?structReason:(returnReason.length?returnReason:(callbackReason.length?callbackReason:reason));
         if(detail.length)picker.message=[picker.message stringByAppendingFormat:@"\nNative Hook：%@",detail];
     }
     [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -448,14 +449,8 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSArray<NSNumber *> *indices=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&argReason];
     NSArray<NSNumber *> *callbackIndices=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
     BOOL returnBool=[[ZNNativeHookRuntime sharedRuntime] supportsReturnBoolOverrideForCandidate:candidate reason:&returnReason];
-    NSDictionary *hookABI=ZNIL2CPPDescribeMethodABI(candidate);
-    NSArray *hookParams=[hookABI[@"parameters"] isKindOfClass:NSArray.class]?hookABI[@"parameters"]:@[];
-    NSMutableArray<NSNumber *> *structIndices=[NSMutableArray array];
-    for(NSUInteger i=0;i<hookParams.count;i++){
-        NSDictionary *p=hookParams[i];
-        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
-        if(kind==ZNIL2CPPABIValueKindComplexValueType||[p[@"byRef"] boolValue])[structIndices addObject:@(i)];
-    }
+    NSString *structReason=nil;
+    NSArray<NSNumber *> *structIndices=[[ZNNativeHookRuntime sharedRuntime] supportedStructFieldArgumentIndicesForCandidate:candidate reason:&structReason];
 
     NSUInteger templateCount=(indices.count?1:0)+(callbackIndices.count?1:0)+(returnBool?1:0)+(structIndices.count?1:0);
     if(templateCount>1){
@@ -493,7 +488,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     if(callbackIndices.count){[self zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];return;}
     if(structIndices.count&&!indices.count){[self zn68_presentStructFieldPickerForCandidate:candidate indices:structIndices source:sender];return;}
     if(!indices.count){
-        NSString *why=returnReason.length?returnReason:(callbackReason.length?callbackReason:argReason);
+        NSString *why=structReason.length?structReason:(returnReason.length?returnReason:(callbackReason.length?callbackReason:argReason));
         [self zn60v3_setStatus:why.length?why:@"当前方法没有可用的 Native Hook 模板"];
         return;
     }
