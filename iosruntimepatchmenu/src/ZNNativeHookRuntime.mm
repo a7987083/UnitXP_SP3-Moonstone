@@ -519,7 +519,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         BOOL isArgScale=[templateKey isEqual:@"arg-scale-int32"];
         BOOL isManagedCallback=[templateKey isEqual:@"managed-callback-short-circuit"];
         BOOL isReturnBool=[templateKey isEqual:@"return-bool-override"];
-        if(!isArgScale&&!isManagedCallback&&!isReturnBool)continue;
+        BOOL isStructField=[templateKey isEqual:@"struct-field-transform"];
+        if(!isArgScale&&!isManagedCallback&&!isReturnBool&&!isStructField)continue;
 
         NSUInteger arg=[cfg[@"argumentIndex"] unsignedIntegerValue];
         NSInteger min=[cfg[@"min"] integerValue],max=[cfg[@"max"] integerValue],def=[cfg[@"default"] integerValue];
@@ -527,8 +528,21 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         BOOL callbackValue=[cfg[@"callbackValue"] boolValue];
         BOOL skipOriginal=[cfg[@"skipOriginal"] boolValue];
         BOOL returnBoolValue=cfg[@"returnBoolValue"]?[cfg[@"returnBoolValue"] boolValue]:YES;
+        NSUInteger fieldArg=[cfg[@"fieldArgumentIndex"] unsignedIntegerValue];
+        NSString *fieldMode=[cfg[@"fieldArgumentMode"] isKindOfClass:NSString.class]?cfg[@"fieldArgumentMode"]:@"";
+        uint64_t fieldOffset=[cfg[@"fieldOffset"] unsignedLongLongValue];
+        NSString *fieldCodec=[cfg[@"fieldCodec"] isKindOfClass:NSString.class]?cfg[@"fieldCodec"]:@"";
+        NSString *codecAssembly=[cfg[@"codecAssembly"] isKindOfClass:NSString.class]?cfg[@"codecAssembly"]:@"";
+        NSString *codecNamespace=[cfg[@"codecNamespace"] isKindOfClass:NSString.class]?cfg[@"codecNamespace"]:@"";
+        NSString *codecClass=[cfg[@"codecClass"] isKindOfClass:NSString.class]?cfg[@"codecClass"]:@"";
+        NSString *codecGetter=[cfg[@"codecGetterMethod"] isKindOfClass:NSString.class]?cfg[@"codecGetterMethod"]:@"";
+        NSString *codecSetter=[cfg[@"codecSetterMethod"] isKindOfClass:NSString.class]?cfg[@"codecSetterMethod"]:@"";
         if(isArgScale&&(arg>=entry->argumentCount||min<1||max<min||def<min||def>max))continue;
         if(isManagedCallback&&(callbackArg>=entry->argumentCount||!skipOriginal))continue;
+        if(isStructField&&(fieldArg>=entry->argumentCount||![fieldMode isEqualToString:@"indirect-pointer"]||
+                          ![fieldCodec isEqualToString:@"secure-long-accessor"]||fieldOffset>0x100000ULL||
+                          !codecClass.length||!codecGetter.length||!codecSetter.length||
+                          min<1||max<min||def<min||def>max))continue;
 
         NSArray *types=@[];BOOL sig=NO;
         if(entry->flags&ZNRuntimeActionFlagParameterSignature){
@@ -549,10 +563,17 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             a.templateKind=ZNNativeHookTemplateManagedCallbackShortCircuit;
             a.callbackArgumentIndex=callbackArg;a.callbackValue=callbackValue;a.skipOriginal=YES;
             a.minValue=0;a.maxValue=1;a.defaultValue=0;
-        }else{
+        }else if(isReturnBool){
             a.templateKind=ZNNativeHookTemplateReturnBoolOverride;
             a.returnBoolValue=returnBoolValue;
             a.minValue=0;a.maxValue=1;a.defaultValue=0;
+        }else{
+            a.templateKind=ZNNativeHookTemplateStructFieldTransform;
+            a.fieldArgumentIndex=fieldArg;a.fieldArgumentMode=fieldMode;a.fieldOffset=fieldOffset;
+            a.fieldCodec=fieldCodec;a.codecAssembly=codecAssembly;a.codecNamespaceName=codecNamespace;
+            a.codecClassName=codecClass;a.codecGetterMethod=codecGetter;a.codecSetterMethod=codecSetter;
+            a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=1;
+            a.minValue=min;a.maxValue=max;a.defaultValue=def;
         }
         a.fallbackRVA=[cfg[@"fallbackRVA"] unsignedLongLongValue];
         a.fallbackUUID=[cfg[@"fallbackUUID"] isKindOfClass:NSString.class]?cfg[@"fallbackUUID"]:@"";
