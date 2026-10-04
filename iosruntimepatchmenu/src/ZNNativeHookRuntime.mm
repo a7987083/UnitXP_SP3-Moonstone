@@ -268,19 +268,34 @@ static NSDictionary *ZNNativeResolveDescriptor(NSString *assembly,
                                                 NSUInteger argumentCount,
                                                 NSDictionary *candidate,
                                                 NSString **error) {
-    uintptr_t methodInfo=[candidate[@"methodInfo"] unsignedLongLongValue];
-    uintptr_t pointer=[candidate[@"methodPointer"] unsignedLongLongValue];
+    uintptr_t candidateMethodInfo=[candidate[@"methodInfo"] unsignedLongLongValue];
+    uintptr_t candidatePointer=[candidate[@"methodPointer"] unsignedLongLongValue];
+    uintptr_t methodInfo=candidateMethodInfo;
+    uintptr_t pointer=candidatePointer;
+    NSString *pointerSource=@"candidate";
 
     ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
     [resolver refresh];
-    if((!methodInfo||!pointer)&&resolver.isAvailable){
+    if(resolver.isAvailable){
         NSDictionary *resolved=[resolver resolveMethodAssembly:assembly
                                                      namespace:namespaceName?:@""
                                                      className:className
                                                         method:methodName
                                                  argumentCount:(NSInteger)argumentCount];
-        if(!methodInfo)methodInfo=[resolved[@"methodInfo"] unsignedLongLongValue];
-        if(!pointer)pointer=[resolved[@"methodPointer"] unsignedLongLongValue];
+        uintptr_t freshMethodInfo=[resolved[@"methodInfo"] unsignedLongLongValue];
+        uintptr_t freshPointer=[resolved[@"methodPointer"] unsignedLongLongValue];
+        if(freshMethodInfo)methodInfo=freshMethodInfo;
+        if(freshPointer){
+            pointer=freshPointer;
+            pointerSource=[resolved[@"pointerSource"] isKindOfClass:NSString.class]?resolved[@"pointerSource"]:@"resolver";
+        }
+        if(candidatePointer&&freshPointer&&candidatePointer!=freshPointer){
+            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-resolve] candidate pointer mismatch candidate=0x%llX resolver=0x%llX %@.%@::%@/%lu",
+                                               (unsigned long long)candidatePointer,
+                                               (unsigned long long)freshPointer,
+                                               namespaceName?:@"",className?:@"",methodName?:@"",
+                                               (unsigned long)argumentCount]];
+        }
     }
     if(!methodInfo||!pointer){
         if(error)*error=[NSString stringWithFormat:@"Native Hook resolve 失败：%@.%@::%@/%lu",
@@ -296,7 +311,8 @@ static NSDictionary *ZNNativeResolveDescriptor(NSString *assembly,
     uint32_t implFlags=0;
     uint32_t flags=getFlags((const void *)methodInfo,&implFlags);
     BOOL isStatic=(flags&kZNNativeMethodAttributeStatic)!=0;
-    return @{@"methodInfo":@(methodInfo),@"methodPointer":@(pointer),@"static":@(isStatic),@"methodFlags":@(flags)};
+    return @{@"methodInfo":@(methodInfo),@"methodPointer":@(pointer),@"static":@(isStatic),@"methodFlags":@(flags),
+             @"pointerSource":pointerSource?:@"unknown",@"candidateMethodPointer":@(candidatePointer)};
 }
 
 static uint64_t ZNNativeAlign8(uint64_t value){return (value+7ULL)&~7ULL;}
