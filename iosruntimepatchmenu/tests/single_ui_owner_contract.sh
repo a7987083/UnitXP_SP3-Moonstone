@@ -28,8 +28,20 @@ grep -q 'Hook 测试' "$UI"
 grep -q 'Direct Native Call：当前分支尚未接入 backend' "$UI"
 grep -q 'method_exchangeImplementations' "$UI"
 grep -q 'ZNRMCBuilderFinalizeBuildGate' "$UI"
-grep -q 'hasRuntimeAuthoring' "$UI"
-grep -q 'workspace.filledCount > 0 || hasRuntimeAuthoring' "$UI"
+grep -q 'ZNBuildCapabilityRegistry.h' "$UI"
+grep -q 'ZNBinaryBuildCoordinator sharedCoordinator' "$UI"
+test -f "$SRC/ZNBuildCapabilityRegistry.h"
+test -f "$SRC/ZNBuildCapabilityRegistry.mm"
+grep -q 'src/ZNBuildCapabilityRegistry.mm' "$MAKEFILE"
+grep -q 'registerProviderIdentifier' "$SRC/ZNBuildCapabilityRegistry.mm"
+grep -q 'ZNRegisterBuildCapabilityProvider' "$SRC/ZNBuildCapabilityRegistry.h"
+grep -q 'runtime-method-call' "$SRC/ZNBuildCapabilityRegistry.mm"
+grep -q 'native-hook' "$SRC/ZNBuildCapabilityRegistry.mm"
+grep -q 'static-patch' "$SRC/ZNBuildCapabilityRegistry.mm"
+
+# UI may ask only the coordinator whether Build is enabled. Concrete build
+# provider stores must not participate in any build-enabled expression.
+! grep -E 'build\.enabled.*filledCount|build\.enabled.*runtime|build\.enabled.*native|button\.enabled.*filledCount' "$UI"
 grep -q 'znm630_hardCutRenderRuntimeAtY' "$UI"
 
 echo "single UI owner contract: OK"
