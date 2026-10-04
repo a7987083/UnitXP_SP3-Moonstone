@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "ZNRuntimeActionRuntime.h"
+#import "ZNRuntimeCapabilityCoordinator.h"
 #import "ZNPatchCore.h"
 
 extern "C" void ZNInstallRuntimeMethodCallFinderUIDeferred(void);
@@ -19,7 +20,8 @@ extern "C" void ZNInstallRuntimeMethodCallDeferred(void) {
         // typed Runtime control card, leaving two public Runtime action UIs.
         // M5.1 + M5.7 are now the single customer Runtime surface.
         ZNInstallMethodFinderM42UIDeferred();
-        [[ZNRuntimeActionRuntime sharedRuntime] refresh];
-        [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] M5.7 backend installed: Finder/Builder retained; legacy duplicate Feature action UI disabled"];
+        [[ZNRuntimeCapabilityCoordinator sharedCoordinator] start];
+        [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
+        [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] M6.8.5 backend installed: discovery delegated to RuntimeCapabilityCoordinator"];
     });
 }
