@@ -3025,9 +3025,9 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = 9.0;
 
-    ZNStaticDispatchRuntime *runtime = [ZNStaticDispatchRuntime sharedRuntime];
-    [runtime refresh];
-    NSArray<NSDictionary *> *features = ZN50FeatureGroups(runtime.records);
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
+    NSArray<ZNStaticPatchRecord *> *staticRecords=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.staticRecords?:@[];
+    NSArray<NSDictionary *> *features = ZN50FeatureGroups(staticRecords);
     ZN50RestorePersistedFeatureStates(features);
 
     if (!features.count) {
@@ -3073,9 +3073,9 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = 7.0;
 
-    ZNStaticDispatchRuntime *runtime = [ZNStaticDispatchRuntime sharedRuntime];
-    [runtime refresh];
-    NSArray<NSDictionary *> *features = ZN50FeatureGroups(runtime.records);
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
+    NSArray<ZNStaticPatchRecord *> *staticRecords=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.staticRecords?:@[];
+    NSArray<NSDictionary *> *features = ZN50FeatureGroups(staticRecords);
     ZN50RestorePersistedFeatureStates(features);
 
     if (!features.count) {
@@ -3122,9 +3122,9 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
     NSInteger index = sender.tag - kZN50FeatureToggleTagBase;
     if (index < 0) return;
 
-    ZNStaticDispatchRuntime *runtime = [ZNStaticDispatchRuntime sharedRuntime];
-    [runtime refresh];
-    NSArray<NSDictionary *> *features = ZN50FeatureGroups(runtime.records);
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
+    NSArray<ZNStaticPatchRecord *> *staticRecords=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.staticRecords?:@[];
+    NSArray<NSDictionary *> *features = ZN50FeatureGroups(staticRecords);
     if ((NSUInteger)index >= features.count) return;
 
     NSDictionary *feature = features[(NSUInteger)index];
@@ -7458,9 +7458,8 @@ static void ZNRMCRemoveEmptyStaticCardIfNeeded(UIView *contentView) {
 
 - (void)znrmc_renderFeatureGroupsCompact {
     [self znrmc_renderFeatureGroupsCompact];
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
-    NSArray<ZNRuntimeMethodActionRecord *> *actions = runtime.records;
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
+    NSArray<ZNRuntimeMethodActionRecord *> *actions=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.runtimeMethods?:@[];
     if (!actions.count) return;
 
     ZNRMCRemoveEmptyStaticCardIfNeeded(self.contentView);
@@ -11842,9 +11841,8 @@ static void ZN49RemoveLegacyRuntimeRows(UIView *contentView) {
 @implementation ZNRuntimeMenuControllerV040 (ZNM49GenericInvokeEditableArgs)
 
 - (void)zn49_renderRuntimeActionsCompact:(BOOL)compact {
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
-    NSArray<ZNRuntimeMethodActionRecord *> *records = runtime.records ?: @[];
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
+    NSArray<ZNRuntimeMethodActionRecord *> *records=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.runtimeMethods?:@[];
 
     ZN49RemoveLegacyRuntimeRows(self.contentView);
 
@@ -12989,12 +12987,11 @@ static NSString *ZN51ValueKey(uint32_t actionID, NSUInteger arg) {
 }
 
 - (void)zn51_renderRuntime:(BOOL)compact {
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     [self zn51_removeRuntimeCards];
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = ZN51MaxY(self.contentView) + (compact ? 6.0 : 8.0);
-    NSArray<ZNRuntimeMethodActionRecord *> *records = runtime.records ?: @[];
+    NSArray<ZNRuntimeMethodActionRecord *> *records=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.runtimeMethods?:@[];
     for (NSUInteger i = 0; i < records.count; i++) {
         ZNRuntimeMethodActionRecord *record = records[i];
         NSArray<NSDictionary *> *configs = record.argumentControlConfigs.count == record.argumentCount ? record.argumentControlConfigs : @[];
@@ -15500,11 +15497,10 @@ static NSString *ZNM584FixedSummary(ZNRuntimeMethodActionRecord *record, NSArray
 }
 
 - (void)znm584_renderRuntime:(BOOL)compact {
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     [self znm584_removeRuntimeCards];
 
-    NSArray<ZNRuntimeMethodActionRecord *> *records = runtime.records ?: @[];
+    NSArray<ZNRuntimeMethodActionRecord *> *records=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.runtimeMethods?:@[];
     [self znm584_removeStaticEmptyStateIfRuntimeExists:records];
 
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
