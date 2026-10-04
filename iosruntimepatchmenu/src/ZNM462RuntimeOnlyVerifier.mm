@@ -1,6 +1,7 @@
 #import "ZNM462RuntimeOnlyVerifier.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNStaticPatchFormat.h"
+#import "ZNGeneratedDataLayout.h"
 #import "ZNPatchCore.h"
 
 #import <mach-o/loader.h>
@@ -74,6 +75,25 @@ static BOOL ZNM462NativeHookConfigValid(const uint8_t *table,
         NSUInteger arg=[cfg[@"callbackArgumentIndex"] unsignedIntegerValue];
         return arg < entry->argumentCount && [cfg[@"skipOriginal"] boolValue];
     }
+    if ([templateKey isEqual:@"return-bool-override"]) {
+        return [cfg[@"returnBoolValue"] isKindOfClass:NSNumber.class];
+    }
+    if ([templateKey isEqual:@"struct-field-transform"]) {
+        NSUInteger arg=[cfg[@"fieldArgumentIndex"] unsignedIntegerValue];
+        NSString *mode=[cfg[@"fieldArgumentMode"] isKindOfClass:NSString.class]?cfg[@"fieldArgumentMode"]:@"";
+        NSString *codec=[cfg[@"fieldCodec"] isKindOfClass:NSString.class]?cfg[@"fieldCodec"]:@"";
+        NSString *codecClass=[cfg[@"codecClass"] isKindOfClass:NSString.class]?cfg[@"codecClass"]:@"";
+        NSString *getter=[cfg[@"codecGetterMethod"] isKindOfClass:NSString.class]?cfg[@"codecGetterMethod"]:@"";
+        NSString *setter=[cfg[@"codecSetterMethod"] isKindOfClass:NSString.class]?cfg[@"codecSetterMethod"]:@"";
+        uint64_t fieldOffset=[cfg[@"fieldOffset"] unsignedLongLongValue];
+        NSInteger min=[cfg[@"min"] integerValue],max=[cfg[@"max"] integerValue],def=[cfg[@"default"] integerValue];
+        return arg < entry->argumentCount &&
+               [mode isEqualToString:@"indirect-pointer"] &&
+               [codec isEqualToString:@"secure-long-accessor"] &&
+               fieldOffset <= 0x100000ULL &&
+               codecClass.length && getter.length && setter.length &&
+               min >= 1 && max >= min && def >= min && def <= max;
+    }
     return NO;
 }
 
@@ -146,17 +166,22 @@ static BOOL ZNM462VerifyPath(NSString *path,
         if (zndata->offset > size || zndata->size > size - zndata->offset) { localError = @"M4.6.2 verifier：__zndata range 越界"; break; }
         if ((uint64_t)zndata->offset + zndata->size > owned->fileoff + owned->filesize) { localError = @"M4.6.2 verifier：__zndata 超过 __ZNDATA 容量"; break; }
 
-        uint64_t staticBytes = ZNM462Align8(sizeof(ZN44StaticHeader));
-        if (zndata->size < staticBytes + sizeof(ZNRuntimeActionHeader)) { localError = @"M4.6.2 verifier：Runtime Action table 缺失"; break; }
         const ZN44StaticHeader *staticHeader = (const ZN44StaticHeader *)(base + zndata->offset);
         if (staticHeader->magic0 != ZN44_STATIC_MAGIC0 || staticHeader->magic1 != ZN44_STATIC_MAGIC1 ||
             staticHeader->version != ZN44_STATIC_VERSION_V3 || staticHeader->entrySize != sizeof(ZN44StaticEntry) ||
-            staticHeader->count != 0) {
-            localError = @"M4.6.2 verifier：runtime-only Static Header 契约无效";
+            staticHeader->count != 0 ||
+            (staticHeader->flags & ZN44_STATIC_HEADER_FLAG_GENERATED_LAYOUT_V1) == 0) {
+            localError = @"M6.8.4 verifier：runtime-only Generated Data Layout V1 Static Header 契约无效";
+            break;
+        }
+        uint64_t actionRelative = 0;
+        if (!ZNGeneratedDataLayoutV1LocateRuntimeAction(base + zndata->offset, zndata->size, &actionRelative) ||
+            actionRelative > zndata->size || zndata->size - actionRelative < sizeof(ZNRuntimeActionHeader)) {
+            localError = @"M6.8.4 verifier：Generated Data Layout V1 Runtime Action table 缺失/越界";
             break;
         }
 
-        const uint8_t *table = base + zndata->offset + staticBytes;
+        const uint8_t *table = base + zndata->offset + actionRelative;
         const ZNRuntimeActionHeader *header = (const ZNRuntimeActionHeader *)table;
         if (header->magic != ZN_RUNTIME_ACTION_MAGIC || header->version != ZN_RUNTIME_ACTION_VERSION ||
             header->entrySize != sizeof(ZNRuntimeMethodCallEntry) || header->count > ZN_RUNTIME_ACTION_MAX_ENTRIES) {
@@ -176,7 +201,7 @@ static BOOL ZNM462VerifyPath(NSString *path,
             localError = @"M4.6.2 verifier：Runtime Action table/string pool range 无效";
             break;
         }
-        if (staticBytes + header->totalSize > zndata->size) {
+        if (actionRelative + header->totalSize > zndata->size) {
             localError = @"M4.6.2 verifier：Runtime Action table 超过 __zndata section size";
             break;
         }
