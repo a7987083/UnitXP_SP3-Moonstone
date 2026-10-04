@@ -298,13 +298,6 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 }
 
 
-- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
-                                                    source:(UIButton *)source;
-- (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
-                                         argumentIndex:(NSUInteger)argumentIndex
-                                                source:(UIButton *)source;
-
-
 - (void)zn52x_renderResultsAtWidth:(CGFloat)width {
     [self zn52x_renderResultsAtWidth:width];
     NSArray<NSDictionary *> *visible=ZNM52XVisible(self);
