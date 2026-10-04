@@ -38,6 +38,11 @@ grep -q 'ZNRegisterBuildCapabilityProvider' "$SRC/ZNBuildCapabilityRegistry.h"
 grep -q 'runtime-method-call' "$SRC/ZNBuildCapabilityRegistry.mm"
 grep -q 'native-hook' "$SRC/ZNBuildCapabilityRegistry.mm"
 grep -q 'static-patch' "$SRC/ZNBuildCapabilityRegistry.mm"
+grep -q 'ZNBuildCapabilityKindRuntimeOwnedData' "$SRC/ZNBuildCapabilityRegistry.h"
+grep -q 'hasBuildableContentOfKind' "$SRC/ZNBuildCapabilityRegistry.mm"
+grep -q 'ZNBuildCapabilityRegistry.h' "$SRC/ZNStaticBinaryPipeline.mm"
+grep -q 'ZNBuildCapabilityKindRuntimeOwnedData' "$SRC/ZNStaticBinaryPipeline.mm"
+! grep -q '(actions.count > 0 || hooks.count > 0) && completeStaticRows == 0' "$SRC/ZNStaticBinaryPipeline.mm"
 
 # UI may ask only the coordinator whether Build is enabled. Concrete build
 # provider stores must not participate in any build-enabled expression.
