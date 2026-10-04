@@ -3,6 +3,7 @@
 #import "ZNFeatureControlModel.h"
 #import "ZNFeatureMetadataCodec.h"
 #import "ZNStaticDispatchRuntime.h"
+#import "ZNRuntimeCapabilityCoordinator.h"
 #import "ZNStaticPatchFormat.h"
 #import "ZNValueTypeModel.h"
 
@@ -60,18 +61,15 @@ static NSDictionary *ZNFSDisplay(ZNStaticPatchRecord *record) {
 }
 
 - (NSArray<NSDictionary *> *)currentFeatures {
-    ZNStaticDispatchRuntime *runtime = [ZNStaticDispatchRuntime sharedRuntime];
-
-    // Existing callers may still request refresh; M6.2.1 makes an unchanged
-    // discovery generation an O(1) cache hit. Snapshot rebuilding is strictly
-    // generation-bound.
-    [runtime refresh];
-    uint64_t runtimeGeneration = runtime.snapshotGeneration;
+    ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
+    [coordinator requestRefresh];
+    ZNRuntimeCapabilitySnapshot *snapshot=coordinator.currentSnapshot;
+    uint64_t runtimeGeneration=snapshot.generation;
     if (self.generation == runtimeGeneration && self.cachedFeatures) {
         return self.cachedFeatures;
     }
 
-    NSArray<ZNStaticPatchRecord *> *records = runtime.records ?: @[];
+    NSArray<ZNStaticPatchRecord *> *records = snapshot.staticRecords ?: @[];
     NSMutableArray<NSString *> *order = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSMutableArray<ZNStaticPatchRecord *> *> *members = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSMutableDictionary *> *metadata = [NSMutableDictionary dictionary];
