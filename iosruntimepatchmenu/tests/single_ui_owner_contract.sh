@@ -28,6 +28,8 @@ grep -q 'Hook 测试' "$UI"
 grep -q 'Direct Native Call：当前分支尚未接入 backend' "$UI"
 grep -q 'method_exchangeImplementations' "$UI"
 grep -q 'ZNRMCBuilderFinalizeBuildGate' "$UI"
+grep -q 'hasRuntimeAuthoring' "$UI"
+grep -q 'workspace.filledCount > 0 || hasRuntimeAuthoring' "$UI"
 grep -q 'znm630_hardCutRenderRuntimeAtY' "$UI"
 
 echo "single UI owner contract: OK"
