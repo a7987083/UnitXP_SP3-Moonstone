@@ -102,7 +102,9 @@ jobs:
 
           strings -a /tmp/ZonoePatch_baseline.dylib > /tmp/baseline-strings.txt
           strings -a /tmp/ZonoePatch_single_ui_owner.dylib > /tmp/unified-strings.txt
-          for marker in             '方法查找'             'IL2CPP Native Hook'             '生成新二进制'             'Hook 测试'             'Direct Native Call：当前分支尚未接入 backend'             '[m6.3-ui]'             '[native-hook]'; do
+          # strings(1) is not a reliable UTF-8 oracle for ObjC literals.
+          # Compare stable ASCII feature/runtime markers instead.
+          for marker in 'IL2CPP Native Hook' 'Runtime Method Call' 'Direct Native Call' 'arg-scale-int32' 'struct-field-transform' '[m6.3-ui]' '[native-hook]'; do
             grep -Fq "$marker" /tmp/baseline-strings.txt
             grep -Fq "$marker" /tmp/unified-strings.txt
           done
