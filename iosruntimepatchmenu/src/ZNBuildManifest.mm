@@ -163,6 +163,49 @@ static BOOL ZNM684RuntimeSignatureBridge(NSArray<NSString *> *builderOutputs,
             }];
             return items;
         };
+        runtimeProvider.prepare=^BOOL(ZNBuildManifest *manifest,
+                                      ZNBinaryPatchWorkspace *workspace,
+                                      NSString **error) {
+            (void)manifest;(void)workspace;
+            ZNRuntimeActionStore *store=[ZNRuntimeActionStore sharedStore];
+            NSArray<ZNRuntimeMethodAction *> *actions=[store actionsSnapshot];
+            for(NSUInteger actionIndex=0;actionIndex<actions.count;actionIndex++) {
+                ZNRuntimeMethodAction *action=actions[actionIndex];
+                if(action.argumentControlConfigs.count!=action.argumentCount)continue;
+                NSMutableArray<NSDictionary<NSString *,id> *> *configs=[action.argumentControlConfigs mutableCopy];
+                BOOL changed=NO;
+                for(NSUInteger arg=0;arg<action.argumentCount;arg++) {
+                    NSDictionary *original=configs[arg];
+                    if(![original[@"enabled"] boolValue] ||
+                       ZNRuntimeArgumentControlTypeFromKey(original[@"type"])!=ZNRuntimeArgumentControlTypeSlider)
+                        continue;
+                    NSString *text=arg<action.argumentValues.count?ZNM684Trim(action.argumentValues[arg]):@"";
+                    NSDecimalNumber *number=text.length
+                        ? [NSDecimalNumber decimalNumberWithString:text locale:@{NSLocaleDecimalSeparator:@"."}]
+                        : NSDecimalNumber.notANumber;
+                    double maxValue=number.doubleValue;
+                    if(!text.length || [number isEqualToNumber:NSDecimalNumber.notANumber] ||
+                       !isfinite(maxValue) || maxValue<=0.0) {
+                        if(error)*error=[NSString stringWithFormat:@"%@ 参数%lu：滑块必须在生成时填写大于 0 的最大值",
+                                         action.title.length?action.title:action.methodName,
+                                         (unsigned long)arg+1];
+                        return NO;
+                    }
+                    NSMutableDictionary *cfg=[original mutableCopy];
+                    cfg[@"min"]=@0;cfg[@"max"]=number;cfg[@"step"]=@1;cfg[@"default"]=number;
+                    configs[arg]=[cfg copy];changed=YES;
+                }
+                if(changed) {
+                    NSString *local=nil;
+                    if(![store updateArgumentControlConfigs:configs atIndex:actionIndex error:&local]) {
+                        if(error)*error=local ?: @"Runtime Slider 范围写入失败";
+                        return NO;
+                    }
+                }
+            }
+            return YES;
+        };
+
         runtimeProvider.emit=^BOOL(ZNBuildManifest *manifest,
                                    NSArray<NSString *> *builderOutputs,
                                    BOOL runtimeOnlyBase,
