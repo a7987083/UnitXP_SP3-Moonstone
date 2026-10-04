@@ -5,6 +5,7 @@
 
 @interface ZNBuildCapabilityRegistry ()
 @property(nonatomic,strong) NSMutableDictionary<NSString *, ZNBuildCapabilityProbe> *providers;
+@property(nonatomic,strong) NSMutableDictionary<NSString *, NSNumber *> *providerKinds;
 @property(nonatomic,assign) BOOL builtinsInstalled;
 @end
 
@@ -22,6 +23,7 @@
     self=[super init];
     if(!self)return nil;
     _providers=[NSMutableDictionary dictionary];
+    _providerKinds=[NSMutableDictionary dictionary];
     return self;
 }
 
@@ -35,25 +37,44 @@
         self.providers[@"static-patch"] = [^BOOL{
             return [ZNBinaryPatchWorkspace sharedWorkspace].filledCount > 0;
         } copy];
+        self.providerKinds[@"static-patch"] = @(ZNBuildCapabilityKindStaticPatch);
+
         self.providers[@"runtime-method-call"] = [^BOOL{
             return [ZNRuntimeActionStore sharedStore].actionsSnapshot.count > 0;
         } copy];
+        self.providerKinds[@"runtime-method-call"] = @(ZNBuildCapabilityKindRuntimeOwnedData);
+
         self.providers[@"native-hook"] = [^BOOL{
             return [ZNNativeHookStore sharedStore].actionsSnapshot.count > 0;
         } copy];
+        self.providerKinds[@"native-hook"] = @(ZNBuildCapabilityKindRuntimeOwnedData);
     }
 }
 
 - (void)registerProviderIdentifier:(NSString *)identifier
-             hasBuildableContent:(ZNBuildCapabilityProbe)probe {
+                              kind:(ZNBuildCapabilityKind)kind
+               hasBuildableContent:(ZNBuildCapabilityProbe)probe {
     NSString *key=[identifier stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if(!key.length||!probe)return;
-    @synchronized(self){ self.providers[key]=[probe copy]; }
+    @synchronized(self){
+        self.providers[key]=[probe copy];
+        self.providerKinds[key]=@(kind);
+    }
+}
+
+- (void)registerProviderIdentifier:(NSString *)identifier
+               hasBuildableContent:(ZNBuildCapabilityProbe)probe {
+    [self registerProviderIdentifier:identifier
+                                kind:ZNBuildCapabilityKindRuntimeOwnedData
+                 hasBuildableContent:probe];
 }
 
 - (void)unregisterProviderIdentifier:(NSString *)identifier {
     if(!identifier.length)return;
-    @synchronized(self){ [self.providers removeObjectForKey:identifier]; }
+    @synchronized(self){
+        [self.providers removeObjectForKey:identifier];
+        [self.providerKinds removeObjectForKey:identifier];
+    }
 }
 
 - (NSArray<NSString *> *)activeProviderIdentifiers {
@@ -73,6 +94,22 @@
 
 - (BOOL)hasBuildableContent {
     return self.activeProviderIdentifiers.count > 0;
+}
+
+- (NSArray<NSString *> *)activeProviderIdentifiersOfKind:(ZNBuildCapabilityKind)kind {
+    NSArray<NSString *> *active=self.activeProviderIdentifiers;
+    NSMutableArray<NSString *> *filtered=[NSMutableArray array];
+    @synchronized(self) {
+        for(NSString *identifier in active) {
+            NSNumber *stored=self.providerKinds[identifier];
+            if(stored && stored.unsignedIntegerValue==kind) [filtered addObject:identifier];
+        }
+    }
+    return [filtered copy];
+}
+
+- (BOOL)hasBuildableContentOfKind:(ZNBuildCapabilityKind)kind {
+    return [self activeProviderIdentifiersOfKind:kind].count > 0;
 }
 
 @end
@@ -108,7 +145,17 @@
 @end
 
 void ZNRegisterBuildCapabilityProvider(NSString *identifier, ZNBuildCapabilityProbe probe) {
-    [[ZNBuildCapabilityRegistry sharedRegistry] registerProviderIdentifier:identifier hasBuildableContent:probe];
+    [[ZNBuildCapabilityRegistry sharedRegistry] registerProviderIdentifier:identifier
+                                                                      kind:ZNBuildCapabilityKindRuntimeOwnedData
+                                                       hasBuildableContent:probe];
+}
+
+void ZNRegisterBuildCapabilityProviderWithKind(NSString *identifier,
+                                               ZNBuildCapabilityKind kind,
+                                               ZNBuildCapabilityProbe probe) {
+    [[ZNBuildCapabilityRegistry sharedRegistry] registerProviderIdentifier:identifier
+                                                                      kind:kind
+                                                       hasBuildableContent:probe];
 }
 
 void ZNUnregisterBuildCapabilityProvider(NSString *identifier) {
