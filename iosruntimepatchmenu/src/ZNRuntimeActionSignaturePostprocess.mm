@@ -5,6 +5,7 @@
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
 #import "ZNStaticPatchFormat.h"
+#import "ZNGeneratedDataLayout.h"
 #import "ZNPatchCore.h"
 #import <mach-o/loader.h>
 #import <sys/mman.h>
@@ -99,13 +100,14 @@ static BOOL ZNM46AugmentPath(NSString *path,
             localError = @"M4.6 Static Dispatch Header 无效";
             break;
         }
-        uint64_t staticBytes = ZNM46Align8(sizeof(ZN44StaticHeader) + (uint64_t)staticHeader->count * staticHeader->entrySize);
-        if (staticBytes > zndata->size || zndata->size - staticBytes < sizeof(ZNRuntimeActionHeader)) {
-            localError = @"M4.6 Runtime Action table 不存在或越界";
+        uint64_t actionRelative = 0;
+        if (!ZNGeneratedDataLayoutV1LocateRuntimeAction(base + sectionStart, zndata->size, &actionRelative) ||
+            actionRelative > zndata->size || zndata->size - actionRelative < sizeof(ZNRuntimeActionHeader)) {
+            localError = @"M6.8.4 Generated Data Layout V1 / Runtime Action table 无效";
             break;
         }
 
-        uint64_t tableOffset = sectionStart + staticBytes;
+        uint64_t tableOffset = sectionStart + actionRelative;
         ZNRuntimeActionHeader *header = (ZNRuntimeActionHeader *)(base + tableOffset);
         if (header->magic != ZN_RUNTIME_ACTION_MAGIC || header->version != ZN_RUNTIME_ACTION_VERSION ||
             header->entrySize != sizeof(ZNRuntimeMethodCallEntry) || header->count > ZN_RUNTIME_ACTION_MAX_ENTRIES) {
@@ -122,7 +124,7 @@ static BOOL ZNM46AugmentPath(NSString *path,
         uint64_t entryBytes = (uint64_t)header->count * header->entrySize;
         uint64_t fixedEnd = sizeof(*header) + entryBytes;
         if (fixedEnd > header->totalSize || header->stringPoolOffset < fixedEnd ||
-            header->totalSize > zndata->size - staticBytes) {
+            header->totalSize > zndata->size - actionRelative) {
             localError = @"M4.6 Runtime Action table size 无效";
             break;
         }
