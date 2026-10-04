@@ -118,6 +118,7 @@ static NSString * const kZNNativeHookSchedulerValuePrefix =
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),self.queue,^{
         typeof(self) self=weakSelf;
         if(!self)return;
+        if([self stateForActionID:action.actionID]==ZNNativeHookLifecycleStateActive)return;
         ZNNativeHookAction *latest=nil;
         @synchronized(self) {
             latest=self.actionsByID[key];
