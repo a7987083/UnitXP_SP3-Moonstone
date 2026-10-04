@@ -650,6 +650,33 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 }
 
 
+- (NSArray<NSNumber *> *)supportedStructFieldArgumentIndicesForCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                                  reason:(NSString **)reason {
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    if(![abi[@"available"] boolValue]||params.count!=argc){
+        if(reason)*reason=ZNNativeString(abi[@"reason"]).length?ZNNativeString(abi[@"reason"]):@"参数 ABI 不完整";
+        return @[];
+    }
+    if([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue]){
+        if(reason)*reason=@"StructFieldTransform V1 暂不支持 generic/inflated 方法";
+        return @[];
+    }
+    BOOL isStatic=!([abi[@"instanceKnown"] boolValue]&&[abi[@"instance"] boolValue]);
+    NSMutableArray<NSNumber *> *indices=[NSMutableArray array];
+    for(NSUInteger i=0;i<params.count;i++){
+        NSDictionary *p=params[i];
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
+        BOOL candidateKind=(kind==ZNIL2CPPABIValueKindComplexValueType)||[p[@"byRef"] boolValue];
+        uint32_t reg=0;
+        if(candidateKind&&ZNNativeHookArgRegisterIndex(isStatic,i,argc,&reg)&&reg<8)[indices addObject:@(i)];
+    }
+    if(!indices.count&&reason)*reason=@"没有可用于 StructFieldTransform V1 的 complex/by-ref 参数";
+    return indices;
+}
+
+
 - (BOOL)supportsReturnBoolOverrideForCandidate:(NSDictionary<NSString *,id> *)candidate
                                          reason:(NSString **)reason {
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
