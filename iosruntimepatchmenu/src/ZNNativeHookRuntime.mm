@@ -317,6 +317,34 @@ typedef void *(*ZNManagedObjectGetClassFn)(void *);
 typedef const void *(*ZNManagedClassGetMethodFromNameFn)(void *, const char *, int);
 typedef void *(*ZNManagedRuntimeInvokeFn)(const void *, void *, void **, void **);
 
+static std::atomic<uintptr_t> gZNManagedObjectGetClass;
+static std::atomic<uintptr_t> gZNManagedClassGetMethodFromName;
+static std::atomic<uintptr_t> gZNManagedRuntimeInvoke;
+
+static BOOL ZNManagedPrepareInvokeBridge(NSString **error) {
+    if(gZNManagedObjectGetClass.load(std::memory_order_acquire) &&
+       gZNManagedClassGetMethodFromName.load(std::memory_order_acquire) &&
+       gZNManagedRuntimeInvoke.load(std::memory_order_acquire)) return YES;
+
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    if(!resolver.isAvailable){
+        if(error)*error=@"Managed Callback prepare：IL2CPP Resolver 不可用";
+        return NO;
+    }
+    uintptr_t objectGetClass=(uintptr_t)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_object_get_class");
+    uintptr_t classGetMethod=(uintptr_t)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_class_get_method_from_name");
+    uintptr_t runtimeInvoke=(uintptr_t)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_runtime_invoke");
+    if(!objectGetClass||!classGetMethod||!runtimeInvoke){
+        if(error)*error=@"Managed Callback prepare：IL2CPP invoke API 不完整";
+        return NO;
+    }
+    gZNManagedObjectGetClass.store(objectGetClass,std::memory_order_release);
+    gZNManagedClassGetMethodFromName.store(classGetMethod,std::memory_order_release);
+    gZNManagedRuntimeInvoke.store(runtimeInvoke,std::memory_order_release);
+    return YES;
+}
+
 typedef struct {
     std::atomic<uintptr_t> target;
     std::atomic<uintptr_t> original;
@@ -357,12 +385,9 @@ static ZNManagedCallbackSlot *ZNManagedCallbackFreeSlot(void) {
 
 static BOOL ZNManagedInvokeBoolCallback(uintptr_t callbackObject, BOOL value) {
     if(!callbackObject)return NO;
-    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
-    [resolver refresh];
-    if(!resolver.isAvailable)return NO;
-    ZNManagedObjectGetClassFn objectGetClass=(ZNManagedObjectGetClassFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_object_get_class");
-    ZNManagedClassGetMethodFromNameFn classGetMethod=(ZNManagedClassGetMethodFromNameFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_class_get_method_from_name");
-    ZNManagedRuntimeInvokeFn runtimeInvoke=(ZNManagedRuntimeInvokeFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_runtime_invoke");
+    ZNManagedObjectGetClassFn objectGetClass=(ZNManagedObjectGetClassFn)gZNManagedObjectGetClass.load(std::memory_order_acquire);
+    ZNManagedClassGetMethodFromNameFn classGetMethod=(ZNManagedClassGetMethodFromNameFn)gZNManagedClassGetMethodFromName.load(std::memory_order_acquire);
+    ZNManagedRuntimeInvokeFn runtimeInvoke=(ZNManagedRuntimeInvokeFn)gZNManagedRuntimeInvoke.load(std::memory_order_acquire);
     if(!objectGetClass||!classGetMethod||!runtimeInvoke)return NO;
     void *klass=objectGetClass((void *)callbackObject);
     if(!klass)return NO;
@@ -783,6 +808,26 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         if(reason)*reason=@"ManagedCallbackShortCircuit V1 仅支持 void 目标方法";
         return @[];
     }
+    if([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue]){
+        if(reason)*reason=@"ManagedCallbackShortCircuit V1 不支持 generic/inflated 方法";
+        return @[];
+    }
+    NSUInteger gprCount=([abi[@"instance"] boolValue]?1u:0u)+argc;
+    if(gprCount>7u){
+        if(reason)*reason=@"ManagedCallbackShortCircuit V1 参数过多，无法安全 passthrough original";
+        return @[];
+    }
+    for(NSDictionary *p in params){
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
+        BOOL gpr=(kind==ZNIL2CPPABIValueKindBool||kind==ZNIL2CPPABIValueKindSigned32||
+                  kind==ZNIL2CPPABIValueKindUnsigned32||kind==ZNIL2CPPABIValueKindSigned64||
+                  kind==ZNIL2CPPABIValueKindUnsigned64||kind==ZNIL2CPPABIValueKindPointer||
+                  kind==ZNIL2CPPABIValueKindObjectReference);
+        if(!gpr){
+            if(reason)*reason=@"ManagedCallbackShortCircuit permanent passthrough 仅支持 ARM64 GPR-safe 参数";
+            return @[];
+        }
+    }
     NSMutableArray<NSNumber *> *indices=[NSMutableArray array];
     for(NSUInteger i=0;i<params.count;i++){
         NSDictionary *p=params[i];
@@ -869,6 +914,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                              error:(NSString **)error {
     NSArray *supported=[self supportedInt32ArgumentIndicesForCandidate:candidate reason:error];
     if(![supported containsObject:@(argumentIndex)])return NO;
+    if(!ZNManagedPrepareInvokeBridge(error))return NO;
     NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
     NSString *ns=ZNNativeString(candidate[@"namespace"]);
     NSString *cls=ZNNativeString(candidate[@"class"]);
