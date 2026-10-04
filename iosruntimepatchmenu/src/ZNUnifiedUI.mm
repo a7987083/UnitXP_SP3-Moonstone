@@ -16906,7 +16906,6 @@ static UIButton *ZNM591FindButton(UIView *root,NSString *prefix) {
 @implementation ZNRuntimeMenuControllerV040 (ZNM591BuilderUI)
 - (void)znm591_renderOther {
     [self znm591_renderOther];
-    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
     UIButton *validate=ZNM591FindButton(self.contentView,@"读取验证");
     UIView *actions=validate.superview;
     [validate removeFromSuperview];
