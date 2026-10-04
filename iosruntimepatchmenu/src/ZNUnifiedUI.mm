@@ -16762,3 +16762,1689 @@ extern "C" void ZNInstallM590UnifiedActionModelDeferred(void){
 }
 
 #pragma mark - END ZNM590UnifiedActionModel.mm
+
+
+#pragma mark - BEGIN ZNM591OffsetHookControls.mm
+#line 1 "ZNM591OffsetHookControls.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <mach/mach.h>
+#import <os/lock.h>
+#include <atomic>
+#include <math.h>
+#include <string.h>
+#include "dobby.h"
+
+#import "ZNBinaryPatchWorkspace.h"
+#import "ZNFeatureControlModel.h"
+#import "ZNFeatureMetadataCodec.h"
+#import "ZNPatchRuntimeValidator.h"
+#import "ZNStaticBinaryBuilder.h"
+#import "ZNStaticDispatchRuntime.h"
+#import "ZNStaticPatchFormat.h"
+#import "ZNValueTypeModel.h"
+#import "ZNPatchCore.h"
+
+// M5.9.1 — Offset Hook Controls
+// No second UI hierarchy is created. Existing Builder controls are rewired in place.
+// Number/Slider rows no longer require the user-facing Read/Validate step and do
+// not require MOVZ/MOVK/FMOV source instructions. Generation uses a 4-byte
+// equivalent-original variant; runtime DobbyInstrument changes the first value
+// register according to the authored Value Type.
+
+static NSString * const kZNM591SliderMaxDefaults = @"zonoe.m5.8.5.static-slider-max.v1";
+static const NSUInteger kZNM591MaxHooks = 512;
+
+static NSString *ZNM591Trim(NSString *value) {
+    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static NSString *ZNM591FeatureNameForRow(ZNBinaryPatchRow *row) {
+    NSString *group=ZNM591Trim(row.group);
+    if(group.length && [group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame) return group;
+    NSString *title=ZNM591Trim(row.title);
+    return title.length?title:@"功能";
+}
+
+static NSString *ZNM591SliderKey(NSString *name) {
+    return [NSString stringWithFormat:@"%@.%@",kZNM591SliderMaxDefaults,ZNM591Trim(name).lowercaseString];
+}
+
+static BOOL ZNM591ParseRVA(NSString *text,uint64_t *out) {
+    NSString *s=ZNM591Trim(text).lowercaseString;
+    if(!s.length)return NO;
+    const char *c=s.UTF8String;char *end=NULL;errno=0;
+    unsigned long long v=strtoull(c,&end,0);
+    if(errno||end==c||(end&&*end)){errno=0;end=NULL;v=strtoull(c,&end,16);}
+    if(errno||end==c||(end&&*end))return NO;
+    if(out)*out=(uint64_t)v;
+    return YES;
+}
+
+static NSString *ZNM591Hex(NSData *data) {
+    const uint8_t *p=(const uint8_t *)data.bytes;
+    NSMutableString *s=[NSMutableString stringWithCapacity:data.length*2];
+    for(NSUInteger i=0;i<data.length;i++)[s appendFormat:@"%02X",p[i]];
+    return s;
+}
+
+@interface ZNM591SyntheticValidator : ZNPatchRuntimeValidator
+@property(nonatomic,copy) NSString *mTarget;
+@property(nonatomic,assign) uint64_t mRVA;
+@property(nonatomic,copy) NSData *mBytes;
+@property(nonatomic,assign) uintptr_t mAddress;
+@end
+@implementation ZNM591SyntheticValidator
+- (NSString *)target{return self.mTarget?:@"";}
+- (uint64_t)rva{return self.mRVA;}
+- (NSData *)patchBytes{return self.mBytes;}
+- (NSData *)capturedOriginalBytes{return self.mBytes;}
+- (NSData *)currentBytes{return self.mBytes;}
+- (uintptr_t)runtimeAddress{return self.mAddress;}
+- (BOOL)isConfigured{return YES;}
+- (BOOL)isValidated{return YES;}
+- (BOOL)isApplied{return NO;}
+- (NSString *)lastResult{return @"M5.9.1 Offset Hook auto-prepared";}
+@end
+
+static BOOL ZNM591PrepareOffsetHookRows(ZNBinaryPatchWorkspace *workspace,NSString **error) {
+    for(ZNBinaryPatchRow *row in workspace.rows){
+        if(!row.offsetText.length)continue;
+        ZNFeatureControlType control=row.featureControlType;
+        if(control!=ZNFeatureControlTypeSlider&&control!=ZNFeatureControlTypeNumber)continue;
+        if(control==ZNFeatureControlTypeSlider){
+            NSString *name=ZNM591FeatureNameForRow(row);
+            id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZNM591SliderKey(name)];
+            double max=[stored isKindOfClass:NSNumber.class]?[stored doubleValue]:0.0;
+            if(!isfinite(max)||max<=0.0){if(error)*error=[NSString stringWithFormat:@"%@：滑块最大值必须大于 0",name];return NO;}
+        }
+        uint64_t rva=0;
+        if(!ZNM591ParseRVA(row.offsetText,&rva)){if(error)*error=[NSString stringWithFormat:@"Offset 格式无效：%@",row.offsetText?:@""];return NO;}
+        NSString *global=[workspace.defaultTarget ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        BOOL autoTarget=!global.length||[global caseInsensitiveCompare:@"自动"]==NSOrderedSame||[global caseInsensitiveCompare:@"auto"]==NSOrderedSame;
+        NSString *target=autoTarget?((row.explicitTarget&&row.target.length)?row.target:@"main"):global;
+        uintptr_t address=[[ZNModuleManager sharedManager] runtimeAddressForModule:target rva:rva];
+        if(!address){if(error)*error=[NSString stringWithFormat:@"%@+0x%llX 无法解析运行时地址",target,rva];return NO;}
+        uint8_t bytes[4]={0};vm_size_t copied=0;
+        kern_return_t kr=vm_read_overwrite(mach_task_self(),(vm_address_t)address,sizeof(bytes),(vm_address_t)bytes,&copied);
+        if(kr!=KERN_SUCCESS||copied!=sizeof(bytes)){if(error)*error=[NSString stringWithFormat:@"%@+0x%llX 无法读取最小 4-byte 原始窗口 kr=%d",target,rva,kr];return NO;}
+        NSData *data=[NSData dataWithBytes:bytes length:sizeof(bytes)];
+        ZNM591SyntheticValidator *v=[ZNM591SyntheticValidator new];
+        v.mTarget=target;v.mRVA=rva;v.mBytes=data;v.mAddress=address;
+        row.validator=v;row.validated=YES;row.originalHex=ZNM591Hex(data);
+        row.statusText=@"Offset Hook · 自动准备";
+    }
+    return YES;
+}
+
+@interface ZNStaticBinaryBuilder (ZNM591OffsetHookBuild)
++ (BOOL)znm591_buildWorkspace:(ZNBinaryPatchWorkspace *)workspace outputs:(NSArray<NSString *> **)outputs report:(NSString **)report error:(NSString **)error;
+@end
+@implementation ZNStaticBinaryBuilder (ZNM591OffsetHookBuild)
++ (BOOL)znm591_buildWorkspace:(ZNBinaryPatchWorkspace *)workspace outputs:(NSArray<NSString *> **)outputs report:(NSString **)report error:(NSString **)error {
+    NSString *prepareError=nil;
+    if(!ZNM591PrepareOffsetHookRows(workspace,&prepareError)){if(error)*error=prepareError?:@"Offset Hook 自动准备失败";return NO;}
+    return [self znm591_buildWorkspace:workspace outputs:outputs report:report error:error];
+}
+@end
+
+static UIButton *ZNM591FindButton(UIView *root,NSString *prefix) {
+    for(UIView *v in root.subviews){
+        if([v isKindOfClass:UIButton.class]){
+            UIButton *b=(UIButton *)v;NSString *t=[b titleForState:UIControlStateNormal]?:@"";
+            if([t hasPrefix:prefix])return b;
+        }
+        UIButton *nested=ZNM591FindButton(v,prefix);if(nested)return nested;
+    }
+    return nil;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM591BuilderUI)
+- (void)znm591_renderOther;
+@end
+@implementation ZNRuntimeMenuControllerV040 (ZNM591BuilderUI)
+- (void)znm591_renderOther {
+    [self znm591_renderOther];
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    UIButton *validate=ZNM591FindButton(self.contentView,@"读取验证");
+    UIView *actions=validate.superview;
+    [validate removeFromSuperview];
+    UIButton *apply=ZNM591FindButton(self.contentView,@"临时应用");
+    if(apply&&actions&&apply.superview==actions){CGRect f=apply.frame;f.origin.x=13.0;f.size.width=CGRectGetWidth(actions.bounds)-26.0;apply.frame=f;}
+    UIButton *build=ZNM591FindButton(self.contentView,@"生成新二进制");
+    if(!build)build=ZNM591FindButton(self.contentView,@"正在生成");
+    if(build)build.enabled=!workspace.isBuilding&&!workspace.hasAnyApplied&&workspace.filledCount>0;
+}
+@end
+
+@interface ZNStaticPatchRecord (ZNM591Private)
+@property(nonatomic,assign) uintptr_t imageBase;
+@property(nonatomic,assign) ZN44StaticEntry *entry;
+@property(nonatomic,copy) NSString *target;
+@property(nonatomic,copy) NSString *title;
+@property(nonatomic,copy) NSString *group;
+@property(nonatomic,assign) uint32_t patchID;
+@end
+
+static BOOL ZNM591RecordMatches(ZNStaticPatchRecord *record,NSDictionary *info) {
+    uint64_t wantedID=[info[@"featureID"] unsignedLongLongValue];
+    NSDictionary *meta=record.entry?ZNFeatureMetadataDecodeEntry(record.entry):nil;
+    uint64_t recordID=[meta[@"featureID"] unsignedLongLongValue];
+    if(wantedID&&recordID)return wantedID==recordID;
+    NSString *wanted=[info[@"title"] isKindOfClass:NSString.class]?info[@"title"]:@"";
+    NSString *recordName=[meta[@"title"] isKindOfClass:NSString.class]?meta[@"title"]:(record.group.length?record.group:record.title);
+    return wanted.length&&[wanted caseInsensitiveCompare:recordName?:@""]==NSOrderedSame;
+}
+
+struct ZNM591HookState {
+    uintptr_t address;
+    uint32_t type;
+    std::atomic<uint64_t> raw;
+};
+static ZNM591HookState gZNM591Hooks[kZNM591MaxHooks];
+static std::atomic<uint32_t> gZNM591HookCount{0};
+static os_unfair_lock gZNM591HookLock=OS_UNFAIR_LOCK_INIT;
+
+static void ZNM591InstrumentCallback(void *address,DobbyRegisterContext *ctx) {
+    if(!ctx)return;
+    uintptr_t a=(uintptr_t)address;
+    uint32_t count=gZNM591HookCount.load(std::memory_order_acquire);
+    for(uint32_t i=0;i<count;i++){
+        ZNM591HookState &s=gZNM591Hooks[i];
+        if(s.address!=a)continue;
+        uint64_t raw=s.raw.load(std::memory_order_relaxed);
+        switch((ZNValueType)s.type){
+            case ZNValueTypeF32:{uint32_t u=(uint32_t)raw;float f=0;memcpy(&f,&u,4);ctx->floating.regs.q0.f.f1=f;break;}
+            case ZNValueTypeF64:{double d=0;memcpy(&d,&raw,8);ctx->floating.regs.q0.d.d1=d;break;}
+            case ZNValueTypeI32:case ZNValueTypeU32:ctx->general.regs.x0=(uint32_t)raw;break;
+            case ZNValueTypeI64:case ZNValueTypeU64:ctx->general.regs.x0=raw;break;
+            default:break;
+        }
+        return;
+    }
+}
+
+static BOOL ZNM591RawValue(NSString *text,ZNValueType type,uint64_t *out,NSString **error) {
+    NSString *s=ZNM591Trim(text);
+    if(type==ZNValueTypeF32){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F32";return NO;}float f=(float)d;if(!isfinite(f)){if(error)*error=@"F32 超出可表示范围";return NO;}uint32_t u=0;memcpy(&u,&f,4);if(out)*out=u;return YES;}
+    if(type==ZNValueTypeF64){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F64";return NO;}uint64_t u=0;memcpy(&u,&d,8);if(out)*out=u;return YES;}
+    if(type==ZNValueTypeI32||type==ZNValueTypeI64){NSScanner *sc=[NSScanner scannerWithString:s];long long v=0;if(![sc scanLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效有符号整数";return NO;}if(type==ZNValueTypeI32&&(v<INT32_MIN||v>INT32_MAX)){if(error)*error=@"超出 I32";return NO;}if(out)*out=(uint64_t)v;return YES;}
+    if(type==ZNValueTypeU32||type==ZNValueTypeU64){if([s hasPrefix:@"-"]){if(error)*error=@"无效无符号整数";return NO;}NSScanner *sc=[NSScanner scannerWithString:s];unsigned long long v=0;if(![sc scanUnsignedLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效无符号整数";return NO;}if(type==ZNValueTypeU32&&v>UINT32_MAX){if(error)*error=@"超出 U32";return NO;}if(out)*out=v;return YES;}
+    if(error)*error=@"Offset Hook Value Type 无效";return NO;
+}
+
+static BOOL ZNM591InstallOrUpdate(uintptr_t address,ZNValueType type,uint64_t raw,NSString **error) {
+    os_unfair_lock_lock(&gZNM591HookLock);
+    uint32_t count=gZNM591HookCount.load(std::memory_order_relaxed);
+    for(uint32_t i=0;i<count;i++){
+        if(gZNM591Hooks[i].address==address){gZNM591Hooks[i].type=(uint32_t)type;gZNM591Hooks[i].raw.store(raw,std::memory_order_release);os_unfair_lock_unlock(&gZNM591HookLock);return YES;}
+    }
+    if(count>=kZNM591MaxHooks){os_unfair_lock_unlock(&gZNM591HookLock);if(error)*error=@"Offset Hook 数量超过 512";return NO;}
+    gZNM591Hooks[count].address=address;gZNM591Hooks[count].type=(uint32_t)type;gZNM591Hooks[count].raw.store(raw,std::memory_order_release);
+    int rc=DobbyInstrument((void *)address,ZNM591InstrumentCallback);
+    if(rc!=0){gZNM591Hooks[count].address=0;os_unfair_lock_unlock(&gZNM591HookLock);if(error)*error=[NSString stringWithFormat:@"DobbyInstrument 失败 rc=%d",rc];return NO;}
+    gZNM591HookCount.store(count+1,std::memory_order_release);
+    os_unfair_lock_unlock(&gZNM591HookLock);
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m5.9.1-offset-hook] installed address=%p type=%ld",(void *)address,(long)type]];
+    return YES;
+}
+
+@interface ZNM56StaticValueCellBinder : NSObject
+- (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
+@end
+@interface ZNM56StaticValueCellBinder (ZNM591OffsetHook)
+- (BOOL)znm591_applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
+@end
+@implementation ZNM56StaticValueCellBinder (ZNM591OffsetHook)
+- (BOOL)znm591_applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error {
+    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];[runtime refresh];
+    NSMutableArray<ZNStaticPatchRecord *> *hooks=[NSMutableArray array];
+    for(ZNStaticPatchRecord *r in runtime.records){if(ZNM591RecordMatches(r,info)&&r.entry&&(r.entry->flags&ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1))[hooks addObject:r];}
+    if(!hooks.count)return [self znm591_applyText:text info:info error:error];
+    ZNValueType authored=(ZNValueType)[info[@"valueType"] integerValue];
+    if(authored==ZNValueTypeAuto){if(error)*error=@"ValueType=Auto 无法安全执行；请在生成前选择明确类型";return NO;}
+    uint64_t raw=0;NSString *local=nil;
+    if(!ZNM591RawValue(text,authored,&raw,&local)){if(error)*error=local;return NO;}
+    for(ZNStaticPatchRecord *r in hooks){
+        uintptr_t address=r.imageBase+(uintptr_t)r.entry->siteRVA;
+        if(!address){if(error)*error=@"Offset Hook 地址无效";return NO;}
+        if(!ZNM591InstallOrUpdate(address,authored,raw,&local)){if(error)*error=local;return NO;}
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m5.9.1-offset-hook] value=%@ records=%lu",text?:@"",(unsigned long)hooks.count]];
+    return YES;
+}
+@end
+
+extern "C" void ZNInstallM591OffsetHookControlsDeferred(void) {
+    static dispatch_once_t once;dispatch_once(&once,^{
+        Class builder=NSClassFromString(@"ZNStaticBinaryBuilder");Class meta=object_getClass(builder);
+        Method b1=class_getClassMethod(builder,@selector(buildWorkspace:outputs:report:error:));
+        Method b2=class_getClassMethod(builder,@selector(znm591_buildWorkspace:outputs:report:error:));
+        if(meta&&b1&&b2)method_exchangeImplementations(b1,b2);
+
+        Class controller=NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        Method r1=class_getInstanceMethod(controller,@selector(zn64fb_renderOther));
+        Method r2=class_getInstanceMethod(controller,@selector(znm591_renderOther));
+        if(r1&&r2)method_exchangeImplementations(r1,r2);
+
+        Class binder=NSClassFromString(@"ZNM56StaticValueCellBinder");
+        Method a1=class_getInstanceMethod(binder,@selector(applyText:info:error:));
+        Method a2=class_getInstanceMethod(binder,@selector(znm591_applyText:info:error:));
+        if(a1&&a2)method_exchangeImplementations(a1,a2);
+
+        [[ZNRuntimeLogger sharedLogger]log:@"[m5.9.1] Offset Hook controls installed; no user Read/Validate requirement; no MOV/FMOV hard gate"];
+    });
+}
+
+#pragma mark - END ZNM591OffsetHookControls.mm
+
+
+#pragma mark - BEGIN ZNM600UnifiedFeatureSurface.mm
+#line 1 "ZNM600UnifiedFeatureSurface.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+#import <os/lock.h>
+#include <atomic>
+#include <math.h>
+#include <string.h>
+#include "dobby.h"
+
+#import "ZNFeatureControlModel.h"
+#import "ZNFeatureMetadataCodec.h"
+#import "ZNIL2CPPOwningMethodResolver.h"
+#import "ZNStaticDispatchRuntime.h"
+#import "ZNStaticPatchFormat.h"
+#import "ZNValueTypeModel.h"
+#import "ZNPatchCore.h"
+
+// M6.0 Phase 1 — Unified Feature Surface + safe Offset Hook ABI.
+// IMPORTANT: this does not create a second UI hierarchy. It post-processes the
+// existing Feature surface into one vertical list and replaces only the unsafe
+// Offset Hook register writer installed by M5.9.1.
+
+static const NSInteger kZNM600RuntimeCardBase = 895000;
+static const NSInteger kZNM600RuntimeCardLimit = 895512;
+static const NSInteger kZNM600RuntimeSectionTitle = 902100;
+static const NSInteger kZNM600RuntimeSectionLine = 902101;
+static const NSUInteger kZNM600MaxHooks = 512;
+static const uint32_t kZNM600MethodAttrStatic = 0x0010u;
+
+typedef uint32_t (*ZNM600MethodGetFlagsFn)(const void *method, uint32_t *iflags);
+
+@interface ZNStaticPatchRecord (ZNM600Private)
+@property(nonatomic,assign) uintptr_t imageBase;
+@property(nonatomic,assign) ZN44StaticEntry *entry;
+@property(nonatomic,copy) NSString *target;
+@property(nonatomic,copy) NSString *title;
+@property(nonatomic,copy) NSString *group;
+@property(nonatomic,assign) uint32_t patchID;
+@end
+
+@interface ZNM56StaticValueCellBinder : NSObject
+- (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
+@end
+
+static NSString *ZNM600Trim(NSString *value) {
+    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static BOOL ZNM600RecordMatches(ZNStaticPatchRecord *record, NSDictionary *info) {
+    uint64_t wantedID=[info[@"featureID"] unsignedLongLongValue];
+    NSDictionary *meta=record.entry?ZNFeatureMetadataDecodeEntry(record.entry):nil;
+    uint64_t recordID=[meta[@"featureID"] unsignedLongLongValue];
+    if(wantedID&&recordID)return wantedID==recordID;
+    NSString *wanted=[info[@"title"] isKindOfClass:NSString.class]?info[@"title"]:@"";
+    NSString *recordName=[meta[@"title"] isKindOfClass:NSString.class]?meta[@"title"]:(record.group.length?record.group:record.title);
+    return wanted.length&&[wanted caseInsensitiveCompare:recordName?:@""]==NSOrderedSame;
+}
+
+static BOOL ZNM600RawValue(NSString *text, ZNValueType type, uint64_t *out, NSString **error) {
+    NSString *s=ZNM600Trim(text);
+    if(type==ZNValueTypeF32){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F32";return NO;}float f=(float)d;if(!isfinite(f)){if(error)*error=@"F32 超出可表示范围";return NO;}uint32_t u=0;memcpy(&u,&f,4);if(out)*out=u;return YES;}
+    if(type==ZNValueTypeF64){double d=s.doubleValue;if(!s.length||!isfinite(d)){if(error)*error=@"无效 F64";return NO;}uint64_t u=0;memcpy(&u,&d,8);if(out)*out=u;return YES;}
+    if(type==ZNValueTypeI32||type==ZNValueTypeI64){NSScanner *sc=[NSScanner scannerWithString:s];long long v=0;if(![sc scanLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效有符号整数";return NO;}if(type==ZNValueTypeI32&&(v<INT32_MIN||v>INT32_MAX)){if(error)*error=@"超出 I32";return NO;}if(out)*out=(uint64_t)v;return YES;}
+    if(type==ZNValueTypeU32||type==ZNValueTypeU64){if([s hasPrefix:@"-"]){if(error)*error=@"无效无符号整数";return NO;}NSScanner *sc=[NSScanner scannerWithString:s];unsigned long long v=0;if(![sc scanUnsignedLongLong:&v]||!sc.isAtEnd){if(error)*error=@"无效无符号整数";return NO;}if(type==ZNValueTypeU32&&v>UINT32_MAX){if(error)*error=@"超出 U32";return NO;}if(out)*out=v;return YES;}
+    if(error)*error=@"Offset Hook Value Type 无效";return NO;
+}
+
+static BOOL ZNM600ResolveIntegerRegister(uint64_t rva, uint32_t *registerIndex, NSString **error) {
+    NSString *resolveError=nil;
+    NSArray<NSDictionary<NSString *,id> *> *candidates=[[ZNIL2CPPOwningMethodResolver sharedResolver] resolveRVA:rva limit:8 error:&resolveError];
+    NSMutableArray<NSDictionary *> *exact=[NSMutableArray array];
+    for(NSDictionary *candidate in candidates?:@[]){
+        if([candidate[@"intraMethodOffset"] unsignedLongLongValue]==0 &&
+           [candidate[@"methodRVA"] unsignedLongLongValue]==rva) [exact addObject:candidate];
+    }
+    if(!exact.count){
+        if(error)*error=[NSString stringWithFormat:@"Offset Hook 为避免崩溃仅支持确切方法入口：0x%llX（%@）",rva,resolveError?:@"未解析到方法入口"];
+        return NO;
+    }
+
+    ZNM600MethodGetFlagsFn getFlags=(ZNM600MethodGetFlagsFn)dlsym(RTLD_DEFAULT,"il2cpp_method_get_flags");
+    if(!getFlags){if(error)*error=@"IL2CPP 缺少 il2cpp_method_get_flags，无法安全判断整数参数寄存器";return NO;}
+
+    NSNumber *resolvedStatic=nil;
+    for(NSDictionary *candidate in exact){
+        const void *method=(const void *)(uintptr_t)[candidate[@"methodInfo"] unsignedLongLongValue];
+        if(!method)continue;
+        uint32_t iflags=0;uint32_t flags=getFlags(method,&iflags);
+        BOOL isStatic=(flags&kZNM600MethodAttrStatic)!=0;
+        if(!resolvedStatic)resolvedStatic=@(isStatic);
+        else if(resolvedStatic.boolValue!=isStatic){if(error)*error=@"该 RVA 对应共享方法且 static/instance 语义冲突，拒绝猜测 ABI";return NO;}
+    }
+    if(!resolvedStatic){if(error)*error=@"无法读取 IL2CPP Method flags";return NO;}
+
+    // AArch64 IL2CPP instance methods consume X0 for `this`; their first
+    // integer/pointer managed argument therefore starts at X1. Static methods
+    // have no hidden `this`, so argument #1 starts at X0.
+    if(registerIndex)*registerIndex=resolvedStatic.boolValue?0u:1u;
+    return YES;
+}
+
+static BOOL ZNM600RequireExactMethodEntry(uint64_t rva, NSString **error) {
+    NSString *resolveError=nil;
+    NSArray<NSDictionary<NSString *,id> *> *candidates=[[ZNIL2CPPOwningMethodResolver sharedResolver] resolveRVA:rva limit:4 error:&resolveError];
+    for(NSDictionary *candidate in candidates?:@[]){
+        if([candidate[@"intraMethodOffset"] unsignedLongLongValue]==0 && [candidate[@"methodRVA"] unsignedLongLongValue]==rva)return YES;
+    }
+    if(error)*error=[NSString stringWithFormat:@"Offset Hook 为避免在函数内部改寄存器导致闪退，仅支持确切方法入口：0x%llX（%@）",rva,resolveError?:@"未找到 Owning Method"];
+    return NO;
+}
+
+struct ZNM600HookState {
+    uintptr_t address;
+    uint32_t type;
+    uint32_t integerRegister;
+    std::atomic<uint64_t> raw;
+};
+static ZNM600HookState gZNM600Hooks[kZNM600MaxHooks];
+static std::atomic<uint32_t> gZNM600HookCount{0};
+static os_unfair_lock gZNM600HookLock=OS_UNFAIR_LOCK_INIT;
+
+static void ZNM600InstrumentCallback(void *address,DobbyRegisterContext *ctx) {
+    if(!ctx)return;
+    uintptr_t a=(uintptr_t)address;
+    uint32_t count=gZNM600HookCount.load(std::memory_order_acquire);
+    for(uint32_t i=0;i<count;i++){
+        ZNM600HookState &s=gZNM600Hooks[i];
+        if(s.address!=a)continue;
+        uint64_t raw=s.raw.load(std::memory_order_relaxed);
+        switch((ZNValueType)s.type){
+            case ZNValueTypeF32:{uint32_t u=(uint32_t)raw;float f=0;memcpy(&f,&u,4);ctx->floating.regs.q0.f.f1=f;break;}
+            case ZNValueTypeF64:{double d=0;memcpy(&d,&raw,8);ctx->floating.regs.q0.d.d1=d;break;}
+            case ZNValueTypeI32:case ZNValueTypeU32:
+                if(s.integerRegister==0)ctx->general.regs.x0=(uint32_t)raw;
+                else ctx->general.regs.x1=(uint32_t)raw;
+                break;
+            case ZNValueTypeI64:case ZNValueTypeU64:
+                if(s.integerRegister==0)ctx->general.regs.x0=raw;
+                else ctx->general.regs.x1=raw;
+                break;
+            default:break;
+        }
+        return;
+    }
+}
+
+static BOOL ZNM600InstallOrUpdate(uintptr_t address, ZNValueType type, uint32_t integerRegister, uint64_t raw, NSString **error) {
+    os_unfair_lock_lock(&gZNM600HookLock);
+    uint32_t count=gZNM600HookCount.load(std::memory_order_relaxed);
+    for(uint32_t i=0;i<count;i++){
+        if(gZNM600Hooks[i].address==address){
+            gZNM600Hooks[i].type=(uint32_t)type;
+            gZNM600Hooks[i].integerRegister=integerRegister;
+            gZNM600Hooks[i].raw.store(raw,std::memory_order_release);
+            os_unfair_lock_unlock(&gZNM600HookLock);
+            return YES;
+        }
+    }
+    if(count>=kZNM600MaxHooks){os_unfair_lock_unlock(&gZNM600HookLock);if(error)*error=@"Offset Hook 数量超过 512";return NO;}
+    gZNM600Hooks[count].address=address;
+    gZNM600Hooks[count].type=(uint32_t)type;
+    gZNM600Hooks[count].integerRegister=integerRegister;
+    gZNM600Hooks[count].raw.store(raw,std::memory_order_release);
+    int rc=DobbyInstrument((void *)address,ZNM600InstrumentCallback);
+    if(rc!=0){gZNM600Hooks[count].address=0;os_unfair_lock_unlock(&gZNM600HookLock);if(error)*error=[NSString stringWithFormat:@"DobbyInstrument 失败 rc=%d",rc];return NO;}
+    gZNM600HookCount.store(count+1,std::memory_order_release);
+    os_unfair_lock_unlock(&gZNM600HookLock);
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.0-offset-hook] installed address=%p type=%ld integerReg=X%u",(void *)address,(long)type,integerRegister]];
+    return YES;
+}
+
+
+static BOOL ZNM600DestroyHook(uintptr_t address, NSString **error) {
+    if (!address) { if (error) *error = @"Offset Hook 地址无效"; return NO; }
+    os_unfair_lock_lock(&gZNM600HookLock);
+    uint32_t count=gZNM600HookCount.load(std::memory_order_relaxed);
+    uint32_t found=UINT32_MAX;
+    for(uint32_t i=0;i<count;i++) if(gZNM600Hooks[i].address==address){found=i;break;}
+    if(found==UINT32_MAX){os_unfair_lock_unlock(&gZNM600HookLock);return YES;}
+
+    int rc=DobbyDestroy((void *)address);
+    if(rc!=0){
+        os_unfair_lock_unlock(&gZNM600HookLock);
+        if(error)*error=[NSString stringWithFormat:@"DobbyDestroy 失败 rc=%d",rc];
+        return NO;
+    }
+    for(uint32_t i=found;i+1<count;i++){
+        gZNM600Hooks[i].address=gZNM600Hooks[i+1].address;
+        gZNM600Hooks[i].type=gZNM600Hooks[i+1].type;
+        gZNM600Hooks[i].integerRegister=gZNM600Hooks[i+1].integerRegister;
+        gZNM600Hooks[i].raw.store(gZNM600Hooks[i+1].raw.load(std::memory_order_relaxed),std::memory_order_relaxed);
+    }
+    if(count){
+        uint32_t last=count-1;
+        gZNM600Hooks[last].address=0;
+        gZNM600Hooks[last].type=0;
+        gZNM600Hooks[last].integerRegister=0;
+        gZNM600Hooks[last].raw.store(0,std::memory_order_relaxed);
+        gZNM600HookCount.store(last,std::memory_order_release);
+    }
+    os_unfair_lock_unlock(&gZNM600HookLock);
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.2-temp-value] restored address=%p",(void *)address]];
+    return YES;
+}
+
+// M6.2 authoring-only test API. It reuses the proven M6.0 safe Offset Hook ABI
+// but does not change Runtime/IL2CPP authoring. ValueType must come from imported
+// metadata or an explicit user choice; Auto is never guessed.
+extern "C" BOOL ZNM620TemporaryApplyOffsetValue(NSString *target,
+                                                 uint64_t rva,
+                                                 ZNValueType type,
+                                                 NSString *text,
+                                                 uintptr_t *outAddress,
+                                                 NSString **error) {
+    if(type==ZNValueTypeAuto){if(error)*error=@"请选择 ValueType；M6.2 不根据字节猜测类型";return NO;}
+    uint64_t raw=0;NSString *local=nil;
+    if(!ZNM600RawValue(text,type,&raw,&local)){if(error)*error=local;return NO;}
+    if(!ZNM600RequireExactMethodEntry(rva,&local)){if(error)*error=local;return NO;}
+
+    uint32_t integerRegister=0;
+    if(type==ZNValueTypeI32||type==ZNValueTypeU32||type==ZNValueTypeI64||type==ZNValueTypeU64){
+        if(!ZNM600ResolveIntegerRegister(rva,&integerRegister,&local)){if(error)*error=local;return NO;}
+    }
+    NSString *module=ZNM600Trim(target);
+    if(!module.length)module=@"main";
+    uintptr_t address=[[ZNModuleManager sharedManager] runtimeAddressForModule:module rva:rva];
+    if(!address){if(error)*error=[NSString stringWithFormat:@"%@+0x%llX 无法解析运行时地址",module,rva];return NO;}
+    if(!ZNM600InstallOrUpdate(address,type,integerRegister,raw,&local)){if(error)*error=local;return NO;}
+    if(outAddress)*outAddress=address;
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.2-temp-value] applied %@+0x%llX value=%@ type=%@",module,rva,text?:@"",ZNValueTypeName(type)]];
+    return YES;
+}
+
+extern "C" BOOL ZNM620TemporaryRestoreOffsetValue(uintptr_t address, NSString **error) {
+    return ZNM600DestroyHook(address,error);
+}
+
+@interface ZNM56StaticValueCellBinder (ZNM600SafeOffsetABI)
+- (BOOL)znm600_applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
+@end
+@implementation ZNM56StaticValueCellBinder (ZNM600SafeOffsetABI)
+- (BOOL)znm600_applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error {
+    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];[runtime refresh];
+    NSMutableArray<ZNStaticPatchRecord *> *hooks=[NSMutableArray array];
+    for(ZNStaticPatchRecord *r in runtime.records){
+        if(ZNM600RecordMatches(r,info)&&r.entry&&(r.entry->flags&ZN44_STATIC_ENTRY_FLAG_OFFSET_HOOK_V1))[hooks addObject:r];
+    }
+    if(!hooks.count)return [self znm600_applyText:text info:info error:error];
+
+    ZNValueType type=(ZNValueType)[info[@"valueType"] integerValue];
+    if(type==ZNValueTypeAuto){if(error)*error=@"ValueType=Auto 无法安全执行；请在生成前选择明确类型";return NO;}
+    uint64_t raw=0;NSString *local=nil;
+    if(!ZNM600RawValue(text,type,&raw,&local)){if(error)*error=local;return NO;}
+
+    for(ZNStaticPatchRecord *r in hooks){
+        uint64_t rva=r.entry->siteRVA;
+        if(!ZNM600RequireExactMethodEntry(rva,&local)){if(error)*error=local;return NO;}
+        uint32_t integerRegister=0;
+        if(type==ZNValueTypeI32||type==ZNValueTypeU32||type==ZNValueTypeI64||type==ZNValueTypeU64){
+            if(!ZNM600ResolveIntegerRegister(rva,&integerRegister,&local)){if(error)*error=local;return NO;}
+        }
+        uintptr_t address=r.imageBase+(uintptr_t)rva;
+        if(!address){if(error)*error=@"Offset Hook 地址无效";return NO;}
+        if(!ZNM600InstallOrUpdate(address,type,integerRegister,raw,&local)){if(error)*error=local;return NO;}
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.0-offset-hook] value=%@ records=%lu safeABI=1",text?:@"",(unsigned long)hooks.count]];
+    return YES;
+}
+@end
+
+static BOOL ZNM600IsRuntimeView(UIView *view) {
+    return (view.tag>=kZNM600RuntimeCardBase&&view.tag<kZNM600RuntimeCardLimit)||view.tag==kZNM600RuntimeSectionTitle||view.tag==kZNM600RuntimeSectionLine;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM600UnifiedFeatureSurface)
+- (void)znm600_renderRuntime:(BOOL)compact;
+@end
+@implementation ZNRuntimeMenuControllerV040 (ZNM600UnifiedFeatureSurface)
+- (void)znm600_renderRuntime:(BOOL)compact {
+    [self znm600_renderRuntime:compact];
+
+    UIView *sectionTitle=[self.contentView viewWithTag:kZNM600RuntimeSectionTitle];
+    UIView *sectionLine=[self.contentView viewWithTag:kZNM600RuntimeSectionLine];
+    [sectionTitle removeFromSuperview];
+    [sectionLine removeFromSuperview];
+
+    NSMutableArray<UIView *> *runtimeCards=[NSMutableArray array];
+    CGFloat staticMaxY=0;
+    for(UIView *view in self.contentView.subviews){
+        if(view.tag>=kZNM600RuntimeCardBase&&view.tag<kZNM600RuntimeCardLimit)[runtimeCards addObject:view];
+        else if(!ZNM600IsRuntimeView(view))staticMaxY=MAX(staticMaxY,CGRectGetMaxY(view.frame));
+    }
+    if(!runtimeCards.count)return;
+    [runtimeCards sortUsingComparator:^NSComparisonResult(UIView *a,UIView *b){
+        CGFloat ay=CGRectGetMinY(a.frame),by=CGRectGetMinY(b.frame);
+        return ay<by?NSOrderedAscending:(ay>by?NSOrderedDescending:NSOrderedSame);
+    }];
+    CGFloat desiredFirst=staticMaxY>0?staticMaxY+(compact?6.0:8.0):(compact?7.0:9.0);
+    CGFloat delta=desiredFirst-CGRectGetMinY(runtimeCards.firstObject.frame);
+    CGFloat maxY=staticMaxY;
+    for(UIView *card in runtimeCards){CGRect f=card.frame;f.origin.y+=delta;card.frame=f;maxY=MAX(maxY,CGRectGetMaxY(f));}
+    [self zn40_updateContentHeight:maxY+(compact?6.0:8.0)];
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.0-surface] unified static/runtime layout staticMaxY=%.1f runtime=%lu",staticMaxY,(unsigned long)runtimeCards.count]];
+}
+@end
+
+static void ZNM600Swap(Class cls,SEL a,SEL b){Method ma=class_getInstanceMethod(cls,a),mb=class_getInstanceMethod(cls,b);if(ma&&mb)method_exchangeImplementations(ma,mb);}
+
+extern "C" void ZNInstallM600UnifiedFeatureSurfaceDeferred(void) {
+    static dispatch_once_t once;dispatch_once(&once,^{
+        Class binder=NSClassFromString(@"ZNM56StaticValueCellBinder");
+        if(binder)ZNM600Swap(binder,@selector(applyText:info:error:),@selector(znm600_applyText:info:error:));
+        Class controller=NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if(controller)ZNM600Swap(controller,@selector(zn51_renderRuntime:),@selector(znm600_renderRuntime:));
+        [[ZNRuntimeLogger sharedLogger]log:@"[m6.0] Unified Feature Surface installed; safe Offset Hook ABI + single vertical feature layout"];
+    });
+}
+
+#pragma mark - END ZNM600UnifiedFeatureSurface.mm
+
+
+#pragma mark - BEGIN ZNM630HardCutUI.mm
+#line 1 "ZNM630HardCutUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#include <math.h>
+
+#import "ZNFeatureControlModel.h"
+#import "ZNFeatureSnapshotProvider.h"
+#import "ZNStaticDispatchRuntime.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNRuntimeActionFormat.h"
+#import "ZNRuntimeActionRuntime.h"
+#import "ZNNativeHookRuntime.h"
+#import "ZNNativeHookAction.h"
+#import "ZNRangeControl.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const NSInteger kZNM630HardCutSwitchTagBase = 963000;
+static const NSInteger kZNM630HardCutButtonTagBase = 964000;
+static const NSInteger kZNM630HardCutNumberFieldTagBase = 965000;
+static const NSInteger kZNM630HardCutNumberExecuteTagBase = 966000;
+static const NSInteger kZNM630HardCutSliderTagBase = 967000;
+static const NSInteger kZNM630HardCutSliderValueTagBase = 968000;
+static const NSInteger kZNM640NativeHookSliderTagBase = 973000;
+static const NSInteger kZNM640NativeHookValueTagBase = 974000;
+static const NSInteger kZNM650NativeHookSwitchTagBase = 975000;
+static NSString * const kZNM640NativeHookValuePrefix = @"zonoe.native-hook.runtime-value.v1";
+
+// Keep the proven M5.8 backend tag ABI, but only for execution/value lookup.
+// The old M5.8 renderer remains bypassed.
+static const NSInteger kZNM630RuntimeExecTag   = 896000;
+static const NSInteger kZNM630RuntimeFieldTag  = 897000;
+static const NSInteger kZNM630RuntimeSwitchTag = 898000;
+static const NSInteger kZNM630RuntimeSliderTag = 899000;
+static const NSInteger kZNM630RuntimeValueTag  = 901000;
+static NSString * const kZNM630RuntimeValuesKey = @"zonoe.m5.8.2.runtime-values.v1";
+
+@interface ZNStaticPatchRecord (ZNM630HardCutRecord)
+@property(nonatomic,assign,getter=isEnabled) BOOL enabled;
+@end
+
+static BOOL ZNM630AllEnabled(NSArray<ZNStaticPatchRecord *> *records) {
+    if (!records.count) return NO;
+    for (ZNStaticPatchRecord *record in records) if (!record.enabled) return NO;
+    return YES;
+}
+
+static BOOL ZNM630SetFeatureEnabled(NSArray<ZNStaticPatchRecord *> *records, BOOL enabled, NSString **error) {
+    if (!records.count) {
+        if (error) *error=@"Feature 没有 Patch";
+        return NO;
+    }
+    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];
+    NSMutableArray<ZNStaticPatchRecord *> *changed=[NSMutableArray array];
+    NSMutableArray<NSNumber *> *previous=[NSMutableArray array];
+
+    for (ZNStaticPatchRecord *record in records) {
+        if (record.enabled==enabled) continue;
+        BOOL old=record.enabled;
+        NSString *local=nil;
+        if (![runtime setEnabled:enabled forRecord:record error:&local]) {
+            for (NSInteger i=(NSInteger)changed.count-1;i>=0;i--) {
+                NSString *ignored=nil;
+                [runtime setEnabled:[previous[(NSUInteger)i] boolValue]
+                          forRecord:changed[(NSUInteger)i]
+                              error:&ignored];
+            }
+            if (error) *error=local?:@"切换失败";
+            return NO;
+        }
+        [changed addObject:record];
+        [previous addObject:@(old)];
+    }
+    return YES;
+}
+
+static NSDictionary *ZNM630EventInfo(NSDictionary *feature) {
+    return @{
+        @"featureID": feature[@"featureID"]?:@0,
+        @"title": feature[@"title"]?:@"功能",
+        @"controlType": feature[@"controlType"]?:@(ZNFeatureControlTypeSwitch),
+        @"valueType": feature[@"valueType"]?:@0,
+        @"key": feature[@"key"]?:@""
+    };
+}
+
+static NSString *ZNM630PreferenceKey(NSDictionary *feature, NSString *suffix) {
+    uint64_t featureID=[feature[@"featureID"] unsignedLongLongValue];
+    NSString *identity=featureID?[NSString stringWithFormat:@"%016llx",featureID]:[feature[@"key"] description];
+    return [NSString stringWithFormat:@"zn.fc.%@.%@",identity?:@"feature",suffix?:@"value"];
+}
+
+static NSString *ZNM630StoredText(NSDictionary *feature, NSString *fallback) {
+    id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZNM630PreferenceKey(feature,@"valueText")];
+    return [stored isKindOfClass:NSString.class]&&[(NSString *)stored length]?(NSString *)stored:(fallback?:@"0");
+}
+
+static double ZNM630StoredValue(NSDictionary *feature, double fallback) {
+    id stored=[NSUserDefaults.standardUserDefaults objectForKey:ZNM630PreferenceKey(feature,@"value")];
+    return [stored isKindOfClass:NSNumber.class]?[stored doubleValue]:fallback;
+}
+
+static void ZNM630PersistValue(NSDictionary *feature, double value, NSString *text) {
+    [NSUserDefaults.standardUserDefaults setDouble:value forKey:ZNM630PreferenceKey(feature,@"value")];
+    if (text.length) [NSUserDefaults.standardUserDefaults setObject:text forKey:ZNM630PreferenceKey(feature,@"valueText")];
+}
+
+static NSDictionary *ZNM630ValueEventInfo(NSDictionary *feature, double value, NSString *text) {
+    NSMutableDictionary *info=[ZNM630EventInfo(feature) mutableCopy];
+    info[@"value"]=@(value);
+    if (text.length) info[@"valueText"]=text;
+    return info;
+}
+
+static NSString *ZNM630RuntimeRecordKey(ZNRuntimeMethodActionRecord *record) {
+    NSString *identity=record.canonicalIdentity.length?record.canonicalIdentity:
+        [NSString stringWithFormat:@"%@::%@/%lu",record.className?:@"",record.methodName?:@"",(unsigned long)record.argumentCount];
+    return [NSString stringWithFormat:@"%u|%@",record.actionID,identity?:@""];
+}
+
+static NSArray<NSString *> *ZNM630RuntimeStoredValues(ZNRuntimeMethodActionRecord *record) {
+    NSDictionary *root=[NSUserDefaults.standardUserDefaults objectForKey:kZNM630RuntimeValuesKey];
+    if (![root isKindOfClass:NSDictionary.class]) return nil;
+    NSArray *values=root[ZNM630RuntimeRecordKey(record)];
+    if (![values isKindOfClass:NSArray.class]||values.count!=record.argumentCount) return nil;
+    for (id value in values) if (![value isKindOfClass:NSString.class]) return nil;
+    return values;
+}
+
+static double ZNM630RuntimeQuantize(double value, NSDictionary *cfg, double fallbackMin, double fallbackMax) {
+    double min=[cfg[@"min"] doubleValue],max=[cfg[@"max"] doubleValue],step=[cfg[@"step"] doubleValue];
+    if (!isfinite(min)) min=fallbackMin;
+    if (!isfinite(max)||max<=min) max=fallbackMax>min?fallbackMax:min+100.0;
+    if (!isfinite(step)||step<=0.0) step=1.0;
+    value=MAX(min,MIN(max,value));
+    double q=min+round((value-min)/step)*step;
+    return MAX(min,MIN(max,q));
+}
+
+static NSString *ZNM630RuntimeValueText(double value, NSDictionary *cfg) {
+    double step=[cfg[@"step"] doubleValue];
+    if (!isfinite(step)||step<=0.0) step=1.0;
+    if (fabs(step-round(step))<1e-9&&fabs(value-round(value))<1e-9)
+        return [NSString stringWithFormat:@"%.0f",value];
+    return [NSString stringWithFormat:@"%.6g",value];
+}
+
+static NSString *ZNM630RuntimeShortType(NSString *type) {
+    NSString *last=[(type?:@"") componentsSeparatedByString:@"."].lastObject;
+    return last.length?last:(type?:@"?");
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
+- (void)znm630_hardCutRenderFullPage;
+- (void)znm630_hardCutRenderCompactPage;
+- (void)znm630_hardCutRenderFeatures:(BOOL)compact;
+- (void)znm630_hardCutSwitchChanged:(UISwitch *)sender;
+- (void)znm630_hardCutButtonTapped:(UIButton *)sender;
+- (void)znm630_hardCutNumberChanged:(UITextField *)sender;
+- (void)znm630_hardCutNumberReturn:(UITextField *)sender;
+- (void)znm630_hardCutNumberExecute:(UIButton *)sender;
+- (void)znm630_hardCutSliderChanged:(UISlider *)sender;
+- (void)znm630_hardCutSliderCommitted:(UISlider *)sender;
+- (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact;
+- (void)znm640_nativeHookSliderChanged:(UISlider *)sender;
+- (void)znm640_nativeHookSliderCommitted:(UISlider *)sender;
+- (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
+
+- (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact {
+    ZNRuntimeActionRuntime *runtime=[ZNRuntimeActionRuntime sharedRuntime];
+    [runtime refresh];
+    NSArray<ZNRuntimeMethodActionRecord *> *records=runtime.records?:@[];
+
+    ZNNativeHookRuntime *hookRuntime=[ZNNativeHookRuntime sharedRuntime];
+    [hookRuntime refreshGeneratedActions];
+    NSArray<ZNNativeHookAction *> *hooks=hookRuntime.generatedActions?:@[];
+    if (!records.count && !hooks.count) return y;
+
+    for (NSUInteger hidx=0;hidx<hooks.count;hidx++) {
+        ZNNativeHookAction *hook=hooks[hidx];
+        CGFloat height=compact?56.0:(hook.featureDescription.length?76.0:64.0);
+        UIView *card=[self cardAtY:y height:height width:width compact:compact];
+
+        UILabel *name=[self label:(hook.title.length?hook.title:hook.methodName)
+                              size:(compact?10.5:11.2)
+                            weight:UIFontWeightSemibold
+                             color:self.theme.primaryTextColor];
+        name.frame=CGRectMake(compact?9.0:13.0,compact?5.0:6.0,CGRectGetWidth(card.bounds)-(compact?18.0:26.0),22.0);
+        name.lineBreakMode=NSLineBreakByTruncatingTail;
+        [card addSubview:name];
+
+        CGFloat sliderY=compact?27.0:(hook.featureDescription.length?43.0:31.0);
+        if(!compact&&hook.featureDescription.length){
+            UILabel *detail=[self label:hook.featureDescription size:8.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            detail.frame=CGRectMake(13.0,26.0,CGRectGetWidth(card.bounds)-26.0,16.0);
+            detail.lineBreakMode=NSLineBreakByTruncatingTail;
+            [card addSubview:detail];
+        }
+
+        NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
+        id stored=[NSUserDefaults.standardUserDefaults objectForKey:key];
+        NSInteger value=stored?[stored integerValue]:hook.defaultValue;
+        value=MIN(MAX(value,hook.minValue),hook.maxValue);
+
+        if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
+           hook.templateKind==ZNNativeHookTemplateReturnBoolOverride){
+            UISwitch *toggle=[UISwitch new];
+            toggle.on=value!=0;
+            toggle.tag=kZNM650NativeHookSwitchTagBase+(NSInteger)hidx;
+            toggle.transform=compact?CGAffineTransformMakeScale(.76,.76):CGAffineTransformMakeScale(.84,.84);
+            toggle.center=CGPointMake(CGRectGetWidth(card.bounds)-38.0,sliderY+14.0);
+            toggle.onTintColor=self.theme.accentColor;
+            [toggle addTarget:self action:@selector(znm650_nativeHookSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            [card addSubview:toggle];
+            if(toggle.isOn){
+                NSString *installError=nil;
+                [hookRuntime setValue:1 forAction:hook error:&installError];
+                if(installError.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] auto-install %@ failed: %@",hook.title,installError]];
+            }
+        }else{
+            CGFloat valueW=46.0;
+            CGFloat sliderW=MAX(70.0,CGRectGetWidth(card.bounds)-26.0-valueW-5.0);
+            UISlider *slider=[[UISlider alloc]initWithFrame:CGRectMake(13.0,sliderY,sliderW,28.0)];
+            slider.minimumValue=(float)hook.minValue;
+            slider.maximumValue=(float)hook.maxValue;
+            slider.value=(float)value;
+            slider.continuous=YES;
+            slider.minimumTrackTintColor=self.theme.accentColor;
+            slider.maximumTrackTintColor=[self.theme.borderColor colorWithAlphaComponent:.65];
+            slider.thumbTintColor=self.theme.primaryTextColor;
+            slider.tag=kZNM640NativeHookSliderTagBase+(NSInteger)hidx;
+            [slider addTarget:self action:@selector(znm640_nativeHookSliderChanged:) forControlEvents:UIControlEventValueChanged];
+            [slider addTarget:self action:@selector(znm640_nativeHookSliderCommitted:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
+            [card addSubview:slider];
+
+            UILabel *valueLabel=[self label:[NSString stringWithFormat:@"×%ld",(long)value]
+                                       size:8.4 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+            valueLabel.textAlignment=NSTextAlignmentRight;
+            valueLabel.font=[UIFont monospacedDigitSystemFontOfSize:8.4 weight:UIFontWeightSemibold];
+            valueLabel.frame=CGRectMake(CGRectGetMaxX(slider.frame)+4.0,sliderY,valueW,28.0);
+            valueLabel.tag=kZNM640NativeHookValueTagBase+(NSInteger)hidx;
+            [card addSubview:valueLabel];
+
+            if(value!=1){
+                NSString *installError=nil;
+                [hookRuntime setValue:value forAction:hook error:&installError];
+                if(installError.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] auto-install %@ failed: %@",hook.title,installError]];
+            }
+        }
+
+        [self.contentView addSubview:card];
+        y+=height+(compact?6.0:8.0);
+    }
+
+    for (NSUInteger i=0;i<records.count;i++) {
+        ZNRuntimeMethodActionRecord *record=records[i];
+        NSArray<NSDictionary *> *configs=(record.argumentControlConfigs.count==record.argumentCount)?record.argumentControlConfigs:@[];
+        NSArray<NSString *> *stored=ZNM630RuntimeStoredValues(record);
+
+        NSUInteger exposed=0;
+        BOOL needsManualExecute=NO;
+        for (NSUInteger arg=0;arg<record.argumentCount;arg++) {
+            NSDictionary *cfg=configs.count?configs[arg]:nil;
+            if (![cfg[@"enabled"] boolValue]) continue;
+            exposed++;
+            ZNRuntimeArgumentControlType type=ZNRuntimeArgumentControlTypeFromKey(cfg[@"type"]);
+            if (type==ZNRuntimeArgumentControlTypeNumber) needsManualExecute=YES;
+        }
+        if (exposed==0) needsManualExecute=YES;
+
+        NSString *runtimeDescription=record.featureDescription?:@"";
+        CGFloat rowH=34.0,baseH=compact?42.0:(runtimeDescription.length?60.0:48.0);
+        CGFloat height=baseH+exposed*rowH;
+        UIView *card=[self cardAtY:y height:height width:width compact:compact];
+
+        UILabel *name=[self label:(record.title.length?record.title:record.methodName)
+                              size:(compact?10.5:11.2)
+                            weight:UIFontWeightSemibold
+                             color:self.theme.primaryTextColor];
+        name.frame=CGRectMake(compact?9.0:13.0,runtimeDescription.length&&!compact?5.0:8.0,
+                              CGRectGetWidth(card.bounds)-(needsManualExecute?92.0:26.0),24.0);
+        name.lineBreakMode=NSLineBreakByTruncatingTail;
+        [card addSubview:name];
+        if (!compact && runtimeDescription.length) {
+            UILabel *detail=[self label:runtimeDescription size:8.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            detail.frame=CGRectMake(13.0,29.0,MAX(40.0,CGRectGetWidth(card.bounds)-(needsManualExecute?100.0:26.0)),22.0);
+            detail.numberOfLines=1;
+            detail.lineBreakMode=NSLineBreakByTruncatingTail;
+            [card addSubview:detail];
+        }
+
+        if (needsManualExecute) {
+            UIButton *execute=[UIButton buttonWithType:UIButtonTypeSystem];
+            execute.tag=kZNM630RuntimeExecTag+(NSInteger)i;
+            execute.frame=CGRectMake(CGRectGetWidth(card.bounds)-76.0,7.0,64.0,29.0);
+            [execute setTitle:@"执行" forState:UIControlStateNormal];
+            [execute setTitleColor:self.theme.primaryTextColor forState:UIControlStateNormal];
+            execute.backgroundColor=self.theme.controlColor;
+            execute.layer.cornerRadius=7.0;
+            execute.layer.borderWidth=1.0;
+            execute.layer.borderColor=self.theme.borderColor.CGColor;
+            [execute addTarget:self action:@selector(znm58_execute:) forControlEvents:UIControlEventTouchUpInside];
+            [card addSubview:execute];
+        }
+
+        CGFloat rowY=baseH;
+        for (NSUInteger arg=0;arg<record.argumentCount;arg++) {
+            NSDictionary *cfg=configs.count?configs[arg]:nil;
+            if (![cfg[@"enabled"] boolValue]) continue;
+
+            NSInteger slot=(NSInteger)(i*ZN_RUNTIME_ACTION_MAX_ARGUMENTS+arg);
+            NSString *fallback=arg<record.argumentValues.count?record.argumentValues[arg]:@"";
+            NSString *defaultValue=(stored.count==record.argumentCount)?stored[arg]:fallback;
+            ZNRuntimeArgumentControlType type=ZNRuntimeArgumentControlTypeFromKey(cfg[@"type"]);
+
+            if (type==ZNRuntimeArgumentControlTypeSwitch) {
+                UISwitch *control=[UISwitch new];
+                control.on=defaultValue.boolValue||[defaultValue.lowercaseString isEqualToString:@"true"];
+                control.tag=kZNM630RuntimeSwitchTag+slot;
+                control.transform=compact?CGAffineTransformMakeScale(.76,.76):CGAffineTransformMakeScale(.82,.82);
+                control.center=CGPointMake(CGRectGetWidth(card.bounds)-36.0,rowY+14.0);
+                control.onTintColor=self.theme.accentColor;
+                [control addTarget:self action:@selector(znm58_switchChanged:) forControlEvents:UIControlEventValueChanged];
+                [card addSubview:control];
+            } else if (type==ZNRuntimeArgumentControlTypeSlider) {
+                double min=[cfg[@"min"] doubleValue],max=[cfg[@"max"] doubleValue];
+                if (!isfinite(min)) min=0.0;
+                if (!isfinite(max)||max<=min) max=min+1.0;
+                CGFloat valueW=46.0;
+                CGFloat sliderW=MAX(70.0,CGRectGetWidth(card.bounds)-26.0-valueW-5.0);
+                ZNRangeControl *control=[[ZNRangeControl alloc] initWithFrame:CGRectMake(13.0,rowY,sliderW,28.0)];
+                control.minimumValue=min;
+                control.maximumValue=max;
+                control.value=ZNM630RuntimeQuantize(defaultValue.doubleValue,cfg,min,max);
+                control.minimumTrackTintColor=self.theme.accentColor;
+                control.maximumTrackTintColor=[self.theme.borderColor colorWithAlphaComponent:.65];
+                control.thumbTintColor=self.theme.primaryTextColor;
+                control.tag=kZNM630RuntimeSliderTag+slot;
+                [control addTarget:self action:@selector(znm58_sliderChanged:) forControlEvents:UIControlEventValueChanged];
+                [control addTarget:self action:@selector(znm58_sliderCommitted:) forControlEvents:UIControlEventPrimaryActionTriggered];
+                [card addSubview:control];
+
+                UILabel *valueLabel=[self label:ZNM630RuntimeValueText(control.value,cfg)
+                                           size:8.4 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+                valueLabel.textAlignment=NSTextAlignmentRight;
+                valueLabel.font=[UIFont monospacedDigitSystemFontOfSize:8.4 weight:UIFontWeightSemibold];
+                valueLabel.frame=CGRectMake(CGRectGetMaxX(control.frame)+4.0,rowY,valueW,28.0);
+                valueLabel.tag=kZNM630RuntimeValueTag+slot;
+                [card addSubview:valueLabel];
+            } else if (type==ZNRuntimeArgumentControlTypeButton) {
+                UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
+                button.tag=kZNM630RuntimeExecTag+(NSInteger)i;
+                button.frame=CGRectMake(CGRectGetWidth(card.bounds)-70.0,rowY,58.0,28.0);
+                [button setTitle:@"触发" forState:UIControlStateNormal];
+                [button setTitleColor:self.theme.primaryTextColor forState:UIControlStateNormal];
+                button.backgroundColor=self.theme.controlColor;
+                button.layer.cornerRadius=7.0;
+                button.layer.borderWidth=1.0;
+                button.layer.borderColor=self.theme.borderColor.CGColor;
+                [button addTarget:self action:@selector(znm58_execute:) forControlEvents:UIControlEventTouchUpInside];
+                [card addSubview:button];
+            } else {
+                UITextField *field=[[UITextField alloc] initWithFrame:CGRectMake(13.0,rowY,CGRectGetWidth(card.bounds)-26.0,28.0)];
+                field.text=defaultValue;
+                field.placeholder=defaultValue;
+                field.textColor=self.theme.primaryTextColor;
+                field.backgroundColor=self.theme.controlColor;
+                field.layer.cornerRadius=6.0;
+                field.layer.borderWidth=1.0;
+                field.layer.borderColor=self.theme.borderColor.CGColor;
+                field.font=[UIFont monospacedDigitSystemFontOfSize:9.2 weight:UIFontWeightMedium];
+                field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;
+                field.returnKeyType=UIReturnKeyDone;
+                field.tag=kZNM630RuntimeFieldTag+slot;
+                [field addTarget:self action:@selector(znm58_numberChanged:) forControlEvents:UIControlEventEditingChanged];
+                [field addTarget:self action:@selector(znm58_numberReturn:) forControlEvents:UIControlEventEditingDidEndOnExit];
+                [card addSubview:field];
+            }
+            rowY+=rowH;
+        }
+
+        [self.contentView addSubview:card];
+        y+=height+(compact?6.0:8.0);
+    }
+    return y;
+}
+
+- (void)znm630_hardCutRenderFeatures:(BOOL)compact {
+    [self.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    CGFloat width=CGRectGetWidth(self.contentView.bounds);
+    CGFloat y=compact?7.0:9.0;
+
+    if (!features.count) {
+        CGFloat runtimeStart=y;
+        y=[self znm630_hardCutRenderRuntimeAtY:y width:width compact:compact];
+        if (y==runtimeStart) {
+            UIView *card=[self cardAtY:y height:(compact?40.0:46.0) width:width compact:compact];
+            UILabel *label=[self label:@"暂无功能" size:(compact?10.7:11.0) weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+            label.frame=CGRectMake(12,10,MAX(0.0,CGRectGetWidth(card.bounds)-24),22);
+            [card addSubview:label];
+            [self.contentView addSubview:card];
+            y=CGRectGetMaxY(card.frame)+8.0;
+        }
+        [self zn40_updateContentHeight:y+4.0];
+        self.contentScroll.delaysContentTouches=NO;
+        self.contentScroll.canCancelContentTouches=YES;
+        return;
+    }
+
+    for (NSUInteger i=0;i<features.count;i++) {
+        NSDictionary *feature=features[i];
+        NSString *title=[feature[@"title"] isKindOfClass:NSString.class]?feature[@"title"]:@"功能";
+        NSString *description=[feature[@"description"] isKindOfClass:NSString.class]?feature[@"description"]:@"";
+        ZNFeatureControlType type=(ZNFeatureControlType)[feature[@"controlType"] unsignedIntValue];
+
+        CGFloat h=compact?42.0:(description.length?60.0:48.0);
+        UIView *card=[self cardAtY:y height:h width:width compact:compact];
+
+        CGFloat textWidth=MAX(40.0,CGRectGetWidth(card.bounds)-(compact?88:108));
+        UILabel *name=[self label:title size:(compact?10.8:11.5) weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+        name.frame=compact
+            ? CGRectMake(10,0,textWidth,h)
+            : CGRectMake(13,description.length?6.0:0,textWidth,description.length?24.0:h);
+        name.lineBreakMode=NSLineBreakByTruncatingTail;
+        [card addSubview:name];
+
+        if(!compact&&description.length){
+            UILabel *detail=[self label:description size:8.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            detail.frame=CGRectMake(13,29.0,textWidth,22.0);
+            detail.numberOfLines=1;
+            detail.lineBreakMode=NSLineBreakByTruncatingTail;
+            [card addSubview:detail];
+        }
+
+        if (type==ZNFeatureControlTypeSwitch) {
+            UISwitch *toggle=[UISwitch new];
+            toggle.tag=kZNM630HardCutSwitchTagBase+(NSInteger)i;
+            toggle.on=ZNM630AllEnabled(feature[@"records"]);
+            toggle.transform=compact?CGAffineTransformMakeScale(0.78,0.78):CGAffineTransformMakeScale(0.86,0.86);
+            CGSize s=toggle.bounds.size;
+            toggle.center=CGPointMake(CGRectGetWidth(card.bounds)-(compact?31.0:36.0),h*0.5);
+            toggle.bounds=CGRectMake(0,0,s.width,s.height);
+            toggle.onTintColor=self.theme.accentColor;
+            [toggle addTarget:self action:@selector(znm630_hardCutSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+            [card addSubview:toggle];
+        } else if (type==ZNFeatureControlTypeButton) {
+            UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
+            button.tag=kZNM630HardCutButtonTagBase+(NSInteger)i;
+            button.frame=CGRectMake(CGRectGetWidth(card.bounds)-(compact?72:86),(h-(compact?28:32))*0.5,compact?62:72,compact?28:32);
+            [button setTitle:@"执行" forState:UIControlStateNormal];
+            [button setTitleColor:self.theme.primaryTextColor forState:UIControlStateNormal];
+            button.backgroundColor=self.theme.controlColor;
+            button.layer.cornerRadius=7;
+            button.layer.borderWidth=1;
+            button.layer.borderColor=self.theme.borderColor.CGColor;
+            [button addTarget:self action:@selector(znm630_hardCutButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [card addSubview:button];
+        } else if (type==ZNFeatureControlTypeNumber) {
+            CGFloat executeW=compact?44.0:50.0;
+            CGFloat gap=4.0;
+            CGFloat totalW=compact?118.0:138.0;
+            CGFloat x=CGRectGetWidth(card.bounds)-totalW-(compact?7.0:10.0);
+
+            UITextField *field=[[UITextField alloc] initWithFrame:CGRectMake(x,compact?7.0:8.0,totalW-executeW-gap,compact?28.0:32.0)];
+            field.frame=CGRectMake(field.frame.origin.x,(h-field.frame.size.height)*0.5,field.frame.size.width,field.frame.size.height);
+            field.tag=kZNM630HardCutNumberFieldTagBase+(NSInteger)i;
+            field.text=ZNM630StoredText(feature,@"0");
+            field.textAlignment=NSTextAlignmentCenter;
+            field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;
+            field.returnKeyType=UIReturnKeyDone;
+            field.textColor=self.theme.primaryTextColor;
+            field.backgroundColor=[self.theme.controlColor colorWithAlphaComponent:.82];
+            field.font=[UIFont systemFontOfSize:(compact?9.0:9.6) weight:UIFontWeightSemibold];
+            field.layer.cornerRadius=7.0;
+            field.layer.borderWidth=1.0;
+            field.layer.borderColor=self.theme.borderColor.CGColor;
+            [field addTarget:self action:@selector(znm630_hardCutNumberChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
+            [field addTarget:self action:@selector(znm630_hardCutNumberReturn:) forControlEvents:UIControlEventEditingDidEndOnExit];
+            [card addSubview:field];
+
+            UIButton *execute=[UIButton buttonWithType:UIButtonTypeSystem];
+            execute.tag=kZNM630HardCutNumberExecuteTagBase+(NSInteger)i;
+            execute.frame=CGRectMake(CGRectGetMaxX(field.frame)+gap,field.frame.origin.y,executeW,field.frame.size.height);
+            [execute setTitle:@"执行" forState:UIControlStateNormal];
+            [execute setTitleColor:self.theme.primaryTextColor forState:UIControlStateNormal];
+            execute.backgroundColor=self.theme.controlColor;
+            execute.layer.cornerRadius=7.0;
+            execute.layer.borderWidth=1.0;
+            execute.layer.borderColor=self.theme.borderColor.CGColor;
+            [execute addTarget:self action:@selector(znm630_hardCutNumberExecute:) forControlEvents:UIControlEventTouchUpInside];
+            [card addSubview:execute];
+        } else if (type==ZNFeatureControlTypeSlider) {
+            double max=[feature[@"sliderMax"] doubleValue];
+            if (!isfinite(max)||max<=0.0) max=10.0;
+            double stored=ZNM630StoredValue(feature,0.0);
+            if (!isfinite(stored)) stored=0.0;
+            double value=MAX(0.0,MIN(max,round(stored)));
+
+            CGFloat valueW=compact?38.0:44.0;
+            CGFloat left=compact?72.0:92.0;
+            CGFloat right=valueW+(compact?8.0:10.0);
+            UISlider *slider=[[UISlider alloc] initWithFrame:CGRectMake(left,(h-(compact?28.0:32.0))*0.5,MAX(40.0,CGRectGetWidth(card.bounds)-left-right),compact?28.0:32.0)];
+            slider.tag=kZNM630HardCutSliderTagBase+(NSInteger)i;
+            slider.minimumValue=0.0f;
+            slider.maximumValue=(float)max;
+            slider.value=(float)value;
+            slider.minimumTrackTintColor=self.theme.accentColor;
+            slider.maximumTrackTintColor=[self.theme.borderColor colorWithAlphaComponent:.55];
+            slider.continuous=YES;
+            [slider addTarget:self action:@selector(znm630_hardCutSliderChanged:) forControlEvents:UIControlEventValueChanged];
+            [slider addTarget:self action:@selector(znm630_hardCutSliderCommitted:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
+            [card addSubview:slider];
+
+            UILabel *valueLabel=[self label:[NSString stringWithFormat:@"%.0f",value]
+                                      size:(compact?9.0:9.5)
+                                    weight:UIFontWeightSemibold
+                                     color:self.theme.secondaryTextColor];
+            valueLabel.tag=kZNM630HardCutSliderValueTagBase+(NSInteger)i;
+            valueLabel.textAlignment=NSTextAlignmentCenter;
+            valueLabel.frame=CGRectMake(CGRectGetWidth(card.bounds)-right+2.0,0,valueW,h);
+            [card addSubview:valueLabel];
+        }
+
+        [self.contentView addSubview:card];
+        y+=h+(compact?6.0:7.0);
+    }
+
+    y=[self znm630_hardCutRenderRuntimeAtY:y width:width compact:compact];
+    [self zn40_updateContentHeight:y+4.0];
+    self.contentScroll.delaysContentTouches=NO;
+    self.contentScroll.canCancelContentTouches=YES;
+}
+
+- (void)znm630_hardCutRenderFullPage {
+    NSString *category=(self.selectedCategory>=0&&self.selectedCategory<(NSInteger)self.categories.count)
+        ? self.categories[(NSUInteger)self.selectedCategory] : @"";
+    if ([category isEqualToString:@"功能"]) {
+        [self znm630_hardCutRenderFeatures:NO];
+        return;
+    }
+
+    // Hard-Cut is intentionally scoped to the public Feature surface first.
+    // Other authoring/debug pages continue through the preserved legacy chain.
+    Method m=class_getInstanceMethod([self class],@selector(znm630_hardCutRenderFullPage));
+    IMP current=m?method_getImplementation(m):NULL;
+    (void)current;
+}
+
+- (void)znm630_hardCutRenderCompactPage {
+    [self znm630_hardCutRenderFeatures:YES];
+}
+
+- (void)znm640_nativeHookSliderChanged:(UISlider *)sender {
+    NSInteger index=sender.tag-kZNM640NativeHookSliderTagBase;
+    if(index<0)return;
+    [[ZNNativeHookRuntime sharedRuntime] refreshGeneratedActions];
+    NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
+    if((NSUInteger)index>=hooks.count)return;
+    ZNNativeHookAction *hook=hooks[(NSUInteger)index];
+    NSInteger value=(NSInteger)llround(sender.value);
+    value=MIN(MAX(value,hook.minValue),hook.maxValue);
+    sender.value=(float)value;
+    UILabel *label=[self.contentView viewWithTag:kZNM640NativeHookValueTagBase+index];
+    if([label isKindOfClass:UILabel.class])label.text=[NSString stringWithFormat:@"×%ld",(long)value];
+}
+
+- (void)znm640_nativeHookSliderCommitted:(UISlider *)sender {
+    NSInteger index=sender.tag-kZNM640NativeHookSliderTagBase;
+    if(index<0)return;
+    [[ZNNativeHookRuntime sharedRuntime] refreshGeneratedActions];
+    NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
+    if((NSUInteger)index>=hooks.count)return;
+    ZNNativeHookAction *hook=hooks[(NSUInteger)index];
+    NSInteger value=(NSInteger)llround(sender.value);
+    value=MIN(MAX(value,hook.minValue),hook.maxValue);
+    NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
+    [NSUserDefaults.standardUserDefaults setInteger:value forKey:key];
+
+    NSString *error=nil;
+    // M6.4 contract: keep the hook installed even at multiplier=1.
+    // setValue installs on first use, then only updates the atomic multiplier.
+    BOOL ok=[[ZNNativeHookRuntime sharedRuntime] setValue:value forAction:hook error:&error];
+    if(!ok&&error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] slider commit %@ failed: %@",hook.title,error]];
+    [self znm640_nativeHookSliderChanged:sender];
+}
+
+- (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender {
+    NSInteger index=sender.tag-kZNM650NativeHookSwitchTagBase;
+    if(index<0)return;
+    [[ZNNativeHookRuntime sharedRuntime] refreshGeneratedActions];
+    NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
+    if((NSUInteger)index>=hooks.count)return;
+    ZNNativeHookAction *hook=hooks[(NSUInteger)index];
+    if(hook.templateKind!=ZNNativeHookTemplateManagedCallbackShortCircuit&&
+       hook.templateKind!=ZNNativeHookTemplateReturnBoolOverride)return;
+
+    NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
+    [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
+    NSString *error=nil;
+    BOOL ok=[[ZNNativeHookRuntime sharedRuntime] setValue:(sender.isOn?1:0) forAction:hook error:&error];
+    if(!ok){
+        sender.on=!sender.isOn;
+        [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
+        if(error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-switch] %@ failed: %@",hook.title,error]];
+    }
+}
+
+- (void)znm630_hardCutSwitchChanged:(UISwitch *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutSwitchTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+
+    NSDictionary *feature=features[(NSUInteger)index];
+    NSArray<ZNStaticPatchRecord *> *records=feature[@"records"];
+    NSString *error=nil;
+    BOOL ok=ZNM630SetFeatureEnabled(records,sender.isOn,&error);
+    sender.on=ZNM630AllEnabled(records);
+
+    [[ZNRuntimeLogger sharedLogger] log:
+        [NSString stringWithFormat:@"[m6.3-hardcut] switch %@ %@ %@",
+         feature[@"title"]?:@"功能",sender.isOn?@"ON":@"OFF",
+         ok?@"OK":(error?:@"FAILED")]];
+}
+
+- (void)znm630_hardCutButtonTapped:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutButtonTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureActionRequestedNotification
+                                                      object:self
+                                                    userInfo:ZNM630EventInfo(feature)];
+}
+
+- (void)znm630_hardCutNumberChanged:(UITextField *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutNumberFieldTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    NSString *text=[sender.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!text.length) text=@"0";
+    NSDecimalNumber *number=[NSDecimalNumber decimalNumberWithString:text locale:@{NSLocaleDecimalSeparator:@"."}];
+    if (![number isEqualToNumber:NSDecimalNumber.notANumber])
+        ZNM630PersistValue(feature,number.doubleValue,text);
+}
+
+- (void)znm630_hardCutNumberReturn:(UITextField *)sender {
+    [self znm630_hardCutNumberChanged:sender];
+    [sender resignFirstResponder];
+}
+
+- (void)znm630_hardCutNumberExecute:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutNumberExecuteTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    NSString *text=ZNM630StoredText(feature,@"0");
+    NSDecimalNumber *number=[NSDecimalNumber decimalNumberWithString:text locale:@{NSLocaleDecimalSeparator:@"."}];
+    if ([number isEqualToNumber:NSDecimalNumber.notANumber]) return;
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureNumberValueDidChangeNotification
+                                                      object:self
+                                                    userInfo:ZNM630ValueEventInfo(feature,number.doubleValue,text)];
+}
+
+- (void)znm630_hardCutSliderChanged:(UISlider *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutSliderTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    double max=[feature[@"sliderMax"] doubleValue];
+    if (!isfinite(max)||max<=0.0) max=10.0;
+    double value=MAX(0.0,MIN(max,round(sender.value)));
+    UILabel *label=[self.contentView viewWithTag:kZNM630HardCutSliderValueTagBase+index];
+    if ([label isKindOfClass:UILabel.class]) label.text=[NSString stringWithFormat:@"%.0f",value];
+}
+
+- (void)znm630_hardCutSliderCommitted:(UISlider *)sender {
+    NSInteger index=sender.tag-kZNM630HardCutSliderTagBase;
+    NSArray<NSDictionary *> *features=[[ZNFeatureSnapshotProvider sharedProvider] currentFeatures];
+    if (index<0||(NSUInteger)index>=features.count) return;
+    NSDictionary *feature=features[(NSUInteger)index];
+    double max=[feature[@"sliderMax"] doubleValue];
+    if (!isfinite(max)||max<=0.0) max=10.0;
+    double value=MAX(0.0,MIN(max,round(sender.value)));
+    sender.value=(float)value;
+    NSString *text=[NSString stringWithFormat:@"%.0f",value];
+    ZNM630PersistValue(feature,value,text);
+    UILabel *label=[self.contentView viewWithTag:kZNM630HardCutSliderValueTagBase+index];
+    if ([label isKindOfClass:UILabel.class]) label.text=text;
+    [NSNotificationCenter.defaultCenter postNotificationName:ZNFeatureSliderValueDidChangeNotification
+                                                      object:self
+                                                    userInfo:ZNM630ValueEventInfo(feature,value,text)];
+}
+
+@end
+
+static IMP gZNM630PreviousFullPageIMP=NULL;
+
+static void ZNM630HardCutFullPage(id self, SEL _cmd) {
+    ZNRuntimeMenuControllerV040 *controller=(ZNRuntimeMenuControllerV040 *)self;
+    NSString *category=(controller.selectedCategory>=0&&controller.selectedCategory<(NSInteger)controller.categories.count)
+        ? controller.categories[(NSUInteger)controller.selectedCategory] : @"";
+    if ([category isEqualToString:@"功能"]) {
+        [controller znm630_hardCutRenderFeatures:NO];
+        return;
+    }
+    if (gZNM630PreviousFullPageIMP) ((void(*)(id,SEL))gZNM630PreviousFullPageIMP)(self,_cmd);
+}
+
+extern "C" void ZNInstallM630HardCutUIDeferred(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once,^{
+        Class cls=NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+
+        Method full=class_getInstanceMethod(cls,@selector(renderFullPage));
+        if (full) {
+            gZNM630PreviousFullPageIMP=method_getImplementation(full);
+            method_setImplementation(full,(IMP)ZNM630HardCutFullPage);
+        }
+
+        Method compact=class_getInstanceMethod(cls,@selector(renderCompactPage));
+        Method hardCompact=class_getInstanceMethod(cls,@selector(znm630_hardCutRenderCompactPage));
+        if (compact&&hardCompact)
+            method_setImplementation(compact,method_getImplementation(hardCompact));
+
+        [[ZNRuntimeLogger sharedLogger] log:
+            @"[m6.3-hardcut] Feature UI hard-cut active: legacy feature decorators bypassed; native controls only"];
+    });
+}
+
+#pragma mark - END ZNM630HardCutUI.mm
+
+
+#pragma mark - BEGIN ZNRangeControl.mm
+#line 1 "ZNRangeControl.mm"
+#import "ZNRangeControl.h"
+#include <math.h>
+
+@interface ZNRangeControl ()
+@property(nonatomic,strong) UIView *maximumTrackView;
+@property(nonatomic,strong) UIView *minimumTrackView;
+@property(nonatomic,strong) UIView *thumbView;
+@property(nonatomic,weak) UIScrollView *suspendedScrollView;
+@property(nonatomic,assign) BOOL suspendedScrollWasEnabled;
+@property(nonatomic,assign) double trackingStartValue;
+@end
+
+@implementation ZNRangeControl
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    _minimumValue = 0.0;
+    _maximumValue = 1.0;
+    _value = 0.0;
+    _maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:.18];
+    _minimumTrackTintColor = UIColor.systemBlueColor;
+    _thumbTintColor = UIColor.whiteColor;
+    self.exclusiveTouch = YES;
+    self.multipleTouchEnabled = NO;
+
+    _maximumTrackView = [UIView new];
+    _minimumTrackView = [UIView new];
+    _thumbView = [UIView new];
+    _maximumTrackView.userInteractionEnabled = NO;
+    _minimumTrackView.userInteractionEnabled = NO;
+    _thumbView.userInteractionEnabled = NO;
+    [self addSubview:_maximumTrackView];
+    [self addSubview:_minimumTrackView];
+    [self addSubview:_thumbView];
+    return self;
+}
+
+- (void)setMinimumTrackTintColor:(UIColor *)color { _minimumTrackTintColor = color; [self setNeedsLayout]; }
+- (void)setMaximumTrackTintColor:(UIColor *)color { _maximumTrackTintColor = color; [self setNeedsLayout]; }
+- (void)setThumbTintColor:(UIColor *)color { _thumbTintColor = color; [self setNeedsLayout]; }
+- (void)setMinimumValue:(double)v { _minimumValue = isfinite(v) ? v : 0.0; if (_maximumValue <= _minimumValue) _maximumValue = _minimumValue + 1.0; self.value = _value; }
+- (void)setMaximumValue:(double)v { _maximumValue = isfinite(v) ? v : (_minimumValue + 1.0); if (_maximumValue <= _minimumValue) _maximumValue = _minimumValue + 1.0; self.value = _value; }
+- (void)setValue:(double)v {
+    if (!isfinite(v)) v = _minimumValue;
+    _value = MAX(_minimumValue, MIN(_maximumValue, v));
+    [self setNeedsLayout];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat w = CGRectGetWidth(self.bounds), h = CGRectGetHeight(self.bounds);
+    CGFloat trackH = 4.0, thumb = MIN(22.0, MAX(16.0, h - 6.0));
+    CGFloat usable = MAX(1.0, w - thumb);
+    double span = MAX(1e-12, _maximumValue - _minimumValue);
+    CGFloat t = (CGFloat)((_value - _minimumValue) / span);
+    t = MAX(0.0, MIN(1.0, t));
+    CGFloat cy = h * 0.5;
+    CGFloat x = thumb * 0.5 + usable * t;
+
+    _maximumTrackView.frame = CGRectMake(thumb * 0.5, cy - trackH * 0.5, usable, trackH);
+    _maximumTrackView.backgroundColor = _maximumTrackTintColor;
+    _maximumTrackView.layer.cornerRadius = trackH * 0.5;
+
+    _minimumTrackView.frame = CGRectMake(thumb * 0.5, cy - trackH * 0.5, MAX(0.0, x - thumb * 0.5), trackH);
+    _minimumTrackView.backgroundColor = _minimumTrackTintColor;
+    _minimumTrackView.layer.cornerRadius = trackH * 0.5;
+
+    _thumbView.frame = CGRectMake(x - thumb * 0.5, cy - thumb * 0.5, thumb, thumb);
+    _thumbView.backgroundColor = _thumbTintColor;
+    _thumbView.layer.cornerRadius = thumb * 0.5;
+    _thumbView.layer.shadowColor = UIColor.blackColor.CGColor;
+    _thumbView.layer.shadowOpacity = .28;
+    _thumbView.layer.shadowRadius = 2.0;
+    _thumbView.layer.shadowOffset = CGSizeMake(0, 1);
+}
+
+- (UIScrollView *)zn_parentScrollView {
+    UIView *v = self.superview;
+    while (v) {
+        if ([v isKindOfClass:UIScrollView.class]) return (UIScrollView *)v;
+        v = v.superview;
+    }
+    return nil;
+}
+
+- (void)zn_suspendScrollIfNeeded {
+    if (self.suspendedScrollView) return;
+    UIScrollView *scroll = [self zn_parentScrollView];
+    if (!scroll) return;
+    self.suspendedScrollView = scroll;
+    self.suspendedScrollWasEnabled = scroll.scrollEnabled;
+    scroll.scrollEnabled = NO;
+}
+
+- (void)zn_restoreScrollIfNeeded {
+    UIScrollView *scroll = self.suspendedScrollView;
+    if (scroll) scroll.scrollEnabled = self.suspendedScrollWasEnabled;
+    self.suspendedScrollView = nil;
+}
+
+- (void)zn_updateFromTouch:(UITouch *)touch {
+    CGPoint p = [touch locationInView:self];
+    CGFloat w = CGRectGetWidth(self.bounds), h = CGRectGetHeight(self.bounds);
+    CGFloat thumb = MIN(22.0, MAX(16.0, h - 6.0));
+    CGFloat usable = MAX(1.0, w - thumb);
+    CGFloat normalized = (p.x - thumb * 0.5) / usable;
+    normalized = MAX(0.0, MIN(1.0, normalized));
+    self.value = self.minimumValue + (self.maximumValue - self.minimumValue) * normalized;
+}
+
+- (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    (void)event;
+    self.trackingStartValue = self.value;
+    [self zn_suspendScrollIfNeeded];
+    [self zn_updateFromTouch:touch];
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+    return YES;
+}
+
+- (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    (void)event;
+    [self zn_updateFromTouch:touch];
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+    return YES;
+}
+
+- (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    (void)event;
+    if (touch) [self zn_updateFromTouch:touch];
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+    [self zn_restoreScrollIfNeeded];
+    [self sendActionsForControlEvents:UIControlEventPrimaryActionTriggered];
+}
+
+- (void)cancelTrackingWithEvent:(UIEvent *)event {
+    (void)event;
+    self.value = self.trackingStartValue;
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+    [self zn_restoreScrollIfNeeded];
+}
+
+@end
+
+#pragma mark - END ZNRangeControl.mm
+
+
+#pragma mark - BEGIN ZNM55StaticTypedBinding.mm
+#line 1 "ZNM55StaticTypedBinding.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#include <math.h>
+#include <stdint.h>
+#include <string.h>
+
+#import "ZNFeatureControlModel.h"
+#import "ZNFeatureMetadataCodec.h"
+#import "ZNRuntimePatchExecutor.h"
+#import "ZNStaticDispatchRuntime.h"
+#import "ZNStaticPatchFormat.h"
+#import "ZNValueTypeModel.h"
+#import "ZNPatchCore.h"
+
+// M5.5 Static Typed Backend V2
+// UI/state is independent from encoding. The adapter chooses a verified backend:
+//   MOVZ(+MOVK) -> I32/U32/I64/U64
+//   scalar FMOV S,#imm -> F32
+//   scalar FMOV D,#imm -> F64
+// Auto is inferred from the verified instruction family. Anything ambiguous or
+// not exactly encodable fails closed.
+
+@interface ZNStaticPatchRecord (ZNM55StaticPrivate)
+@property(nonatomic,assign) uintptr_t imageBase;
+@property(nonatomic,assign) ZN44StaticEntry *entry;
+@property(nonatomic,assign) uint64_t onRVA;
+@property(nonatomic,assign) BOOL payloadProtectionV2;
+@end
+
+static UIViewController *ZNM55TopController(void) {
+    UIWindow *window=nil;
+    for(UIScene *scene in UIApplication.sharedApplication.connectedScenes){if(![scene isKindOfClass:UIWindowScene.class]||scene.activationState!=UISceneActivationStateForegroundActive)continue;for(UIWindow *candidate in ((UIWindowScene *)scene).windows){if(candidate.isKeyWindow){window=candidate;break;}}if(window)break;}
+    if(!window)window=UIApplication.sharedApplication.windows.firstObject;
+    UIViewController *vc=window.rootViewController;while(vc.presentedViewController&&!vc.presentedViewController.isBeingDismissed)vc=vc.presentedViewController;return vc;
+}
+static void ZNM55ShowFailure(NSString *message){dispatch_async(dispatch_get_main_queue(),^{UIViewController *top=ZNM55TopController();if(!top||[top isKindOfClass:UIAlertController.class])return;UIAlertController *a=[UIAlertController alertControllerWithTitle:@"执行失败" message:message.length?message:@"执行失败" preferredStyle:UIAlertControllerStyleAlert];[a addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];[top presentViewController:a animated:YES completion:nil];});}
+static uint32_t ZNM55Read32(uintptr_t address){uint32_t v=0;memcpy(&v,(const void *)address,sizeof(v));return v;}
+static BOOL ZNM55IsMOVZ(uint32_t i){return (i&0x7F800000u)==0x52800000u;}
+static BOOL ZNM55IsMOVK(uint32_t i){return (i&0x7F800000u)==0x72800000u;}
+static BOOL ZNM55IsScalarFMOVImm(uint32_t i){return (i&0xFF201FE0u)==0x1E201000u&&(((i>>22)&3u)==0u||((i>>22)&3u)==1u);}
+static BOOL ZNM55DecodeBTarget(uint64_t branchRVA,uint32_t insn,uint64_t *targetRVA){if((insn&0x7C000000u)!=0x14000000u||(insn&0x80000000u))return NO;int64_t imm=(int64_t)(insn&0x03FFFFFFu);if(imm&0x02000000LL)imm|=~0x03FFFFFFLL;if(targetRVA)*targetRVA=(uint64_t)((int64_t)branchRVA+(imm<<2));return YES;}
+
+static NSArray<NSNumber *> *ZNM55SourceAddresses(ZNStaticPatchRecord *record,NSString **error){
+    if(!record||!record.entry||!record.imageBase||!record.onRVA){if(error)*error=@"Static typed record metadata unavailable";return nil;}
+    if(!record.payloadProtectionV2){if(error)*error=@"Static Typed V2 当前仅支持 Protection V2 生成物";return nil;}
+    uint32_t len=record.entry->enabledLength;if(!len||(len&3u)){if(error)*error=@"Enabled 长度必须为 4-byte 倍数";return nil;}NSUInteger count=len/4u;if(!count||count>32){if(error)*error=@"Enabled 指令数量超出 1-32";return nil;}
+    NSMutableArray *out=[NSMutableArray arrayWithCapacity:count];uint64_t fragment=record.onRVA;
+    for(NSUInteger i=0;i<count;i++){uint64_t source=fragment+(i==0?4u:0u);[out addObject:@(record.imageBase+(uintptr_t)source)];if(i+1>=count)break;uint64_t brRVA=source+4u;uint64_t next=0;if(!ZNM55DecodeBTarget(brRVA,ZNM55Read32(record.imageBase+(uintptr_t)brRVA),&next)){if(error)*error=[NSString stringWithFormat:@"Protection V2 fragment %lu branch 无法解析",(unsigned long)i];return nil;}fragment=next;}
+    return out;
+}
+
+static uint32_t ZNM55ExpandF32(uint8_t imm){uint32_t sign=(imm>>7)&1u,b=(imm>>6)&1u,low=(imm>>4)&3u,frac=imm&15u;uint32_t exp=((b?0u:1u)<<7)|(b?0x7Cu:0u)|low;return(sign<<31)|(exp<<23)|(frac<<19);}
+static uint64_t ZNM55ExpandF64(uint8_t imm){uint64_t sign=(imm>>7)&1u,b=(imm>>6)&1u,low=(imm>>4)&3u,frac=imm&15u;uint64_t exp=((b?0ULL:1ULL)<<10)|(b?0x3FCULL:0ULL)|low;return(sign<<63)|(exp<<52)|(frac<<48);}
+static BOOL ZNM55FMOVImmForValue(double input,BOOL f64,uint8_t *outImm){
+    if(!isfinite(input))return NO;
+    if(f64){uint64_t target=0;memcpy(&target,&input,sizeof(target));for(unsigned imm=0;imm<256;imm++){if(ZNM55ExpandF64((uint8_t)imm)==target){if(outImm)*outImm=(uint8_t)imm;return YES;}}return NO;}
+    float f=(float)input;uint32_t target=0;memcpy(&target,&f,sizeof(target));for(unsigned imm=0;imm<256;imm++){if(ZNM55ExpandF32((uint8_t)imm)==target){if(outImm)*outImm=(uint8_t)imm;return YES;}}return NO;
+}
+
+static BOOL ZNM55ScanSigned(NSString *text,long long *out){NSScanner *s=[NSScanner scannerWithString:text?:@""];long long v=0;if(![s scanLongLong:&v]||!s.isAtEnd)return NO;if(out)*out=v;return YES;}
+static BOOL ZNM55ScanUnsigned(NSString *text,unsigned long long *out){NSString *t=[text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];if(!t.length||[t hasPrefix:@"-"])return NO;NSScanner *s=[NSScanner scannerWithString:t];unsigned long long v=0;if(![s scanUnsignedLongLong:&v]||!s.isAtEnd)return NO;if(out)*out=v;return YES;}
+static ZNPatchActionDescriptor *ZNM55InstructionAction(ZNStaticPatchRecord *record,uintptr_t address,uint32_t oldInsn,uint32_t newInsn,NSString *kind,NSUInteger slot){if(oldInsn==newInsn)return nil;ZNPatchActionDescriptor *a=[[ZNPatchActionDescriptor alloc]initWithIdentifier:[NSString stringWithFormat:@"m55-static-%@-%u-%lu",kind,record.patchID,(unsigned long)slot] type:ZNPatchActionTypeBytes];a.resolvedAddress=address;a.zn_expectedBytes=[NSData dataWithBytes:&oldInsn length:4];a.zn_patchBytes=[NSData dataWithBytes:&newInsn length:4];a.zn_targetWritable=NO;return a;}
+
+static NSArray<ZNPatchActionDescriptor *> *ZNM55MOVActions(ZNStaticPatchRecord *record,NSArray<NSNumber *> *addresses,ZNValueType type,NSString *text,NSString **error){
+    uint32_t first=ZNM55Read32((uintptr_t)addresses.firstObject.unsignedLongLongValue);BOOL is64=(first&0x80000000u)!=0;
+    if(!ZNM55IsMOVZ(first)){if(error)*error=[NSString stringWithFormat:@"整数后端要求 MOVZ，当前 0x%08X",first];return nil;}
+    if((type==ZNValueTypeI32||type==ZNValueTypeU32)&&is64){if(error)*error=@"I32/U32 与 X 寄存器 MOV 不匹配";return nil;}
+    if((type==ZNValueTypeI64||type==ZNValueTypeU64)&&!is64){if(error)*error=@"I64/U64 与 W 寄存器 MOV 不匹配";return nil;}
+    uint64_t raw=0;ZNValueType resolved=type;
+    if(resolved==ZNValueTypeAuto)resolved=is64?ZNValueTypeI64:ZNValueTypeI32;
+    if(resolved==ZNValueTypeI32||resolved==ZNValueTypeI64){long long v=0;if(!ZNM55ScanSigned(text,&v)){if(error)*error=@"不是有效有符号整数";return nil;}if(resolved==ZNValueTypeI32&&(v<INT32_MIN||v>INT32_MAX)){if(error)*error=@"超出 I32 范围";return nil;}raw=resolved==ZNValueTypeI32?(uint64_t)(uint32_t)(int32_t)v:(uint64_t)v;}
+    else if(resolved==ZNValueTypeU32||resolved==ZNValueTypeU64){unsigned long long v=0;if(!ZNM55ScanUnsigned(text,&v)){if(error)*error=@"不是有效无符号整数";return nil;}if(resolved==ZNValueTypeU32&&v>UINT32_MAX){if(error)*error=@"超出 U32 范围";return nil;}raw=(uint64_t)v;}
+    else{if(error)*error=@"浮点 Value Type 不能使用 MOVZ/MOVK 后端";return nil;}
+    uint32_t rd=first&31u,covered=0;NSMutableArray *moves=[NSMutableArray array];
+    for(NSUInteger i=0;i<addresses.count;i++){uintptr_t address=(uintptr_t)addresses[i].unsignedLongLongValue;uint32_t insn=ZNM55Read32(address);BOOL compatible=i==0?ZNM55IsMOVZ(insn):ZNM55IsMOVK(insn);if(!compatible)break;if((((insn&0x80000000u)!=0)!=is64)||(insn&31u)!=rd)break;uint32_t hw=(insn>>21)&3u;if(!is64&&hw>1u)break;covered|=1u<<hw;[moves addObject:@{@"address":@(address),@"instruction":@(insn),@"hw":@(hw)}];}
+    uint32_t chunks=is64?4u:2u;for(uint32_t hw=0;hw<chunks;hw++){uint16_t chunk=(uint16_t)((raw>>(hw*16u))&0xFFFFu);if(chunk&&!(covered&(1u<<hw))){if(error)*error=[NSString stringWithFormat:@"值 0x%llX 需要 MOVK LSL #%u，但 Enabled 没有该槽位",(unsigned long long)raw,hw*16u];return nil;}}
+    NSMutableArray *actions=[NSMutableArray array];for(NSUInteger i=0;i<moves.count;i++){NSDictionary *m=moves[i];uintptr_t address=[m[@"address"] unsignedLongLongValue];uint32_t old=[m[@"instruction"] unsignedIntValue],hw=[m[@"hw"] unsignedIntValue];uint16_t chunk=(uint16_t)((raw>>(hw*16u))&0xFFFFu);uint32_t next=(old&~0x001FFFE0u)|((uint32_t)chunk<<5);ZNPatchActionDescriptor *a=ZNM55InstructionAction(record,address,old,next,@"mov",i);if(a)[actions addObject:a];}return actions;
+}
+
+static NSArray<ZNPatchActionDescriptor *> *ZNM55FMOVActions(ZNStaticPatchRecord *record,NSArray<NSNumber *> *addresses,ZNValueType type,NSString *text,NSString **error){
+    uintptr_t address=(uintptr_t)addresses.firstObject.unsignedLongLongValue;uint32_t old=ZNM55Read32(address);if(!ZNM55IsScalarFMOVImm(old)){if(error)*error=[NSString stringWithFormat:@"浮点后端要求 scalar FMOV #imm，当前 0x%08X",old];return nil;}uint32_t ftype=(old>>22)&3u;BOOL f64=ftype==1u;
+    if(type==ZNValueTypeF32&&f64){if(error)*error=@"F32 与 FMOV D 不匹配";return nil;}if(type==ZNValueTypeF64&&!f64){if(error)*error=@"F64 与 FMOV S 不匹配";return nil;}if(type!=ZNValueTypeAuto&&type!=ZNValueTypeF32&&type!=ZNValueTypeF64){if(error)*error=@"整数 Value Type 不能使用 FMOV 后端";return nil;}
+    NSScanner *scanner=[NSScanner scannerWithString:text?:@""];double value=0;if(![scanner scanDouble:&value]||!scanner.isAtEnd||!isfinite(value)){if(error)*error=@"不是有效浮点数";return nil;}uint8_t imm=0;if(!ZNM55FMOVImmForValue(value,f64,&imm)){if(error)*error=[NSString stringWithFormat:@"%@ 无法由单条 FMOV %@,#imm 精确表示；已拒绝盲写",text?:@"值",f64?@"D":@"S"];return nil;}uint32_t next=(old&~(0xFFu<<13))|((uint32_t)imm<<13);ZNPatchActionDescriptor *a=ZNM55InstructionAction(record,address,old,next,f64?@"f64":@"f32",0);return a?@[a]:@[];
+}
+
+static BOOL ZNM55RecordMatches(ZNStaticPatchRecord *record,NSDictionary *info){uint64_t wantedID=[info[@"featureID"] unsignedLongLongValue];NSDictionary *meta=record.entry?ZNFeatureMetadataDecodeEntry(record.entry):nil;uint64_t recordID=[meta[@"featureID"] unsignedLongLongValue];if(wantedID&&recordID)return wantedID==recordID;NSString *wanted=[info[@"title"] isKindOfClass:NSString.class]?info[@"title"]:@"";NSString *recordName=[meta[@"title"] isKindOfClass:NSString.class]?meta[@"title"]:(record.group.length?record.group:record.title);return wanted.length&&[wanted caseInsensitiveCompare:recordName?:@""]==NSOrderedSame;}
+
+@interface ZNM55StaticTypedBinder:NSObject
+@property(nonatomic,strong)NSMutableDictionary<NSString *,NSNumber *> *sliderGenerations;
++ (instancetype)shared; - (void)numberChanged:(NSNotification *)note; - (void)sliderChanged:(NSNotification *)note; - (void)actionRequested:(NSNotification *)note;
+@end
+@implementation ZNM55StaticTypedBinder
++ (instancetype)shared{static ZNM55StaticTypedBinder *s;static dispatch_once_t once;dispatch_once(&once,^{s=[ZNM55StaticTypedBinder new];s.sliderGenerations=[NSMutableDictionary dictionary];});return s;}
+- (NSArray<ZNStaticPatchRecord *> *)recordsForInfo:(NSDictionary *)info{ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];[runtime refresh];NSMutableArray *out=[NSMutableArray array];for(ZNStaticPatchRecord *r in runtime.records)if(ZNM55RecordMatches(r,info))[out addObject:r];return out;}
+- (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error{
+    NSArray *records=[self recordsForInfo:info];if(!records.count){if(error)*error=@"找不到 Static Feature 记录";return NO;}ZNValueType authored=(ZNValueType)[info[@"valueType"] integerValue];NSMutableArray *all=[NSMutableArray array];
+    for(ZNStaticPatchRecord *r in records){NSString *local=nil;NSArray *addresses=ZNM55SourceAddresses(r,&local);if(!addresses.count){if(error)*error=local;return NO;}uint32_t first=ZNM55Read32((uintptr_t)[addresses.firstObject unsignedLongLongValue]);NSArray *actions=nil;if(ZNM55IsMOVZ(first))actions=ZNM55MOVActions(r,addresses,authored,text,&local);else if(ZNM55IsScalarFMOVImm(first))actions=ZNM55FMOVActions(r,addresses,authored,text,&local);else{local=[NSString stringWithFormat:@"Auto 无法识别 Enabled 首指令 0x%08X（仅 MOVZ/MOVK 或 scalar FMOV #imm）",first];}if(!actions){if(error)*error=local?:@"Static typed encode failed";return NO;}[all addObjectsFromArray:actions];}
+    ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];NSMutableArray *prior=[NSMutableArray array];for(ZNStaticPatchRecord *r in records){[prior addObject:@(r.isEnabled)];if(r.isEnabled)[runtime setEnabled:NO forRecord:r error:nil];}
+    if(all.count){NSString *writeError=nil;if(![[ZNRuntimePatchExecutor sharedExecutor]setActions:all enabled:YES error:&writeError]){for(NSUInteger i=0;i<records.count;i++)if([prior[i] boolValue])[runtime setEnabled:YES forRecord:records[i] error:nil];if(error)*error=writeError?:@"Static typed write failed";return NO;}}
+    for(NSUInteger i=0;i<records.count;i++){ZNStaticPatchRecord *r=records[i];if([prior[i] boolValue]||YES){NSString *enableError=nil;if(![runtime setEnabled:YES forRecord:r error:&enableError]){if(error)*error=enableError?:@"Static typed variant enable failed";return NO;}}}
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m5.5-static] %@ value=%@ type=%@ records=%lu SUCCESS",info[@"title"]?:@"feature",text?:@"",ZNValueTypeName(authored),(unsigned long)records.count]];return YES;
+}
+- (void)numberChanged:(NSNotification *)note{NSString *text=[note.userInfo[@"valueText"] isKindOfClass:NSString.class]?note.userInfo[@"valueText"]:[note.userInfo[@"value"] description];NSString *error=nil;if(![self applyText:text info:note.userInfo?:@{} error:&error])ZNM55ShowFailure(error);}
+- (void)sliderChanged:(NSNotification *)note{NSString *text=[note.userInfo[@"valueText"] isKindOfClass:NSString.class]?note.userInfo[@"valueText"]:[note.userInfo[@"value"] description];NSString *key=[note.userInfo[@"key"] isKindOfClass:NSString.class]?note.userInfo[@"key"]:(note.userInfo[@"title"]?:@"feature");NSUInteger generation=[self.sliderGenerations[key] unsignedIntegerValue]+1;self.sliderGenerations[key]=@(generation);NSDictionary *info=[note.userInfo copy]?:@{};dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(.12*NSEC_PER_SEC)),dispatch_get_main_queue(),^{if([self.sliderGenerations[key] unsignedIntegerValue]!=generation)return;NSString *error=nil;if(![self applyText:text info:info error:&error])ZNM55ShowFailure(error);});}
+- (void)actionRequested:(NSNotification *)note{NSArray *records=[self recordsForInfo:note.userInfo?:@{}];if(!records.count){ZNM55ShowFailure(@"找不到 Static Feature 记录");return;}ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];for(ZNStaticPatchRecord *r in records){NSString *error=nil;if(![runtime setEnabled:YES forRecord:r error:&error]){ZNM55ShowFailure(error);return;}}}
+@end
+
+extern "C" void ZNInstallM55StaticTypedBindingDeferred(void){static dispatch_once_t once;dispatch_once(&once,^{
+    // M5.3 installed the legacy MOV-only observer. Remove only that observer and
+    // replace it with this typed adapter; its Runtime auto-execute swizzles stay.
+    Class oldClass=NSClassFromString(@"ZNM53StaticControlBinder");if(oldClass&&[oldClass respondsToSelector:NSSelectorFromString(@"shared")]){id oldBinder=((id(*)(id,SEL))objc_msgSend)((id)oldClass,NSSelectorFromString(@"shared"));if(oldBinder)[NSNotificationCenter.defaultCenter removeObserver:oldBinder];}
+    ZNM55StaticTypedBinder *binder=[ZNM55StaticTypedBinder shared];[NSNotificationCenter.defaultCenter addObserver:binder selector:@selector(numberChanged:) name:ZNFeatureNumberValueDidChangeNotification object:nil];[NSNotificationCenter.defaultCenter addObserver:binder selector:@selector(sliderChanged:) name:ZNFeatureSliderValueDidChangeNotification object:nil];[NSNotificationCenter.defaultCenter addObserver:binder selector:@selector(actionRequested:) name:ZNFeatureActionRequestedNotification object:nil];[[ZNRuntimeLogger sharedLogger]log:@"[m5.5-static] Typed MOV/FMOV Static adapter installed"];
+});}
+
+#pragma mark - END ZNM55StaticTypedBinding.mm
+
+
+#pragma mark - BEGIN ZNM56StaticValueCellBinding.mm
+#line 1 "ZNM56StaticValueCellBinding.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#import <mach-o/loader.h>
+#include <math.h>
+#include <string.h>
+
+#import "ZNFeatureControlModel.h"
+#import "ZNFeatureMetadataCodec.h"
+#import "ZNStaticDispatchRuntime.h"
+#import "ZNStaticPatchFormat.h"
+#import "ZNValueTypeModel.h"
+#import "ZNPatchCore.h"
+
+@interface ZNStaticPatchRecord (ZNM56Private)
+@property(nonatomic,assign) uintptr_t imageBase;
+@property(nonatomic,assign) ZN44StaticEntry *entry;
+@end
+
+static UIViewController *ZNM56TopController(void){UIWindow *window=nil;for(UIScene *scene in UIApplication.sharedApplication.connectedScenes){if(![scene isKindOfClass:UIWindowScene.class]||scene.activationState!=UISceneActivationStateForegroundActive)continue;for(UIWindow *candidate in ((UIWindowScene *)scene).windows){if(candidate.isKeyWindow){window=candidate;break;}}if(window)break;}if(!window)window=UIApplication.sharedApplication.windows.firstObject;UIViewController *vc=window.rootViewController;while(vc.presentedViewController&&!vc.presentedViewController.isBeingDismissed)vc=vc.presentedViewController;return vc;}
+static void ZNM56ShowFailure(NSString *message){dispatch_async(dispatch_get_main_queue(),^{UIViewController *top=ZNM56TopController();if(!top||[top isKindOfClass:UIAlertController.class])return;UIAlertController *a=[UIAlertController alertControllerWithTitle:@"执行失败" message:message.length?message:@"执行失败" preferredStyle:UIAlertControllerStyleAlert];[a addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];[top presentViewController:a animated:YES completion:nil];});}
+
+static BOOL ZNM56RecordMatches(ZNStaticPatchRecord *record,NSDictionary *info){uint64_t wantedID=[info[@"featureID"] unsignedLongLongValue];NSDictionary *meta=record.entry?ZNFeatureMetadataDecodeEntry(record.entry):nil;uint64_t recordID=[meta[@"featureID"] unsignedLongLongValue];if(wantedID&&recordID)return wantedID==recordID;NSString *wanted=[info[@"title"] isKindOfClass:NSString.class]?info[@"title"]:@"";NSString *recordName=[meta[@"title"] isKindOfClass:NSString.class]?meta[@"title"]:(record.group.length?record.group:record.title);return wanted.length&&[wanted caseInsensitiveCompare:recordName?:@""]==NSOrderedSame;}
+
+static uintptr_t ZNM56ValueCellAddress(ZNStaticPatchRecord *record,ZNValueType *resolvedType,NSString **error){
+    if(!record||!record.imageBase||!record.entry){if(error)*error=@"Static value-cell record metadata unavailable";return 0;}
+    if(!(record.entry->flags&ZN44_STATIC_ENTRY_FLAG_VALUE_CELL_V1)){if(error)*error=@"当前生成物没有 RW Value Cell；请用 M5.6 重新生成 UnityFramework";return 0;}
+    const struct mach_header_64 *mh=(const struct mach_header_64 *)record.imageBase;if(mh->magic!=MH_MAGIC_64){if(error)*error=@"value-cell runtime Mach-O 无效";return 0;}
+    const uint8_t *cursor=(const uint8_t *)(mh+1),*limit=cursor+mh->sizeofcmds;uint64_t imageVMBase=UINT64_MAX;const struct segment_command_64 *znData=NULL;const struct section_64 *znDataSec=NULL;
+    for(uint32_t i=0;i<mh->ncmds;i++){if(cursor+sizeof(struct load_command)>limit)break;const struct load_command *lc=(const struct load_command *)cursor;if(lc->cmdsize<sizeof(*lc)||cursor+lc->cmdsize>limit)break;if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(struct segment_command_64)){const struct segment_command_64 *seg=(const struct segment_command_64 *)cursor;if(strncmp(seg->segname,"__TEXT",16)==0)imageVMBase=seg->vmaddr;if(strncmp(seg->segname,"__ZNDATA",16)==0){znData=seg;uint64_t secBytes=(uint64_t)seg->nsects*sizeof(struct section_64);if(lc->cmdsize>=sizeof(*seg)+secBytes){const struct section_64 *secs=(const struct section_64 *)(seg+1);for(uint32_t j=0;j<seg->nsects;j++)if(strncmp(secs[j].sectname,"__zndata",16)==0){znDataSec=&secs[j];break;}}}}cursor+=lc->cmdsize;}
+    if(imageVMBase==UINT64_MAX||!znData||!znDataSec){if(error)*error=@"value-cell runtime 缺少 __ZNDATA";return 0;}
+    uintptr_t headerAddress=record.imageBase+(uintptr_t)(znDataSec->addr-imageVMBase);ZN44StaticHeader *header=(ZN44StaticHeader *)headerAddress;if(header->magic0!=ZN44_STATIC_MAGIC0||header->magic1!=ZN44_STATIC_MAGIC1||header->entrySize!=sizeof(ZN44StaticEntry)||!header->count||header->count>ZN44_STATIC_MAX_ENTRIES){if(error)*error=@"value-cell runtime Static Header 无效";return 0;}
+    if(!(header->flags&ZN44_STATIC_HEADER_FLAG_VALUE_CELLS_V1)){if(error)*error=@"生成物未标记 Value Cells V1";return 0;}
+    ZN44StaticEntry *entries=(ZN44StaticEntry *)(header+1);ptrdiff_t idx=record.entry-entries;if(idx<0||(uint32_t)idx>=header->count){if(error)*error=@"value-cell entry index 无效";return 0;}
+    uint64_t cellBytes=(uint64_t)header->count*8u;uintptr_t segmentRuntime=record.imageBase+(uintptr_t)(znData->vmaddr-imageVMBase);uintptr_t cellBase=segmentRuntime+(uintptr_t)znData->filesize-(uintptr_t)cellBytes;
+    uint32_t rawType=ZN44StaticValueCellTypeFromFlags(record.entry->flags);if(rawType>ZNValueTypeF64||rawType==ZNValueTypeAuto){if(error)*error=@"value-cell resolved type 无效";return 0;}if(resolvedType)*resolvedType=(ZNValueType)rawType;return cellBase+(uintptr_t)idx*8u;
+}
+
+static BOOL ZNM56ScanSigned(NSString *text,long long *out){NSScanner *s=[NSScanner scannerWithString:text?:@""];long long v=0;if(![s scanLongLong:&v]||!s.isAtEnd)return NO;if(out)*out=v;return YES;}
+static BOOL ZNM56ScanUnsigned(NSString *text,unsigned long long *out){NSString *t=[text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];if(!t.length||[t hasPrefix:@"-"])return NO;NSScanner *s=[NSScanner scannerWithString:t];unsigned long long v=0;if(![s scanUnsignedLongLong:&v]||!s.isAtEnd)return NO;if(out)*out=v;return YES;}
+
+static BOOL ZNM56WriteTextToCell(NSString *text,ZNValueType type,uintptr_t cell,NSString **error){
+    if(type==ZNValueTypeI32){long long v=0;if(!ZNM56ScanSigned(text,&v)||v<INT32_MIN||v>INT32_MAX){if(error)*error=@"不是有效 I32";return NO;}uint32_t raw=(uint32_t)(int32_t)v;__atomic_store_n((uint32_t *)cell,raw,__ATOMIC_RELEASE);return YES;}
+    if(type==ZNValueTypeU32){unsigned long long v=0;if(!ZNM56ScanUnsigned(text,&v)||v>UINT32_MAX){if(error)*error=@"不是有效 U32";return NO;}__atomic_store_n((uint32_t *)cell,(uint32_t)v,__ATOMIC_RELEASE);return YES;}
+    if(type==ZNValueTypeI64){long long v=0;if(!ZNM56ScanSigned(text,&v)){if(error)*error=@"不是有效 I64";return NO;}__atomic_store_n((uint64_t *)cell,(uint64_t)v,__ATOMIC_RELEASE);return YES;}
+    if(type==ZNValueTypeU64){unsigned long long v=0;if(!ZNM56ScanUnsigned(text,&v)){if(error)*error=@"不是有效 U64";return NO;}__atomic_store_n((uint64_t *)cell,(uint64_t)v,__ATOMIC_RELEASE);return YES;}
+    if(type==ZNValueTypeF32){NSScanner *s=[NSScanner scannerWithString:text?:@""];double d=0;if(![s scanDouble:&d]||!s.isAtEnd||!isfinite(d)){if(error)*error=@"不是有效 F32";return NO;}float f=(float)d;uint32_t raw=0;memcpy(&raw,&f,4);__atomic_store_n((uint32_t *)cell,raw,__ATOMIC_RELEASE);return YES;}
+    if(type==ZNValueTypeF64){NSScanner *s=[NSScanner scannerWithString:text?:@""];double d=0;if(![s scanDouble:&d]||!s.isAtEnd||!isfinite(d)){if(error)*error=@"不是有效 F64";return NO;}uint64_t raw=0;memcpy(&raw,&d,8);__atomic_store_n((uint64_t *)cell,raw,__ATOMIC_RELEASE);return YES;}
+    if(error)*error=@"Value Cell 不支持 Auto/未知类型";return NO;
+}
+
+@interface ZNM56StaticValueCellBinder:NSObject
+@property(nonatomic,strong)NSMutableDictionary<NSString *,NSNumber *> *sliderGenerations;
++ (instancetype)shared;-(void)numberChanged:(NSNotification *)note;-(void)sliderChanged:(NSNotification *)note;-(void)actionRequested:(NSNotification *)note;
+@end
+@implementation ZNM56StaticValueCellBinder
++ (instancetype)shared{static ZNM56StaticValueCellBinder *s;static dispatch_once_t once;dispatch_once(&once,^{s=[ZNM56StaticValueCellBinder new];s.sliderGenerations=[NSMutableDictionary dictionary];});return s;}
+- (NSArray<ZNStaticPatchRecord *> *)recordsForInfo:(NSDictionary *)info{ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];[runtime refresh];NSMutableArray *out=[NSMutableArray array];for(ZNStaticPatchRecord *r in runtime.records)if(ZNM56RecordMatches(r,info))[out addObject:r];return out;}
+- (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error{NSArray<ZNStaticPatchRecord *> *records=[self recordsForInfo:info];if(!records.count){if(error)*error=@"找不到 Static Feature 记录";return NO;}ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];for(ZNStaticPatchRecord *r in records){ZNValueType resolved=ZNValueTypeAuto;NSString *local=nil;uintptr_t cell=ZNM56ValueCellAddress(r,&resolved,&local);if(!cell){if(error)*error=local;return NO;}if(!ZNM56WriteTextToCell(text,resolved,cell,&local)){if(error)*error=local;return NO;}if(!r.isEnabled&&![runtime setEnabled:YES forRecord:r error:&local]){if(error)*error=local?:@"启用 Static value-cell variant 失败";return NO;}}[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m5.6-value-cell] wrote value=%@ records=%lu RW-only",text?:@"",(unsigned long)records.count]];return YES;}
+- (void)numberChanged:(NSNotification *)note{NSString *text=[note.userInfo[@"valueText"] isKindOfClass:NSString.class]?note.userInfo[@"valueText"]:[note.userInfo[@"value"] description];NSString *error=nil;if(![self applyText:text info:note.userInfo?:@{} error:&error])ZNM56ShowFailure(error);}
+- (void)sliderChanged:(NSNotification *)note{NSString *text=[note.userInfo[@"valueText"] isKindOfClass:NSString.class]?note.userInfo[@"valueText"]:[note.userInfo[@"value"] description];NSString *key=[note.userInfo[@"key"] isKindOfClass:NSString.class]?note.userInfo[@"key"]:(note.userInfo[@"title"]?:@"feature");NSUInteger generation=[self.sliderGenerations[key] unsignedIntegerValue]+1;self.sliderGenerations[key]=@(generation);NSDictionary *info=[note.userInfo copy]?:@{};dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(.10*NSEC_PER_SEC)),dispatch_get_main_queue(),^{if([self.sliderGenerations[key] unsignedIntegerValue]!=generation)return;NSString *error=nil;if(![self applyText:text info:info error:&error])ZNM56ShowFailure(error);});}
+- (void)actionRequested:(NSNotification *)note{NSArray *records=[self recordsForInfo:note.userInfo?:@{}];if(!records.count){ZNM56ShowFailure(@"找不到 Static Feature 记录");return;}ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];for(ZNStaticPatchRecord *r in records){NSString *error=nil;if(![runtime setEnabled:YES forRecord:r error:&error]){ZNM56ShowFailure(error);return;}}}
+@end
+
+extern "C" void ZNInstallM56StaticValueCellBindingDeferred(void){static dispatch_once_t once;dispatch_once(&once,^{
+    Class oldClass=NSClassFromString(@"ZNM55StaticTypedBinder");if(oldClass&&[oldClass respondsToSelector:NSSelectorFromString(@"shared")]){id oldBinder=((id(*)(id,SEL))objc_msgSend)((id)oldClass,NSSelectorFromString(@"shared"));if(oldBinder)[NSNotificationCenter.defaultCenter removeObserver:oldBinder];}
+    ZNM56StaticValueCellBinder *binder=[ZNM56StaticValueCellBinder shared];[NSNotificationCenter.defaultCenter addObserver:binder selector:@selector(numberChanged:) name:ZNFeatureNumberValueDidChangeNotification object:nil];[NSNotificationCenter.defaultCenter addObserver:binder selector:@selector(sliderChanged:) name:ZNFeatureSliderValueDidChangeNotification object:nil];[NSNotificationCenter.defaultCenter addObserver:binder selector:@selector(actionRequested:) name:ZNFeatureActionRequestedNotification object:nil];[[ZNRuntimeLogger sharedLogger]log:@"[m5.6-value-cell] Static Number/Slider RW-only binder installed"];
+});}
+
+#pragma mark - END ZNM56StaticValueCellBinding.mm
