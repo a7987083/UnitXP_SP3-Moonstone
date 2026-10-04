@@ -962,7 +962,7 @@ static BOOL ZNV3BuildTarget(NSString *target,
                     header->version=ZN44_STATIC_VERSION_V3;
                     header->count=(uint32_t)logicals.size();
                     header->entrySize=sizeof(ZN44StaticEntry);
-                    header->flags |= ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2;
+                    header->flags |= ZN44_STATIC_HEADER_FLAG_PAYLOAD_PROTECTION_V2 | ZN44_STATIC_HEADER_FLAG_GENERATED_LAYOUT_V1;
                     ZN44StaticEntry *entries=(ZN44StaticEntry *)(header+1);
                     std::vector<uint64_t> onRVAs(logicals.size(),0);
 
