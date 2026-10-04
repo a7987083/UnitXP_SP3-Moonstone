@@ -32,6 +32,13 @@ int main(void) {
                 isEqualToString:@"managed-callback-short-circuit"]);
         assert([ZNNativeHookTemplateKey(ZNNativeHookTemplateReturnBoolOverride)
                 isEqualToString:@"return-bool-override"]);
+        assert([ZNNativeHookTemplateKey(ZNNativeHookTemplateStructFieldTransform)
+                isEqualToString:@"struct-field-transform"]);
+
+        assert(ZNNativeHookScaleInt64(10, 5) == 50);
+        assert(ZNNativeHookScaleInt64(-10, 5) == -50);
+        assert(ZNNativeHookScaleInt64(INT64_MAX, 2) == INT64_MAX);
+        assert(ZNNativeHookScaleInt64(INT64_MIN, 2) == INT64_MIN);
     }
     return 0;
 }
