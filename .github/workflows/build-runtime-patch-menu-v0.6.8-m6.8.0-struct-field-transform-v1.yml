@@ -1,4 +1,4 @@
-name: Build Runtime Patch Menu v0.6.8 M6.8.0 Struct Field Transform V1
+name: Build Runtime Patch Menu v0.6.9 M6.9.0 Architecture Cleanup V1
 
 on:
   push:
@@ -19,8 +19,8 @@ jobs:
       - name: Source contract assertions
         run: |
           set -euxo pipefail
-          grep -q '0.6.8 · M6.8.0' iosruntimepatchmenu/src/ZNBuildVersion.h
-          grep -q 'StructFieldTransform V1' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q '0.6.9 · M6.9.0' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'Architecture Cleanup V1' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'DobbyHook' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'SecureLong Accessor Codec' iosruntimepatchmenu/src/ZNBuildVersion.h
           grep -q 'ZNM630RestorePersistedTypedValues' iosruntimepatchmenu/src/ZNFeatureRuntimeControlsV2.mm
@@ -65,6 +65,7 @@ jobs:
           grep -q 'control.*switch' iosruntimepatchmenu/src/ZNRuntimeActionBuilder.mm
           grep -q 'Return Bool Override' iosruntimepatchmenu/src/ZNM52ChainExecuteButton.mm
           grep -q 'ZNBuilderPolicyCaptureCurrent' iosruntimepatchmenu/src/ZNFeatureBuilderUI.mm
+          grep -q 'ZNBuilderPolicyCaptureCurrent' iosruntimepatchmenu/src/ZonoeRuntimeMenu.mm
           grep -q 'ZNBuilderPolicyCapture' iosruntimepatchmenu/src/ZNStaticBinaryPipeline.mm
           grep -q 'builder_policy_test.mm' .github/workflows/build-runtime-patch-menu-v0.6.8-m6.8.0-struct-field-transform-v1.yml
           grep -q 'ZNNativeHookTemplateStructFieldTransform' iosruntimepatchmenu/src/ZNNativeHookTemplate.h
@@ -152,46 +153,46 @@ jobs:
           PY
           python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
           test -f build/iphoneos/arm64/libdobby.a
-      - name: Build M6.8.0
+      - name: Build M6.9.0
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
-          make FINALPACKAGE=1 2>&1 | tee build-m6.8.0.log
-          mkdir -p dist-m6.8.0
+          make FINALPACKAGE=1 2>&1 | tee build-m6.9.0.log
+          mkdir -p dist-m6.9.0
           SHORT_SHA="$(git rev-parse --short=7 HEAD)"
           echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
-          OUT="dist-m6.8.0/ZonoPatch_M6.8_StructFieldTransformV1_${SHORT_SHA}.dylib"
+          OUT="dist-m6.9.0/ZonoPatch_M6.9_ArchitectureCleanupV1_${SHORT_SHA}.dylib"
           cp .theos/obj/ZonoePatchV03.dylib "$OUT"
-          shasum -a 256 "$OUT" | tee dist-m6.8.0/SHA256.txt
+          shasum -a 256 "$OUT" | tee dist-m6.9.0/SHA256.txt
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m6.8.0-build-log
-          path: iosruntimepatchmenu/build-m6.8.0.log
+          name: m6.9.0-build-log
+          path: iosruntimepatchmenu/build-m6.9.0.log
           if-no-files-found: warn
       - name: Verify binary
         run: |
           set -euxo pipefail
-          out="iosruntimepatchmenu/dist-m6.8.0/ZonoPatch_M6.8_StructFieldTransformV1_${SHORT_SHA}.dylib"
+          out="iosruntimepatchmenu/dist-m6.9.0/ZonoPatch_M6.9_ArchitectureCleanupV1_${SHORT_SHA}.dylib"
           file "$out" | grep -q 'arm64'
-          otool -L "$out" | tee /tmp/zono_m680_load_commands.txt
-          strings -a "$out" > /tmp/zono_m680_strings.txt
-          grep -q '\[m6.1-split\]' /tmp/zono_m680_strings.txt
-          grep -q '\[m6.2-temp-value\]' /tmp/zono_m680_strings.txt
-          grep -q '\[m6.3-ui\]' /tmp/zono_m680_strings.txt
-          grep -q '\[native-hook\]' /tmp/zono_m680_strings.txt
-          grep -q '\[m6.4-native-hook-ui\]' /tmp/zono_m680_strings.txt || true
-          grep -q 'arg-scale-int32' /tmp/zono_m680_strings.txt
-          grep -q 'struct-field-transform' /tmp/zono_m680_strings.txt
-          grep -q 'secure-long-accessor' /tmp/zono_m680_strings.txt
-          ! grep -qi 'dobby' /tmp/zono_m680_load_commands.txt
+          otool -L "$out" | tee /tmp/zono_m690_load_commands.txt
+          strings -a "$out" > /tmp/zono_m690_strings.txt
+          grep -q '\[m6.1-split\]' /tmp/zono_m690_strings.txt
+          grep -q '\[m6.2-temp-value\]' /tmp/zono_m690_strings.txt
+          grep -q '\[m6.3-ui\]' /tmp/zono_m690_strings.txt
+          grep -q '\[native-hook\]' /tmp/zono_m690_strings.txt
+          grep -q '\[m6.4-native-hook-ui\]' /tmp/zono_m690_strings.txt || true
+          grep -q 'arg-scale-int32' /tmp/zono_m690_strings.txt
+          grep -q 'struct-field-transform' /tmp/zono_m690_strings.txt
+          grep -q 'secure-long-accessor' /tmp/zono_m690_strings.txt
+          ! grep -qi 'dobby' /tmp/zono_m690_load_commands.txt
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZonoPatch-M6.8-StructFieldTransformV1-${{ env.SHORT_SHA }}
+          name: ZonoPatch-M6.9-ArchitectureCleanupV1-${{ env.SHORT_SHA }}
           path: |
-            iosruntimepatchmenu/dist-m6.8.0/ZonoPatch_M6.8_StructFieldTransformV1_${{ env.SHORT_SHA }}.dylib
-            iosruntimepatchmenu/dist-m6.8.0/SHA256.txt
+            iosruntimepatchmenu/dist-m6.9.0/ZonoPatch_M6.9_ArchitectureCleanupV1_${{ env.SHORT_SHA }}.dylib
+            iosruntimepatchmenu/dist-m6.9.0/SHA256.txt
           if-no-files-found: error
