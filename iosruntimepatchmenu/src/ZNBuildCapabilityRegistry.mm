@@ -2,6 +2,7 @@
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
+#import "ZNBuildManifest.h"
 
 @interface ZNBuildCapabilityRegistry ()
 @property(nonatomic,strong) NSMutableDictionary<NSString *, ZNBuildCapabilityProbe> *providers;
@@ -87,21 +88,22 @@
 }
 
 - (NSArray<NSString *> *)activeProviderIdentifiers {
-    return [ZNBuildCapabilityRegistry sharedRegistry].activeProviderIdentifiers;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    return [ZNBuildManifest manifestForWorkspace:workspace].activeProviderIdentifiers;
 }
 
 - (BOOL)canBuild {
     ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
     if(workspace.isBuilding)return NO;
     if(workspace.hasAnyApplied)return NO;
-    return [ZNBuildCapabilityRegistry sharedRegistry].hasBuildableContent;
+    return [ZNBuildManifest manifestForWorkspace:workspace].itemCount > 0;
 }
 
 - (NSString *)blockedReason {
     ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
     if(workspace.isBuilding)return @"正在生成二进制";
     if(workspace.hasAnyApplied)return @"生成前必须先恢复 Runtime Patch";
-    if(![ZNBuildCapabilityRegistry sharedRegistry].hasBuildableContent)return @"没有可生成内容";
+    if([ZNBuildManifest manifestForWorkspace:workspace].itemCount==0)return @"没有可生成的 BuildItem";
     return @"";
 }
 
