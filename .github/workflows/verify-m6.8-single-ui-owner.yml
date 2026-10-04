@@ -1,0 +1,123 @@
+name: Verify M6.8 Single UI Owner
+
+on:
+  push:
+    branches:
+      - refactor/m6.8-single-ui-owner
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Single UI owner source contract
+        run: |
+          set -euxo pipefail
+          sh iosruntimepatchmenu/tests/single_ui_owner_contract.sh
+
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          brew update
+          brew unlink openssl@1.1 || true
+          if [ -L /opt/homebrew/bin/openssl ]; then rm -f /opt/homebrew/bin/openssl; fi
+          brew install ldid cmake
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build pinned Dobby
+        run: |
+          set -euxo pipefail
+          mkdir -p vendor
+          git clone https://github.com/jmpews/Dobby.git vendor/Dobby
+          cd vendor/Dobby
+          git checkout 5dfc8546954ce3b3198132ab13fddb89ee92cdd7
+          sed -i '' '/^import pipes$/d' scripts/platform_builder.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('include/dobby.h')
+          s = p.read_text()
+          old = '''#ifdef __cplusplus
+          extern "C" {
+          #endif
+
+          #include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+          '''
+          new = '''#include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          '''
+          if old not in s:
+              raise SystemExit('unexpected Dobby header layout')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
+          test -f build/iphoneos/arm64/libdobby.a
+
+      - name: Build fixed baseline
+        run: |
+          set -euxo pipefail
+          git worktree add /tmp/zn-baseline b72c2a271c703e494397f680c327a26a6cf275f5
+          cd /tmp/zn-baseline/iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/baseline-build.log
+          cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_baseline.dylib
+
+      - name: Build single UI owner
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/unified-build.log
+          cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_single_ui_owner.dylib
+
+      - name: Compare binary interface and UI contracts
+        run: |
+          set -euxo pipefail
+          file /tmp/ZonoePatch_baseline.dylib
+          file /tmp/ZonoePatch_single_ui_owner.dylib
+
+          otool -L /tmp/ZonoePatch_baseline.dylib | tail -n +2 | sort > /tmp/baseline-load.txt
+          otool -L /tmp/ZonoePatch_single_ui_owner.dylib | tail -n +2 | sort > /tmp/unified-load.txt
+          diff -u /tmp/baseline-load.txt /tmp/unified-load.txt
+
+          nm -gU /tmp/ZonoePatch_baseline.dylib | awk '{$1=""; sub(/^ /,""); print}' | sort -u > /tmp/baseline-exports.txt
+          nm -gU /tmp/ZonoePatch_single_ui_owner.dylib | awk '{$1=""; sub(/^ /,""); print}' | sort -u > /tmp/unified-exports.txt
+          diff -u /tmp/baseline-exports.txt /tmp/unified-exports.txt
+
+          strings -a /tmp/ZonoePatch_baseline.dylib > /tmp/baseline-strings.txt
+          strings -a /tmp/ZonoePatch_single_ui_owner.dylib > /tmp/unified-strings.txt
+          for marker in             '方法查找'             'IL2CPP Native Hook'             '生成新二进制'             'Hook 测试'             'Direct Native Call：当前分支尚未接入 backend'             '[m6.3-ui]'             '[native-hook]'; do
+            grep -Fq "$marker" /tmp/baseline-strings.txt
+            grep -Fq "$marker" /tmp/unified-strings.txt
+          done
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m6.8-single-ui-owner-verification
+          path: |
+            /tmp/baseline-build.log
+            /tmp/unified-build.log
+            /tmp/baseline-load.txt
+            /tmp/unified-load.txt
+            /tmp/baseline-exports.txt
+            /tmp/unified-exports.txt
+            /tmp/ZonoePatch_single_ui_owner.dylib
+          if-no-files-found: warn
