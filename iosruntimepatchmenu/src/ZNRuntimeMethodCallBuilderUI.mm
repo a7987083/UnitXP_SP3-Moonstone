@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 
 #import "ZNRuntimeActionModel.h"
+#import "ZNBinaryPatchWorkspace.h"
 #import "ZNNativeHookAction.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
@@ -30,6 +31,46 @@ static CGFloat ZNRMCBuilderMaxY(UIView *view) {
     for (UIView *subview in view.subviews) y = MAX(y, CGRectGetMaxY(subview.frame));
     return y;
 }
+
+static UIButton *ZNRMCBuilderFindBuildButton(UIView *root) {
+    for (UIView *view in root.subviews ?: @[]) {
+        if ([view isKindOfClass:UIButton.class]) {
+            NSString *title=[(UIButton *)view titleForState:UIControlStateNormal] ?: @"";
+            if ([title isEqualToString:@"生成新二进制"] || [title isEqualToString:@"正在生成…"]) return (UIButton *)view;
+        }
+        UIButton *nested=ZNRMCBuilderFindBuildButton(view);
+        if (nested) return nested;
+    }
+    return nil;
+}
+
+static NSUInteger ZNRMCBuilderCompleteStaticRows(ZNBinaryPatchWorkspace *workspace) {
+    NSUInteger count=0;
+    for (ZNBinaryPatchRow *row in workspace.rows ?: @[]) {
+        if (row.offsetText.length>0 && row.enabledText.length>0) count++;
+    }
+    return count;
+}
+
+static void ZNRMCBuilderFinalizeBuildGate(UIView *root,
+                                         NSUInteger runtimeCount,
+                                         NSUInteger nativeHookCount) {
+    if (!runtimeCount && !nativeHookCount) return;
+    UIButton *build=ZNRMCBuilderFindBuildButton(root);
+    if (!build) return;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    NSUInteger completeStatic=ZNRMCBuilderCompleteStaticRows(workspace);
+    if (completeStatic!=0) return; // Static/mixed mode keeps its own validation gate.
+    BOOL ready=!workspace.isBuilding && !workspace.hasAnyApplied;
+    build.enabled=ready;
+    build.alpha=ready?1.0:0.5;
+    if (ready) {
+        build.accessibilityHint=nativeHookCount>0 && runtimeCount==0
+            ? @"Native Hook-only：可以直接生成二进制"
+            : @"Runtime/Native Hook-only：可以直接生成二进制";
+    }
+}
+
 
 static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
     UITextField *field = [[UITextField alloc] initWithFrame:frame];
@@ -199,6 +240,12 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             [self.contentView addSubview:card];y+=114.0;
         }
     }
+
+    // M6.8 final gate runs after Native Hook authoring cards are rendered.
+    // This intentionally uses the same snapshots that produced the visible
+    // "Runtime Method Call · N" / "IL2CPP Native Hook · N" counts, avoiding
+    // earlier swizzle/render ordering from leaving the build button stale.
+    ZNRMCBuilderFinalizeBuildGate(self.contentView,actions.count,hooks.count);
 
     [self zn40_updateContentHeight:y];
 }
