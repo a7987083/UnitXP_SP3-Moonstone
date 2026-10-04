@@ -24,6 +24,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,assign) BOOL callbackValue;
 @property(nonatomic,assign) BOOL skipOriginal;
 @property(nonatomic,assign) BOOL returnBoolValue;
+@property(nonatomic,assign) NSUInteger fieldArgumentIndex;
+@property(nonatomic,assign) uint64_t fieldOffset;
+@property(nonatomic,copy) NSString *fieldCodec;
+@property(nonatomic,copy) NSString *codecAssembly;
+@property(nonatomic,copy) NSString *codecNamespaceName;
+@property(nonatomic,copy) NSString *codecClassName;
+@property(nonatomic,copy) NSString *codecGetterMethod;
+@property(nonatomic,copy) NSString *codecSetterMethod;
+@property(nonatomic,assign) NSUInteger codecGetterArgumentCount;
+@property(nonatomic,assign) NSUInteger codecSetterArgumentCount;
 @property(nonatomic,assign) uint64_t fallbackRVA;
 @property(nonatomic,copy) NSString *fallbackUUID;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
