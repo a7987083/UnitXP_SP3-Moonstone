@@ -7,7 +7,6 @@
 #import "ZNRuntimeActionRuntime.h"
 #import "ZNNativeHookRuntime.h"
 #import "ZNNativeHookAction.h"
-#import "ZNNativeHookScheduler.h"
 #import "ZNPatchCore.h"
 
 NSNotificationName const ZNRuntimeCapabilitySnapshotDidChangeNotification =
@@ -91,9 +90,6 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
 
 - (void)zn_applicationBecameActive:(NSNotification *)note {
     (void)note;
-    // Reconcile even when the dyld image count is unchanged: a previously
-    // unavailable IL2CPP resolver/backend may become ready after foregrounding.
-    [[ZNNativeHookScheduler sharedScheduler] reconcileActions:self.currentSnapshot.nativeHooks];
     [self requestRefresh];
 }
 
@@ -141,8 +137,6 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
                 snapshot.generation=self.nextGeneration++;
                 self.snapshotStorage=snapshot;
             }
-
-            [[ZNNativeHookScheduler sharedScheduler] reconcileActions:snapshot.nativeHooks];
 
             double elapsed=(CFAbsoluteTimeGetCurrent()-startedAt)*1000.0;
             [[ZNRuntimeLogger sharedLogger] log:
