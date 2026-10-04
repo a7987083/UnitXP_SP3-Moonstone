@@ -39,6 +39,7 @@ static void ZNRuntimeCoreBootstrapV040(void) {
         [ZNPatchManager sharedManager];
         [[ZNDeveloperGate sharedGate] refresh];
         [[ZNIL2CPPResolver sharedResolver] refresh];
+        [[ZNRuntimeCapabilityCoordinator sharedCoordinator] start];
         ZNInstallV040Swizzles();
         [[ZNRuntimeLogger sharedLogger] log:@"Runtime Patch Menu 0.5.5 deferred bootstrap（Stock iOS / No JIT）"];
     }
@@ -7400,9 +7401,7 @@ static CGFloat ZNRMCFeatureMaxY(UIView *view) {
 }
 
 static void ZNRMCRemoveEmptyStaticCardIfNeeded(UIView *contentView) {
-    ZNStaticDispatchRuntime *staticRuntime = [ZNStaticDispatchRuntime sharedRuntime];
-    [staticRuntime refresh];
-    if (staticRuntime.records.count) return;
+    if ([ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.staticRecords.count) return;
     for (UIView *subview in [contentView.subviews copy]) {
         BOOL isEmpty = NO;
         for (UIView *child in subview.subviews) {
@@ -7425,9 +7424,9 @@ static void ZNRMCRemoveEmptyStaticCardIfNeeded(UIView *contentView) {
 
 - (void)znrmc_renderFeatureGroupsFull {
     [self znrmc_renderFeatureGroupsFull];
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
-    NSArray<ZNRuntimeMethodActionRecord *> *actions = runtime.records;
+    ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
+    [coordinator requestRefresh];
+    NSArray<ZNRuntimeMethodActionRecord *> *actions=coordinator.currentSnapshot.runtimeMethods;
     if (!actions.count) return;
 
     ZNRMCRemoveEmptyStaticCardIfNeeded(self.contentView);
@@ -16244,15 +16243,12 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
 }
 
 - (void)znm58_renderRuntime:(BOOL)compact {
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
+    ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
+    [coordinator requestRefresh];
     [self znm58_removeCards];
 
-    // RuntimeActionRuntime already de-duplicates exact embedded records using
-    // actionID + canonical identity + argument values. Do not collapse again by
-    // method/title here: separate Builder actions may intentionally target the
-    // same IL2CPP method with Fixed / Number / Slider controls.
-    NSArray<ZNRuntimeMethodActionRecord *> *records = runtime.records ?: @[];
+    // Runtime capability snapshot is immutable for this render pass.
+    NSArray<ZNRuntimeMethodActionRecord *> *records = coordinator.currentSnapshot.runtimeMethods ?: @[];
     [self znm581_removeStaticEmptyStateIfRuntimeExists:records];
 
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
@@ -17392,6 +17388,7 @@ extern "C" void ZNInstallM600UnifiedFeatureSurfaceDeferred(void) {
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionRuntime.h"
+#import "ZNRuntimeCapabilityCoordinator.h"
 #import "ZNNativeHookRuntime.h"
 #import "ZNNativeHookAction.h"
 #import "ZNRangeControl.h"
@@ -17553,13 +17550,12 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 @implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
 
 - (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact {
-    ZNRuntimeActionRuntime *runtime=[ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
-    NSArray<ZNRuntimeMethodActionRecord *> *records=runtime.records?:@[];
-
+    ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
+    [coordinator requestRefresh];
+    ZNRuntimeCapabilitySnapshot *snapshot=coordinator.currentSnapshot;
+    NSArray<ZNRuntimeMethodActionRecord *> *records=snapshot.runtimeMethods?:@[];
+    NSArray<ZNNativeHookAction *> *hooks=snapshot.nativeHooks?:@[];
     ZNNativeHookRuntime *hookRuntime=[ZNNativeHookRuntime sharedRuntime];
-    [hookRuntime refreshGeneratedActions];
-    NSArray<ZNNativeHookAction *> *hooks=hookRuntime.generatedActions?:@[];
     if (!records.count && !hooks.count) return y;
 
     for (NSUInteger hidx=0;hidx<hooks.count;hidx++) {
@@ -17598,11 +17594,6 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
             toggle.onTintColor=self.theme.accentColor;
             [toggle addTarget:self action:@selector(znm650_nativeHookSwitchChanged:) forControlEvents:UIControlEventValueChanged];
             [card addSubview:toggle];
-            if(toggle.isOn){
-                NSString *installError=nil;
-                [hookRuntime setValue:1 forAction:hook error:&installError];
-                if(installError.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] auto-install %@ failed: %@",hook.title,installError]];
-            }
         }else{
             CGFloat valueW=46.0;
             CGFloat sliderW=MAX(70.0,CGRectGetWidth(card.bounds)-26.0-valueW-5.0);
@@ -17627,11 +17618,6 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
             valueLabel.tag=kZNM640NativeHookValueTagBase+(NSInteger)hidx;
             [card addSubview:valueLabel];
 
-            if(value!=1){
-                NSString *installError=nil;
-                [hookRuntime setValue:value forAction:hook error:&installError];
-                if(installError.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] auto-install %@ failed: %@",hook.title,installError]];
-            }
         }
 
         [self.contentView addSubview:card];
@@ -17941,8 +17927,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 - (void)znm640_nativeHookSliderChanged:(UISlider *)sender {
     NSInteger index=sender.tag-kZNM640NativeHookSliderTagBase;
     if(index<0)return;
-    [[ZNNativeHookRuntime sharedRuntime] refreshGeneratedActions];
-    NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
+    NSArray<ZNNativeHookAction *> *hooks=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.nativeHooks?:@[];
     if((NSUInteger)index>=hooks.count)return;
     ZNNativeHookAction *hook=hooks[(NSUInteger)index];
     NSInteger value=(NSInteger)llround(sender.value);
@@ -17955,8 +17940,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 - (void)znm640_nativeHookSliderCommitted:(UISlider *)sender {
     NSInteger index=sender.tag-kZNM640NativeHookSliderTagBase;
     if(index<0)return;
-    [[ZNNativeHookRuntime sharedRuntime] refreshGeneratedActions];
-    NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
+    NSArray<ZNNativeHookAction *> *hooks=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.nativeHooks?:@[];
     if((NSUInteger)index>=hooks.count)return;
     ZNNativeHookAction *hook=hooks[(NSUInteger)index];
     NSInteger value=(NSInteger)llround(sender.value);
@@ -17975,8 +17959,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 - (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender {
     NSInteger index=sender.tag-kZNM650NativeHookSwitchTagBase;
     if(index<0)return;
-    [[ZNNativeHookRuntime sharedRuntime] refreshGeneratedActions];
-    NSArray<ZNNativeHookAction *> *hooks=[ZNNativeHookRuntime sharedRuntime].generatedActions?:@[];
+    NSArray<ZNNativeHookAction *> *hooks=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.nativeHooks?:@[];
     if((NSUInteger)index>=hooks.count)return;
     ZNNativeHookAction *hook=hooks[(NSUInteger)index];
     if(hook.templateKind!=ZNNativeHookTemplateManagedCallbackShortCircuit&&
