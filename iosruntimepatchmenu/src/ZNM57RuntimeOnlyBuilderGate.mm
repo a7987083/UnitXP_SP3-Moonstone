@@ -4,6 +4,7 @@
 
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNRuntimeActionModel.h"
+#import "ZNNativeHookAction.h"
 #import "ZNPatchCore.h"
 
 // M5.7 Builder gate: Runtime-only is a first-class build mode. The historical
@@ -54,7 +55,8 @@ static UIButton *ZNM57FindBuildButton(UIView *root) {
     ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
     NSUInteger completeStatic = ZNM57CompleteStaticRows(workspace);
     NSUInteger runtimeActions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot].count;
-    BOOL runtimeOnlyReady = runtimeActions > 0 && completeStatic == 0;
+    NSUInteger nativeHooks = [[ZNNativeHookStore sharedStore] actionsSnapshot].count;
+    BOOL runtimeOnlyReady = (runtimeActions > 0 || nativeHooks > 0) && completeStatic == 0;
     BOOL staticReady = completeStatic > 0 &&
                        workspace.filledCount == completeStatic &&
                        workspace.validatedCount == completeStatic;
@@ -65,7 +67,9 @@ static UIButton *ZNM57FindBuildButton(UIView *root) {
     build.alpha = build.enabled ? 1.0 : 0.5;
 
     if (runtimeOnlyReady) {
-        build.accessibilityHint = @"Runtime-only：无需 Static Offset Patch";
+        build.accessibilityHint = nativeHooks > 0 && runtimeActions == 0
+            ? @"Native Hook-only：无需 Static Offset Patch"
+            : @"Runtime-only：无需 Static Offset Patch";
     }
 }
 @end
@@ -78,6 +82,6 @@ extern "C" void ZNInstallM57RuntimeOnlyBuilderGateDeferred(void) {
         Method current = class_getInstanceMethod(cls, @selector(zn50b_renderOther));
         Method gate = class_getInstanceMethod(cls, @selector(znm57_renderOtherWithRuntimeOnlyGate));
         if (current && gate) method_exchangeImplementations(current, gate);
-        [[ZNRuntimeLogger sharedLogger] log:@"[m5.7-builder-gate] Runtime-only build enabled with zero complete Static rows; partial drafts ignored"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m6.8-builder-gate] Runtime/Native-Hook-only build enabled with zero complete Static rows; partial drafts ignored"];
     });
 }
