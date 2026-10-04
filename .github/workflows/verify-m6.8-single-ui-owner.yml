@@ -1,9 +1,10 @@
-name: Verify M6.8.4 BuildManifest V1
+name: Verify M6.8.6 Permanent Hook Lifecycle V1
 
 on:
   push:
     branches:
       - feature/m6.8.4-build-manifest-v1
+      - feature/m6.8.6-permanent-hook-lifecycle-v1
   workflow_dispatch:
 
 jobs:
