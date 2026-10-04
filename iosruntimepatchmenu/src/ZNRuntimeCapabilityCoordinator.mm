@@ -36,6 +36,12 @@ static NSString * const kZNRuntimeNativeHookValuePrefix =
 @property(nonatomic,copy) NSString *lastActivationKey;
 @end
 
+static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t slide) {
+    (void)mh;
+    (void)slide;
+    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
+}
+
 @implementation ZNRuntimeCapabilityCoordinator
 
 + (instancetype)sharedCoordinator {
@@ -67,12 +73,6 @@ static NSString * const kZNRuntimeNativeHookValuePrefix =
     @synchronized(self) {
         return self.snapshotStorage;
     }
-}
-
-static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t slide) {
-    (void)mh;
-    (void)slide;
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
 }
 
 - (void)start {
