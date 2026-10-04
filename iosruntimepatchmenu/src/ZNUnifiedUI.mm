@@ -7,6 +7,7 @@
 #pragma mark - BEGIN ZonoeRuntimeMenu.mm
 #line 1 "ZonoeRuntimeMenu.mm"
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNBuildCapabilityRegistry.h"
 // Zonoe Runtime Patch Menu — consolidated current source
 // v0.5.5 full deferred bootstrap
 // Historical V0xx menu sources are retained by Git history only; this file is
@@ -1497,7 +1498,7 @@ static void ZNInstallV043RuntimeValidation(void) {
     UIView *summary=[self cardAtY:y height:44 width:width compact:NO];UILabel *sl=[self label:[NSString stringWithFormat:@"已填写 %lu / %lu · 已验证 %lu%@",(unsigned long)ws.filledCount,(unsigned long)ws.rows.count,(unsigned long)ws.validatedCount,ws.hasAnyApplied?@" · Runtime 已应用":(ws.isBuilding?@" · 正在生成…":@"")] size:10.2 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];sl.frame=CGRectMake(13,6,summary.bounds.size.width-26,16);[summary addSubview:sl];UILabel *ss=[self label:ws.lastStatus?:@"" size:8.6 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];ss.frame=CGRectMake(13,23,summary.bounds.size.width-26,15);ss.lineBreakMode=NSLineBreakByTruncatingMiddle;[summary addSubview:ss];[self.contentView addSubview:summary];y+=52;
 
     UIView *a1=[self cardAtY:y height:52 width:width compact:NO];CGFloat gap=8,inner=a1.bounds.size.width-26,bw=(inner-gap)/2;UIButton *v=[self zn40_button:@"读取验证" selector:@selector(zn44_validateAll:) frame:CGRectMake(13,9,bw,34)];UIButton *ap=[self zn40_button:@"临时应用" selector:@selector(zn44_applyAll:) frame:CGRectMake(13+bw+gap,9,bw,34)];v.enabled=!ws.isBuilding&&!ws.hasAnyApplied;ap.enabled=!ws.isBuilding&&!ws.hasAnyApplied;[a1 addSubview:v];[a1 addSubview:ap];[self.contentView addSubview:a1];y+=60;
-    UIView *a2=[self cardAtY:y height:52 width:width compact:NO];UIButton *rs=[self zn40_button:@"恢复全部" selector:@selector(zn44_restoreAll:) frame:CGRectMake(13,9,bw,34)];UIButton *build=[self zn40_button:ws.isBuilding?@"正在生成…":@"生成新二进制" selector:@selector(zn44_buildBinary:) frame:CGRectMake(13+bw+gap,9,bw,34)];rs.enabled=!ws.isBuilding&&ws.hasAnyApplied;build.enabled=!ws.isBuilding&&!ws.hasAnyApplied&&ws.validatedCount==ws.filledCount&&ws.filledCount>0;[a2 addSubview:rs];[a2 addSubview:build];[self.contentView addSubview:a2];y+=60;
+    UIView *a2=[self cardAtY:y height:52 width:width compact:NO];UIButton *rs=[self zn40_button:@"恢复全部" selector:@selector(zn44_restoreAll:) frame:CGRectMake(13,9,bw,34)];UIButton *build=[self zn40_button:ws.isBuilding?@"正在生成…":@"生成新二进制" selector:@selector(zn44_buildBinary:) frame:CGRectMake(13+bw+gap,9,bw,34)];rs.enabled=!ws.isBuilding&&ws.hasAnyApplied;build.enabled=[ZNBinaryBuildCoordinator sharedCoordinator].canBuild;[a2 addSubview:rs];[a2 addSubview:build];[self.contentView addSubview:a2];y+=60;
 
     if(ws.lastOutputPaths.count){NSMutableArray *lines=[NSMutableArray array];for(NSUInteger i=0;i<MIN((NSUInteger)4,ws.lastOutputPaths.count);i++){NSString *p=ws.lastOutputPaths[i];[lines addObject:[p hasPrefix:NSHomeDirectory()]?[p substringFromIndex:NSHomeDirectory().length]:p];}[self zn40_addInfoCard:@"最近输出" lines:lines y:&y width:width];}
 
@@ -3952,9 +3953,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
                                    selector:@selector(zn44_buildBinary:)
                                       frame:CGRectMake(13 + buttonW + gap, 9, buttonW, 34)];
     restore.enabled = !workspace.isBuilding && workspace.hasAnyApplied;
-    BOOL hasRuntimeAuthoring = [[ZNRuntimeActionStore sharedStore] actionsSnapshot].count > 0 ||
-                               [[ZNNativeHookStore sharedStore] actionsSnapshot].count > 0;
-    build.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && (workspace.filledCount > 0 || hasRuntimeAuthoring);
+    build.enabled = [ZNBinaryBuildCoordinator sharedCoordinator].canBuild;
     [actions2 addSubview:restore];
     [actions2 addSubview:build];
     [self.contentView addSubview:actions2];
@@ -7103,17 +7102,14 @@ static void ZNRMCBuilderFinalizeBuildGate(UIView *root,
     if (!runtimeCount && !nativeHookCount) return;
     UIButton *build=ZNRMCBuilderFindBuildButton(root);
     if (!build) return;
-    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
-    NSUInteger completeStatic=ZNRMCBuilderCompleteStaticRows(workspace);
-    if (completeStatic!=0) return; // Static/mixed mode keeps its own validation gate.
-    BOOL ready=!workspace.isBuilding && !workspace.hasAnyApplied;
-    build.enabled=ready;
-    build.alpha=ready?1.0:0.5;
-    if (ready) {
-        build.accessibilityHint=nativeHookCount>0 && runtimeCount==0
-            ? @"Native Hook-only：可以直接生成二进制"
-            : @"Runtime/Native Hook-only：可以直接生成二进制";
-    }
+    (void)runtimeCount;
+    (void)nativeHookCount;
+    ZNBinaryBuildCoordinator *coordinator=[ZNBinaryBuildCoordinator sharedCoordinator];
+    build.enabled=coordinator.canBuild;
+    build.alpha=build.enabled?1.0:0.5;
+    build.accessibilityHint=build.enabled
+        ? [NSString stringWithFormat:@"可生成：%@", [coordinator.activeProviderIdentifiers componentsJoinedByString:@", "]]
+        : coordinator.blockedReason;
 }
 
 
@@ -7758,15 +7754,12 @@ static CGFloat ZNUXClampScrollY(UIScrollView *scroll, CGFloat y) {
         UIButton *button = (UIButton *)view;
         NSArray<NSString *> *actions = [button actionsForTarget:self forControlEvent:UIControlEventTouchUpInside];
         if (![actions containsObject:NSStringFromSelector(@selector(zn44_buildBinary:))]) return;
-        BOOL hasRuntimeAuthoring = [[ZNRuntimeActionStore sharedStore] actionsSnapshot].count > 0 ||
-                                   [[ZNNativeHookStore sharedStore] actionsSnapshot].count > 0;
-        button.enabled = !workspace.isBuilding &&
-                         !workspace.hasAnyApplied &&
-                         (workspace.filledCount > 0 || hasRuntimeAuthoring);
+        ZNBinaryBuildCoordinator *coordinator=[ZNBinaryBuildCoordinator sharedCoordinator];
+        button.enabled = coordinator.canBuild;
         button.alpha = button.enabled ? 1.0 : 0.5;
-        if (button.enabled && workspace.filledCount == 0 && hasRuntimeAuthoring) {
-            button.accessibilityHint = @"Runtime/Native Hook-only：可以直接生成二进制";
-        }
+        button.accessibilityHint = button.enabled
+            ? [NSString stringWithFormat:@"可生成：%@", [coordinator.activeProviderIdentifiers componentsJoinedByString:@", "]]
+            : coordinator.blockedReason;
     });
 }
 
@@ -10681,7 +10674,7 @@ static CGFloat ZNM461Bottom(UIView *root) {
     NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
     ZNM461CollectButtons(self.contentView, self, @selector(zn44_buildBinary:), buttons);
     for (UIButton *button in buttons) {
-        button.enabled = !workspace.isBuilding;
+        button.enabled = [ZNBinaryBuildCoordinator sharedCoordinator].canBuild;
         button.alpha = button.enabled ? 1.0 : 0.5;
     }
 }
@@ -14827,13 +14820,12 @@ static UIButton *ZNM55FindBuildButton(UIView *root) {
     // zn50b_renderOther swizzle is needed in M5.8.
     UIButton *build = ZNM55FindBuildButton(self.contentView);
     if (build) {
-        ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-        NSUInteger completeStatic = ZNM55CompleteStaticRows();
-        BOOL runtimeOnlyReady = actions.count > 0 && completeStatic == 0;
-        BOOL staticReady = completeStatic > 0 && workspace.filledCount == completeStatic && workspace.validatedCount == completeStatic;
-        build.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && (runtimeOnlyReady || staticReady);
+        ZNBinaryBuildCoordinator *coordinator=[ZNBinaryBuildCoordinator sharedCoordinator];
+        build.enabled = coordinator.canBuild;
         build.alpha = build.enabled ? 1.0 : 0.5;
-        build.accessibilityHint = runtimeOnlyReady ? @"Runtime-only：无需 Static Offset Patch" : nil;
+        build.accessibilityHint = build.enabled
+            ? [NSString stringWithFormat:@"可生成：%@", [coordinator.activeProviderIdentifiers componentsJoinedByString:@", "]]
+            : coordinator.blockedReason;
     }
 }
 
@@ -15115,21 +15107,15 @@ static UIButton *ZNM57FindBuildButton(UIView *root) {
     NSUInteger completeStatic = ZNM57CompleteStaticRows(workspace);
     NSUInteger runtimeActions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot].count;
     NSUInteger nativeHooks = [[ZNNativeHookStore sharedStore] actionsSnapshot].count;
-    BOOL runtimeOnlyReady = (runtimeActions > 0 || nativeHooks > 0) && completeStatic == 0;
-    BOOL staticReady = completeStatic > 0 &&
-                       workspace.filledCount == completeStatic &&
-                       workspace.validatedCount == completeStatic;
-
-    build.enabled = !workspace.isBuilding &&
-                    !workspace.hasAnyApplied &&
-                    (runtimeOnlyReady || staticReady);
+    (void)runtimeActions;
+    (void)nativeHooks;
+    (void)completeStatic;
+    ZNBinaryBuildCoordinator *coordinator=[ZNBinaryBuildCoordinator sharedCoordinator];
+    build.enabled = coordinator.canBuild;
     build.alpha = build.enabled ? 1.0 : 0.5;
-
-    if (runtimeOnlyReady) {
-        build.accessibilityHint = nativeHooks > 0 && runtimeActions == 0
-            ? @"Native Hook-only：无需 Static Offset Patch"
-            : @"Runtime-only：无需 Static Offset Patch";
-    }
+    build.accessibilityHint = build.enabled
+        ? [NSString stringWithFormat:@"可生成：%@", [coordinator.activeProviderIdentifiers componentsJoinedByString:@", "]]
+        : coordinator.blockedReason;
 }
 @end
 
@@ -16929,7 +16915,7 @@ static UIButton *ZNM591FindButton(UIView *root,NSString *prefix) {
     if(apply&&actions&&apply.superview==actions){CGRect f=apply.frame;f.origin.x=13.0;f.size.width=CGRectGetWidth(actions.bounds)-26.0;apply.frame=f;}
     UIButton *build=ZNM591FindButton(self.contentView,@"生成新二进制");
     if(!build)build=ZNM591FindButton(self.contentView,@"正在生成");
-    if(build)build.enabled=!workspace.isBuilding&&!workspace.hasAnyApplied&&workspace.filledCount>0;
+    if(build)build.enabled=[ZNBinaryBuildCoordinator sharedCoordinator].canBuild;
 }
 @end
 
