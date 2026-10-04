@@ -1533,89 +1533,242 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     return @"";
 }
 
+- (BOOL)zn_installPreparedReturnBoolAction:(ZNNativeHookAction *)action
+                                            target:(uintptr_t)target
+                                             value:(NSInteger)value
+                                             error:(NSString **)error {
+    if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNStructFieldSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装其他 Native Hook";
+        return NO;
+    }
+    ZNReturnBoolSlot *existing=ZNReturnBoolSlotForTarget(target);
+    if(existing){
+        uint32_t owner=existing->actionID.load(std::memory_order_acquire);
+        if(owner&&owner!=action.actionID){if(error)*error=@"target 已由其他 ReturnBool Action 占用";return NO;}
+        existing->actionID.store(action.actionID,std::memory_order_release);
+        existing->forcedValue.store(action.returnBoolValue?1u:0u,std::memory_order_release);
+        existing->enabled.store(value!=0?1u:0u,std::memory_order_release);
+        if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindReturnBool,target,
+                                     existing->original.load(std::memory_order_acquire),existing)){
+            if(error)*error=@"Permanent Hook registry 已满";return NO;
+        }
+        return YES;
+    }
+
+    ZNReturnBoolSlot *slot=ZNReturnBoolFreeSlot();
+    if(!slot){if(error)*error=@"ReturnBoolOverride Hook slot 已满";return NO;}
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNReturnBoolSlots);
+    slot->forcedValue.store(action.returnBoolValue?1u:0u,std::memory_order_relaxed);
+    slot->enabled.store(value!=0?1u:0u,std::memory_order_relaxed);
+    slot->hits.store(0,std::memory_order_relaxed);
+    slot->lastOriginal.store(UINT32_MAX,std::memory_order_relaxed);
+    slot->lastOverride.store(action.returnBoolValue?1u:0u,std::memory_order_relaxed);
+    slot->actionID.store(action.actionID,std::memory_order_relaxed);
+    slot->original.store(0,std::memory_order_relaxed);
+    slot->target.store(target,std::memory_order_release);
+
+    void *original=NULL;NSString *hookError=nil;
+    if(slotIndex>=kZNReturnBoolMaxSlots||
+       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
+                                                              replacement:gZNReturnBoolReplacements[slotIndex]
+                                                                 original:&original
+                                                                    error:&hookError]){
+        slot->target.store(0,std::memory_order_release);
+        slot->actionID.store(0,std::memory_order_relaxed);
+        if(error)*error=hookError?:@"Prepared ReturnBool DobbyHook 安装失败";
+        return NO;
+    }
+    slot->original.store((uintptr_t)original,std::memory_order_release);
+    if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindReturnBool,target,
+                                 (uintptr_t)original,slot)){
+        if(error)*error=@"Permanent Hook registry 已满";return NO;
+    }
+    return YES;
+}
+
+- (BOOL)zn_installPreparedManagedCallbackAction:(ZNNativeHookAction *)action
+                                           target:(uintptr_t)target
+                                            value:(NSInteger)value
+                                            error:(NSString **)error {
+    uint32_t reg=0;
+    if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
+                                     action.callbackArgumentIndex,
+                                     action.argumentCount,&reg)){
+        if(error)*error=@"Prepared ManagedCallback 参数无法映射到 ARM64 x0~x7";
+        return NO;
+    }
+    if(value!=0 && !ZNManagedPrepareInvokeBridge(error))return NO;
+    if(ZNNativeSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)||ZNStructFieldSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装其他 Native Hook";
+        return NO;
+    }
+
+    ZNManagedCallbackSlot *existing=ZNManagedCallbackSlotForTarget(target);
+    if(existing){
+        uint32_t owner=existing->actionID.load(std::memory_order_acquire);
+        if(owner&&owner!=action.actionID){if(error)*error=@"target 已由其他 ManagedCallback Action 占用";return NO;}
+        if(existing->callbackRegister.load(std::memory_order_relaxed)!=reg){
+            if(error)*error=@"Prepared ManagedCallback register 与已安装 Hook 不一致";return NO;
+        }
+        existing->actionID.store(action.actionID,std::memory_order_release);
+        existing->callbackValue.store(action.callbackValue?1u:0u,std::memory_order_release);
+        existing->enabled.store(value!=0?1u:0u,std::memory_order_release);
+        if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindManagedCallback,target,
+                                     existing->original.load(std::memory_order_acquire),existing)){
+            if(error)*error=@"Permanent Hook registry 已满";return NO;
+        }
+        return YES;
+    }
+
+    ZNManagedCallbackSlot *slot=ZNNativeManagedCallbackFreeSlot();
+    if(!slot){if(error)*error=@"ManagedCallback Hook slot 已满";return NO;}
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNManagedCallbackSlots);
+    slot->callbackRegister.store(reg,std::memory_order_relaxed);
+    slot->callbackValue.store(action.callbackValue?1u:0u,std::memory_order_relaxed);
+    slot->enabled.store(value!=0?1u:0u,std::memory_order_relaxed);
+    slot->hits.store(0,std::memory_order_relaxed);
+    slot->callbackSuccess.store(0,std::memory_order_relaxed);
+    slot->callbackFailure.store(0,std::memory_order_relaxed);
+    slot->lastReceiver.store(0,std::memory_order_relaxed);
+    slot->lastCallback.store(0,std::memory_order_relaxed);
+    slot->isStatic.store(action.preparedIsStatic?1u:0u,std::memory_order_relaxed);
+    slot->actionID.store(action.actionID,std::memory_order_relaxed);
+    slot->original.store(0,std::memory_order_relaxed);
+    slot->target.store(target,std::memory_order_release);
+
+    void *original=NULL;NSString *hookError=nil;
+    if(slotIndex>=kZNManagedCallbackMaxSlots||
+       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
+                                                              replacement:gZNManagedCallbackReplacements[slotIndex]
+                                                                 original:&original
+                                                                    error:&hookError]){
+        slot->target.store(0,std::memory_order_release);
+        slot->actionID.store(0,std::memory_order_relaxed);
+        if(error)*error=hookError?:@"Prepared ManagedCallback DobbyHook 安装失败";
+        return NO;
+    }
+    slot->original.store((uintptr_t)original,std::memory_order_release);
+    if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindManagedCallback,target,
+                                 (uintptr_t)original,slot)){
+        if(error)*error=@"Permanent Hook registry 已满";return NO;
+    }
+    return YES;
+}
+
+- (BOOL)zn_installPreparedStructFieldAction:(ZNNativeHookAction *)action
+                                        base:(uintptr_t)base
+                                      target:(uintptr_t)target
+                                       value:(NSInteger)value
+                                       error:(NSString **)error {
+    if(!action.preparedCodecGetterRVA||!action.preparedCodecSetterRVA){
+        if(error)*error=@"StructField Prepared Descriptor 缺少 codec RVA";
+        return NO;
+    }
+    if(action.preparedCodecGetterRVA>UINTPTR_MAX-base||
+       action.preparedCodecSetterRVA>UINTPTR_MAX-base){
+        if(error)*error=@"StructField codec RVA 地址溢出";
+        return NO;
+    }
+    uintptr_t getter=base+(uintptr_t)action.preparedCodecGetterRVA;
+    uintptr_t setter=base+(uintptr_t)action.preparedCodecSetterRVA;
+
+    uint32_t reg=0;
+    if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
+                                     action.fieldArgumentIndex,
+                                     action.argumentCount,&reg)){
+        if(error)*error=@"Prepared StructField 参数无法映射到 ARM64 x0~x7";
+        return NO;
+    }
+    if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装其他 Native Hook";
+        return NO;
+    }
+
+    ZNStructFieldSlot *existing=ZNStructFieldSlotForTarget(target);
+    if(existing){
+        uint32_t owner=existing->actionID.load(std::memory_order_acquire);
+        if(owner&&owner!=action.actionID){if(error)*error=@"target 已由其他 StructField Action 占用";return NO;}
+        if(existing->argumentRegister.load(std::memory_order_relaxed)!=reg||
+           existing->fieldOffset.load(std::memory_order_relaxed)!=action.fieldOffset){
+            if(error)*error=@"Prepared StructField 配置与已安装 Hook 不一致";return NO;
+        }
+        existing->getter.store(getter,std::memory_order_release);
+        existing->setter.store(setter,std::memory_order_release);
+        existing->multiplier.store((int32_t)value,std::memory_order_release);
+        existing->enabled.store(value!=1?1u:0u,std::memory_order_release);
+        existing->actionID.store(action.actionID,std::memory_order_release);
+        if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindStructField,target,
+                                     existing->original.load(std::memory_order_acquire),existing)){
+            if(error)*error=@"Permanent Hook registry 已满";return NO;
+        }
+        return YES;
+    }
+
+    ZNStructFieldSlot *slot=ZNStructFieldFreeSlot();
+    if(!slot){if(error)*error=@"StructFieldTransform Hook slot 已满";return NO;}
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNStructFieldSlots);
+    slot->getter.store(getter,std::memory_order_relaxed);
+    slot->setter.store(setter,std::memory_order_relaxed);
+    slot->multiplier.store((int32_t)value,std::memory_order_relaxed);
+    slot->enabled.store(value!=1?1u:0u,std::memory_order_relaxed);
+    slot->hits.store(0,std::memory_order_relaxed);
+    slot->failures.store(0,std::memory_order_relaxed);
+    slot->lastBefore.store(0,std::memory_order_relaxed);
+    slot->lastAfter.store(0,std::memory_order_relaxed);
+    slot->lastBase.store(0,std::memory_order_relaxed);
+    slot->lastField.store(0,std::memory_order_relaxed);
+    slot->argumentRegister.store(reg,std::memory_order_relaxed);
+    slot->fieldOffset.store(action.fieldOffset,std::memory_order_relaxed);
+    slot->actionID.store(action.actionID,std::memory_order_relaxed);
+    slot->original.store(0,std::memory_order_relaxed);
+    slot->target.store(target,std::memory_order_release);
+
+    void *original=NULL;NSString *hookError=nil;
+    if(slotIndex>=kZNStructFieldMaxSlots||
+       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
+                                                              replacement:gZNStructFieldBridgeReplacements[slotIndex]
+                                                                 original:&original
+                                                                    error:&hookError]){
+        slot->target.store(0,std::memory_order_release);
+        slot->actionID.store(0,std::memory_order_relaxed);
+        if(error)*error=hookError?:@"Prepared StructField DobbyHook 安装失败";
+        return NO;
+    }
+    slot->original.store((uintptr_t)original,std::memory_order_release);
+    if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindStructField,target,
+                                 (uintptr_t)original,slot)){
+        if(error)*error=@"Permanent Hook registry 已满";return NO;
+    }
+    return YES;
+}
+
 - (BOOL)installAction:(ZNNativeHookAction *)action value:(NSInteger)value error:(NSString **)error {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
-    NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
-                              @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
+    value=MIN(MAX(value,action.minValue),action.maxValue);
 
-    if(action.templateKind==ZNNativeHookTemplateReturnBoolOverride){
-        BOOL ok=[self installTemporaryReturnBoolOverrideForCandidate:candidate value:action.returnBoolValue error:error];
-        if(!ok)return NO;
-        NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
-        ZNReturnBoolSlot *slot=ZNReturnBoolSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
-        if(!slot){if(error)*error=@"ReturnBoolOverride 安装后未找到 runtime slot";return NO;}
-        slot->actionID.store(action.actionID,std::memory_order_release);
-        if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindReturnBool,
-                                     slot->target.load(std::memory_order_acquire),
-                                     slot->original.load(std::memory_order_acquire),slot)){
-            if(error)*error=@"Permanent Hook registry 已满";
-            return NO;
-        }
-        slot->forcedValue.store(action.returnBoolValue?1u:0u,std::memory_order_release);
-        slot->enabled.store(value!=0?1u:0u,std::memory_order_release);
-        return YES;
-    }
+    uintptr_t base=0,target=0;
+    if(!ZNNativePreparedTargetForAction(action,&base,&target,error))return NO;
 
-    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
-        BOOL ok=[self installTemporaryManagedCallbackShortCircuitForCandidate:candidate
-                                                                 argumentIndex:action.callbackArgumentIndex
-                                                                 callbackValue:action.callbackValue
-                                                                         error:error];
-        if(!ok)return NO;
-        NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
-        ZNManagedCallbackSlot *slot=ZNManagedCallbackSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
-        if(!slot){if(error)*error=@"ManagedCallback 安装后未找到 runtime slot";return NO;}
-        slot->actionID.store(action.actionID,std::memory_order_release);
-        if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindManagedCallback,
-                                     slot->target.load(std::memory_order_acquire),
-                                     slot->original.load(std::memory_order_acquire),slot)){
-            if(error)*error=@"Permanent Hook registry 已满";
-            return NO;
-        }
-        slot->callbackValue.store(action.callbackValue?1u:0u,std::memory_order_release);
-        slot->enabled.store(value!=0?1u:0u,std::memory_order_release);
-        return YES;
-    }
+    if(action.templateKind==ZNNativeHookTemplateReturnBoolOverride)
+        return [self zn_installPreparedReturnBoolAction:action target:target value:value error:error];
 
-    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform){
-        BOOL ok=[self installTemporaryStructFieldTransformForCandidate:candidate
-                                                          argumentIndex:action.fieldArgumentIndex
-                                                           argumentMode:action.fieldArgumentMode
-                                                            fieldOffset:action.fieldOffset
-                                                             fieldCodec:action.fieldCodec
-                                                          codecAssembly:action.codecAssembly
-                                                         codecNamespace:action.codecNamespaceName
-                                                             codecClass:action.codecClassName
-                                                            getterMethod:action.codecGetterMethod
-                                                            setterMethod:action.codecSetterMethod
-                                                             multiplier:value
-                                                                  error:error];
-        if(!ok)return NO;
-        NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
-        ZNStructFieldSlot *slot=ZNStructFieldSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
-        if(!slot){if(error)*error=@"StructFieldTransform 安装后未找到 runtime slot";return NO;}
-        slot->actionID.store(action.actionID,std::memory_order_release);
-        if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindStructField,
-                                     slot->target.load(std::memory_order_acquire),
-                                     slot->original.load(std::memory_order_acquire),slot)){
-            if(error)*error=@"Permanent Hook registry 已满";
-            return NO;
-        }
-        slot->multiplier.store((int32_t)value,std::memory_order_release);
-        slot->enabled.store(value!=1?1u:0u,std::memory_order_release);
-        return YES;
-    }
+    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit)
+        return [self zn_installPreparedManagedCallbackAction:action target:target value:value error:error];
 
-    if(action.templateKind!=ZNNativeHookTemplateArgScaleInt32){if(error)*error=@"Native Hook Action 模板不受支持";return NO;}
-    NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
-    if(!resolved)return NO;
-    return [self installResolvedTarget:[resolved[@"methodPointer"] unsignedLongLongValue]
-                              isStatic:[resolved[@"static"] boolValue]
-                         argumentIndex:action.argumentIndex
-                         argumentCount:action.argumentCount
-                            multiplier:value
-                              actionID:action.actionID
-                                 error:error];
+    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform)
+        return [self zn_installPreparedStructFieldAction:action base:base target:target value:value error:error];
+
+    if(action.templateKind==ZNNativeHookTemplateArgScaleInt32)
+        return [self installResolvedTarget:target
+                                  isStatic:action.preparedIsStatic
+                             argumentIndex:action.argumentIndex
+                             argumentCount:action.argumentCount
+                                multiplier:value
+                                  actionID:action.actionID
+                                     error:error];
+
+    if(error)*error=@"Native Hook Action 模板不受支持";
+    return NO;
 }
 
 // M6.8.6 permanent lifecycle: normal feature changes mutate slot state only.
@@ -1640,6 +1793,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             return YES;
         }
         case ZNNativeHookSlotKindManagedCallback: {
+            if(value!=0 && !ZNManagedPrepareInvokeBridge(error))return NO;
             ZNManagedCallbackSlot *slot=(ZNManagedCallbackSlot *)raw;
             slot->callbackValue.store(action.callbackValue?1u:0u,std::memory_order_release);
             slot->enabled.store(value!=0?1u:0u,std::memory_order_release);
