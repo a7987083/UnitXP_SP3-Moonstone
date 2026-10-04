@@ -97,6 +97,120 @@ uintptr_t ZNArgScaleBridgeOriginal(uint32_t index) {
 }
 
 
+static const NSUInteger kZNStructFieldMaxSlots = 8;
+typedef int64_t (*ZNSecureLongGetterFn)(uintptr_t);
+typedef void (*ZNSecureLongSetterFn)(uintptr_t,int64_t);
+
+typedef struct {
+    std::atomic<uintptr_t> target;
+    std::atomic<uintptr_t> original;
+    std::atomic<uintptr_t> getter;
+    std::atomic<uintptr_t> setter;
+    std::atomic<int32_t> multiplier;
+    std::atomic<uint64_t> hits;
+    std::atomic<uint64_t> failures;
+    std::atomic<int64_t> lastBefore;
+    std::atomic<int64_t> lastAfter;
+    std::atomic<uintptr_t> lastBase;
+    std::atomic<uintptr_t> lastField;
+    std::atomic<uint32_t> argumentRegister;
+    std::atomic<uint64_t> fieldOffset;
+    std::atomic<uint32_t> actionID;
+} ZNStructFieldSlot;
+
+static ZNStructFieldSlot gZNStructFieldSlots[kZNStructFieldMaxSlots];
+
+static ZNStructFieldSlot *ZNStructFieldSlotForTarget(uintptr_t target) {
+    if(!target)return NULL;
+    for(NSUInteger i=0;i<kZNStructFieldMaxSlots;i++)
+        if(gZNStructFieldSlots[i].target.load(std::memory_order_acquire)==target)return &gZNStructFieldSlots[i];
+    return NULL;
+}
+
+static ZNStructFieldSlot *ZNStructFieldFreeSlot(void) {
+    for(NSUInteger i=0;i<kZNStructFieldMaxSlots;i++)
+        if(gZNStructFieldSlots[i].target.load(std::memory_order_acquire)==0)return &gZNStructFieldSlots[i];
+    return NULL;
+}
+
+extern "C" {
+void ZNStructFieldBridgeSlot0(void); void ZNStructFieldBridgeSlot1(void);
+void ZNStructFieldBridgeSlot2(void); void ZNStructFieldBridgeSlot3(void);
+void ZNStructFieldBridgeSlot4(void); void ZNStructFieldBridgeSlot5(void);
+void ZNStructFieldBridgeSlot6(void); void ZNStructFieldBridgeSlot7(void);
+}
+
+static void * const gZNStructFieldBridgeReplacements[kZNStructFieldMaxSlots]={
+    (void *)&ZNStructFieldBridgeSlot0,(void *)&ZNStructFieldBridgeSlot1,
+    (void *)&ZNStructFieldBridgeSlot2,(void *)&ZNStructFieldBridgeSlot3,
+    (void *)&ZNStructFieldBridgeSlot4,(void *)&ZNStructFieldBridgeSlot5,
+    (void *)&ZNStructFieldBridgeSlot6,(void *)&ZNStructFieldBridgeSlot7
+};
+
+extern "C" __attribute__((visibility("hidden")))
+void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs) {
+    if(!savedGPRs||index>=kZNStructFieldMaxSlots)return;
+    ZNStructFieldSlot *slot=&gZNStructFieldSlots[index];
+    if(!slot->target.load(std::memory_order_acquire))return;
+    uint32_t reg=slot->argumentRegister.load(std::memory_order_relaxed);
+    if(reg>=8){slot->failures.fetch_add(1,std::memory_order_relaxed);return;}
+    uintptr_t base=(uintptr_t)savedGPRs[reg];
+    uint64_t offset=slot->fieldOffset.load(std::memory_order_relaxed);
+    uintptr_t getterAddr=slot->getter.load(std::memory_order_acquire);
+    uintptr_t setterAddr=slot->setter.load(std::memory_order_acquire);
+    if(base<0x1000||offset>0x100000ULL||!getterAddr||!setterAddr){
+        slot->failures.fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    uintptr_t field=base+(uintptr_t)offset;
+    if(field<base){
+        slot->failures.fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    ZNSecureLongGetterFn getter=(ZNSecureLongGetterFn)getterAddr;
+    ZNSecureLongSetterFn setter=(ZNSecureLongSetterFn)setterAddr;
+    int64_t before=getter(field);
+    int32_t multiplier=slot->multiplier.load(std::memory_order_relaxed);
+    int64_t after=ZNNativeHookScaleInt64(before,multiplier);
+    setter(field,after);
+    slot->lastBase.store(base,std::memory_order_relaxed);
+    slot->lastField.store(field,std::memory_order_relaxed);
+    slot->lastBefore.store(before,std::memory_order_relaxed);
+    slot->lastAfter.store(after,std::memory_order_relaxed);
+    slot->hits.fetch_add(1,std::memory_order_relaxed);
+}
+
+extern "C" __attribute__((visibility("hidden")))
+uintptr_t ZNStructFieldBridgeOriginal(uint32_t index) {
+    if(index>=kZNStructFieldMaxSlots)return 0;
+    return gZNStructFieldSlots[index].original.load(std::memory_order_acquire);
+}
+
+static NSDictionary *ZNNativeResolveSecureLongCodec(NSString *assembly,
+                                                        NSString *namespaceName,
+                                                        NSString *className,
+                                                        NSString *getterMethod,
+                                                        NSString *setterMethod,
+                                                        NSString **error) {
+    if(![getterMethod length]||![setterMethod length]||![className length]){
+        if(error)*error=@"SecureLong codec 描述不完整";
+        return nil;
+    }
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    if(!resolver.isAvailable){if(error)*error=@"IL2CPP Resolver 不可用";return nil;}
+    NSDictionary *getter=[resolver resolveMethodAssembly:assembly namespace:namespaceName?:@"" className:className method:getterMethod argumentCount:0];
+    NSDictionary *setter=[resolver resolveMethodAssembly:assembly namespace:namespaceName?:@"" className:className method:setterMethod argumentCount:1];
+    uintptr_t gp=[getter[@"methodPointer"] unsignedLongLongValue];
+    uintptr_t sp=[setter[@"methodPointer"] unsignedLongLongValue];
+    if(!gp||!sp){
+        if(error)*error=[NSString stringWithFormat:@"SecureLong codec resolve 失败：%@.%@::%@/0 + %@/1",
+                         namespaceName?:@"",className?:@"",getterMethod?:@"",setterMethod?:@""];
+        return nil;
+    }
+    return @{@"getter":@(gp),@"setter":@(sp)};
+}
+
 static const NSUInteger kZNReturnBoolMaxSlots = 8;
 typedef struct {
     std::atomic<uintptr_t> target;
@@ -666,6 +780,98 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
 
 
+- (BOOL)installTemporaryStructFieldTransformForCandidate:(NSDictionary<NSString *,id> *)candidate
+                                             argumentIndex:(NSUInteger)argumentIndex
+                                              argumentMode:(NSString *)argumentMode
+                                               fieldOffset:(uint64_t)fieldOffset
+                                                fieldCodec:(NSString *)fieldCodec
+                                             codecAssembly:(NSString *)codecAssembly
+                                            codecNamespace:(NSString *)codecNamespace
+                                                codecClass:(NSString *)codecClass
+                                               getterMethod:(NSString *)getterMethod
+                                               setterMethod:(NSString *)setterMethod
+                                                multiplier:(NSInteger)multiplier
+                                                     error:(NSString **)error {
+    if(multiplier<1||multiplier>1000){if(error)*error=@"StructFieldTransform 倍率必须在 1~1000";return NO;}
+    if(![argumentMode isEqualToString:@"indirect-pointer"]){if(error)*error=@"StructFieldTransform V1 仅支持 indirect-pointer";return NO;}
+    if(![fieldCodec isEqualToString:@"secure-long-accessor"]){if(error)*error=@"StructFieldTransform V1 仅支持 secure-long-accessor";return NO;}
+    if(fieldOffset>0x100000ULL){if(error)*error=@"字段 offset 超出 V1 安全范围";return NO;}
+
+    NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNativeString(candidate[@"namespace"]);
+    NSString *cls=ZNNativeString(candidate[@"class"]);
+    NSString *method=ZNNativeString(candidate[@"method"]);
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
+    if(!resolved)return NO;
+
+    uint32_t reg=0;
+    if(!ZNNativeHookArgRegisterIndex([resolved[@"static"] boolValue],argumentIndex,argc,&reg)){
+        if(error)*error=@"StructFieldTransform 参数无法映射到 ARM64 x0~x7";
+        return NO;
+    }
+    NSDictionary *codec=ZNNativeResolveSecureLongCodec(codecAssembly,codecNamespace,codecClass,getterMethod,setterMethod,error);
+    if(!codec)return NO;
+
+    uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
+    if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装其他 Native Hook，请先恢复原方法";
+        return NO;
+    }
+    ZNStructFieldSlot *existing=ZNStructFieldSlotForTarget(target);
+    if(existing){
+        if(existing->argumentRegister.load(std::memory_order_relaxed)!=reg||
+           existing->fieldOffset.load(std::memory_order_relaxed)!=fieldOffset){
+            if(error)*error=@"同一 target 已安装不同 StructFieldTransform 配置，请先恢复原方法";
+            return NO;
+        }
+        existing->multiplier.store((int32_t)multiplier,std::memory_order_release);
+        return YES;
+    }
+
+    ZNStructFieldSlot *slot=ZNStructFieldFreeSlot();
+    if(!slot){if(error)*error=@"StructFieldTransform Hook slot 已满";return NO;}
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNStructFieldSlots);
+    slot->getter.store([codec[@"getter"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->setter.store([codec[@"setter"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->multiplier.store((int32_t)multiplier,std::memory_order_relaxed);
+    slot->hits.store(0,std::memory_order_relaxed);
+    slot->failures.store(0,std::memory_order_relaxed);
+    slot->lastBefore.store(0,std::memory_order_relaxed);
+    slot->lastAfter.store(0,std::memory_order_relaxed);
+    slot->lastBase.store(0,std::memory_order_relaxed);
+    slot->lastField.store(0,std::memory_order_relaxed);
+    slot->argumentRegister.store(reg,std::memory_order_relaxed);
+    slot->fieldOffset.store(fieldOffset,std::memory_order_relaxed);
+    slot->actionID.store(0,std::memory_order_relaxed);
+    slot->original.store(0,std::memory_order_relaxed);
+    slot->target.store(target,std::memory_order_release);
+
+    void *original=NULL;NSString *hookError=nil;
+    if(slotIndex>=kZNStructFieldMaxSlots||
+       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
+                                                              replacement:gZNStructFieldBridgeReplacements[slotIndex]
+                                                                 original:&original
+                                                                    error:&hookError]){
+        slot->target.store(0,std::memory_order_release);
+        if(error)*error=hookError?:@"StructFieldTransform DobbyHook 安装失败";
+        return NO;
+    }
+    slot->original.store((uintptr_t)original,std::memory_order_release);
+
+    NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
+    live[@"methodPointer"]=@(target);
+    self.liveCandidate=[live copy];
+    self.liveTemplate=@"StructFieldTransform V1 · SecureLong Accessor";
+    self.liveLifecycle=@"installed";
+    self.liveError=@"";
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[struct-field-hook] installed target=0x%llX reg=x%u offset=0x%llX multiplier=%ld getter=0x%llX setter=0x%llX",
+                                       (unsigned long long)target,reg,(unsigned long long)fieldOffset,(long)multiplier,
+                                       (unsigned long long)[codec[@"getter"] unsignedLongLongValue],
+                                       (unsigned long long)[codec[@"setter"] unsignedLongLongValue]]];
+    return YES;
+}
+
 - (BOOL)installTemporaryReturnBoolOverrideForCandidate:(NSDictionary<NSString *,id> *)candidate
                                                   value:(BOOL)value
                                                   error:(NSString **)error {
@@ -824,7 +1030,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
     ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
-    if(!slot&&!callbackSlot&&!returnBoolSlot){
+    ZNStructFieldSlot *fieldSlot=ZNStructFieldSlotForTarget(target);
+    if(!slot&&!callbackSlot&&!returnBoolSlot&&!fieldSlot){
         NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
         live[@"methodPointer"]=@(target);
         self.liveCandidate=[live copy];
@@ -847,6 +1054,11 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         returnBoolSlot->original.store(0,std::memory_order_relaxed);
         returnBoolSlot->actionID.store(0,std::memory_order_relaxed);
     }
+    if(fieldSlot){
+        fieldSlot->target.store(0,std::memory_order_release);
+        fieldSlot->original.store(0,std::memory_order_relaxed);
+        fieldSlot->actionID.store(0,std::memory_order_relaxed);
+    }
     NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
     live[@"methodPointer"]=@(target);
     self.liveCandidate=[live copy];
@@ -866,6 +1078,19 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                 slot->lastBefore.load(std::memory_order_relaxed),
                 slot->lastAfter.load(std::memory_order_relaxed),
                 slot->multiplier.load(std::memory_order_relaxed)];
+    }
+    ZNStructFieldSlot *fieldSlot=ZNStructFieldSlotForTarget(target);
+    if(fieldSlot){
+        return [NSString stringWithFormat:@"Hook 状态：已安装 ✅\nTarget：0x%llX\nHits：%llu\nFailures：%llu\nBase：0x%llX\nField：0x%llX (+0x%llX)\nSecureLong：%lld → %lld\n倍率：x%d",
+                (unsigned long long)target,
+                (unsigned long long)fieldSlot->hits.load(std::memory_order_relaxed),
+                (unsigned long long)fieldSlot->failures.load(std::memory_order_relaxed),
+                (unsigned long long)fieldSlot->lastBase.load(std::memory_order_relaxed),
+                (unsigned long long)fieldSlot->lastField.load(std::memory_order_relaxed),
+                (unsigned long long)fieldSlot->fieldOffset.load(std::memory_order_relaxed),
+                (long long)fieldSlot->lastBefore.load(std::memory_order_relaxed),
+                (long long)fieldSlot->lastAfter.load(std::memory_order_relaxed),
+                fieldSlot->multiplier.load(std::memory_order_relaxed)];
     }
     ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
     if(returnBoolSlot){
@@ -958,6 +1183,26 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         }
         return ok;
     }
+    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform){
+        BOOL ok=[self installTemporaryStructFieldTransformForCandidate:candidate
+                                                          argumentIndex:action.fieldArgumentIndex
+                                                           argumentMode:action.fieldArgumentMode
+                                                            fieldOffset:action.fieldOffset
+                                                             fieldCodec:action.fieldCodec
+                                                          codecAssembly:action.codecAssembly
+                                                         codecNamespace:action.codecNamespaceName
+                                                             codecClass:action.codecClassName
+                                                            getterMethod:action.codecGetterMethod
+                                                            setterMethod:action.codecSetterMethod
+                                                             multiplier:value
+                                                                  error:error];
+        if(ok){
+            NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
+            ZNStructFieldSlot *slot=ZNStructFieldSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
+            if(slot)slot->actionID.store(action.actionID,std::memory_order_release);
+        }
+        return ok;
+    }
     if(action.templateKind!=ZNNativeHookTemplateArgScaleInt32){if(error)*error=@"Native Hook Action 模板不受支持";return NO;}
     NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
     if(!resolved)return NO;
@@ -973,7 +1218,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 - (BOOL)setValue:(NSInteger)value forAction:(ZNNativeHookAction *)action error:(NSString **)error {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
     if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
-       action.templateKind==ZNNativeHookTemplateReturnBoolOverride)
+       action.templateKind==ZNNativeHookTemplateReturnBoolOverride||
+       action.templateKind==ZNNativeHookTemplateStructFieldTransform)
         return [self installAction:action value:value error:error];
     NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
                               @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
@@ -996,11 +1242,13 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
     ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
-    if(!slot&&!callbackSlot&&!returnBoolSlot)return YES;
+    ZNStructFieldSlot *fieldSlot=ZNStructFieldSlotForTarget(target);
+    if(!slot&&!callbackSlot&&!returnBoolSlot&&!fieldSlot)return YES;
     if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:error])return NO;
     if(slot)slot->target.store(0,std::memory_order_release);
     if(callbackSlot){callbackSlot->target.store(0,std::memory_order_release);callbackSlot->original.store(0,std::memory_order_relaxed);}
     if(returnBoolSlot){returnBoolSlot->target.store(0,std::memory_order_release);returnBoolSlot->original.store(0,std::memory_order_relaxed);}
+    if(fieldSlot){fieldSlot->target.store(0,std::memory_order_release);fieldSlot->original.store(0,std::memory_order_relaxed);}
     if(slot){slot->original.store(0,std::memory_order_relaxed);}
     return YES;
 }
