@@ -1620,7 +1620,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         return YES;
     }
 
-    ZNManagedCallbackSlot *slot=ZNNativeManagedCallbackFreeSlot();
+    ZNManagedCallbackSlot *slot=ZNManagedCallbackFreeSlot();
     if(!slot){if(error)*error=@"ManagedCallback Hook slot 已满";return NO;}
     NSUInteger slotIndex=(NSUInteger)(slot-gZNManagedCallbackSlots);
     slot->callbackRegister.store(reg,std::memory_order_relaxed);
