@@ -7,13 +7,11 @@
 #import "ZNRuntimeActionRuntime.h"
 #import "ZNNativeHookRuntime.h"
 #import "ZNNativeHookAction.h"
+#import "ZNNativeHookScheduler.h"
 #import "ZNPatchCore.h"
 
 NSNotificationName const ZNRuntimeCapabilitySnapshotDidChangeNotification =
     @"ZNRuntimeCapabilitySnapshotDidChangeNotification";
-
-static NSString * const kZNRuntimeNativeHookValuePrefix =
-    @"zonoe.native-hook.runtime-value.v1";
 
 @interface ZNRuntimeCapabilitySnapshot ()
 @property(nonatomic,copy,readwrite) NSArray<ZNStaticPatchRecord *> *staticRecords;
@@ -33,7 +31,6 @@ static NSString * const kZNRuntimeNativeHookValuePrefix =
 @property(nonatomic,assign) BOOL refreshScheduled;
 @property(nonatomic,assign) BOOL refreshRequested;
 @property(nonatomic,assign) uint64_t nextGeneration;
-@property(nonatomic,copy) NSString *lastActivationKey;
 @end
 
 static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t slide) {
@@ -65,7 +62,6 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
     empty.imageCount=0;
     _snapshotStorage=empty;
     _nextGeneration=1;
-    _lastActivationKey=@"";
     return self;
 }
 
@@ -96,49 +92,6 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
 - (void)zn_applicationBecameActive:(NSNotification *)note {
     (void)note;
     [self requestRefresh];
-}
-
-- (NSString *)activationKeyForHooks:(NSArray<ZNNativeHookAction *> *)hooks imageCount:(uint32_t)imageCount {
-    NSMutableString *key=[NSMutableString stringWithFormat:@"%u",imageCount];
-    for(ZNNativeHookAction *hook in hooks){
-        [key appendFormat:@"|%u:%@:%u",
-         hook.actionID,
-         hook.canonicalIdentity ?: @"",
-         (unsigned)hook.templateKind];
-    }
-    return key;
-}
-
-- (void)restorePersistedNativeHooks:(NSArray<ZNNativeHookAction *> *)hooks
-                         imageCount:(uint32_t)imageCount {
-    NSString *activationKey=[self activationKeyForHooks:hooks imageCount:imageCount];
-    if([activationKey isEqualToString:self.lastActivationKey])return;
-    self.lastActivationKey=activationKey;
-
-    ZNNativeHookRuntime *runtime=[ZNNativeHookRuntime sharedRuntime];
-    NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
-    for(ZNNativeHookAction *hook in hooks){
-        NSString *key=[NSString stringWithFormat:@"%@.%u",kZNRuntimeNativeHookValuePrefix,hook.actionID];
-        id stored=[defaults objectForKey:key];
-        if(!stored)continue;
-
-        NSInteger value=[stored integerValue];
-        value=MIN(MAX(value,hook.minValue),hook.maxValue);
-        BOOL booleanTemplate =
-            hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit ||
-            hook.templateKind==ZNNativeHookTemplateReturnBoolOverride;
-
-        // Preserve the old menu semantics without doing work from render:
-        // boolean hooks restore only when ON; multiplier hooks restore when != 1.
-        if((booleanTemplate && value==0) || (!booleanTemplate && value==1))continue;
-
-        NSString *error=nil;
-        if(![runtime setValue:value forAction:hook error:&error] && error.length){
-            [[ZNRuntimeLogger sharedLogger] log:
-             [NSString stringWithFormat:@"[runtime-capability] persisted Native Hook activation failed %@: %@",
-              hook.title ?: hook.methodName ?: @"hook", error]];
-        }
-    }
 }
 
 - (void)requestRefresh {
@@ -186,7 +139,7 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
                 self.snapshotStorage=snapshot;
             }
 
-            [self restorePersistedNativeHooks:snapshot.nativeHooks imageCount:snapshot.imageCount];
+            [[ZNNativeHookScheduler sharedScheduler] reconcileActions:snapshot.nativeHooks];
 
             double elapsed=(CFAbsoluteTimeGetCurrent()-startedAt)*1000.0;
             [[ZNRuntimeLogger sharedLogger] log:
