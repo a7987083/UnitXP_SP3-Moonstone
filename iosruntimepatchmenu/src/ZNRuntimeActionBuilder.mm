@@ -68,7 +68,13 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
         BOOL callbackValid=hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit&&
                            hook.callbackArgumentIndex<hook.argumentCount&&hook.skipOriginal;
         BOOL returnBoolValid=hook.templateKind==ZNNativeHookTemplateReturnBoolOverride;
-        if(!argScaleValid&&!callbackValid&&!returnBoolValid){
+        BOOL structFieldValid=hook.templateKind==ZNNativeHookTemplateStructFieldTransform&&
+                              hook.fieldArgumentIndex<hook.argumentCount&&
+                              [hook.fieldArgumentMode isEqualToString:@"indirect-pointer"]&&
+                              [hook.fieldCodec isEqualToString:@"secure-long-accessor"]&&
+                              hook.fieldOffset<=0x100000ULL&&hook.codecClassName.length&&
+                              hook.codecGetterMethod.length&&hook.codecSetterMethod.length;
+        if(!argScaleValid&&!callbackValid&&!returnBoolValid&&!structFieldValid){
             if(error)*error=[NSString stringWithFormat:@"%@：Native Hook 配置无效",hook.canonicalIdentity?:hook.methodName];
             return nil;
         }
@@ -104,10 +110,24 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
             config[@"skipOriginal"]=@(hook.skipOriginal);
             config[@"control"]=@"switch";
             config[@"default"]=@0;
-        }else{
+        }else if(hook.templateKind==ZNNativeHookTemplateReturnBoolOverride){
             config[@"returnBoolValue"]=@(hook.returnBoolValue);
             config[@"control"]=@"switch";
             config[@"default"]=@0;
+        }else{
+            config[@"fieldArgumentIndex"]=@(hook.fieldArgumentIndex);
+            config[@"fieldArgumentMode"]=hook.fieldArgumentMode?:@"indirect-pointer";
+            config[@"fieldOffset"]=@(hook.fieldOffset);
+            config[@"fieldCodec"]=hook.fieldCodec?:@"secure-long-accessor";
+            config[@"codecAssembly"]=hook.codecAssembly?:@"";
+            config[@"codecNamespace"]=hook.codecNamespaceName?:@"";
+            config[@"codecClass"]=hook.codecClassName?:@"";
+            config[@"codecGetterMethod"]=hook.codecGetterMethod?:@"";
+            config[@"codecSetterMethod"]=hook.codecSetterMethod?:@"";
+            config[@"codecGetterArgumentCount"]=@(hook.codecGetterArgumentCount);
+            config[@"codecSetterArgumentCount"]=@(hook.codecSetterArgumentCount);
+            config[@"control"]=@"slider";
+            config[@"min"]=@(hook.minValue);config[@"max"]=@(hook.maxValue);config[@"default"]=@(hook.defaultValue);
         }
         NSString *json=ZNRABEncodeJSON(config,&stringError);
         if(!json||!ZNRABAppendString(data,json,&configOffset,&stringError)){if(error)*error=stringError?:@"Native Hook config 编码失败";return nil;}
@@ -151,6 +171,11 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
                                @"callbackArgumentIndex":@(hook.callbackArgumentIndex==NSNotFound?NSUIntegerMax:hook.callbackArgumentIndex),
                                @"callbackValue":@(hook.callbackValue),@"skipOriginal":@(hook.skipOriginal),
                                @"returnBoolValue":@(hook.returnBoolValue),
+                               @"fieldArgumentIndex":@(hook.fieldArgumentIndex==NSNotFound?NSUIntegerMax:hook.fieldArgumentIndex),
+                               @"fieldArgumentMode":hook.fieldArgumentMode?:@"",@"fieldOffset":@(hook.fieldOffset),
+                               @"fieldCodec":hook.fieldCodec?:@"",@"codecAssembly":hook.codecAssembly?:@"",
+                               @"codecNamespace":hook.codecNamespaceName?:@"",@"codecClass":hook.codecClassName?:@"",
+                               @"codecGetterMethod":hook.codecGetterMethod?:@"",@"codecSetterMethod":hook.codecSetterMethod?:@"",
                                @"min":@(hook.minValue),@"max":@(hook.maxValue),@"default":@(hook.defaultValue),
                                @"fallbackRVA":@(hook.fallbackRVA),@"fallbackUUID":hook.fallbackUUID?:@""}];
     }
