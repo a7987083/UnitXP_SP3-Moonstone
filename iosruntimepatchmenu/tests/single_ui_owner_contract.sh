@@ -103,4 +103,19 @@ grep -q 'if(self.hasScanned&&self.cachedImageCount==imageCount)return;uint64_t f
 grep -q 'if(self.generatedScanned&&self.generatedImageCount==count)return;' "$SRC/ZNNativeHookRuntime.mm"
 grep -q 'snapshotStorage.imageCount==imageCount' "$SRC/ZNRuntimeCapabilityCoordinator.mm"
 
-echo "single UI owner + M6.8.5 Runtime Snapshot contract: OK"
+# M6.8.6 Permanent Native Hook Lifecycle contract.
+test -f "$SRC/ZNNativeHookScheduler.h"
+test -f "$SRC/ZNNativeHookScheduler.mm"
+grep -q 'src/ZNNativeHookScheduler.mm' "$MAKEFILE"
+grep -q 'Permanent Hook Lifecycle' "$SRC/ZNNativeHookScheduler.h"
+grep -q 'com.zonoe.native-hook.scheduler' "$SRC/ZNNativeHookScheduler.mm"
+grep -q 'reconcileActions:snapshot.nativeHooks' "$SRC/ZNRuntimeCapabilityCoordinator.mm"
+! grep -q 'restorePersistedNativeHooks' "$SRC/ZNRuntimeCapabilityCoordinator.mm"
+grep -q 'ZNNativeHookScheduler sharedScheduler.*setDesiredValue' "$UI"
+! grep -q 'ZNNativeHookRuntime sharedRuntime.*setValue:.*forAction:hook' "$UI"
+! grep -q 'if(value==0)return \[self removeAction:action' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'slot->enabled.load' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNReturnBoolOriginalFn' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNManagedCallbackOriginalFn' "$SRC/ZNNativeHookRuntime.mm"
+
+echo "single UI owner + M6.8.6 Permanent Hook Lifecycle contract: OK"
