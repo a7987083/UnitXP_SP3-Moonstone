@@ -17552,7 +17552,6 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     ZNRuntimeCapabilitySnapshot *snapshot=coordinator.currentSnapshot;
     NSArray<ZNRuntimeMethodActionRecord *> *records=snapshot.runtimeMethods?:@[];
     NSArray<ZNNativeHookAction *> *hooks=snapshot.nativeHooks?:@[];
-    ZNNativeHookRuntime *hookRuntime=[ZNNativeHookRuntime sharedRuntime];
     if (!records.count && !hooks.count) return y;
 
     for (NSUInteger hidx=0;hidx<hooks.count;hidx++) {
