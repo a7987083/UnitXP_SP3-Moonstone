@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNBuilderPolicy.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
 #import "ZNPatchCore.h"
@@ -20,14 +21,6 @@
 @property(nonatomic,strong) UIView *contentView;
 - (void)zn50b_renderOther;
 @end
-
-static NSUInteger ZNM57CompleteStaticRows(ZNBinaryPatchWorkspace *workspace) {
-    NSUInteger count = 0;
-    for (ZNBinaryPatchRow *row in workspace.rows ?: @[]) {
-        if (row.offsetText.length > 0 && row.enabledText.length > 0) count++;
-    }
-    return count;
-}
 
 static UIButton *ZNM57FindBuildButton(UIView *root) {
     for (UIView *view in root.subviews ?: @[]) {
@@ -52,22 +45,15 @@ static UIButton *ZNM57FindBuildButton(UIView *root) {
     UIButton *build = ZNM57FindBuildButton(self.contentView);
     if (!build) return;
 
-    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
-    NSUInteger completeStatic = ZNM57CompleteStaticRows(workspace);
-    NSUInteger runtimeActions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot].count;
-    NSUInteger nativeHooks = [[ZNNativeHookStore sharedStore] actionsSnapshot].count;
-    BOOL runtimeOnlyReady = (runtimeActions > 0 || nativeHooks > 0) && completeStatic == 0;
-    BOOL staticReady = completeStatic > 0 &&
-                       workspace.filledCount == completeStatic &&
-                       workspace.validatedCount == completeStatic;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    ZNBuilderPolicyInput input=ZNBuilderPolicyCaptureCurrent(workspace);
+    ZNBuilderPolicyResult policy=ZNBuilderPolicyEvaluate(input);
 
-    build.enabled = !workspace.isBuilding &&
-                    !workspace.hasAnyApplied &&
-                    (runtimeOnlyReady || staticReady);
-    build.alpha = build.enabled ? 1.0 : 0.5;
+    build.enabled=policy.strictGateReady;
+    build.alpha=build.enabled?1.0:0.5;
 
-    if (runtimeOnlyReady) {
-        build.accessibilityHint = nativeHooks > 0 && runtimeActions == 0
+    if (policy.runtimeOnly) {
+        build.accessibilityHint=input.nativeHookCount>0 && input.runtimeActionCount==0
             ? @"Native Hook-only：无需 Static Offset Patch"
             : @"Runtime-only：无需 Static Offset Patch";
     }
