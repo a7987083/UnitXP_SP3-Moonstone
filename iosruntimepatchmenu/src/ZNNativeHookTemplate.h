@@ -39,3 +39,11 @@ static inline int32_t ZNNativeHookScaleInt32(int32_t value, int32_t multiplier) 
     if (scaled < INT32_MIN) return INT32_MIN;
     return (int32_t)scaled;
 }
+
+
+static inline int64_t ZNNativeHookScaleInt64(int64_t value, int32_t multiplier) {
+    __int128 scaled = (__int128)value * (__int128)multiplier;
+    if (scaled > INT64_MAX) return INT64_MAX;
+    if (scaled < INT64_MIN) return INT64_MIN;
+    return (int64_t)scaled;
+}
