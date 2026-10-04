@@ -4,6 +4,7 @@
 
 #import "ZNRuntimeActionModel.h"
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNBuilderPolicy.h"
 #import "ZNNativeHookAction.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
@@ -44,14 +45,6 @@ static UIButton *ZNRMCBuilderFindBuildButton(UIView *root) {
     return nil;
 }
 
-static NSUInteger ZNRMCBuilderCompleteStaticRows(ZNBinaryPatchWorkspace *workspace) {
-    NSUInteger count=0;
-    for (ZNBinaryPatchRow *row in workspace.rows ?: @[]) {
-        if (row.offsetText.length>0 && row.enabledText.length>0) count++;
-    }
-    return count;
-}
-
 static void ZNRMCBuilderFinalizeBuildGate(UIView *root,
                                          NSUInteger runtimeCount,
                                          NSUInteger nativeHookCount) {
@@ -59,9 +52,10 @@ static void ZNRMCBuilderFinalizeBuildGate(UIView *root,
     UIButton *build=ZNRMCBuilderFindBuildButton(root);
     if (!build) return;
     ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
-    NSUInteger completeStatic=ZNRMCBuilderCompleteStaticRows(workspace);
-    if (completeStatic!=0) return; // Static/mixed mode keeps its own validation gate.
-    BOOL ready=!workspace.isBuilding && !workspace.hasAnyApplied;
+    ZNBuilderPolicyInput input=ZNBuilderPolicyCapture(workspace,runtimeCount,nativeHookCount);
+    ZNBuilderPolicyResult policy=ZNBuilderPolicyEvaluate(input);
+    if (!policy.runtimeOnly) return; // Static/mixed mode keeps its own validation gate.
+    BOOL ready=policy.authoringUIReady;
     build.enabled=ready;
     build.alpha=ready?1.0:0.5;
     if (ready) {
