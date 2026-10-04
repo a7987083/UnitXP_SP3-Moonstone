@@ -4,6 +4,7 @@
 #import "ZNRuntimeOnlyBinaryBuilder.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNBuildPlan.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
@@ -140,17 +141,23 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
     // Re-snapshot after M5.8.3 normalized Slider control metadata.
     NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
     NSArray<ZNNativeHookAction *> *hooks = [[ZNNativeHookStore sharedStore] actionsSnapshot];
-    NSUInteger partialStaticRows = 0;
-    NSUInteger completeStaticRows = ZNCompleteStaticRowCount(workspace, &partialStaticRows);
-    BOOL runtimeOnly = (actions.count > 0 || hooks.count > 0) && completeStaticRows == 0;
+    ZNBuildPlan *plan=[ZNBuildPlan executionPlan];
+    if(!plan.canBuild){
+        if(error)*error=plan.blockedReason.length?plan.blockedReason:@"当前内容不可生成";
+        return NO;
+    }
+    NSUInteger completeStaticRows=plan.completeStaticRows;
+    NSUInteger partialStaticRows=plan.partialStaticRows;
+    BOOL runtimeOnly=plan.mode==ZNBuildModeRuntimeOnly;
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
-        @"[builder-mode-m6.4] runtime=%lu nativeHook=%lu completeStatic=%lu partialStatic=%lu mode=%@",
+        @"[builder-mode-m6.8.2] mode=%lu providers=%@ runtime=%lu nativeHook=%lu completeStatic=%lu partialStatic=%lu",
+        (unsigned long)plan.mode,
+        [plan.activeProviders componentsJoinedByString:@","],
         (unsigned long)actions.count,
         (unsigned long)hooks.count,
         (unsigned long)completeStaticRows,
-        (unsigned long)partialStaticRows,
-        runtimeOnly ? @"runtime-only" : @"static/mixed"]];
+        (unsigned long)partialStaticRows]];
 
     NSArray<NSString *> *builderOutputs = nil;
     NSString *builderReport = nil;
@@ -214,7 +221,7 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
     }
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[builder-pipeline] mode=%@ completeStatic=%lu partialStatic=%lu runtime=%lu nativeHook=%lu",
-                                         runtimeOnly ? @"runtime-only-m6.4" : @"static/mixed-v3",
+                                         runtimeOnly ? @"runtime-only-m6.8.2" : (plan.mode==ZNBuildModeMixed ? @"mixed-m6.8.2" : @"static-m6.8.2"),
                                          (unsigned long)completeStaticRows,
                                          (unsigned long)partialStaticRows,
                                          (unsigned long)actions.count,
