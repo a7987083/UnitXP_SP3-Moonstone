@@ -1,9 +1,9 @@
-name: Verify M6.8 Single UI Owner
+name: Verify M6.8.2 BuildPlan Single Owner
 
 on:
   push:
     branches:
-      - refactor/m6.8-single-ui-owner
+      - feature/m6.8.2-build-plan-single-owner
   workflow_dispatch:
 
 jobs:
@@ -20,6 +20,13 @@ jobs:
         run: |
           set -euxo pipefail
           sh iosruntimepatchmenu/tests/single_ui_owner_contract.sh
+
+      - name: Verify M6.8.2 version contract
+        run: |
+          set -euxo pipefail
+          grep -q '#define ZN_PRODUCT_VERSION @"0.6.8.2"' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q '#define ZN_MILESTONE_VERSION @"M6.8.2"' iosruntimepatchmenu/src/ZNBuildVersion.h
+          grep -q 'BuildPlan Single Owner' iosruntimepatchmenu/src/ZNBuildVersion.h
 
       - name: Install dependencies
         run: |
@@ -72,18 +79,20 @@ jobs:
       - name: Build fixed baseline
         run: |
           set -euxo pipefail
-          git worktree add /tmp/zn-baseline b72c2a271c703e494397f680c327a26a6cf275f5
+          git worktree add /tmp/zn-baseline 0a11326e8662f33b5245701a19bd360a22d66256
           cd /tmp/zn-baseline/iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/baseline-build.log
           cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_baseline.dylib
 
-      - name: Build single UI owner
+      - name: Build M6.8.2 BuildPlan owner
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/unified-build.log
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.8.2_${SHORT_SHA}.dylib"
           cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_single_ui_owner.dylib
 
       - name: Compare binary interface and UI contracts
@@ -113,7 +122,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m6.8-single-ui-owner-verification
+          name: m6.8.2-build-plan-verification
           path: |
             /tmp/baseline-build.log
             /tmp/unified-build.log
@@ -122,4 +131,5 @@ jobs:
             /tmp/baseline-exports.txt
             /tmp/unified-exports.txt
             /tmp/ZonoePatch_single_ui_owner.dylib
+            /tmp/ZonoePatch_M6.8.2_*.dylib
           if-no-files-found: warn
