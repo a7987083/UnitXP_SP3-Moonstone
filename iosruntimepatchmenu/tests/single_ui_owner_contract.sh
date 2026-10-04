@@ -130,4 +130,27 @@ grep -q 'ZNNativeHookRegistryFind(action.actionID)' "$SRC/ZNNativeHookRuntime.mm
 grep -q 'ZNNativeHookRegistryUnbind(action.actionID)' "$SRC/ZNNativeHookRuntime.mm"
 ! grep -q 'ZNNativeResolveDescriptor(action.assembly.*removeAction' "$SRC/ZNNativeHookRuntime.mm"
 
-echo "single UI owner + M6.8.6 Permanent Hook Lifecycle contract: OK"
+# M6.9 Prepared Native Hook Descriptor contract.
+test -f "$SRC/ZNNativeHookBuildPrepare.h"
+test -f "$SRC/ZNNativeHookBuildPrepare.mm"
+grep -q 'src/ZNNativeHookBuildPrepare.mm' "$MAKEFILE"
+grep -q 'ZNBuildPrepareNativeHookDescriptorsV1' "$SRC/ZNBuildManifest.mm"
+grep -q 'resolutionMode":@"prepared-rva"' "$SRC/ZNRuntimeActionBuilder.mm"
+grep -q 'preparedRVA' "$SRC/ZNNativeHookAction.h"
+grep -q 'ZNNativePreparedTargetForAction' "$SRC/ZNNativeHookRuntime.mm"
+grep -q '缺少 M6.9 Prepared Descriptor' "$SRC/ZNNativeHookRuntime.mm"
+python3 - "$SRC/ZNNativeHookRuntime.mm" <<'PY'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+start=s.index("- (BOOL)installAction:(ZNNativeHookAction *)action value:")
+end=s.index("// M6.8.6 permanent lifecycle", start)
+formal=s[start:end]
+assert "ZNNativePreparedTargetForAction" in formal
+assert "ZNNativeResolveDescriptor" not in formal
+assert "installTemporaryReturnBoolOverrideForCandidate" not in formal
+assert "installTemporaryManagedCallbackShortCircuitForCandidate" not in formal
+assert "installTemporaryStructFieldTransformForCandidate" not in formal
+PY
+
+echo "single UI owner + M6.8.6 Permanent Hook Lifecycle + M6.9 Prepared Descriptor contract: OK"
