@@ -2150,7 +2150,15 @@ extern "C" void ZNInstallRuntimeMenuV055Deferred(void) {
     }
 }
 
+
 #pragma mark - END ZonoeRuntimeMenu.mm
+
+@interface ZNRuntimeMenuControllerV040 (ZNUnifiedUICrossSectionDecls)
+- (void)zn61v3_createPatch:(UIButton *)sender;
+- (void)zn52_chainTapped:(UIButton *)sender;
+- (void)znm55_runtimeSliderChanged:(UISlider *)control;
+@end
+
 
 
 #pragma mark - BEGIN ZNDeferredBootstrap.mm
@@ -16991,6 +16999,11 @@ static BOOL ZNM591InstallOrUpdate(uintptr_t address,ZNValueType type,uint64_t ra
 }
 
 @interface ZNM56StaticValueCellBinder : NSObject
+@property(nonatomic,strong) NSMutableDictionary<NSString *,NSNumber *> *sliderGenerations;
++ (instancetype)shared;
+- (void)numberChanged:(NSNotification *)note;
+- (void)sliderChanged:(NSNotification *)note;
+- (void)actionRequested:(NSNotification *)note;
 - (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
 @end
 @interface ZNM56StaticValueCellBinder (ZNM591OffsetHook)
@@ -17081,10 +17094,6 @@ typedef uint32_t (*ZNM600MethodGetFlagsFn)(const void *method, uint32_t *iflags)
 @property(nonatomic,copy) NSString *title;
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,assign) uint32_t patchID;
-@end
-
-@interface ZNM56StaticValueCellBinder : NSObject
-- (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
 @end
 
 static NSString *ZNM600Trim(NSString *value) {
@@ -18429,10 +18438,6 @@ static BOOL ZNM56WriteTextToCell(NSString *text,ZNValueType type,uintptr_t cell,
     if(error)*error=@"Value Cell 不支持 Auto/未知类型";return NO;
 }
 
-@interface ZNM56StaticValueCellBinder:NSObject
-@property(nonatomic,strong)NSMutableDictionary<NSString *,NSNumber *> *sliderGenerations;
-+ (instancetype)shared;-(void)numberChanged:(NSNotification *)note;-(void)sliderChanged:(NSNotification *)note;-(void)actionRequested:(NSNotification *)note;
-@end
 @implementation ZNM56StaticValueCellBinder
 + (instancetype)shared{static ZNM56StaticValueCellBinder *s;static dispatch_once_t once;dispatch_once(&once,^{s=[ZNM56StaticValueCellBinder new];s.sliderGenerations=[NSMutableDictionary dictionary];});return s;}
 - (NSArray<ZNStaticPatchRecord *> *)recordsForInfo:(NSDictionary *)info{ZNStaticDispatchRuntime *runtime=[ZNStaticDispatchRuntime sharedRuntime];[runtime refresh];NSMutableArray *out=[NSMutableArray array];for(ZNStaticPatchRecord *r in runtime.records)if(ZNM56RecordMatches(r,info))[out addObject:r];return out;}
