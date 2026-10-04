@@ -94,6 +94,20 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
     [self ensureDefaultRows]; return self;
 }
 - (void)ensureDefaultRows { while(self.rows.count<10)[self.rows addObject:[ZNBinaryPatchRow new]]; }
+- (ZNBinaryPatchWorkspace *)buildSnapshotForRowIndexes:(NSArray<NSNumber *> *)rowIndexes {
+    ZNBinaryPatchWorkspace *snapshot=[ZNBinaryPatchWorkspace new];
+    NSMutableArray<ZNBinaryPatchRow *> *selected=[NSMutableArray array];
+    for(NSNumber *number in rowIndexes ?: @[]) {
+        NSUInteger index=number.unsignedIntegerValue;
+        if(index<self.rows.count)[selected addObject:self.rows[index]];
+    }
+    snapshot.rows=selected;
+    snapshot.defaultTarget=self.defaultTarget ?: @"自动";
+    snapshot.showJSONFiles=NO;
+    snapshot.lastStatus=@"BuildManifest snapshot";
+    return snapshot;
+}
+
 - (void)addEmptyRow {
     if(self.hasAnyApplied){self.lastStatus=@"请先恢复当前临时 Patch";return;}
     [self.rows addObject:[ZNBinaryPatchRow new]]; self.lastStatus=[NSString stringWithFormat:@"已增加 Offset #%lu",(unsigned long)self.rows.count];
