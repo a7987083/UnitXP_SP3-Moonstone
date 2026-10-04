@@ -7,9 +7,7 @@
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
-
-extern "C" BOOL ZNLegacyM585PrepareStaticBuild(ZNBinaryPatchWorkspace *workspace, NSString **error);
-extern "C" BOOL ZNLegacyM591PrepareStaticBuild(ZNBinaryPatchWorkspace *workspace, NSString **error);
+#import "ZNBuildStaticPrepare.h"
 
 @interface ZNBuildProviderRecord : NSObject
 @property(nonatomic,copy) NSString *identifier;
@@ -124,12 +122,8 @@ static BOOL ZNM684RuntimeSignatureBridge(NSArray<NSString *> *builderOutputs,
                     return NO;
                 }
             }
-            if(!ZNLegacyM591PrepareStaticBuild(workspace,&local)) {
-                if(error)*error=local ?: @"Offset Hook 自动准备失败";
-                return NO;
-            }
-            if(!ZNLegacyM585PrepareStaticBuild(workspace,&local)) {
-                if(error)*error=local ?: @"Static Slider 生成前检查失败";
+            if(!ZNBuildPrepareStaticWorkspaceV1(workspace,&local)) {
+                if(error)*error=local ?: @"Static BuildManifest provider prepare 失败";
                 return NO;
             }
             return YES;
