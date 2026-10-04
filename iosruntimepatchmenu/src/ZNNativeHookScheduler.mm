@@ -144,8 +144,11 @@ static NSString * const kZNNativeHookSchedulerValuePrefix =
 
             ZNNativeHookLifecycleState state=[self stateForActionID:action.actionID];
             if(state==ZNNativeHookLifecycleStateActive||
-               state==ZNNativeHookLifecycleStatePreparing||
-               state==ZNNativeHookLifecycleStateRetryPending)continue;
+               state==ZNNativeHookLifecycleStatePreparing)continue;
+            // A dyld image-added or foreground lifecycle event may make the
+            // resolver/backend ready. RetryPending must not wait for the old
+            // exponential timer; prepare immediately. The stale timer exits
+            // once state becomes Active.
             [self prepareActionOnQueue:action];
         }
     });
