@@ -29,6 +29,7 @@ typedef struct {
     std::atomic<uintptr_t> target;
     std::atomic<uintptr_t> original;
     std::atomic<int32_t> multiplier;
+    std::atomic<uint32_t> enabled;
     std::atomic<uint64_t> hits;
     std::atomic<int32_t> lastBefore;
     std::atomic<int32_t> lastAfter;
@@ -79,6 +80,7 @@ void ZNArgScaleBridgeMutate(uint32_t index, uint64_t *savedGPRs) {
     if(!savedGPRs||index>=kZNNativeMaxSlots)return;
     ZNNativeSlot *slot=&gZNNativeSlots[index];
     if(!slot->target.load(std::memory_order_acquire))return;
+    if(!slot->enabled.load(std::memory_order_relaxed))return;
     uint32_t reg=slot->registerIndex.load(std::memory_order_relaxed);
     if(reg>8)return;
     uint64_t raw=savedGPRs[reg];
@@ -108,6 +110,7 @@ typedef struct {
     std::atomic<uintptr_t> getter;
     std::atomic<uintptr_t> setter;
     std::atomic<int32_t> multiplier;
+    std::atomic<uint32_t> enabled;
     std::atomic<uint64_t> hits;
     std::atomic<uint64_t> failures;
     std::atomic<int64_t> lastBefore;
@@ -153,6 +156,7 @@ void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs) {
     if(!savedGPRs||index>=kZNStructFieldMaxSlots)return;
     ZNStructFieldSlot *slot=&gZNStructFieldSlots[index];
     if(!slot->target.load(std::memory_order_acquire))return;
+    if(!slot->enabled.load(std::memory_order_relaxed))return;
     uint32_t reg=slot->argumentRegister.load(std::memory_order_relaxed);
     if(reg>=8){slot->failures.fetch_add(1,std::memory_order_relaxed);return;}
     uintptr_t base=(uintptr_t)savedGPRs[reg];
@@ -217,6 +221,7 @@ typedef struct {
     std::atomic<uintptr_t> target;
     std::atomic<uintptr_t> original;
     std::atomic<uint32_t> forcedValue;
+    std::atomic<uint32_t> enabled;
     std::atomic<uint64_t> hits;
     std::atomic<uint32_t> lastOriginal;
     std::atomic<uint32_t> lastOverride;
@@ -238,17 +243,25 @@ static ZNReturnBoolSlot *ZNReturnBoolFreeSlot(void) {
     return NULL;
 }
 
+typedef uint8_t (*ZNReturnBoolOriginalFn)(uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+
 static uint8_t ZNReturnBoolHandle(NSUInteger index,
                                   uintptr_t x0,uintptr_t x1,uintptr_t x2,uintptr_t x3,
                                   uintptr_t x4,uintptr_t x5,uintptr_t x6,uintptr_t x7) {
-    (void)x0;(void)x1;(void)x2;(void)x3;(void)x4;(void)x5;(void)x6;(void)x7;
     if(index>=kZNReturnBoolMaxSlots)return 0;
     ZNReturnBoolSlot *slot=&gZNReturnBoolSlots[index];
     if(!slot->target.load(std::memory_order_acquire))return 0;
-    uint8_t overrideValue=slot->forcedValue.load(std::memory_order_relaxed)?1:0;
-    slot->lastOriginal.store(UINT32_MAX,std::memory_order_relaxed); // skipped by design
-    slot->lastOverride.store(overrideValue,std::memory_order_relaxed);
     slot->hits.fetch_add(1,std::memory_order_relaxed);
+    if(!slot->enabled.load(std::memory_order_relaxed)){
+        uintptr_t original=slot->original.load(std::memory_order_acquire);
+        if(!original)return 0;
+        uint8_t value=((ZNReturnBoolOriginalFn)original)(x0,x1,x2,x3,x4,x5,x6,x7);
+        slot->lastOriginal.store(value?1u:0u,std::memory_order_relaxed);
+        return value;
+    }
+    uint8_t overrideValue=slot->forcedValue.load(std::memory_order_relaxed)?1:0;
+    slot->lastOriginal.store(UINT32_MAX,std::memory_order_relaxed);
+    slot->lastOverride.store(overrideValue,std::memory_order_relaxed);
     return overrideValue;
 }
 
@@ -285,6 +298,7 @@ typedef struct {
     std::atomic<uintptr_t> original;
     std::atomic<uint32_t> callbackRegister;
     std::atomic<uint32_t> callbackValue;
+    std::atomic<uint32_t> enabled;
     std::atomic<uint64_t> hits;
     std::atomic<uint64_t> callbackSuccess;
     std::atomic<uint64_t> callbackFailure;
@@ -329,15 +343,22 @@ static BOOL ZNManagedInvokeBoolCallback(uintptr_t callbackObject, BOOL value) {
     return exception==NULL;
 }
 
+typedef uintptr_t (*ZNManagedCallbackOriginalFn)(uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+
 static uintptr_t ZNManagedCallbackHandle(NSUInteger index,
                                          uintptr_t x0,uintptr_t x1,uintptr_t x2,uintptr_t x3,
                                          uintptr_t x4,uintptr_t x5,uintptr_t x6,uintptr_t x7) {
     if(index>=kZNManagedCallbackMaxSlots)return 0;
     ZNManagedCallbackSlot *slot=&gZNManagedCallbackSlots[index];
     if(!slot->target.load(std::memory_order_acquire))return 0;
+    slot->hits.fetch_add(1,std::memory_order_relaxed);
+    if(!slot->enabled.load(std::memory_order_relaxed)){
+        uintptr_t original=slot->original.load(std::memory_order_acquire);
+        if(!original)return 0;
+        return ((ZNManagedCallbackOriginalFn)original)(x0,x1,x2,x3,x4,x5,x6,x7);
+    }
     uintptr_t regs[8]={x0,x1,x2,x3,x4,x5,x6,x7};
     uint32_t reg=slot->callbackRegister.load(std::memory_order_relaxed);
-    slot->hits.fetch_add(1,std::memory_order_relaxed);
     slot->lastReceiver.store(slot->isStatic.load(std::memory_order_relaxed)?0:x0,std::memory_order_relaxed);
     slot->lastCallback.store(reg<8?regs[reg]:0,std::memory_order_relaxed);
     if(reg>=8||!regs[reg]){
@@ -347,7 +368,7 @@ static uintptr_t ZNManagedCallbackHandle(NSUInteger index,
     BOOL ok=ZNManagedInvokeBoolCallback(regs[reg],slot->callbackValue.load(std::memory_order_relaxed)!=0);
     if(ok)slot->callbackSuccess.fetch_add(1,std::memory_order_relaxed);
     else slot->callbackFailure.fetch_add(1,std::memory_order_relaxed);
-    return 0; // M6.5 V1 only accepts void targets; original is intentionally skipped.
+    return 0;
 }
 
 #define ZN_MANAGED_CALLBACK_REPLACEMENT(N) \
@@ -764,6 +785,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             return NO;
         }
         existing->multiplier.store((int32_t)multiplier,std::memory_order_release);
+        existing->enabled.store(multiplier!=1?1u:0u,std::memory_order_release);
         if(actionID)existing->actionID.store(actionID,std::memory_order_release);
         return YES;
     }
@@ -771,6 +793,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNNativeSlot *slot=ZNNativeFreeSlot();
     if(!slot){if(error)*error=@"Native Hook slot 已满";return NO;}
     slot->multiplier.store((int32_t)multiplier,std::memory_order_relaxed);
+    slot->enabled.store(multiplier!=1?1u:0u,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
     slot->lastBefore.store(0,std::memory_order_relaxed);
     slot->lastAfter.store(0,std::memory_order_relaxed);
@@ -876,6 +899,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             return NO;
         }
         existing->multiplier.store((int32_t)multiplier,std::memory_order_release);
+        existing->enabled.store(multiplier!=1?1u:0u,std::memory_order_release);
         return YES;
     }
 
@@ -885,6 +909,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->getter.store([codec[@"getter"] unsignedLongLongValue],std::memory_order_relaxed);
     slot->setter.store([codec[@"setter"] unsignedLongLongValue],std::memory_order_relaxed);
     slot->multiplier.store((int32_t)multiplier,std::memory_order_relaxed);
+    slot->enabled.store(multiplier!=1?1u:0u,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
     slot->failures.store(0,std::memory_order_relaxed);
     slot->lastBefore.store(0,std::memory_order_relaxed);
@@ -945,6 +970,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNReturnBoolSlot *existing=ZNReturnBoolSlotForTarget(target);
     if(existing){
         existing->forcedValue.store(value?1u:0u,std::memory_order_release);
+        existing->enabled.store(1u,std::memory_order_release);
         NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
         live[@"methodPointer"]=@(target);
         self.liveCandidate=[live copy];self.liveTemplate=@"ReturnBoolOverride";self.liveLifecycle=@"installed";self.liveError=@"";
@@ -954,6 +980,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(!slot){if(error)*error=@"ReturnBoolOverride Hook slot 已满";return NO;}
     NSUInteger slotIndex=(NSUInteger)(slot-gZNReturnBoolSlots);
     slot->forcedValue.store(value?1u:0u,std::memory_order_relaxed);
+    slot->enabled.store(1u,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
     slot->lastOriginal.store(UINT32_MAX,std::memory_order_relaxed);
     slot->lastOverride.store(value?1u:0u,std::memory_order_relaxed);
@@ -1014,6 +1041,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             return NO;
         }
         existing->callbackValue.store(callbackValue?1u:0u,std::memory_order_release);
+        existing->enabled.store(1u,std::memory_order_release);
         NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
         live[@"methodPointer"]=resolved[@"methodPointer"]?:@0;
         self.liveCandidate=[live copy];
@@ -1027,6 +1055,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSUInteger slotIndex=(NSUInteger)(slot-gZNManagedCallbackSlots);
     slot->callbackRegister.store(reg,std::memory_order_relaxed);
     slot->callbackValue.store(callbackValue?1u:0u,std::memory_order_relaxed);
+    slot->enabled.store(1u,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
     slot->callbackSuccess.store(0,std::memory_order_relaxed);
     slot->callbackFailure.store(0,std::memory_order_relaxed);
