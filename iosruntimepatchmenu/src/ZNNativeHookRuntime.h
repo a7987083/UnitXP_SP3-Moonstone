@@ -15,6 +15,8 @@ FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
                                                             reason:(NSString * _Nullable * _Nullable)reason;
 - (BOOL)supportsReturnBoolOverrideForCandidate:(NSDictionary<NSString *, id> *)candidate
                                          reason:(NSString * _Nullable * _Nullable)reason;
+- (NSArray<NSNumber *> *)supportedStructFieldArgumentIndicesForCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                                   reason:(NSString * _Nullable * _Nullable)reason;
 - (NSArray<NSNumber *> *)supportedManagedBoolCallbackArgumentIndicesForCandidate:(NSDictionary<NSString *, id> *)candidate
                                                                           reason:(NSString * _Nullable * _Nullable)reason;
 
