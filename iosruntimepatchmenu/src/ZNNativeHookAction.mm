@@ -37,6 +37,17 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     _callbackValue=YES;
     _skipOriginal=YES;
     _returnBoolValue=YES;
+    _fieldArgumentIndex=NSNotFound;
+    _fieldArgumentMode=@"indirect-pointer";
+    _fieldOffset=0;
+    _fieldCodec=@"";
+    _codecAssembly=@"";
+    _codecNamespaceName=@"";
+    _codecClassName=@"";
+    _codecGetterMethod=@"";
+    _codecSetterMethod=@"";
+    _codecGetterArgumentCount=0;
+    _codecSetterArgumentCount=1;
     _fallbackUUID=@"";
     return self;
 }
@@ -54,6 +65,10 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     c.templateKind=self.templateKind;c.argumentIndex=self.argumentIndex;c.minValue=self.minValue;c.maxValue=self.maxValue;
     c.defaultValue=self.defaultValue;c.callbackArgumentIndex=self.callbackArgumentIndex;
     c.callbackValue=self.callbackValue;c.skipOriginal=self.skipOriginal;c.returnBoolValue=self.returnBoolValue;
+    c.fieldArgumentIndex=self.fieldArgumentIndex;c.fieldArgumentMode=self.fieldArgumentMode;c.fieldOffset=self.fieldOffset;
+    c.fieldCodec=self.fieldCodec;c.codecAssembly=self.codecAssembly;c.codecNamespaceName=self.codecNamespaceName;
+    c.codecClassName=self.codecClassName;c.codecGetterMethod=self.codecGetterMethod;c.codecSetterMethod=self.codecSetterMethod;
+    c.codecGetterArgumentCount=self.codecGetterArgumentCount;c.codecSetterArgumentCount=self.codecSetterArgumentCount;
     c.fallbackRVA=self.fallbackRVA;c.fallbackUUID=self.fallbackUUID;
     return c;
 }
@@ -92,6 +107,14 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         @"callbackArgumentIndex":@(a.callbackArgumentIndex==NSNotFound?NSUIntegerMax:a.callbackArgumentIndex),
         @"callbackValue":@(a.callbackValue),@"skipOriginal":@(a.skipOriginal),
         @"returnBoolValue":@(a.returnBoolValue),
+        @"fieldArgumentIndex":@(a.fieldArgumentIndex==NSNotFound?NSUIntegerMax:a.fieldArgumentIndex),
+        @"fieldArgumentMode":a.fieldArgumentMode?:@"indirect-pointer",
+        @"fieldOffset":@(a.fieldOffset),@"fieldCodec":a.fieldCodec?:@"",
+        @"codecAssembly":a.codecAssembly?:@"",@"codecNamespace":a.codecNamespaceName?:@"",
+        @"codecClass":a.codecClassName?:@"",@"codecGetterMethod":a.codecGetterMethod?:@"",
+        @"codecSetterMethod":a.codecSetterMethod?:@"",
+        @"codecGetterArgumentCount":@(a.codecGetterArgumentCount),
+        @"codecSetterArgumentCount":@(a.codecSetterArgumentCount),
         @"fallbackRVA":@(a.fallbackRVA),@"fallbackUUID":a.fallbackUUID?:@""
     };
 }
@@ -118,6 +141,18 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.callbackValue=d[@"callbackValue"]?[d[@"callbackValue"] boolValue]:YES;
     a.skipOriginal=d[@"skipOriginal"]?[d[@"skipOriginal"] boolValue]:YES;
     a.returnBoolValue=d[@"returnBoolValue"]?[d[@"returnBoolValue"] boolValue]:YES;
+    NSUInteger storedFieldArg=[d[@"fieldArgumentIndex"] unsignedIntegerValue];
+    a.fieldArgumentIndex=(storedFieldArg==NSUIntegerMax)?NSNotFound:storedFieldArg;
+    a.fieldArgumentMode=[d[@"fieldArgumentMode"] isKindOfClass:NSString.class]?d[@"fieldArgumentMode"]:@"indirect-pointer";
+    a.fieldOffset=[d[@"fieldOffset"] unsignedLongLongValue];
+    a.fieldCodec=[d[@"fieldCodec"] isKindOfClass:NSString.class]?d[@"fieldCodec"]:@"";
+    a.codecAssembly=[d[@"codecAssembly"] isKindOfClass:NSString.class]?d[@"codecAssembly"]:@"";
+    a.codecNamespaceName=[d[@"codecNamespace"] isKindOfClass:NSString.class]?d[@"codecNamespace"]:@"";
+    a.codecClassName=[d[@"codecClass"] isKindOfClass:NSString.class]?d[@"codecClass"]:@"";
+    a.codecGetterMethod=[d[@"codecGetterMethod"] isKindOfClass:NSString.class]?d[@"codecGetterMethod"]:@"";
+    a.codecSetterMethod=[d[@"codecSetterMethod"] isKindOfClass:NSString.class]?d[@"codecSetterMethod"]:@"";
+    a.codecGetterArgumentCount=[d[@"codecGetterArgumentCount"] unsignedIntegerValue];
+    a.codecSetterArgumentCount=d[@"codecSetterArgumentCount"]?[d[@"codecSetterArgumentCount"] unsignedIntegerValue]:1;
     a.fallbackRVA=[d[@"fallbackRVA"] unsignedLongLongValue];
     a.fallbackUUID=[d[@"fallbackUUID"] isKindOfClass:NSString.class]?d[@"fallbackUUID"]:@"";
     if(!a.actionID||!a.className.length||!a.methodName.length)return nil;
@@ -127,6 +162,11 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         if(a.callbackArgumentIndex==NSNotFound||a.callbackArgumentIndex>=a.argumentCount||!a.skipOriginal)return nil;
     }else if(a.templateKind==ZNNativeHookTemplateReturnBoolOverride){
         // No additional persisted parameter index is required.
+    }else if(a.templateKind==ZNNativeHookTemplateStructFieldTransform){
+        if(a.fieldArgumentIndex==NSNotFound||a.fieldArgumentIndex>=a.argumentCount||
+           ![a.fieldArgumentMode isEqualToString:@"indirect-pointer"]||
+           ![a.fieldCodec isEqualToString:@"secure-long-accessor"]||
+           !a.codecClassName.length||!a.codecGetterMethod.length||!a.codecSetterMethod.length)return nil;
     }else{
         return nil;
     }
@@ -304,6 +344,81 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-authoring] add id=%u %@ template=%@ callbackArg=%lu value=%@",
                                            a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),
                                            (unsigned long)a.callbackArgumentIndex,a.callbackValue?@"true":@"false"]];
+    return [a copy];
+}
+
+
+- (ZNNativeHookAction *)addStructFieldTransformCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                   title:(NSString *)title
+                                           argumentIndex:(NSUInteger)argumentIndex
+                                            argumentMode:(NSString *)argumentMode
+                                             fieldOffset:(uint64_t)fieldOffset
+                                              fieldCodec:(NSString *)fieldCodec
+                                           codecAssembly:(NSString *)codecAssembly
+                                          codecNamespace:(NSString *)codecNamespace
+                                              codecClass:(NSString *)codecClass
+                                             getterMethod:(NSString *)getterMethod
+                                             setterMethod:(NSString *)setterMethod
+                                                   min:(NSInteger)minValue
+                                                   max:(NSInteger)maxValue
+                                          defaultValue:(NSInteger)defaultValue
+                                                 error:(NSString **)error {
+    NSString *assembly=ZNNHTrim([candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"");
+    if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNHTrim([candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"");
+    NSString *cls=ZNNHTrim([candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"");
+    NSString *methodName=ZNNHTrim([candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"");
+    NSInteger argc=[candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)]?[candidate[@"argumentCount"] integerValue]:-1;
+    if(!cls.length||!methodName.length||argc<=0||argumentIndex>=(NSUInteger)argc){if(error)*error=@"StructFieldTransform 方法身份/参数索引无效";return nil;}
+    if(![argumentMode isEqualToString:@"indirect-pointer"]){if(error)*error=@"StructFieldTransform V1 仅支持 indirect-pointer 参数模式";return nil;}
+    if(![fieldCodec isEqualToString:@"secure-long-accessor"]){if(error)*error=@"StructFieldTransform V1 仅支持 secure-long-accessor codec";return nil;}
+    if(fieldOffset>0x100000ULL){if(error)*error=@"字段 offset 超出 V1 安全范围";return nil;}
+    if(minValue<1||maxValue<minValue||maxValue>1000||defaultValue<minValue||defaultValue>maxValue){if(error)*error=@"倍率范围无效";return nil;}
+
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(![abi[@"available"] boolValue]||params.count!=(NSUInteger)argc){if(error)*error=@"StructFieldTransform 需要完整 IL2CPP 参数 ABI";return nil;}
+    NSDictionary *param=params[argumentIndex];
+    ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    if(kind!=ZNIL2CPPABIValueKindComplexValueType&&kind!=ZNIL2CPPABIValueKindPointer&&kind!=ZNIL2CPPABIValueKindObjectReference){
+        if(error)*error=@"StructFieldTransform V1 参数必须是 complex value/pointer/object-reference";
+        return nil;
+    }
+
+    NSString *ca=ZNNHTrim(codecAssembly);if(!ca.length)ca=@"Percent.Scripting.Stdlib.dll";
+    NSString *cn=ZNNHTrim(codecNamespace),*cc=ZNNHTrim(codecClass),*cg=ZNNHTrim(getterMethod),*cs=ZNNHTrim(setterMethod);
+    if(!cc.length||!cg.length||!cs.length){if(error)*error=@"SecureLong codec 的类/getter/setter 不能为空";return nil;}
+
+    NSMutableArray *types=[NSMutableArray arrayWithCapacity:params.count];
+    for(NSDictionary *p in params)[types addObject:[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?"];
+
+    ZNNativeHookAction *a=[ZNNativeHookAction new];
+    a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=methodName;a.argumentCount=(NSUInteger)argc;
+    a.parameterTypeNames=[types copy];a.signatureAvailable=YES;a.templateKind=ZNNativeHookTemplateStructFieldTransform;
+    a.fieldArgumentIndex=argumentIndex;a.fieldArgumentMode=@"indirect-pointer";a.fieldOffset=fieldOffset;
+    a.fieldCodec=@"secure-long-accessor";a.codecAssembly=ca;a.codecNamespaceName=cn;a.codecClassName=cc;
+    a.codecGetterMethod=cg;a.codecSetterMethod=cs;a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=1;
+    a.minValue=minValue;a.maxValue=maxValue;a.defaultValue=defaultValue;
+    a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Field Multiplier",methodName];
+    a.featureDescription=[NSString stringWithFormat:@"Struct Field Transform · arg%lu +0x%llX · SecureLong",
+                          (unsigned long)argumentIndex,(unsigned long long)fieldOffset];
+    a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
+
+    @synchronized(self){
+        uint32_t serial=0;BOOL collision=NO;
+        do{
+            NSString *seed=[NSString stringWithFormat:@"%@|%@|field:%lu:%llX:%@|%u",
+                            a.canonicalIdentity,a.title,(unsigned long)a.fieldArgumentIndex,
+                            (unsigned long long)a.fieldOffset,a.fieldCodec,serial++];
+            a.actionID=ZNNHFNV1a32(seed);collision=NO;
+            for(ZNNativeHookAction *e in self.mutableActions)if(e.actionID==a.actionID){collision=YES;break;}
+        }while(collision);
+        [self.mutableActions addObject:a];
+        [self persist];
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-authoring] add id=%u %@ template=%@ arg=%lu offset=0x%llX codec=%@",
+                                       a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),
+                                       (unsigned long)a.fieldArgumentIndex,(unsigned long long)a.fieldOffset,a.fieldCodec]];
     return [a copy];
 }
 
