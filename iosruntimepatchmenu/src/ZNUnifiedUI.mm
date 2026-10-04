@@ -7758,8 +7758,15 @@ static CGFloat ZNUXClampScrollY(UIScrollView *scroll, CGFloat y) {
         UIButton *button = (UIButton *)view;
         NSArray<NSString *> *actions = [button actionsForTarget:self forControlEvent:UIControlEventTouchUpInside];
         if (![actions containsObject:NSStringFromSelector(@selector(zn44_buildBinary:))]) return;
-        button.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0;
+        BOOL hasRuntimeAuthoring = [[ZNRuntimeActionStore sharedStore] actionsSnapshot].count > 0 ||
+                                   [[ZNNativeHookStore sharedStore] actionsSnapshot].count > 0;
+        button.enabled = !workspace.isBuilding &&
+                         !workspace.hasAnyApplied &&
+                         (workspace.filledCount > 0 || hasRuntimeAuthoring);
         button.alpha = button.enabled ? 1.0 : 0.5;
+        if (button.enabled && workspace.filledCount == 0 && hasRuntimeAuthoring) {
+            button.accessibilityHint = @"Runtime/Native Hook-only：可以直接生成二进制";
+        }
     });
 }
 
