@@ -621,8 +621,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
 - (void)refreshGeneratedActions {
     uint32_t count=_dyld_image_count();
+    if(self.generatedScanned&&self.generatedImageCount==count)return;
     uint64_t fingerprint=ZNNativeImageFingerprint(count);
-    if(self.generatedScanned&&self.generatedImageCount==count&&self.generatedImageFingerprint==fingerprint)return;
     NSMutableArray<ZNNativeHookAction *> *found=[NSMutableArray array];
     NSMutableSet *dedupe=[NSMutableSet set];
     for(uint32_t i=0;i<count;i++)ZNNativeParseGeneratedImage(i,found,dedupe);
