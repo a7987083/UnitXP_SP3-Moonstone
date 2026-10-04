@@ -1,6 +1,7 @@
 #import "ZNNativeHookLifecycleBootstrap.h"
 
 #import <mach-o/dyld.h>
+#import <UIKit/UIKit.h>
 
 #import "ZNNativeHookRuntime.h"
 #import "ZNNativeHookScheduler.h"
@@ -46,10 +47,20 @@ static void ZNNativeHookLifecycleImageAdded(const struct mach_header *mh, intptr
     // dyld immediately replays already-loaded images. requestReconcile coalesces
     // those callbacks, so startup performs one Hook-only discovery pass.
     _dyld_register_func_for_add_image(ZNNativeHookLifecycleImageAdded);
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(zn_applicationBecameActive:)
+                                               name:UIApplicationDidBecomeActiveNotification
+                                             object:nil];
     [self requestReconcile];
 
     [[ZNRuntimeLogger sharedLogger] log:
      @"[native-hook-lifecycle] early bootstrap started; hook prepare detached from menu activation"];
+}
+
+- (void)zn_applicationBecameActive:(NSNotification *)note {
+    (void)note;
+    // Retry Hook prepare without changing Static/Runtime Method lifecycle.
+    [self requestReconcile];
 }
 
 - (void)requestReconcile {
