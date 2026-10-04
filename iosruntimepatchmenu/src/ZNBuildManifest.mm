@@ -4,6 +4,7 @@
 #import "ZNFeatureControlModel.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
+#import "ZNNativeHookBuildPrepare.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
@@ -196,6 +197,14 @@ static BOOL ZNM684RuntimeSignatureBridge(NSArray<NSString *> *builderOutputs,
                         return NO;
                     }
                 }
+            }
+
+            // M6.9: Native Hook does its heavy IL2CPP resolve while generating
+            // the binary, not during process startup.
+            NSString *hookPrepareReport=nil,*hookPrepareError=nil;
+            if(!ZNBuildPrepareNativeHookDescriptorsV1(&hookPrepareReport,&hookPrepareError)) {
+                if(error)*error=hookPrepareError ?: @"Prepared Native Hook descriptor 生成失败";
+                return NO;
             }
             return YES;
         };
