@@ -389,20 +389,43 @@ static std::atomic<uintptr_t> gZNManagedObjectGetClass;
 static std::atomic<uintptr_t> gZNManagedClassGetMethodFromName;
 static std::atomic<uintptr_t> gZNManagedRuntimeInvoke;
 
+static NSString *ZNNativeLoadedUnityFrameworkPath(void) {
+    uint32_t count=_dyld_image_count();
+    for(uint32_t i=0;i<count;i++){
+        const char *cpath=_dyld_get_image_name(i);
+        if(!cpath)continue;
+        NSString *path=[NSString stringWithUTF8String:cpath]?:@"";
+        if([path.lastPathComponent isEqualToString:@"UnityFramework"]||
+           [path rangeOfString:@"UnityFramework.framework/UnityFramework"
+                       options:NSCaseInsensitiveSearch].location!=NSNotFound)
+            return path;
+    }
+    return @"";
+}
+
 static BOOL ZNManagedPrepareInvokeBridge(NSString **error) {
     if(gZNManagedObjectGetClass.load(std::memory_order_acquire) &&
        gZNManagedClassGetMethodFromName.load(std::memory_order_acquire) &&
        gZNManagedRuntimeInvoke.load(std::memory_order_acquire)) return YES;
 
-    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
-    [resolver refresh];
-    if(!resolver.isAvailable){
-        if(error)*error=@"Managed Callback prepare：IL2CPP Resolver 不可用";
+    NSString *path=ZNNativeLoadedUnityFrameworkPath();
+    if(!path.length){
+        if(error)*error=@"Managed Callback prepare：UnityFramework 尚未加载";
         return NO;
     }
-    uintptr_t objectGetClass=(uintptr_t)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_object_get_class");
-    uintptr_t classGetMethod=(uintptr_t)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_class_get_method_from_name");
-    uintptr_t runtimeInvoke=(uintptr_t)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_runtime_invoke");
+    void *handle=NULL;
+#ifdef RTLD_NOLOAD
+    handle=dlopen(path.fileSystemRepresentation,RTLD_LAZY|RTLD_NOLOAD);
+#else
+    handle=dlopen(path.fileSystemRepresentation,RTLD_LAZY);
+#endif
+    uintptr_t objectGetClass=(uintptr_t)(handle?dlsym(handle,"il2cpp_object_get_class"):NULL);
+    uintptr_t classGetMethod=(uintptr_t)(handle?dlsym(handle,"il2cpp_class_get_method_from_name"):NULL);
+    uintptr_t runtimeInvoke=(uintptr_t)(handle?dlsym(handle,"il2cpp_runtime_invoke"):NULL);
+    if(!objectGetClass)objectGetClass=(uintptr_t)dlsym(RTLD_DEFAULT,"il2cpp_object_get_class");
+    if(!classGetMethod)classGetMethod=(uintptr_t)dlsym(RTLD_DEFAULT,"il2cpp_class_get_method_from_name");
+    if(!runtimeInvoke)runtimeInvoke=(uintptr_t)dlsym(RTLD_DEFAULT,"il2cpp_runtime_invoke");
+    if(handle)dlclose(handle);
     if(!objectGetClass||!classGetMethod||!runtimeInvoke){
         if(error)*error=@"Managed Callback prepare：IL2CPP invoke API 不完整";
         return NO;
