@@ -6,6 +6,7 @@
 #import <dlfcn.h>
 #import <mach-o/loader.h>
 #import <stdint.h>
+#import <uuid/uuid.h>
 
 static const uint32_t kZNM69MethodAttributeStatic = 0x0010u;
 typedef uint32_t (*ZNM69MethodGetFlagsFn)(const void *, uint32_t *);
@@ -203,13 +204,12 @@ BOOL ZNBuildPrepareNativeHookDescriptorsV1(NSString **report, NSString **error) 
         }
     }
 
+    NSUInteger structFieldCount=0;
+    for(ZNNativeHookAction *action in actions)
+        if(action.templateKind==ZNNativeHookTemplateStructFieldTransform)structFieldCount++;
     if(report)*report=[NSString stringWithFormat:
         @"Prepared Native Hook：%lu actions · RVA/UUID/static%@",
         (unsigned long)prepared.count,
-        [actions filteredArrayUsingPredicate:
-            [NSPredicate predicateWithBlock:^BOOL(ZNNativeHookAction *a, NSDictionary *bindings) {
-                (void)bindings;
-                return a.templateKind==ZNNativeHookTemplateStructFieldTransform;
-            }]].count ? @" + codec RVA" : @""];
+        structFieldCount ? @" + codec RVA" : @""];
     return YES;
 }
