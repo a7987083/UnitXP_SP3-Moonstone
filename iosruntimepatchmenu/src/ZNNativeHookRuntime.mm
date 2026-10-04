@@ -46,6 +46,14 @@ static ZNNativeSlot *ZNNativeSlotForTarget(uintptr_t target) {
     return NULL;
 }
 
+static ZNNativeSlot *ZNNativeSlotForActionID(uint32_t actionID) {
+    if(!actionID)return NULL;
+    for(NSUInteger i=0;i<kZNNativeMaxSlots;i++)
+        if(gZNNativeSlots[i].target.load(std::memory_order_acquire) &&
+           gZNNativeSlots[i].actionID.load(std::memory_order_acquire)==actionID)return &gZNNativeSlots[i];
+    return NULL;
+}
+
 static ZNNativeSlot *ZNNativeFreeSlot(void) {
     for(NSUInteger i=0;i<kZNNativeMaxSlots;i++)
         if(gZNNativeSlots[i].target.load(std::memory_order_acquire)==0)return &gZNNativeSlots[i];
@@ -128,6 +136,14 @@ static ZNStructFieldSlot *ZNStructFieldSlotForTarget(uintptr_t target) {
     if(!target)return NULL;
     for(NSUInteger i=0;i<kZNStructFieldMaxSlots;i++)
         if(gZNStructFieldSlots[i].target.load(std::memory_order_acquire)==target)return &gZNStructFieldSlots[i];
+    return NULL;
+}
+
+static ZNStructFieldSlot *ZNStructFieldSlotForActionID(uint32_t actionID) {
+    if(!actionID)return NULL;
+    for(NSUInteger i=0;i<kZNStructFieldMaxSlots;i++)
+        if(gZNStructFieldSlots[i].target.load(std::memory_order_acquire) &&
+           gZNStructFieldSlots[i].actionID.load(std::memory_order_acquire)==actionID)return &gZNStructFieldSlots[i];
     return NULL;
 }
 
@@ -237,6 +253,14 @@ static ZNReturnBoolSlot *ZNReturnBoolSlotForTarget(uintptr_t target) {
     return NULL;
 }
 
+static ZNReturnBoolSlot *ZNReturnBoolSlotForActionID(uint32_t actionID) {
+    if(!actionID)return NULL;
+    for(NSUInteger i=0;i<kZNReturnBoolMaxSlots;i++)
+        if(gZNReturnBoolSlots[i].target.load(std::memory_order_acquire) &&
+           gZNReturnBoolSlots[i].actionID.load(std::memory_order_acquire)==actionID)return &gZNReturnBoolSlots[i];
+    return NULL;
+}
+
 static ZNReturnBoolSlot *ZNReturnBoolFreeSlot(void) {
     for(NSUInteger i=0;i<kZNReturnBoolMaxSlots;i++)
         if(gZNReturnBoolSlots[i].target.load(std::memory_order_acquire)==0)return &gZNReturnBoolSlots[i];
@@ -314,6 +338,14 @@ static ZNManagedCallbackSlot *ZNManagedCallbackSlotForTarget(uintptr_t target) {
     if(!target)return NULL;
     for(NSUInteger i=0;i<kZNManagedCallbackMaxSlots;i++)
         if(gZNManagedCallbackSlots[i].target.load(std::memory_order_acquire)==target)return &gZNManagedCallbackSlots[i];
+    return NULL;
+}
+
+static ZNManagedCallbackSlot *ZNManagedCallbackSlotForActionID(uint32_t actionID) {
+    if(!actionID)return NULL;
+    for(NSUInteger i=0;i<kZNManagedCallbackMaxSlots;i++)
+        if(gZNManagedCallbackSlots[i].target.load(std::memory_order_acquire) &&
+           gZNManagedCallbackSlots[i].actionID.load(std::memory_order_acquire)==actionID)return &gZNManagedCallbackSlots[i];
     return NULL;
 }
 
@@ -1239,29 +1271,34 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
     NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
                               @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
+
     if(action.templateKind==ZNNativeHookTemplateReturnBoolOverride){
-        if(value==0)return [self removeAction:action error:error];
         BOOL ok=[self installTemporaryReturnBoolOverrideForCandidate:candidate value:action.returnBoolValue error:error];
-        if(ok){
-            NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
-            ZNReturnBoolSlot *slot=ZNReturnBoolSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
-            if(slot)slot->actionID.store(action.actionID,std::memory_order_release);
-        }
-        return ok;
+        if(!ok)return NO;
+        NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
+        ZNReturnBoolSlot *slot=ZNReturnBoolSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
+        if(!slot){if(error)*error=@"ReturnBoolOverride 安装后未找到 runtime slot";return NO;}
+        slot->actionID.store(action.actionID,std::memory_order_release);
+        slot->forcedValue.store(action.returnBoolValue?1u:0u,std::memory_order_release);
+        slot->enabled.store(value!=0?1u:0u,std::memory_order_release);
+        return YES;
     }
+
     if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
-        if(value==0)return [self removeAction:action error:error];
         BOOL ok=[self installTemporaryManagedCallbackShortCircuitForCandidate:candidate
                                                                  argumentIndex:action.callbackArgumentIndex
                                                                  callbackValue:action.callbackValue
                                                                          error:error];
-        if(ok){
-            NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
-            ZNManagedCallbackSlot *slot=ZNManagedCallbackSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
-            if(slot)slot->actionID.store(action.actionID,std::memory_order_release);
-        }
-        return ok;
+        if(!ok)return NO;
+        NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
+        ZNManagedCallbackSlot *slot=ZNManagedCallbackSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
+        if(!slot){if(error)*error=@"ManagedCallback 安装后未找到 runtime slot";return NO;}
+        slot->actionID.store(action.actionID,std::memory_order_release);
+        slot->callbackValue.store(action.callbackValue?1u:0u,std::memory_order_release);
+        slot->enabled.store(value!=0?1u:0u,std::memory_order_release);
+        return YES;
     }
+
     if(action.templateKind==ZNNativeHookTemplateStructFieldTransform){
         BOOL ok=[self installTemporaryStructFieldTransformForCandidate:candidate
                                                           argumentIndex:action.fieldArgumentIndex
@@ -1275,13 +1312,16 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                             setterMethod:action.codecSetterMethod
                                                              multiplier:value
                                                                   error:error];
-        if(ok){
-            NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
-            ZNStructFieldSlot *slot=ZNStructFieldSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
-            if(slot)slot->actionID.store(action.actionID,std::memory_order_release);
-        }
-        return ok;
+        if(!ok)return NO;
+        NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,NULL);
+        ZNStructFieldSlot *slot=ZNStructFieldSlotForTarget([resolved[@"methodPointer"] unsignedLongLongValue]);
+        if(!slot){if(error)*error=@"StructFieldTransform 安装后未找到 runtime slot";return NO;}
+        slot->actionID.store(action.actionID,std::memory_order_release);
+        slot->multiplier.store((int32_t)value,std::memory_order_release);
+        slot->enabled.store(value!=1?1u:0u,std::memory_order_release);
+        return YES;
     }
+
     if(action.templateKind!=ZNNativeHookTemplateArgScaleInt32){if(error)*error=@"Native Hook Action 模板不受支持";return NO;}
     NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
     if(!resolved)return NO;
@@ -1294,21 +1334,47 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                  error:error];
 }
 
+// M6.8.6 permanent lifecycle: normal feature changes mutate slot state only.
+// The fallback install is for scheduler-first startup races; UI no longer calls
+// this method directly.
 - (BOOL)setValue:(NSInteger)value forAction:(ZNNativeHookAction *)action error:(NSString **)error {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
-    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
-       action.templateKind==ZNNativeHookTemplateReturnBoolOverride||
-       action.templateKind==ZNNativeHookTemplateStructFieldTransform)
-        return [self installAction:action value:value error:error];
-    NSDictionary *candidate=@{@"assembly":action.assembly?:@"Assembly-CSharp.dll",@"namespace":action.namespaceName?:@"",
-                              @"class":action.className?:@"",@"method":action.methodName?:@"",@"argumentCount":@(action.argumentCount)};
-    NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly,action.namespaceName,action.className,action.methodName,action.argumentCount,candidate,error);
-    if(!resolved)return NO;
-    uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
-    ZNNativeSlot *slot=ZNNativeSlotForTarget(target);
-    if(!slot)return [self installAction:action value:value error:error];
-    slot->multiplier.store((int32_t)value,std::memory_order_release);
-    return YES;
+    value=MIN(MAX(value,action.minValue),action.maxValue);
+
+    if(action.templateKind==ZNNativeHookTemplateReturnBoolOverride){
+        ZNReturnBoolSlot *slot=ZNReturnBoolSlotForActionID(action.actionID);
+        if(!slot)return [self installAction:action value:value error:error];
+        slot->forcedValue.store(action.returnBoolValue?1u:0u,std::memory_order_release);
+        slot->enabled.store(value!=0?1u:0u,std::memory_order_release);
+        return YES;
+    }
+
+    if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
+        ZNManagedCallbackSlot *slot=ZNManagedCallbackSlotForActionID(action.actionID);
+        if(!slot)return [self installAction:action value:value error:error];
+        slot->callbackValue.store(action.callbackValue?1u:0u,std::memory_order_release);
+        slot->enabled.store(value!=0?1u:0u,std::memory_order_release);
+        return YES;
+    }
+
+    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform){
+        ZNStructFieldSlot *slot=ZNStructFieldSlotForActionID(action.actionID);
+        if(!slot)return [self installAction:action value:value error:error];
+        slot->multiplier.store((int32_t)value,std::memory_order_release);
+        slot->enabled.store(value!=1?1u:0u,std::memory_order_release);
+        return YES;
+    }
+
+    if(action.templateKind==ZNNativeHookTemplateArgScaleInt32){
+        ZNNativeSlot *slot=ZNNativeSlotForActionID(action.actionID);
+        if(!slot)return [self installAction:action value:value error:error];
+        slot->multiplier.store((int32_t)value,std::memory_order_release);
+        slot->enabled.store(value!=1?1u:0u,std::memory_order_release);
+        return YES;
+    }
+
+    if(error)*error=@"Native Hook Action 模板不受支持";
+    return NO;
 }
 
 - (BOOL)removeAction:(ZNNativeHookAction *)action error:(NSString **)error {
