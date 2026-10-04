@@ -4,6 +4,7 @@
 #import "ZNRuntimeOnlyBinaryBuilder.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
 #import "ZNBinaryPatchWorkspace.h"
+#import "ZNBuildRouterShadow.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
@@ -143,6 +144,25 @@ static BOOL ZNM581AugmentRuntimeOnlySignatures(NSArray<NSString *> *builderOutpu
     NSUInteger partialStaticRows = 0;
     NSUInteger completeStaticRows = ZNCompleteStaticRowCount(workspace, &partialStaticRows);
     BOOL runtimeOnly = (actions.count > 0 || hooks.count > 0) && completeStaticRows == 0;
+
+    ZNShadowBuildMode shadowMode=ZNShadowBuildModeForCounts(completeStaticRows,
+                                                            partialStaticRows,
+                                                            actions.count,
+                                                            hooks.count);
+    BOOL shadowRuntimeOnly=(shadowMode==ZNShadowBuildModeRuntimeOnly);
+    BOOL shadowComparable=(shadowMode==ZNShadowBuildModeRuntimeOnly ||
+                           shadowMode==ZNShadowBuildModeStaticOnly ||
+                           shadowMode==ZNShadowBuildModeMixed);
+    BOOL shadowMatch=!shadowComparable || (runtimeOnly==shadowRuntimeOnly);
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
+        @"[m6.8.3-shadow-router] actual=%@ shadow=%@ match=%@ runtime=%lu nativeHook=%lu completeStatic=%lu partialStatic=%lu",
+        runtimeOnly?@"runtime-only":@"static/mixed",
+        ZNShadowBuildModeName(shadowMode),
+        shadowMatch?@"YES":@"NO",
+        (unsigned long)actions.count,
+        (unsigned long)hooks.count,
+        (unsigned long)completeStaticRows,
+        (unsigned long)partialStaticRows]];
 
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
         @"[builder-mode-m6.4] runtime=%lu nativeHook=%lu completeStatic=%lu partialStatic=%lu mode=%@",
