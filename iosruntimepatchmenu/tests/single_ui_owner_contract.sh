@@ -72,6 +72,11 @@ grep -q 'legacy M585/M591 build prepare bypassed' "$SRC/ZNBuildStaticPrepare.mm"
 grep -q 'ZNBuildManifest manifestForWorkspace' "$SRC/ZNBuildCapabilityRegistry.mm"
 grep -q 'buildSnapshotForRowIndexes' "$SRC/ZNBuildExecutor.mm"
 grep -q 'ZNRegisterBuildItemProvider' "$SRC/ZNBuildManifest.h"
+grep -q 'runtimeMethodProvider.identifier=@"runtime-method-call"' "$SRC/ZNBuildManifest.mm"
+grep -q 'nativeHookProvider.identifier=@"native-hook"' "$SRC/ZNBuildManifest.mm"
+grep -q 'emitGroup=@"runtime-action-table"' "$SRC/ZNBuildManifest.mm"
+grep -q 'emittedGroups' "$SRC/ZNBuildManifest.mm"
+! grep -q 'runtimeProvider.identifier=@"runtime-actions"' "$SRC/ZNBuildManifest.mm"
 
 # M6.8.4 Generated Data Layout V1 is the only supported newly-generated layout.
 test -f "$SRC/ZNGeneratedDataLayout.h"
