@@ -35,6 +35,19 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy) NSString *codecSetterMethod;
 @property(nonatomic,assign) NSUInteger codecGetterArgumentCount;
 @property(nonatomic,assign) NSUInteger codecSetterArgumentCount;
+// M6.9 build-time prepared Native Hook descriptor.
+// Formal generated binaries must use these fields instead of resolving
+// Assembly/Class/Method during process startup.
+@property(nonatomic,assign) BOOL preparedDescriptor;
+@property(nonatomic,assign) uint64_t preparedRVA;
+@property(nonatomic,copy) NSString *preparedUUID;
+@property(nonatomic,assign) BOOL preparedStaticKnown;
+@property(nonatomic,assign) BOOL preparedIsStatic;
+@property(nonatomic,assign) uint64_t preparedCodecGetterRVA;
+@property(nonatomic,assign) uint64_t preparedCodecSetterRVA;
+
+// Legacy authoring hints retained only as input to build-time prepare.
+// Generated M6.9 binaries do not use them as a startup Resolver fallback.
 @property(nonatomic,assign) uint64_t fallbackRVA;
 @property(nonatomic,copy) NSString *fallbackUUID;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
@@ -75,6 +88,13 @@ NS_ASSUME_NONNULL_BEGIN
                                                    defaultValue:(NSInteger)defaultValue
                                                           error:(NSString * _Nullable * _Nullable)error;
 - (NSArray<ZNNativeHookAction *> *)actionsSnapshot;
+
+// Build-time only: persists the final prepared RVA/static/UUID descriptor that
+// the generated dylib will consume at runtime.
+- (BOOL)updatePreparedDescriptor:(NSDictionary<NSString *, id> *)descriptor
+                         atIndex:(NSUInteger)index
+                           error:(NSString * _Nullable * _Nullable)error;
+
 - (BOOL)updateTitle:(nullable NSString *)title atIndex:(NSUInteger)index;
 - (BOOL)updateDescription:(nullable NSString *)featureDescription atIndex:(NSUInteger)index;
 - (BOOL)removeActionAtIndex:(NSUInteger)index;
