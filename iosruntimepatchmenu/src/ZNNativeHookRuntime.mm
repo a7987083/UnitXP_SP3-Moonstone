@@ -812,6 +812,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
     ZNNativeSlot *existing=ZNNativeSlotForTarget(target);
     if(existing){
+        uint32_t owner=existing->actionID.load(std::memory_order_acquire);
+        if(owner&&actionID==0){
+            if(error)*error=@"目标已由 Permanent Hook Scheduler 管理；临时测试不可覆盖";
+            return NO;
+        }
+        if(owner&&actionID&&owner!=actionID){
+            if(error)*error=@"目标已由其他 Permanent Hook Action 占用";
+            return NO;
+        }
         if(existing->registerIndex.load(std::memory_order_relaxed)!=reg){
             if(error)*error=@"同一 target 已安装不同参数位置的测试 Hook，请先恢复原方法";
             return NO;
@@ -925,6 +934,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
     ZNStructFieldSlot *existing=ZNStructFieldSlotForTarget(target);
     if(existing){
+        if(existing->actionID.load(std::memory_order_acquire)){
+            if(error)*error=@"目标已由 Permanent Hook Scheduler 管理；临时 StructField 测试不可覆盖";
+            return NO;
+        }
         if(existing->argumentRegister.load(std::memory_order_relaxed)!=reg||
            existing->fieldOffset.load(std::memory_order_relaxed)!=fieldOffset){
             if(error)*error=@"同一 target 已安装不同 StructFieldTransform 配置，请先恢复原方法";
@@ -1001,6 +1014,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
     ZNReturnBoolSlot *existing=ZNReturnBoolSlotForTarget(target);
     if(existing){
+        if(existing->actionID.load(std::memory_order_acquire)){
+            if(error)*error=@"目标已由 Permanent Hook Scheduler 管理；临时 ReturnBool 测试不可覆盖";
+            return NO;
+        }
         existing->forcedValue.store(value?1u:0u,std::memory_order_release);
         existing->enabled.store(1u,std::memory_order_release);
         NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
@@ -1068,6 +1085,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
     ZNManagedCallbackSlot *existing=ZNManagedCallbackSlotForTarget(target);
     if(existing){
+        if(existing->actionID.load(std::memory_order_acquire)){
+            if(error)*error=@"目标已由 Permanent Hook Scheduler 管理；临时 Callback 测试不可覆盖";
+            return NO;
+        }
         if(existing->callbackRegister.load(std::memory_order_relaxed)!=reg){
             if(error)*error=@"同一 target 已安装不同 callback 参数的 Hook，请先恢复原方法";
             return NO;
@@ -1142,6 +1163,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNManagedCallbackSlot *callbackSlot=ZNManagedCallbackSlotForTarget(target);
     ZNReturnBoolSlot *returnBoolSlot=ZNReturnBoolSlotForTarget(target);
     ZNStructFieldSlot *fieldSlot=ZNStructFieldSlotForTarget(target);
+    uint32_t permanentOwner=0;
+    if(slot)permanentOwner=slot->actionID.load(std::memory_order_acquire);
+    if(!permanentOwner&&callbackSlot)permanentOwner=callbackSlot->actionID.load(std::memory_order_acquire);
+    if(!permanentOwner&&returnBoolSlot)permanentOwner=returnBoolSlot->actionID.load(std::memory_order_acquire);
+    if(!permanentOwner&&fieldSlot)permanentOwner=fieldSlot->actionID.load(std::memory_order_acquire);
+    if(permanentOwner){
+        if(error)*error=[NSString stringWithFormat:@"目标由 Permanent Hook Action %u 管理；不能从临时测试路径卸载",permanentOwner];
+        return NO;
+    }
     if(!slot&&!callbackSlot&&!returnBoolSlot&&!fieldSlot){
         NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
         live[@"methodPointer"]=@(target);
