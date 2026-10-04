@@ -7043,3 +7043,4685 @@ extern "C" void ZNInstallRuntimeMethodCallFinderUIDeferred(void) {
 }
 
 #pragma mark - END ZNRuntimeMethodCallFinderUI.mm
+
+
+#pragma mark - BEGIN ZNRuntimeMethodCallBuilderUI.mm
+#line 1 "ZNRuntimeMethodCallBuilderUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNRuntimeActionModel.h"
+#import "ZNBinaryPatchWorkspace.h"
+#import "ZNNativeHookAction.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const NSInteger kZNRMCBuilderDeleteTagBase = 671000;
+static const NSInteger kZNRMCBuilderTitleTagBase = 672000;
+static const NSInteger kZNRMCBuilderArgumentTagBase = 674000;
+static const NSInteger kZNRMCBuilderDescriptionTagBase = 675000;
+static const NSInteger kZNNativeHookDeleteTagBase = 676000;
+
+static CGFloat ZNRMCBuilderMaxY(UIView *view) {
+    CGFloat y = 0;
+    for (UIView *subview in view.subviews) y = MAX(y, CGRectGetMaxY(subview.frame));
+    return y;
+}
+
+static UIButton *ZNRMCBuilderFindBuildButton(UIView *root) {
+    for (UIView *view in root.subviews ?: @[]) {
+        if ([view isKindOfClass:UIButton.class]) {
+            NSString *title=[(UIButton *)view titleForState:UIControlStateNormal] ?: @"";
+            if ([title isEqualToString:@"生成新二进制"] || [title isEqualToString:@"正在生成…"]) return (UIButton *)view;
+        }
+        UIButton *nested=ZNRMCBuilderFindBuildButton(view);
+        if (nested) return nested;
+    }
+    return nil;
+}
+
+static NSUInteger ZNRMCBuilderCompleteStaticRows(ZNBinaryPatchWorkspace *workspace) {
+    NSUInteger count=0;
+    for (ZNBinaryPatchRow *row in workspace.rows ?: @[]) {
+        if (row.offsetText.length>0 && row.enabledText.length>0) count++;
+    }
+    return count;
+}
+
+static void ZNRMCBuilderFinalizeBuildGate(UIView *root,
+                                         NSUInteger runtimeCount,
+                                         NSUInteger nativeHookCount) {
+    if (!runtimeCount && !nativeHookCount) return;
+    UIButton *build=ZNRMCBuilderFindBuildButton(root);
+    if (!build) return;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    NSUInteger completeStatic=ZNRMCBuilderCompleteStaticRows(workspace);
+    if (completeStatic!=0) return; // Static/mixed mode keeps its own validation gate.
+    BOOL ready=!workspace.isBuilding && !workspace.hasAnyApplied;
+    build.enabled=ready;
+    build.alpha=ready?1.0:0.5;
+    if (ready) {
+        build.accessibilityHint=nativeHookCount>0 && runtimeCount==0
+            ? @"Native Hook-only：可以直接生成二进制"
+            : @"Runtime/Native Hook-only：可以直接生成二进制";
+    }
+}
+
+
+static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
+    UITextField *field = [[UITextField alloc] initWithFrame:frame];
+    field.textColor = theme.primaryTextColor;
+    field.backgroundColor = theme.controlColor;
+    field.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightSemibold];
+    field.autocorrectionType = UITextAutocorrectionTypeNo;
+    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    field.returnKeyType = UIReturnKeyDone;
+    field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    field.layer.cornerRadius = 7.0;
+    field.layer.borderWidth = 1.0;
+    field.layer.borderColor = theme.borderColor.CGColor;
+    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 7, 1)];
+    field.leftView = pad;
+    field.leftViewMode = UITextFieldViewModeAlways;
+    return field;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallBuilderUI)
+- (void)znrmc_renderOther;
+- (void)znrmc_clearAuthoringActions:(id)sender;
+- (void)znrmc_deleteAuthoringAction:(UIButton *)sender;
+- (void)znrmc_titleEditingEnded:(UITextField *)field;
+- (void)znrmc_descriptionEditingEnded:(UITextField *)field;
+- (void)znrmc_argumentEditingChanged:(UITextField *)field;
+- (void)znrmc_argumentEditingEnded:(UITextField *)field;
+- (void)zn64_deleteNativeHook:(UIButton *)sender;
+- (void)zn64_clearNativeHooks:(id)sender;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallBuilderUI)
+
+- (void)znrmc_renderOther {
+    [self znrmc_renderOther];
+
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    CGFloat width = CGRectGetWidth(self.contentView.bounds);
+    CGFloat y = ZNRMCBuilderMaxY(self.contentView) + 8.0;
+
+    UIView *header = [self cardAtY:y height:48 width:width compact:NO];
+    UILabel *title = [self label:[NSString stringWithFormat:@"Runtime Method Call · %lu", (unsigned long)actions.count]
+                               size:10.8
+                             weight:UIFontWeightSemibold
+                              color:self.theme.primaryTextColor];
+    title.frame = CGRectMake(13, 8, header.bounds.size.width - 96, 31);
+    [header addSubview:title];
+    UIButton *clear = [self zn40_button:@"清空" selector:@selector(znrmc_clearAuthoringActions:) frame:CGRectMake(header.bounds.size.width - 75, 8, 62, 31)];
+    clear.enabled = actions.count > 0;
+    clear.alpha = clear.enabled ? 1.0 : 0.5;
+    [header addSubview:clear];
+    [self.contentView addSubview:header];
+    y += 56.0;
+
+    if (!actions.count) {
+        UIView *empty = [self cardAtY:y height:54 width:width compact:NO];
+        UILabel *label = [self label:@"在“方法查找”选择 /0 或受支持的方法 → 创建方法。制作数据会自动保存。"
+                                    size:8.4
+                                  weight:UIFontWeightRegular
+                                   color:self.theme.secondaryTextColor];
+        label.frame = CGRectMake(13, 8, empty.bounds.size.width - 26, 38);
+        label.numberOfLines = 2;
+        [empty addSubview:label];
+        [self.contentView addSubview:empty];
+        y += 62.0;
+    } else {
+        for (NSUInteger i = 0; i < actions.count; i++) {
+            ZNRuntimeMethodAction *action = actions[i];
+            BOOL hasArgument = action.argumentCount == 1;
+            CGFloat cardH = hasArgument ? 149.0 : 109.0;
+            UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
+
+            UITextField *name = ZNRMCBuilderTextField(CGRectMake(13, 7, card.bounds.size.width - 82, 27), self.theme);
+            name.tag = kZNRMCBuilderTitleTagBase + (NSInteger)i;
+            name.text = action.title.length ? action.title : action.methodName;
+            name.placeholder = action.methodName;
+            [name addTarget:self action:@selector(znrmc_titleEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+            [card addSubview:name];
+
+            UIButton *deleteButton = [self zn40_button:@"删除"
+                                               selector:@selector(znrmc_deleteAuthoringAction:)
+                                                  frame:CGRectMake(card.bounds.size.width - 65, 7, 52, 27)];
+            deleteButton.tag = kZNRMCBuilderDeleteTagBase + (NSInteger)i;
+            [card addSubview:deleteButton];
+
+            UILabel *identity = [self label:action.canonicalIdentity
+                                        size:7.8
+                                      weight:UIFontWeightRegular
+                                       color:self.theme.secondaryTextColor];
+            identity.frame = CGRectMake(13, 40, card.bounds.size.width - 26, 20);
+            identity.numberOfLines = 2;
+            identity.lineBreakMode = NSLineBreakByTruncatingMiddle;
+            [card addSubview:identity];
+
+            UITextField *description = ZNRMCBuilderTextField(CGRectMake(13, 65, card.bounds.size.width - 26, 29), self.theme);
+            description.tag = kZNRMCBuilderDescriptionTagBase + (NSInteger)i;
+            description.text = action.featureDescription ?: @"";
+            description.placeholder = @"功能说明";
+            description.font = [UIFont systemFontOfSize:9.2 weight:UIFontWeightRegular];
+            [description addTarget:self action:@selector(znrmc_descriptionEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+            [card addSubview:description];
+
+            if (hasArgument) {
+                UITextField *argument = ZNRMCBuilderTextField(CGRectMake(13, 104, card.bounds.size.width - 26, 31), self.theme);
+                argument.tag = kZNRMCBuilderArgumentTagBase + (NSInteger)i;
+                argument.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
+                argument.placeholder = @"参数值";
+                argument.font = [UIFont monospacedDigitSystemFontOfSize:9.6 weight:UIFontWeightMedium];
+                // M5.8.3: keep the model current while typing. This is required
+                // for Slider authoring because the value at build time is its max.
+                [argument addTarget:self action:@selector(znrmc_argumentEditingChanged:) forControlEvents:UIControlEventEditingChanged];
+                [argument addTarget:self action:@selector(znrmc_argumentEditingEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+                [card addSubview:argument];
+            }
+
+            [self.contentView addSubview:card];
+            y += cardH + 10.0;
+        }
+    }
+    NSArray<ZNNativeHookAction *> *hooks=[[ZNNativeHookStore sharedStore] actionsSnapshot];
+    y += 4.0;
+    UIView *hookHeader=[self cardAtY:y height:48 width:width compact:NO];
+    UILabel *hookTitle=[self label:[NSString stringWithFormat:@"IL2CPP Native Hook · %lu",(unsigned long)hooks.count]
+                              size:10.8 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    hookTitle.frame=CGRectMake(13,8,hookHeader.bounds.size.width-96,31);
+    [hookHeader addSubview:hookTitle];
+    UIButton *hookClear=[self zn40_button:@"清空" selector:@selector(zn64_clearNativeHooks:) frame:CGRectMake(hookHeader.bounds.size.width-75,8,62,31)];
+    hookClear.enabled=hooks.count>0;hookClear.alpha=hookClear.enabled?1.0:.5;
+    [hookHeader addSubview:hookClear];
+    [self.contentView addSubview:hookHeader];
+    y += 56.0;
+
+    if(!hooks.count){
+        UIView *empty=[self cardAtY:y height:54 width:width compact:NO];
+        UILabel *label=[self label:@"方法查找 → Hook 测试 → 安装真机测试 Hook → 创建 Hook 方法。"
+                              size:8.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        label.frame=CGRectMake(13,8,empty.bounds.size.width-26,38);label.numberOfLines=2;
+        [empty addSubview:label];[self.contentView addSubview:empty];y+=62.0;
+    }else{
+        for(NSUInteger i=0;i<hooks.count;i++){
+            ZNNativeHookAction *hook=hooks[i];
+            UIView *card=[self cardAtY:y height:104 width:width compact:NO];
+            UILabel *name=[self label:hook.title.length?hook.title:hook.methodName
+                                size:10.0 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+            name.frame=CGRectMake(13,7,card.bounds.size.width-82,22);[card addSubview:name];
+            UIButton *del=[self zn40_button:@"删除" selector:@selector(zn64_deleteNativeHook:) frame:CGRectMake(card.bounds.size.width-65,7,52,27)];
+            del.tag=kZNNativeHookDeleteTagBase+(NSInteger)i;[card addSubview:del];
+            UILabel *identity=[self label:hook.canonicalIdentity size:7.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            identity.frame=CGRectMake(13,35,card.bounds.size.width-26,20);identity.lineBreakMode=NSLineBreakByTruncatingMiddle;[card addSubview:identity];
+            NSString *info=nil;
+            if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit){
+                info=[NSString stringWithFormat:@"%@ · callback arg%lu · value=%@ · SkipOriginal · RVA=%@",
+                      ZNNativeHookTemplateKey(hook.templateKind),(unsigned long)hook.callbackArgumentIndex,
+                      hook.callbackValue?@"true":@"false",
+                      hook.fallbackRVA?[NSString stringWithFormat:@"0x%llX",(unsigned long long)hook.fallbackRVA]:@"—"];
+            }else{
+                info=[NSString stringWithFormat:@"%@ · arg%lu · Slider %ld~%ld · default=%ld · RVA=%@",
+                      ZNNativeHookTemplateKey(hook.templateKind),(unsigned long)hook.argumentIndex,
+                      (long)hook.minValue,(long)hook.maxValue,(long)hook.defaultValue,
+                      hook.fallbackRVA?[NSString stringWithFormat:@"0x%llX",(unsigned long long)hook.fallbackRVA]:@"—"];
+            }
+            UILabel *meta=[self label:info size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            meta.frame=CGRectMake(13,60,card.bounds.size.width-26,18);meta.adjustsFontSizeToFitWidth=YES;meta.minimumScaleFactor=.65;[card addSubview:meta];
+            UILabel *desc=[self label:(hook.featureDescription.length?hook.featureDescription:@"Native Hook V1 · Dobby")
+                                size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            desc.frame=CGRectMake(13,81,card.bounds.size.width-26,16);[card addSubview:desc];
+            [self.contentView addSubview:card];y+=114.0;
+        }
+    }
+
+    // M6.8 final gate runs after Native Hook authoring cards are rendered.
+    // This intentionally uses the same snapshots that produced the visible
+    // "Runtime Method Call · N" / "IL2CPP Native Hook · N" counts, avoiding
+    // earlier swizzle/render ordering from leaving the build button stale.
+    ZNRMCBuilderFinalizeBuildGate(self.contentView,actions.count,hooks.count);
+
+    [self zn40_updateContentHeight:y];
+}
+
+- (void)znrmc_clearAuthoringActions:(id)sender {
+    (void)sender;
+    [[ZNRuntimeActionStore sharedStore] clear];
+    [self renderPage];
+}
+
+- (void)zn64_clearNativeHooks:(id)sender {
+    (void)sender;
+    [[ZNNativeHookStore sharedStore] clear];
+    [self renderPage];
+}
+
+- (void)zn64_deleteNativeHook:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNNativeHookDeleteTagBase;
+    if(index>=0)[[ZNNativeHookStore sharedStore] removeActionAtIndex:(NSUInteger)index];
+    [self renderPage];
+}
+
+- (void)znrmc_deleteAuthoringAction:(UIButton *)sender {
+    NSInteger index = sender.tag - kZNRMCBuilderDeleteTagBase;
+    if (index >= 0) [[ZNRuntimeActionStore sharedStore] removeActionAtIndex:(NSUInteger)index];
+    [self renderPage];
+}
+
+- (void)znrmc_titleEditingEnded:(UITextField *)field {
+    NSInteger index = field.tag - kZNRMCBuilderTitleTagBase;
+    if (index < 0) return;
+    NSString *error = nil;
+    if (![[ZNRuntimeActionStore sharedStore] updateTitle:field.text atIndex:(NSUInteger)index error:&error]) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] rename failed: %@", error ?: @"unknown"]];
+    }
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if ((NSUInteger)index < actions.count) field.text = actions[(NSUInteger)index].title;
+    [field resignFirstResponder];
+}
+
+- (void)znrmc_descriptionEditingEnded:(UITextField *)field {
+    NSInteger index = field.tag - kZNRMCBuilderDescriptionTagBase;
+    if (index < 0) return;
+    NSString *error = nil;
+    [[ZNRuntimeActionStore sharedStore] updateFeatureDescription:field.text atIndex:(NSUInteger)index error:&error];
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if ((NSUInteger)index < actions.count) field.text = actions[(NSUInteger)index].featureDescription ?: @"";
+    [field resignFirstResponder];
+}
+
+- (void)znrmc_argumentEditingChanged:(UITextField *)field {
+    NSInteger index = field.tag - kZNRMCBuilderArgumentTagBase;
+    if (index < 0) return;
+    NSString *error = nil;
+    if (![[ZNRuntimeActionStore sharedStore] updateArgumentValues:@[field.text ?: @""] atIndex:(NSUInteger)index error:&error]) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.3-authoring] live argument update failed: %@", error ?: @"unknown"]];
+    }
+}
+
+- (void)znrmc_argumentEditingEnded:(UITextField *)field {
+    [self znrmc_argumentEditingChanged:field];
+    NSInteger index = field.tag - kZNRMCBuilderArgumentTagBase;
+    if (index < 0) return;
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if ((NSUInteger)index < actions.count) {
+        ZNRuntimeMethodAction *action = actions[(NSUInteger)index];
+        field.text = action.argumentValues.count ? action.argumentValues.firstObject : @"";
+    }
+    [field resignFirstResponder];
+}
+
+@end
+
+extern "C" void ZNInstallRuntimeMethodCallBuilderUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        Method original = class_getInstanceMethod(cls, @selector(zn50b_renderOther));
+        Method replacement = class_getInstanceMethod(cls, @selector(znrmc_renderOther));
+        if (original && replacement) {
+            method_exchangeImplementations(original, replacement);
+            [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] Builder action list UI installed (M5.8.3 live argument sync)"];
+        }
+    });
+}
+
+#pragma mark - END ZNRuntimeMethodCallBuilderUI.mm
+
+
+#pragma mark - BEGIN ZNRuntimeMethodCallFeatureUI.mm
+#line 1 "ZNRuntimeMethodCallFeatureUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNRuntimeActionRuntime.h"
+#import "ZNStaticDispatchRuntime.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const NSInteger kZNRMCFeatureExecuteTagBase = 672000;
+static const NSInteger kZNRMCFeatureCompactExecuteTagBase = 673000;
+
+static CGFloat ZNRMCFeatureMaxY(UIView *view) {
+    CGFloat y = 0;
+    for (UIView *subview in view.subviews) y = MAX(y, CGRectGetMaxY(subview.frame));
+    return y;
+}
+
+static void ZNRMCRemoveEmptyStaticCardIfNeeded(UIView *contentView) {
+    ZNStaticDispatchRuntime *staticRuntime = [ZNStaticDispatchRuntime sharedRuntime];
+    [staticRuntime refresh];
+    if (staticRuntime.records.count) return;
+    for (UIView *subview in [contentView.subviews copy]) {
+        BOOL isEmpty = NO;
+        for (UIView *child in subview.subviews) {
+            if ([child isKindOfClass:UILabel.class] && [((UILabel *)child).text isEqualToString:@"暂无功能"]) {
+                isEmpty = YES;
+                break;
+            }
+        }
+        if (isEmpty) [subview removeFromSuperview];
+    }
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallFeatureUI)
+- (void)znrmc_renderFeatureGroupsFull;
+- (void)znrmc_renderFeatureGroupsCompact;
+- (void)znrmc_executeAction:(UIButton *)sender;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNRuntimeMethodCallFeatureUI)
+
+- (void)znrmc_renderFeatureGroupsFull {
+    [self znrmc_renderFeatureGroupsFull];
+    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
+    [runtime refresh];
+    NSArray<ZNRuntimeMethodActionRecord *> *actions = runtime.records;
+    if (!actions.count) return;
+
+    ZNRMCRemoveEmptyStaticCardIfNeeded(self.contentView);
+    CGFloat width = CGRectGetWidth(self.contentView.bounds);
+    CGFloat y = ZNRMCFeatureMaxY(self.contentView) + 8.0;
+    for (NSUInteger i = 0; i < actions.count; i++) {
+        ZNRuntimeMethodActionRecord *record = actions[i];
+        UIView *card = [self cardAtY:y height:46 width:width compact:NO];
+        UILabel *name = [self label:(record.title.length ? record.title : record.methodName)
+                                size:11.4
+                              weight:UIFontWeightSemibold
+                               color:self.theme.primaryTextColor];
+        name.frame = CGRectMake(13, 13, card.bounds.size.width - 100, 20);
+        name.lineBreakMode = NSLineBreakByTruncatingTail;
+        [card addSubview:name];
+        UIButton *execute = [self zn40_button:@"执行"
+                                      selector:@selector(znrmc_executeAction:)
+                                         frame:CGRectMake(card.bounds.size.width - 78, 8, 66, 30)];
+        execute.tag = kZNRMCFeatureExecuteTagBase + (NSInteger)i;
+        execute.backgroundColor = [self.theme.accentColor colorWithAlphaComponent:0.18];
+        execute.layer.borderColor = self.theme.accentColor.CGColor;
+        [card addSubview:execute];
+        [self.contentView addSubview:card];
+        y += 52.0;
+    }
+    [self zn40_updateContentHeight:y];
+}
+
+- (void)znrmc_renderFeatureGroupsCompact {
+    [self znrmc_renderFeatureGroupsCompact];
+    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
+    [runtime refresh];
+    NSArray<ZNRuntimeMethodActionRecord *> *actions = runtime.records;
+    if (!actions.count) return;
+
+    ZNRMCRemoveEmptyStaticCardIfNeeded(self.contentView);
+    CGFloat width = CGRectGetWidth(self.contentView.bounds);
+    CGFloat y = ZNRMCFeatureMaxY(self.contentView) + 6.0;
+    for (NSUInteger i = 0; i < actions.count; i++) {
+        ZNRuntimeMethodActionRecord *record = actions[i];
+        UIView *card = [self cardAtY:y height:40 width:width compact:YES];
+        UILabel *name = [self label:(record.title.length ? record.title : record.methodName)
+                                size:10.7
+                              weight:UIFontWeightSemibold
+                               color:self.theme.primaryTextColor];
+        name.frame = CGRectMake(9, 10, card.bounds.size.width - 82, 20);
+        name.lineBreakMode = NSLineBreakByTruncatingTail;
+        [card addSubview:name];
+        UIButton *execute = [self zn40_button:@"执行"
+                                      selector:@selector(znrmc_executeAction:)
+                                         frame:CGRectMake(card.bounds.size.width - 69, 6, 60, 28)];
+        execute.tag = kZNRMCFeatureCompactExecuteTagBase + (NSInteger)i;
+        execute.titleLabel.font = [UIFont systemFontOfSize:9.0 weight:UIFontWeightSemibold];
+        execute.backgroundColor = [self.theme.accentColor colorWithAlphaComponent:0.18];
+        execute.layer.borderColor = self.theme.accentColor.CGColor;
+        [card addSubview:execute];
+        [self.contentView addSubview:card];
+        y += 46.0;
+    }
+    [self zn40_updateContentHeight:y];
+}
+
+- (void)znrmc_executeAction:(UIButton *)sender {
+    NSInteger index = sender.tag - kZNRMCFeatureExecuteTagBase;
+    if (sender.tag >= kZNRMCFeatureCompactExecuteTagBase) index = sender.tag - kZNRMCFeatureCompactExecuteTagBase;
+    if (index < 0) return;
+
+    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
+    [runtime refresh];
+    if ((NSUInteger)index >= runtime.records.count) return;
+    ZNRuntimeMethodActionRecord *record = runtime.records[(NSUInteger)index];
+    NSString *error = nil;
+    BOOL ok = [runtime executeRecord:record error:&error];
+    NSString *oldTitle = [sender titleForState:UIControlStateNormal] ?: @"执行";
+    [sender setTitle:(ok ? @"完成" : @"失败") forState:UIControlStateNormal];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[runtime-method-call] UI %@ %@%@",
+                                         ok ? @"SUCCESS" : @"FAILED",
+                                         record.canonicalIdentity,
+                                         error.length ? [@" · " stringByAppendingString:error] : @""]];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [sender setTitle:oldTitle forState:UIControlStateNormal];
+    });
+}
+
+@end
+
+extern "C" void ZNInstallRuntimeMethodCallFeatureUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        Method fullOriginal = class_getInstanceMethod(cls, @selector(zn50_renderFeatureGroupsFull));
+        Method fullReplacement = class_getInstanceMethod(cls, @selector(znrmc_renderFeatureGroupsFull));
+        if (fullOriginal && fullReplacement) method_exchangeImplementations(fullOriginal, fullReplacement);
+        Method compactOriginal = class_getInstanceMethod(cls, @selector(zn50_renderFeatureGroupsCompact));
+        Method compactReplacement = class_getInstanceMethod(cls, @selector(znrmc_renderFeatureGroupsCompact));
+        if (compactOriginal && compactReplacement) method_exchangeImplementations(compactOriginal, compactReplacement);
+        [[ZNRuntimeLogger sharedLogger] log:@"[runtime-method-call] public Feature action UI installed"];
+    });
+}
+
+#pragma mark - END ZNRuntimeMethodCallFeatureUI.mm
+
+
+#pragma mark - BEGIN ZNUXFixesV2.mm
+#line 1 "ZNUXFixesV2.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNBinaryPatchWorkspace.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNPatchCore.h"
+#import "ZNTheme.h"
+
+// M4.1 UI/UX repair layer.
+// - Default Builder target: UnityFramework when present, otherwise main executable.
+// - Builder target is a picker backed by app-local dyld images, not free text.
+// - Builder can be generated directly; manual "读取验证" is optional. Build performs
+//   the same required validation internally before entering Static Builder V3.
+// - renderPage preserves the current UIScrollView position for same-page actions.
+// - Menu panel is hosted by a real child UIViewController in the game's existing
+//   UIWindow. Its transparent root returns nil from hitTest outside the panel so
+//   Unity/game content below keeps receiving touches.
+
+static NSString * const kZNUXSelectedTargetKey = @"ZonoePatch.Builder.SelectedTarget";
+static const void *kZNUXAutoTargetInitializedKey = &kZNUXAutoTargetInitializedKey;
+static const void *kZNUXOverlayControllerKey = &kZNUXOverlayControllerKey;
+
+@interface ZNUXPassthroughRootView : UIView
+@end
+
+@implementation ZNUXPassthroughRootView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = [super hitTest:point withEvent:event];
+    // When the transparent root itself would consume the event, decline the hit.
+    // Because this view is a child in the game's existing UIWindow hierarchy,
+    // UIKit continues hit-testing sibling game views underneath it.
+    return hit == self ? nil : hit;
+}
+@end
+
+@interface ZNUXOverlayController : UIViewController
+@property(nonatomic,strong) UIView *menuPanel;
+- (instancetype)initWithPanel:(UIView *)panel;
+@end
+
+@implementation ZNUXOverlayController
+- (instancetype)initWithPanel:(UIView *)panel {
+    self = [super initWithNibName:nil bundle:nil];
+    if (!self) return nil;
+    _menuPanel = panel;
+    return self;
+}
+
+- (void)loadView {
+    ZNUXPassthroughRootView *root = [ZNUXPassthroughRootView new];
+    root.backgroundColor = UIColor.clearColor;
+    root.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.view = root;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    if (self.menuPanel.superview != self.view) {
+        [self.menuPanel removeFromSuperview];
+        [self.view addSubview:self.menuPanel];
+    }
+}
+@end
+
+static UIViewController *ZNUXTopController(UIViewController *vc) {
+    if (!vc) return nil;
+    UIViewController *presented = vc.presentedViewController;
+    if (presented && !presented.isBeingDismissed) return ZNUXTopController(presented);
+    if ([vc isKindOfClass:UINavigationController.class]) {
+        UIViewController *top = ((UINavigationController *)vc).visibleViewController;
+        return top ? ZNUXTopController(top) : vc;
+    }
+    if ([vc isKindOfClass:UITabBarController.class]) {
+        UIViewController *selected = ((UITabBarController *)vc).selectedViewController;
+        return selected ? ZNUXTopController(selected) : vc;
+    }
+    if ([vc isKindOfClass:UISplitViewController.class]) {
+        UIViewController *last = ((UISplitViewController *)vc).viewControllers.lastObject;
+        return last ? ZNUXTopController(last) : vc;
+    }
+    return vc;
+}
+
+static NSString *ZNUXStandardPath(NSString *path) {
+    return path.length ? path.stringByStandardizingPath : @"";
+}
+
+static BOOL ZNUXIsAppLocalImage(NSDictionary<NSString *, id> *item) {
+    NSString *path = ZNUXStandardPath(item[@"path"]);
+    NSString *bundle = ZNUXStandardPath(NSBundle.mainBundle.bundlePath);
+    NSString *main = ZNUXStandardPath(NSBundle.mainBundle.executablePath);
+    if (!path.length || !bundle.length) return NO;
+    if ([path isEqualToString:main]) return YES;
+    NSString *frameworks = [bundle stringByAppendingPathComponent:@"Frameworks"];
+    NSString *prefix = [frameworks stringByAppendingString:@"/"];
+    return [path hasPrefix:prefix];
+}
+
+static NSInteger ZNUXImageRank(NSDictionary<NSString *, id> *item) {
+    NSString *name = item[@"name"] ?: @"";
+    NSString *path = ZNUXStandardPath(item[@"path"]);
+    if ([name caseInsensitiveCompare:@"UnityFramework"] == NSOrderedSame ||
+        [path hasSuffix:@"/UnityFramework.framework/UnityFramework"]) return 0;
+    if ([path isEqualToString:ZNUXStandardPath(NSBundle.mainBundle.executablePath)]) return 1;
+    if ([name.pathExtension caseInsensitiveCompare:@"dylib"] == NSOrderedSame) return 2;
+    return 3;
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ZNUXAppLocalImages(void) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *items = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (NSDictionary<NSString *, id> *item in [ZNModuleManager sharedManager].loadedImages) {
+        if (!ZNUXIsAppLocalImage(item)) continue;
+        NSString *path = ZNUXStandardPath(item[@"path"]);
+        if (!path.length || [seen containsObject:path]) continue;
+        [seen addObject:path];
+        [items addObject:item];
+    }
+    [items sortUsingComparator:^NSComparisonResult(NSDictionary<NSString *,id> *a, NSDictionary<NSString *,id> *b) {
+        NSInteger ra = ZNUXImageRank(a), rb = ZNUXImageRank(b);
+        if (ra != rb) return ra < rb ? NSOrderedAscending : NSOrderedDescending;
+        NSString *na = a[@"name"] ?: @"";
+        NSString *nb = b[@"name"] ?: @"";
+        return [na localizedCaseInsensitiveCompare:nb];
+    }];
+    return items;
+}
+
+static NSString *ZNUXPreferredTarget(void) {
+    NSDictionary *unity = [ZNModuleManager sharedManager].unityFramework;
+    NSString *unityDiskPath = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks/UnityFramework.framework/UnityFramework"];
+    BOOL unityExists = [[NSFileManager defaultManager] fileExistsAtPath:unityDiskPath];
+    if (unity || unityExists) return @"UnityFramework";
+    NSDictionary *main = [ZNModuleManager sharedManager].mainExecutable;
+    NSString *name = [main[@"name"] isKindOfClass:NSString.class] ? main[@"name"] : @"";
+    if (!name.length) name = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleExecutable"];
+    return name.length ? name : @"main";
+}
+
+static NSString *ZNUXRelativePath(NSString *path) {
+    NSString *bundle = ZNUXStandardPath(NSBundle.mainBundle.bundlePath);
+    NSString *full = ZNUXStandardPath(path);
+    if (bundle.length && [full hasPrefix:[bundle stringByAppendingString:@"/"]]) {
+        return [full substringFromIndex:bundle.length + 1];
+    }
+    return full;
+}
+
+static void ZNUXForEachSubview(UIView *view, void (^block)(UIView *view)) {
+    if (!view || !block) return;
+    block(view);
+    for (UIView *sub in view.subviews) ZNUXForEachSubview(sub, block);
+}
+
+static CGFloat ZNUXClampScrollY(UIScrollView *scroll, CGFloat y) {
+    if (!scroll) return 0;
+    CGFloat minY = -scroll.adjustedContentInset.top;
+    CGFloat maxY = MAX(minY, scroll.contentSize.height - CGRectGetHeight(scroll.bounds) + scroll.adjustedContentInset.bottom);
+    return MIN(MAX(y, minY), maxY);
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNUXFixesV2)
+- (void)znux_renderPage;
+- (void)znux_show;
+- (void)znux_hide;
+- (BOOL)znux_isVisible;
+- (void)znux_buildBinary:(id)sender;
+- (void)znux_binaryPickerTapped:(UIButton *)sender;
+- (void)znux_applyAutoTargetOnce;
+- (void)znux_customizeRenderedBuilder;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNUXFixesV2)
+
+- (void)znux_applyAutoTargetOnce {
+    if ([objc_getAssociatedObject(self, kZNUXAutoTargetInitializedKey) boolValue]) return;
+    objc_setAssociatedObject(self, kZNUXAutoTargetInitializedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+    NSString *saved = [NSUserDefaults.standardUserDefaults stringForKey:kZNUXSelectedTargetKey];
+    NSDictionary *savedModule = saved.length ? [[ZNModuleManager sharedManager] moduleNamed:saved] : nil;
+    if (savedModule && ZNUXIsAppLocalImage(savedModule)) {
+        [workspace updateDefaultTarget:saved];
+        return;
+    }
+
+    NSString *preferred = ZNUXPreferredTarget();
+    if (preferred.length) [workspace updateDefaultTarget:preferred];
+}
+
+- (void)znux_customizeRenderedBuilder {
+    if (!self.contentView) return;
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+
+    // Replace the old free-text target field with a single-tap app-library picker.
+    UIView *targetView = [self.contentView viewWithTag:440000];
+    if ([targetView isKindOfClass:UITextField.class] && targetView.superview) {
+        UIView *container = targetView.superview;
+        CGRect frame = targetView.frame;
+        [targetView removeFromSuperview];
+
+        NSString *title = workspace.defaultTarget.length ? workspace.defaultTarget : ZNUXPreferredTarget();
+        UIButton *picker = [self zn40_button:[NSString stringWithFormat:@"%@   ›", title]
+                                    selector:@selector(znux_binaryPickerTapped:)
+                                       frame:frame];
+        picker.tag = 440000;
+        picker.enabled = !workspace.isBuilding && !workspace.hasAnyApplied;
+        picker.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        picker.titleLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        picker.titleLabel.adjustsFontSizeToFitWidth = YES;
+        picker.titleLabel.minimumScaleFactor = 0.65;
+        [container addSubview:picker];
+    }
+
+    // Manual read/validate remains available, but it is no longer a prerequisite
+    // for enabling the Build button. Build will run the same preflight itself.
+    ZNUXForEachSubview(self.contentView, ^(UIView *view) {
+        if (![view isKindOfClass:UIButton.class]) return;
+        UIButton *button = (UIButton *)view;
+        NSArray<NSString *> *actions = [button actionsForTarget:self forControlEvent:UIControlEventTouchUpInside];
+        if (![actions containsObject:NSStringFromSelector(@selector(zn44_buildBinary:))]) return;
+        button.enabled = !workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0;
+        button.alpha = button.enabled ? 1.0 : 0.5;
+    });
+}
+
+- (void)znux_renderPage {
+    UIScrollView *scroll = self.contentScroll;
+    CGPoint oldOffset = scroll ? scroll.contentOffset : CGPointZero;
+
+    [self znux_applyAutoTargetOnce];
+    [self znux_renderPage];
+    [self znux_customizeRenderedBuilder];
+
+    if (scroll) {
+        CGFloat y = ZNUXClampScrollY(scroll, oldOffset.y);
+        [scroll setContentOffset:CGPointMake(oldOffset.x, y) animated:NO];
+    }
+}
+
+- (void)znux_binaryPickerTapped:(UIButton *)sender {
+    NSArray<NSDictionary<NSString *, id> *> *images = ZNUXAppLocalImages();
+    if (!images.count) {
+        [ZNBinaryPatchWorkspace sharedWorkspace].lastStatus = @"当前 App 没有发现可选择的本地 Mach-O image";
+        [self renderPage];
+        return;
+    }
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"App Libraries"
+                                                                   message:@"优先 UnityFramework；也可以选择主程序或当前 App 已加载的 Framework / dylib"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary<NSString *, id> *item in images) {
+        NSString *name = [item[@"name"] isKindOfClass:NSString.class] ? item[@"name"] : @"";
+        NSString *path = [item[@"path"] isKindOfClass:NSString.class] ? item[@"path"] : @"";
+        if (!name.length) continue;
+        NSString *relative = ZNUXRelativePath(path);
+        NSString *label = relative.length ? [NSString stringWithFormat:@"%@  ·  %@", name, relative] : name;
+        UIAlertAction *action = [UIAlertAction actionWithTitle:label style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+            ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+            [workspace updateDefaultTarget:name];
+            [NSUserDefaults.standardUserDefaults setObject:name forKey:kZNUXSelectedTargetKey];
+            workspace.lastStatus = [NSString stringWithFormat:@"当前二进制：%@", relative.length ? relative : name];
+            [weakSelf renderPage];
+        }];
+        [alert addAction:action];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIWindow *window = self.hostWindow ?: [self currentWindow];
+    UIViewController *presenter = ZNUXTopController(window.rootViewController);
+    if (!presenter) return;
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover) {
+        popover.sourceView = sender;
+        popover.sourceRect = sender.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)znux_buildBinary:(id)sender {
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+    if (!workspace.isBuilding && !workspace.hasAnyApplied && workspace.filledCount > 0 &&
+        workspace.validatedCount != workspace.filledCount) {
+        NSString *error = nil;
+        if (![workspace validateAll:&error]) {
+            workspace.lastStatus = [NSString stringWithFormat:@"生成预检失败：%@", error ?: workspace.lastStatus ?: @"未知错误"];
+            [self renderPage];
+            return;
+        }
+        [[ZNRuntimeLogger sharedLogger] log:@"[builder] direct build: manual validate skipped; internal preflight passed"];
+    }
+    [self znux_buildBinary:sender];
+}
+
+- (void)znux_show {
+    if (!self.uiReady) [self tick:nil];
+    if (!self.uiReady || [self isVisible]) return;
+
+    UIWindow *window = self.hostWindow ?: [self currentWindow];
+    UIViewController *presenter = ZNUXTopController(window.rootViewController);
+    if (!window || !presenter) return;
+
+    ZNUXOverlayController *overlay = [[ZNUXOverlayController alloc] initWithPanel:self.panel];
+    [presenter addChildViewController:overlay];
+    overlay.view.frame = presenter.view.bounds;
+    overlay.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [presenter.view addSubview:overlay.view];
+    [overlay didMoveToParentViewController:presenter];
+
+    self.panel.hidden = NO;
+    objc_setAssociatedObject(self, kZNUXOverlayControllerKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (self.floatButton.superview == window) [window bringSubviewToFront:self.floatButton];
+    [[ZNRuntimeLogger sharedLogger] log:@"[menu-overlay] child-controller passthrough shell shown"];
+}
+
+- (void)znux_hide {
+    ZNUXOverlayController *overlay = objc_getAssociatedObject(self, kZNUXOverlayControllerKey);
+    if (!overlay) {
+        self.panel.hidden = YES;
+        [self.panel removeFromSuperview];
+        return;
+    }
+
+    self.panel.hidden = YES;
+    [overlay willMoveToParentViewController:nil];
+    [self.panel removeFromSuperview];
+    [overlay.view removeFromSuperview];
+    [overlay removeFromParentViewController];
+    objc_setAssociatedObject(self, kZNUXOverlayControllerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    self.floatButton.hidden = NO;
+    if (self.floatButton.superview == self.hostWindow) [self.hostWindow bringSubviewToFront:self.floatButton];
+    [[ZNRuntimeLogger sharedLogger] log:@"[menu-overlay] child-controller passthrough shell hidden"];
+}
+
+- (BOOL)znux_isVisible {
+    ZNUXOverlayController *overlay = objc_getAssociatedObject(self, kZNUXOverlayControllerKey);
+    return self.uiReady && overlay.parentViewController != nil && !self.panel.hidden;
+}
+
+@end
+
+static void ZNUXSwap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallUXFixesV2Deferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNUXSwap(cls, @selector(renderPage), @selector(znux_renderPage));
+        ZNUXSwap(cls, @selector(zn44_buildBinary:), @selector(znux_buildBinary:));
+        ZNUXSwap(cls, @selector(show), @selector(znux_show));
+        ZNUXSwap(cls, @selector(hide), @selector(znux_hide));
+        ZNUXSwap(cls, @selector(isVisible), @selector(znux_isVisible));
+        [[ZNRuntimeLogger sharedLogger] log:@"[ux-v2] auto target + app libraries picker + direct build preflight + scroll preservation + touch passthrough installed"];
+    });
+}
+
+#pragma mark - END ZNUXFixesV2.mm
+
+
+#pragma mark - BEGIN ZNMethodFinderM42UI.mm
+#line 1 "ZNMethodFinderM42UI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNIL2CPPABIMetadata.h"
+#import "ZNIL2CPPInvokeEngine.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNBinaryPatchWorkspace.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const void *kZNM42FilterKey = &kZNM42FilterKey;
+static const void *kZNM42InputStoreKey = &kZNM42InputStoreKey;
+static const void *kZNM42CandidateKey = &kZNM42CandidateKey;
+static const void *kZNM42ArityKey = &kZNM42ArityKey;
+
+static NSString *ZNM42ShortName(NSDictionary *candidate) {
+    NSString *method = [candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"Method";
+    NSInteger argc = [candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)] ? [candidate[@"argumentCount"] integerValue] : -1;
+    return argc >= 0 ? [NSString stringWithFormat:@"%@/%ld", method, (long)argc] : method;
+}
+
+static NSString *ZNM42CandidateIdentity(NSDictionary *candidate) {
+    NSString *canonical = [candidate[@"canonical"] isKindOfClass:NSString.class] ? candidate[@"canonical"] : @"";
+    if (canonical.length) return canonical;
+    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@",
+            candidate[@"assembly"] ?: @"",
+            candidate[@"namespace"] ?: @"",
+            candidate[@"class"] ?: @"",
+            candidate[@"method"] ?: @"",
+            candidate[@"argumentCount"] ?: @(-1)];
+}
+
+static NSString *ZNM42AssemblyDisplay(NSDictionary *candidate) {
+    NSString *assembly = [candidate[@"assembly"] isKindOfClass:NSString.class] ? candidate[@"assembly"] : @"?";
+    if ([assembly.lowercaseString hasSuffix:@".dll"] && assembly.length > 4) {
+        return [assembly substringToIndex:assembly.length - 4];
+    }
+    return assembly;
+}
+
+static BOOL ZNM42IsStringType(NSString *typeName) {
+    NSString *n = [[typeName ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] lowercaseString];
+    return [n isEqualToString:@"system.string"] || [n isEqualToString:@"string"];
+}
+
+static NSDictionary *ZNM42ArgumentInfo(NSDictionary *candidate) {
+    NSInteger argc = [candidate[@"argumentCount"] integerValue];
+    if (argc == 0) return @{@"supported": @YES, @"type": @"", @"name": @""};
+    if (argc != 1) {
+        return @{@"supported": @NO,
+                 @"reason": [NSString stringWithFormat:@"M4.2 首版暂不执行 /%ld", (long)argc],
+                 @"type": @"", @"name": @""};
+    }
+    NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
+    if (![abi[@"available"] boolValue] || [abi[@"parameterCount"] unsignedIntegerValue] != 1) {
+        return @{@"supported": @NO,
+                 @"reason": abi[@"reason"] ?: @"参数 ABI 不可用",
+                 @"type": @"?", @"name": @""};
+    }
+    NSArray *parameters = abi[@"parameters"];
+    NSDictionary *param = parameters.count ? parameters[0] : nil;
+    if (!param) return @{@"supported": @NO, @"reason": @"参数元数据为空", @"type": @"?", @"name": @""};
+
+    NSString *typeName = param[@"name"] ?: @"?";
+    NSString *paramName = param[@"paramName"] ?: @"";
+    if ([param[@"byRef"] boolValue]) return @{@"supported": @NO, @"reason": @"ref/out 暂不支持", @"type": typeName, @"name": paramName};
+    if ([param[@"pointer"] boolValue]) return @{@"supported": @NO, @"reason": @"pointer 暂不支持", @"type": typeName, @"name": paramName};
+    if (ZNM42IsStringType(typeName)) return @{@"supported": @YES, @"type": typeName, @"name": paramName, @"string": @YES};
+
+    ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    BOOL supported = kind == ZNIL2CPPABIValueKindBool ||
+                     kind == ZNIL2CPPABIValueKindSigned32 ||
+                     kind == ZNIL2CPPABIValueKindUnsigned32 ||
+                     kind == ZNIL2CPPABIValueKindSigned64 ||
+                     kind == ZNIL2CPPABIValueKindUnsigned64 ||
+                     kind == ZNIL2CPPABIValueKindFloat32 ||
+                     kind == ZNIL2CPPABIValueKindFloat64;
+    return @{@"supported": @(supported),
+             @"reason": supported ? @"" : [NSString stringWithFormat:@"%@ 暂不支持", typeName],
+             @"type": typeName,
+             @"name": paramName,
+             @"kind": @(kind),
+             @"enum": param[@"enum"] ?: @NO};
+}
+
+static NSString *ZNM42ShortType(NSString *typeName) {
+    if (!typeName.length) return @"";
+    NSArray<NSString *> *parts = [typeName componentsSeparatedByString:@"."];
+    return parts.lastObject.length ? parts.lastObject : typeName;
+}
+
+static UIViewController *ZNM42TopController(UIViewController *vc) {
+    if (!vc) return nil;
+    UIViewController *presented = vc.presentedViewController;
+    if (presented && !presented.isBeingDismissed) return ZNM42TopController(presented);
+    if ([vc isKindOfClass:UINavigationController.class]) {
+        return ZNM42TopController(((UINavigationController *)vc).visibleViewController ?: vc);
+    }
+    if ([vc isKindOfClass:UITabBarController.class]) {
+        return ZNM42TopController(((UITabBarController *)vc).selectedViewController ?: vc);
+    }
+    if ([vc isKindOfClass:UISplitViewController.class]) {
+        return ZNM42TopController(((UISplitViewController *)vc).viewControllers.lastObject ?: vc);
+    }
+    return vc;
+}
+
+static NSString *ZNM42StandardPath(NSString *path) {
+    return path.length ? path.stringByStandardizingPath : @"";
+}
+
+static BOOL ZNM42IsAppLocalImage(NSDictionary<NSString *, id> *item) {
+    NSString *path = ZNM42StandardPath(item[@"path"]);
+    NSString *bundle = ZNM42StandardPath(NSBundle.mainBundle.bundlePath);
+    NSString *main = ZNM42StandardPath(NSBundle.mainBundle.executablePath);
+    if (!path.length || !bundle.length) return NO;
+    if ([path isEqualToString:main]) return YES;
+    NSString *frameworks = [bundle stringByAppendingPathComponent:@"Frameworks"];
+    return [path hasPrefix:[frameworks stringByAppendingString:@"/"]];
+}
+
+static NSInteger ZNM42ImageRank(NSDictionary<NSString *, id> *item) {
+    NSString *name = item[@"name"] ?: @"";
+    NSString *path = ZNM42StandardPath(item[@"path"]);
+    if ([name caseInsensitiveCompare:@"UnityFramework"] == NSOrderedSame ||
+        [path hasSuffix:@"/UnityFramework.framework/UnityFramework"]) return 0;
+    if ([path isEqualToString:ZNM42StandardPath(NSBundle.mainBundle.executablePath)]) return 1;
+    if ([path.pathExtension caseInsensitiveCompare:@"dylib"] == NSOrderedSame) return 2;
+    return 3;
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ZNM42AppLocalImages(void) {
+    NSMutableArray *items = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (NSDictionary *item in [ZNModuleManager sharedManager].loadedImages) {
+        if (!ZNM42IsAppLocalImage(item)) continue;
+        NSString *path = ZNM42StandardPath(item[@"path"]);
+        if (!path.length || [seen containsObject:path]) continue;
+        [seen addObject:path];
+        [items addObject:item];
+    }
+    [items sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        NSInteger ra = ZNM42ImageRank(a), rb = ZNM42ImageRank(b);
+        if (ra != rb) return ra < rb ? NSOrderedAscending : NSOrderedDescending;
+        return [(a[@"name"] ?: @"") localizedCaseInsensitiveCompare:(b[@"name"] ?: @"")];
+    }];
+    return items;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNMethodFinderM42UI)
+- (void)znm42_renderResultsAtWidth:(CGFloat)width;
+- (void)znm42_filterTapped:(UIButton *)sender;
+- (void)znm42_argumentChanged:(UITextField *)field;
+- (void)znm42_openDetail:(UIButton *)sender;
+- (void)znm42_testCandidate:(UIButton *)sender;
+- (void)znm42_createCandidate:(UIButton *)sender;
+- (void)znm42_binaryPickerTapped:(UIButton *)sender;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNMethodFinderM42UI)
+
+- (NSMutableDictionary<NSString *, NSString *> *)znm42_inputStore {
+    NSMutableDictionary *store = objc_getAssociatedObject(self, kZNM42InputStoreKey);
+    if (!store) {
+        store = [NSMutableDictionary dictionary];
+        objc_setAssociatedObject(self, kZNM42InputStoreKey, store, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return store;
+}
+
+- (NSInteger)znm42_filter {
+    NSNumber *value = objc_getAssociatedObject(self, kZNM42FilterKey);
+    return value ? value.integerValue : -1;
+}
+
+- (void)znm42_setFilter:(NSInteger)value {
+    objc_setAssociatedObject(self, kZNM42FilterKey, @(value), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (NSArray<NSString *> *)znm42_argumentValuesForCandidate:(NSDictionary *)candidate {
+    NSInteger argc = [candidate[@"argumentCount"] integerValue];
+    if (argc == 0) return @[];
+    if (argc != 1) return @[];
+    NSString *key = ZNM42CandidateIdentity(candidate);
+    NSString *value = [self znm42_inputStore][key];
+    return value ? @[value] : @[@""];
+}
+
+- (void)znm42_renderResultsAtWidth:(CGFloat)width {
+    NSArray<NSDictionary *> *allItems = [self zn60v3_candidates] ?: @[];
+    NSMutableSet<NSNumber *> *aritySet = [NSMutableSet set];
+    for (NSDictionary *candidate in allItems) {
+        if ([candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)]) {
+            [aritySet addObject:@([candidate[@"argumentCount"] integerValue])];
+        }
+    }
+    NSArray<NSNumber *> *arities = [[aritySet allObjects] sortedArrayUsingSelector:@selector(compare:)];
+    NSInteger filter = [self znm42_filter];
+    if (filter >= 0 && ![aritySet containsObject:@(filter)]) {
+        filter = -1;
+        [self znm42_setFilter:-1];
+    }
+
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in allItems) {
+        NSInteger argc = [candidate[@"argumentCount"] integerValue];
+        if (filter < 0 || argc == filter) [visible addObject:candidate];
+    }
+
+    CGFloat y = 9.0;
+    UIView *header = [self cardAtY:y height:48 width:width compact:NO];
+    UIButton *back = [self zn60v3_plainButton:@"‹ 搜索" selector:@selector(zn60v3_backToSearch:) frame:CGRectMake(10, 8, 70, 31)];
+    [header addSubview:back];
+    NSString *countText = filter < 0
+        ? [NSString stringWithFormat:@"搜索结果（%lu）", (unsigned long)allItems.count]
+        : [NSString stringWithFormat:@"搜索结果（%lu/%lu）", (unsigned long)visible.count, (unsigned long)allItems.count];
+    UILabel *title = [self label:countText size:11.8 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    title.frame = CGRectMake(88, 8, header.bounds.size.width - 100, 31);
+    [header addSubview:title];
+    [self.contentView addSubview:header];
+    y += 56.0;
+
+    NSDictionary *stats = allItems.firstObject[@"searchStats"] ?: @{};
+    UIView *summary = [self cardAtY:y height:42 width:width compact:NO];
+    NSString *summaryText = [NSString stringWithFormat:@"%@ · classes=%@ · %.1fms%@",
+                             stats[@"mode"] ?: @"candidate-list",
+                             stats[@"classesScanned"] ?: @0,
+                             [stats[@"elapsedMs"] doubleValue],
+                             [stats[@"truncated"] boolValue] ? @" · 结果已截断" : @""];
+    UILabel *sl = [self label:summaryText size:8.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+    sl.frame = CGRectMake(13, 7, summary.bounds.size.width - 26, 28);
+    sl.numberOfLines = 2;
+    [summary addSubview:sl];
+    [self.contentView addSubview:summary];
+    y += 50.0;
+
+    UIView *filterCard = [self cardAtY:y height:44 width:width compact:NO];
+    UIScrollView *filterScroll = [[UIScrollView alloc] initWithFrame:CGRectMake(10, 5, filterCard.bounds.size.width - 20, 34)];
+    filterScroll.showsHorizontalScrollIndicator = NO;
+    filterScroll.alwaysBounceHorizontal = YES;
+    CGFloat bx = 0;
+    NSMutableArray<NSNumber *> *filterValues = [NSMutableArray arrayWithObject:@(-1)];
+    [filterValues addObjectsFromArray:arities];
+    for (NSNumber *number in filterValues) {
+        NSInteger value = number.integerValue;
+        NSString *label = value < 0 ? @"全部" : number.stringValue;
+        CGFloat bw = value < 0 ? 54.0 : 38.0;
+        UIButton *button = [self zn40_button:label selector:@selector(znm42_filterTapped:) frame:CGRectMake(bx, 2, bw, 30)];
+        objc_setAssociatedObject(button, kZNM42ArityKey, number, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        BOOL selected = filter == value;
+        button.backgroundColor = selected ? [self.theme.accentColor colorWithAlphaComponent:0.26] : self.theme.controlColor;
+        button.layer.borderColor = (selected ? self.theme.accentColor : self.theme.borderColor).CGColor;
+        [filterScroll addSubview:button];
+        bx += bw + 7.0;
+    }
+    filterScroll.contentSize = CGSizeMake(MAX(filterScroll.bounds.size.width + 1, bx), 34);
+    [filterCard addSubview:filterScroll];
+    [self.contentView addSubview:filterCard];
+    y += 52.0;
+
+    NSString *statusText = [self zn60v3_status];
+    if (statusText.length && ([statusText containsString:@"Runtime"] || [statusText containsString:@"Builder"] || [statusText containsString:@"FAILED"] || [statusText containsString:@"SUCCESS"])) {
+        UIView *statusCard = [self cardAtY:y height:44 width:width compact:NO];
+        UILabel *status = [self label:statusText size:8.2 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        status.frame = CGRectMake(13, 6, statusCard.bounds.size.width - 26, 32);
+        status.numberOfLines = 2;
+        [statusCard addSubview:status];
+        [self.contentView addSubview:statusCard];
+        y += 52.0;
+    }
+
+    for (NSDictionary *candidate in visible) {
+        NSInteger argc = [candidate[@"argumentCount"] integerValue];
+        NSDictionary *argInfo = ZNM42ArgumentInfo(candidate);
+        BOOL callable = [argInfo[@"supported"] boolValue] && argc <= 1;
+        UIView *card = [self cardAtY:y height:76 width:width compact:NO];
+        CGFloat rightW = 78.0;
+        CGFloat leftW = card.bounds.size.width - rightW - 22.0;
+
+        UIButton *detail = [UIButton buttonWithType:UIButtonTypeCustom];
+        detail.frame = CGRectMake(0, 0, leftW + 10.0, card.bounds.size.height);
+        objc_setAssociatedObject(detail, kZNM42CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [detail addTarget:self action:@selector(znm42_openDetail:) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:detail];
+
+        NSString *shortName = ZNM42ShortName(candidate);
+        CGFloat nameW = argc == 1 ? MIN(112.0, leftW * 0.52) : leftW - 8.0;
+        UILabel *name = [self label:shortName size:10.6 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+        name.frame = CGRectMake(13, 7, nameW, 21);
+        name.adjustsFontSizeToFitWidth = YES;
+        name.minimumScaleFactor = 0.72;
+        [card addSubview:name];
+
+        if (argc == 1) {
+            CGFloat inputX = CGRectGetMaxX(name.frame) + 5.0;
+            CGFloat inputW = MAX(58.0, leftW - inputX + 10.0);
+            UITextField *input = [[UITextField alloc] initWithFrame:CGRectMake(inputX, 5, inputW, 26)];
+            NSString *key = ZNM42CandidateIdentity(candidate);
+            input.text = [self znm42_inputStore][key] ?: @"";
+            NSString *paramName = argInfo[@"name"] ?: @"";
+            NSString *type = ZNM42ShortType(argInfo[@"type"] ?: @"?");
+            input.placeholder = paramName.length ? [NSString stringWithFormat:@"%@ · %@", paramName, type] : type;
+            input.textColor = self.theme.primaryTextColor;
+            input.backgroundColor = self.theme.controlColor;
+            input.tintColor = self.theme.accentColor;
+            input.font = [UIFont monospacedDigitSystemFontOfSize:9.2 weight:UIFontWeightMedium];
+            input.autocorrectionType = UITextAutocorrectionTypeNo;
+            input.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            input.layer.cornerRadius = 6.0;
+            input.layer.borderWidth = 1.0;
+            input.layer.borderColor = (callable ? self.theme.borderColor : [self.theme.secondaryTextColor colorWithAlphaComponent:0.4]).CGColor;
+            input.enabled = callable;
+            input.alpha = callable ? 1.0 : 0.55;
+            if (callable && ![argInfo[@"string"] boolValue]) {
+                ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[argInfo[@"kind"] integerValue];
+                input.keyboardType = (kind == ZNIL2CPPABIValueKindFloat32 || kind == ZNIL2CPPABIValueKindFloat64)
+                    ? UIKeyboardTypeDecimalPad : UIKeyboardTypeNumbersAndPunctuation;
+            }
+            objc_setAssociatedObject(input, kZNM42CandidateKey, key, OBJC_ASSOCIATION_COPY_NONATOMIC);
+            [input addTarget:self action:@selector(znm42_argumentChanged:) forControlEvents:UIControlEventEditingChanged];
+            [card addSubview:input];
+        }
+
+        UILabel *owner = [self label:([candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"?")
+                                    size:8.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        owner.frame = CGRectMake(13, 33, leftW - 8.0, 17);
+        owner.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        [card addSubview:owner];
+
+        UILabel *assembly = [self label:ZNM42AssemblyDisplay(candidate) size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        assembly.frame = CGRectMake(13, 53, leftW - 8.0, 16);
+        assembly.lineBreakMode = NSLineBreakByTruncatingTail;
+        [card addSubview:assembly];
+
+        UIButton *test = [self zn40_button:@"测试执行" selector:@selector(znm42_testCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 7, rightW, 28)];
+        objc_setAssociatedObject(test, kZNM42CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        test.enabled = callable;
+        test.alpha = callable ? 1.0 : 0.48;
+        test.titleLabel.font = [self menuFont:8.3 weight:UIFontWeightSemibold];
+        test.backgroundColor = [self.theme.accentColor colorWithAlphaComponent:0.17];
+        test.layer.borderColor = self.theme.accentColor.CGColor;
+        [card addSubview:test];
+
+        UIButton *create = [self zn40_button:@"创建方法" selector:@selector(znm42_createCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 41, rightW, 28)];
+        objc_setAssociatedObject(create, kZNM42CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        create.enabled = callable;
+        create.alpha = callable ? 1.0 : 0.48;
+        create.titleLabel.font = [self menuFont:8.3 weight:UIFontWeightSemibold];
+        [card addSubview:create];
+
+        [self.contentView addSubview:card];
+        y += 84.0;
+    }
+
+    [self zn40_updateContentHeight:y];
+}
+
+- (void)znm42_filterTapped:(UIButton *)sender {
+    NSNumber *value = objc_getAssociatedObject(sender, kZNM42ArityKey);
+    [self znm42_setFilter:value ? value.integerValue : -1];
+    [self renderPage];
+}
+
+- (void)znm42_argumentChanged:(UITextField *)field {
+    NSString *key = objc_getAssociatedObject(field, kZNM42CandidateKey);
+    if (!key.length) return;
+    [self znm42_inputStore][key] = field.text ?: @"";
+}
+
+- (void)znm42_openDetail:(UIButton *)sender {
+    NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM42CandidateKey);
+    if (!candidate) return;
+    [self zn60v3_setSelected:candidate];
+    [self zn60v3_setPage:2];
+    [self renderPage];
+}
+
+- (void)znm42_testCandidate:(UIButton *)sender {
+    NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM42CandidateKey);
+    if (!candidate) return;
+    NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
+    NSArray<NSString *> *values = [self znm42_argumentValuesForCandidate:candidate];
+    if (argc == 1 && !ZNM42IsStringType(ZNM42ArgumentInfo(candidate)[@"type"]) && ![values.firstObject length]) {
+        [self zn60v3_setStatus:@"Runtime Invoke FAILED：请输入 /1 参数值"];
+        [self renderPage];
+        return;
+    }
+    NSString *error = nil;
+    NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAssembly:([candidate[@"assembly"] isKindOfClass:NSString.class] ? candidate[@"assembly"] : @"Assembly-CSharp.dll")
+                                                                      namespace:([candidate[@"namespace"] isKindOfClass:NSString.class] ? candidate[@"namespace"] : @"")
+                                                                      className:([candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"")
+                                                                         method:([candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"")
+                                                                  argumentCount:argc
+                                                                 argumentValues:values
+                                                                          error:&error];
+    if (result) {
+        [self zn60v3_setStatus:[NSString stringWithFormat:@"Runtime Invoke SUCCESS：%@ args=%@", ZNM42ShortName(candidate), values]];
+    } else {
+        [self zn60v3_setStatus:error ?: @"Runtime Invoke FAILED"];
+    }
+    [self renderPage];
+}
+
+- (void)znm42_createCandidate:(UIButton *)sender {
+    NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM42CandidateKey);
+    if (!candidate) return;
+    NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
+    NSArray<NSString *> *values = [self znm42_argumentValuesForCandidate:candidate];
+    NSDictionary *info = ZNM42ArgumentInfo(candidate);
+    if (argc == 1 && !ZNM42IsStringType(info[@"type"]) && ![values.firstObject length]) {
+        [self zn60v3_setStatus:@"Builder：请输入 /1 参数值后再创建方法"];
+        [self renderPage];
+        return;
+    }
+    NSString *error = nil;
+    ZNRuntimeMethodAction *action = [[ZNRuntimeActionStore sharedStore] addMethodCandidate:candidate
+                                                                                     title:candidate[@"method"]
+                                                                            argumentValues:values
+                                                                                     error:&error];
+    if (!action) {
+        [self zn60v3_setStatus:error ?: @"创建 Runtime Method Call 失败"];
+    } else if (error.length) {
+        [self zn60v3_setStatus:error];
+    } else {
+        [self zn60v3_setStatus:[NSString stringWithFormat:@"已加入 Builder：%@ args=%@", action.canonicalIdentity, action.argumentValues]];
+    }
+    [self renderPage];
+}
+
+- (void)znm42_binaryPickerTapped:(UIButton *)sender {
+    NSArray<NSDictionary<NSString *, id> *> *images = ZNM42AppLocalImages();
+    if (!images.count) {
+        [ZNBinaryPatchWorkspace sharedWorkspace].lastStatus = @"当前 App 没有发现可选择的本地 Mach-O image";
+        [self renderPage];
+        return;
+    }
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"App Libraries"
+                                                                   message:nil
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *item in images) {
+        NSString *name = [item[@"name"] isKindOfClass:NSString.class] ? item[@"name"] : @"";
+        NSString *path = [item[@"path"] isKindOfClass:NSString.class] ? item[@"path"] : @"";
+        if (!name.length) name = path.lastPathComponent ?: @"";
+        if (!name.length) continue;
+        NSString *selectedName = [name copy];
+        UIAlertAction *action = [UIAlertAction actionWithTitle:selectedName style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+            ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+            [workspace updateDefaultTarget:selectedName];
+            [NSUserDefaults.standardUserDefaults setObject:selectedName forKey:@"ZonoePatch.Builder.SelectedTarget"];
+            workspace.lastStatus = [NSString stringWithFormat:@"当前二进制：%@", selectedName];
+            [weakSelf renderPage];
+        }];
+        [alert addAction:action];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIWindow *window = self.hostWindow ?: [self currentWindow];
+    UIViewController *presenter = ZNM42TopController(window.rootViewController);
+    if (!presenter) return;
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover) {
+        popover.sourceView = sender;
+        popover.sourceRect = sender.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+@end
+
+static void ZNM42Swap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallMethodFinderM42UIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM42Swap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm42_renderResultsAtWidth:));
+        ZNM42Swap(cls, @selector(znux_binaryPickerTapped:), @selector(znm42_binaryPickerTapped:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.2-ui] arity filter + inline /1 input + direct test/create + simple App Libraries names installed"];
+    });
+}
+
+#pragma mark - END ZNMethodFinderM42UI.mm
+
+
+#pragma mark - BEGIN ZNMethodFinderM43UI.mm
+#line 1 "ZNMethodFinderM43UI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+
+#import "ZNIL2CPPABIMetadata.h"
+#import "ZNIL2CPPHybridFinder.h"
+#import "ZNIL2CPPMethodFinderSearchV3.h"
+#import "ZNIL2CPPInvokeEngine.h"
+#import "ZNIL2CPPResolver.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+// M4.3 UI layer
+// - Assembly picker using the same action-sheet interaction as App Libraries.
+// - User-editable result limit.
+// - /1 input moved below the method/class rows so the method name gets full width.
+// - Return key becomes Done and dismisses the keyboard.
+// - Detail page keeps information only; Runtime test/create remains on results cards.
+
+static const void *kZNM43AssemblyKey = &kZNM43AssemblyKey;
+static const void *kZNM43CandidateKey = &kZNM43CandidateKey;
+static const void *kZNM43ArityKey = &kZNM43ArityKey;
+static const NSInteger kZNM43LimitTag = 643001;
+static const NSUInteger kZNM43LimitMax = 1024;
+
+typedef void *(*ZNM43DomainGetFn)(void);
+typedef const void **(*ZNM43DomainGetAssembliesFn)(const void *, size_t *);
+typedef const void *(*ZNM43AssemblyGetImageFn)(const void *);
+typedef const char *(*ZNM43ImageGetNameFn)(const void *);
+
+static NSString *ZNM43Trim(NSString *s) {
+    return [s ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static NSString *ZNM43AssemblyDisplay(NSString *assembly) {
+    NSString *value = assembly ?: @"";
+    return [value.lowercaseString hasSuffix:@".dll"] && value.length > 4
+        ? [value substringToIndex:value.length - 4] : value;
+}
+
+static NSString *ZNM43CandidateIdentity(NSDictionary *candidate) {
+    NSString *canonical = [candidate[@"canonical"] isKindOfClass:NSString.class] ? candidate[@"canonical"] : @"";
+    if (canonical.length) return canonical;
+    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@",
+            candidate[@"assembly"] ?: @"", candidate[@"namespace"] ?: @"", candidate[@"class"] ?: @"",
+            candidate[@"method"] ?: @"", candidate[@"argumentCount"] ?: @(-1)];
+}
+
+static NSString *ZNM43ShortName(NSDictionary *candidate) {
+    NSString *method = [candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"Method";
+    NSInteger argc = [candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)] ? [candidate[@"argumentCount"] integerValue] : -1;
+    return argc >= 0 ? [NSString stringWithFormat:@"%@/%ld", method, (long)argc] : method;
+}
+
+static BOOL ZNM43IsStringType(NSString *typeName) {
+    NSString *n = ZNM43Trim(typeName).lowercaseString;
+    return [n isEqualToString:@"system.string"] || [n isEqualToString:@"string"];
+}
+
+static NSDictionary *ZNM43ArgumentInfo(NSDictionary *candidate) {
+    NSInteger argc = [candidate[@"argumentCount"] integerValue];
+    if (argc == 0) return @{@"supported": @YES, @"type": @"", @"name": @""};
+    if (argc != 1) return @{@"supported": @NO, @"reason": [NSString stringWithFormat:@"M4.3 V1 暂不执行 /%ld", (long)argc], @"type": @"", @"name": @""};
+    NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
+    if (![abi[@"available"] boolValue] || [abi[@"parameterCount"] unsignedIntegerValue] != 1) {
+        return @{@"supported": @NO, @"reason": abi[@"reason"] ?: @"参数 ABI 不可用", @"type": @"?", @"name": @""};
+    }
+    NSDictionary *param = [abi[@"parameters"] firstObject];
+    if (!param) return @{@"supported": @NO, @"reason": @"参数元数据为空", @"type": @"?", @"name": @""};
+    NSString *typeName = param[@"name"] ?: @"?";
+    NSString *paramName = param[@"paramName"] ?: @"";
+    if ([param[@"byRef"] boolValue]) return @{@"supported": @NO, @"reason": @"ref/out 暂不支持", @"type": typeName, @"name": paramName};
+    if ([param[@"pointer"] boolValue]) return @{@"supported": @NO, @"reason": @"pointer 暂不支持", @"type": typeName, @"name": paramName};
+    if (ZNM43IsStringType(typeName)) return @{@"supported": @YES, @"type": typeName, @"name": paramName, @"string": @YES};
+    ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    BOOL supported = kind == ZNIL2CPPABIValueKindBool || kind == ZNIL2CPPABIValueKindSigned32 ||
+                     kind == ZNIL2CPPABIValueKindUnsigned32 || kind == ZNIL2CPPABIValueKindSigned64 ||
+                     kind == ZNIL2CPPABIValueKindUnsigned64 || kind == ZNIL2CPPABIValueKindFloat32 ||
+                     kind == ZNIL2CPPABIValueKindFloat64;
+    return @{@"supported": @(supported), @"reason": supported ? @"" : [NSString stringWithFormat:@"%@ 暂不支持", typeName],
+             @"type": typeName, @"name": paramName, @"kind": @(kind), @"enum": param[@"enum"] ?: @NO};
+}
+
+static NSString *ZNM43ShortType(NSString *typeName) {
+    NSArray<NSString *> *parts = [typeName ?: @"" componentsSeparatedByString:@"."];
+    return parts.lastObject.length ? parts.lastObject : (typeName ?: @"");
+}
+
+static UIViewController *ZNM43TopController(UIViewController *vc) {
+    if (!vc) return nil;
+    if (vc.presentedViewController && !vc.presentedViewController.isBeingDismissed) return ZNM43TopController(vc.presentedViewController);
+    if ([vc isKindOfClass:UINavigationController.class]) return ZNM43TopController(((UINavigationController *)vc).visibleViewController ?: vc);
+    if ([vc isKindOfClass:UITabBarController.class]) return ZNM43TopController(((UITabBarController *)vc).selectedViewController ?: vc);
+    if ([vc isKindOfClass:UISplitViewController.class]) return ZNM43TopController(((UISplitViewController *)vc).viewControllers.lastObject ?: vc);
+    return vc;
+}
+
+static NSArray<NSString *> *ZNM43Assemblies(void) {
+    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    NSString *path = resolver.unityPath ?: @"";
+    void *handle = NULL;
+#ifdef RTLD_NOLOAD
+    if (path.length) handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+#endif
+    ZNM43DomainGetFn domainGet = (ZNM43DomainGetFn)(dlsym(RTLD_DEFAULT, "il2cpp_domain_get") ?: (handle ? dlsym(handle, "il2cpp_domain_get") : NULL));
+    ZNM43DomainGetAssembliesFn getAssemblies = (ZNM43DomainGetAssembliesFn)(dlsym(RTLD_DEFAULT, "il2cpp_domain_get_assemblies") ?: (handle ? dlsym(handle, "il2cpp_domain_get_assemblies") : NULL));
+    ZNM43AssemblyGetImageFn getImage = (ZNM43AssemblyGetImageFn)(dlsym(RTLD_DEFAULT, "il2cpp_assembly_get_image") ?: (handle ? dlsym(handle, "il2cpp_assembly_get_image") : NULL));
+    ZNM43ImageGetNameFn getName = (ZNM43ImageGetNameFn)(dlsym(RTLD_DEFAULT, "il2cpp_image_get_name") ?: (handle ? dlsym(handle, "il2cpp_image_get_name") : NULL));
+    if (!domainGet || !getAssemblies || !getImage || !getName) return @[];
+    void *domain = domainGet();
+    size_t count = 0;
+    const void **assemblies = domain ? getAssemblies(domain, &count) : NULL;
+    NSMutableArray<NSString *> *items = [NSMutableArray array];
+    for (size_t i = 0; assemblies && i < count; i++) {
+        const void *image = getImage(assemblies[i]);
+        const char *raw = image ? getName(image) : NULL;
+        NSString *name = raw ? [NSString stringWithUTF8String:raw] : @"";
+        if (name.length && ![items containsObject:name]) [items addObject:name];
+    }
+    [items sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        BOOL ap = [ZNM43AssemblyDisplay(a) caseInsensitiveCompare:@"Assembly-CSharp"] == NSOrderedSame;
+        BOOL bp = [ZNM43AssemblyDisplay(b) caseInsensitiveCompare:@"Assembly-CSharp"] == NSOrderedSame;
+        if (ap != bp) return ap ? NSOrderedAscending : NSOrderedDescending;
+        return [ZNM43AssemblyDisplay(a) localizedCaseInsensitiveCompare:ZNM43AssemblyDisplay(b)];
+    }];
+    return items;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNMethodFinderM43UI)
+- (void)znm43_renderSearchAtWidth:(CGFloat)width;
+- (void)znm43_startSearch:(id)sender;
+- (void)znm43_renderResultsAtWidth:(CGFloat)width;
+- (void)znm43_renderDetailAtWidth:(CGFloat)width;
+- (void)znm43_assemblyTapped:(UIButton *)sender;
+- (void)znm43_filterTapped:(UIButton *)sender;
+- (void)znm43_argumentChanged:(UITextField *)field;
+- (void)znm43_doneEditing:(UITextField *)field;
+- (void)znm43_limitChanged:(UITextField *)field;
+- (void)znm43_openDetail:(UIButton *)sender;
+- (void)znm43_testCandidate:(UIButton *)sender;
+- (void)znm43_createCandidate:(UIButton *)sender;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNMethodFinderM43UI)
+
+- (NSString *)znm43_selectedAssembly {
+    NSString *value = objc_getAssociatedObject(self, kZNM43AssemblyKey);
+    return value ?: @"Assembly-CSharp.dll";
+}
+
+- (void)znm43_setSelectedAssembly:(NSString *)value {
+    objc_setAssociatedObject(self, kZNM43AssemblyKey, [value copy] ?: @"", OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+- (void)znm43_renderSearchAtWidth:(CGFloat)width {
+    CGFloat y = 9.0;
+    UIView *card = [self cardAtY:y height:170 width:width compact:NO];
+    UILabel *title = [self label:@"IL2CPP 方法查找 · M4.3" size:12.6 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    title.frame = CGRectMake(13, 8, card.bounds.size.width - 26, 20);
+    [card addSubview:title];
+
+    UILabel *methodLabel = [self label:@"方法名" size:8.8 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+    methodLabel.frame = CGRectMake(13, 35, 55, 34);
+    [card addSubview:methodLabel];
+    CGFloat buttonW = 68.0;
+    UITextField *query = [self zn60v3_searchField:CGRectMake(68, 34, card.bounds.size.width - 81 - buttonW - 7, 36)];
+    [card addSubview:query];
+    UIButton *search = [self zn40_button:@"搜索" selector:@selector(znm43_startSearch:) frame:CGRectMake(CGRectGetMaxX(query.frame) + 7, 34, buttonW, 36)];
+    search.backgroundColor = [self.theme.accentColor colorWithAlphaComponent:0.20];
+    search.layer.borderColor = self.theme.accentColor.CGColor;
+    [card addSubview:search];
+
+    UILabel *assemblyLabel = [self label:@"Assembly" size:8.8 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+    assemblyLabel.frame = CGRectMake(13, 79, 55, 32);
+    [card addSubview:assemblyLabel];
+    NSString *assembly = [self znm43_selectedAssembly];
+    NSString *assemblyTitle = assembly.length ? ZNM43AssemblyDisplay(assembly) : @"全部 Assembly";
+    UIButton *assemblyButton = [self zn60v3_plainButton:[assemblyTitle stringByAppendingString:@"  ›"] selector:@selector(znm43_assemblyTapped:) frame:CGRectMake(68, 78, card.bounds.size.width - 81, 32)];
+    assemblyButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    assemblyButton.contentEdgeInsets = UIEdgeInsetsMake(0, 10, 0, 8);
+    [card addSubview:assemblyButton];
+
+    UILabel *limitLabel = [self label:@"最大结果" size:8.8 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+    limitLabel.frame = CGRectMake(13, 121, 55, 32);
+    [card addSubview:limitLabel];
+    UITextField *limit = [[UITextField alloc] initWithFrame:CGRectMake(68, 120, 92, 32)];
+    limit.tag = kZNM43LimitTag;
+    limit.text = [NSString stringWithFormat:@"%lu", (unsigned long)[self zn60v3_limit]];
+    limit.textColor = self.theme.primaryTextColor;
+    limit.backgroundColor = self.theme.controlColor;
+    limit.tintColor = self.theme.accentColor;
+    limit.font = [UIFont monospacedDigitSystemFontOfSize:10.0 weight:UIFontWeightMedium];
+    limit.keyboardType = UIKeyboardTypeNumberPad;
+    limit.returnKeyType = UIReturnKeyDone;
+    limit.layer.cornerRadius = 7.0;
+    limit.layer.borderWidth = 1.0;
+    limit.layer.borderColor = self.theme.borderColor.CGColor;
+    limit.textAlignment = NSTextAlignmentCenter;
+    [limit addTarget:self action:@selector(znm43_limitChanged:) forControlEvents:UIControlEventEditingChanged];
+    [limit addTarget:self action:@selector(znm43_doneEditing:) forControlEvents:UIControlEventEditingDidEndOnExit];
+    [card addSubview:limit];
+    UILabel *limitHint = [self label:@"1–1024；较大数量仍受搜索时间预算限制" size:7.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+    limitHint.frame = CGRectMake(170, 120, card.bounds.size.width - 183, 32);
+    limitHint.numberOfLines = 2;
+    [card addSubview:limitHint];
+
+    [self.contentView addSubview:card];
+    y += 178.0;
+    NSString *statusText = [self zn60v3_status];
+    if (statusText.length) {
+        UIView *statusCard = [self cardAtY:y height:58 width:width compact:NO];
+        UILabel *status = [self label:statusText size:8.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        status.frame = CGRectMake(13, 7, statusCard.bounds.size.width - 26, 44);
+        status.numberOfLines = 3;
+        [statusCard addSubview:status];
+        [self.contentView addSubview:statusCard];
+        y += 66.0;
+    }
+    [self zn40_updateContentHeight:y];
+}
+
+- (void)znm43_limitChanged:(UITextField *)field {
+    NSUInteger value = (NSUInteger)MAX(1, MIN((NSInteger)kZNM43LimitMax, field.text.integerValue));
+    if (field.text.length) [self zn60v3_setLimit:value];
+}
+
+- (void)znm43_doneEditing:(UITextField *)field {
+    [field resignFirstResponder];
+}
+
+- (void)znm43_assemblyTapped:(UIButton *)sender {
+    NSArray<NSString *> *assemblies = ZNM43Assemblies();
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Assemblies" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    NSString *selected = [self znm43_selectedAssembly];
+    NSString *(^decorated)(NSString *) = ^NSString *(NSString *name) {
+        NSString *display = name.length ? ZNM43AssemblyDisplay(name) : @"全部 Assembly";
+        BOOL hit = (!name.length && !selected.length) || (name.length && [name caseInsensitiveCompare:selected] == NSOrderedSame);
+        return hit ? [@"✓ " stringByAppendingString:display] : display;
+    };
+    [alert addAction:[UIAlertAction actionWithTitle:decorated(@"") style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        [weakSelf znm43_setSelectedAssembly:@""];
+        [weakSelf renderPage];
+    }]];
+    for (NSString *assembly in assemblies) {
+        [alert addAction:[UIAlertAction actionWithTitle:decorated(assembly) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+            [weakSelf znm43_setSelectedAssembly:assembly];
+            [weakSelf renderPage];
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIWindow *window = self.hostWindow ?: [self currentWindow];
+    UIViewController *presenter = ZNM43TopController(window.rootViewController);
+    if (!presenter) return;
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover) { popover.sourceView = sender; popover.sourceRect = sender.bounds; popover.permittedArrowDirections = UIPopoverArrowDirectionAny; }
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)znm43_startSearch:(id)sender {
+    (void)sender;
+    [self.hostWindow endEditing:YES];
+    UITextField *limitField = (UITextField *)[self.contentView viewWithTag:kZNM43LimitTag];
+    if (limitField.text.length) {
+        NSUInteger value = (NSUInteger)MAX(1, MIN((NSInteger)kZNM43LimitMax, limitField.text.integerValue));
+        [self zn60v3_setLimit:value];
+    }
+    NSString *query = ZNM43Trim([self zn57mf_query]);
+    if (!query.length) {
+        [self zn60v3_setStatus:@"请输入方法名"];
+        [self renderPage];
+        return;
+    }
+    NSString *assembly = [self znm43_selectedAssembly];
+    NSString *expression = query;
+    NSString *lower = query.lowercaseString;
+    BOOL reverse = [lower hasPrefix:@"0x"] || [lower hasPrefix:@"rva:"];
+    if (assembly.length && !reverse && [query rangeOfString:@"!"].location == NSNotFound) {
+        expression = [NSString stringWithFormat:@"%@!%@", assembly, query];
+    }
+    NSString *searchError = nil;
+    NSArray *items = [[ZNIL2CPPHybridFinder sharedFinder] zn60_searchCandidates:expression limit:[self zn60v3_limit] error:&searchError];
+    if (!items.count) {
+        [self zn60v3_setStatus:searchError ?: @"没有搜索结果"];
+        [self zn60v3_setPage:0];
+        [self renderPage];
+        return;
+    }
+    [self zn60v3_setCandidates:items];
+    [self zn60v3_setSelected:nil];
+    NSDictionary *stats = items.firstObject[@"searchStats"] ?: @{};
+    NSString *scope = assembly.length ? ZNM43AssemblyDisplay(assembly) : @"全部 Assembly";
+    [self zn60v3_setStatus:[NSString stringWithFormat:@"%@ · %@：%lu 个候选 · %@ classes · %.1fms", scope, query, (unsigned long)items.count, stats[@"classesScanned"] ?: @0, [stats[@"elapsedMs"] doubleValue]]];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.3-search] assembly=%@ query=%@ limit=%lu -> %lu", scope, query, (unsigned long)[self zn60v3_limit], (unsigned long)items.count]];
+    [self zn60v3_setPage:1];
+    [self renderPage];
+}
+
+- (void)znm43_renderResultsAtWidth:(CGFloat)width {
+    NSArray<NSDictionary *> *allItems = [self zn60v3_candidates] ?: @[];
+    NSMutableSet<NSNumber *> *aritySet = [NSMutableSet set];
+    for (NSDictionary *candidate in allItems) if ([candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)]) [aritySet addObject:@([candidate[@"argumentCount"] integerValue])];
+    NSArray<NSNumber *> *arities = [[aritySet allObjects] sortedArrayUsingSelector:@selector(compare:)];
+    NSInteger filter = [self znm42_filter];
+    if (filter >= 0 && ![aritySet containsObject:@(filter)]) { filter = -1; [self znm42_setFilter:-1]; }
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in allItems) if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [visible addObject:candidate];
+
+    CGFloat y = 9.0;
+    UIView *header = [self cardAtY:y height:48 width:width compact:NO];
+    UIButton *back = [self zn60v3_plainButton:@"‹ 搜索" selector:@selector(zn60v3_backToSearch:) frame:CGRectMake(10, 8, 70, 31)];
+    [header addSubview:back];
+    UILabel *title = [self label:(filter < 0 ? [NSString stringWithFormat:@"搜索结果（%lu）", (unsigned long)allItems.count] : [NSString stringWithFormat:@"搜索结果（%lu/%lu）", (unsigned long)visible.count, (unsigned long)allItems.count]) size:11.8 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    title.frame = CGRectMake(88, 8, header.bounds.size.width - 100, 31);
+    [header addSubview:title]; [self.contentView addSubview:header]; y += 56.0;
+
+    UIView *filterCard = [self cardAtY:y height:44 width:width compact:NO];
+    UIScrollView *filterScroll = [[UIScrollView alloc] initWithFrame:CGRectMake(10, 5, filterCard.bounds.size.width - 20, 34)];
+    filterScroll.showsHorizontalScrollIndicator = NO; filterScroll.alwaysBounceHorizontal = YES;
+    CGFloat bx = 0; NSMutableArray<NSNumber *> *values = [NSMutableArray arrayWithObject:@(-1)]; [values addObjectsFromArray:arities];
+    for (NSNumber *number in values) {
+        NSInteger value = number.integerValue; NSString *label = value < 0 ? @"全部" : number.stringValue; CGFloat bw = value < 0 ? 54.0 : 38.0;
+        UIButton *button = [self zn40_button:label selector:@selector(znm43_filterTapped:) frame:CGRectMake(bx, 2, bw, 30)];
+        objc_setAssociatedObject(button, kZNM43ArityKey, number, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        BOOL selected = filter == value; button.backgroundColor = selected ? [self.theme.accentColor colorWithAlphaComponent:0.26] : self.theme.controlColor;
+        button.layer.borderColor = (selected ? self.theme.accentColor : self.theme.borderColor).CGColor;
+        [filterScroll addSubview:button]; bx += bw + 7.0;
+    }
+    filterScroll.contentSize = CGSizeMake(MAX(filterScroll.bounds.size.width + 1, bx), 34); [filterCard addSubview:filterScroll]; [self.contentView addSubview:filterCard]; y += 52.0;
+
+    NSString *statusText = [self zn60v3_status];
+    if (statusText.length) {
+        UIView *statusCard = [self cardAtY:y height:44 width:width compact:NO];
+        UILabel *status = [self label:statusText size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        status.frame = CGRectMake(13, 6, statusCard.bounds.size.width - 26, 32); status.numberOfLines = 2;
+        [statusCard addSubview:status]; [self.contentView addSubview:statusCard]; y += 52.0;
+    }
+
+    for (NSDictionary *candidate in visible) {
+        NSInteger argc = [candidate[@"argumentCount"] integerValue];
+        NSDictionary *argInfo = ZNM43ArgumentInfo(candidate);
+        BOOL callable = [argInfo[@"supported"] boolValue] && argc <= 1;
+        CGFloat cardH = argc == 1 ? 108.0 : 82.0;
+        UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
+        CGFloat rightW = 78.0; CGFloat leftW = card.bounds.size.width - rightW - 22.0;
+
+        UIButton *detail = [UIButton buttonWithType:UIButtonTypeCustom];
+        detail.frame = CGRectMake(0, 0, leftW + 10.0, argc == 1 ? 50.0 : card.bounds.size.height);
+        objc_setAssociatedObject(detail, kZNM43CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [detail addTarget:self action:@selector(znm43_openDetail:) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:detail];
+
+        UILabel *name = [self label:ZNM43ShortName(candidate) size:10.7 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+        name.frame = CGRectMake(13, 7, leftW - 8.0, 20); name.adjustsFontSizeToFitWidth = YES; name.minimumScaleFactor = 0.65; [card addSubview:name];
+        UILabel *owner = [self label:([candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"?") size:8.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        owner.frame = CGRectMake(13, 31, leftW - 8.0, 17); owner.lineBreakMode = NSLineBreakByTruncatingMiddle; [card addSubview:owner];
+
+        if (argc == 1) {
+            UITextField *input = [[UITextField alloc] initWithFrame:CGRectMake(13, 52, leftW - 8.0, 27)];
+            NSString *key = ZNM43CandidateIdentity(candidate); input.text = [self znm42_inputStore][key] ?: @"";
+            NSString *paramName = argInfo[@"name"] ?: @""; NSString *type = ZNM43ShortType(argInfo[@"type"] ?: @"?");
+            input.placeholder = paramName.length ? [NSString stringWithFormat:@"%@ · %@", paramName, type] : type;
+            input.textColor = self.theme.primaryTextColor; input.backgroundColor = self.theme.controlColor; input.tintColor = self.theme.accentColor;
+            input.font = [UIFont monospacedDigitSystemFontOfSize:9.2 weight:UIFontWeightMedium]; input.autocorrectionType = UITextAutocorrectionTypeNo; input.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            input.returnKeyType = UIReturnKeyDone; input.keyboardType = [argInfo[@"string"] boolValue] ? UIKeyboardTypeDefault : UIKeyboardTypeNumbersAndPunctuation;
+            input.layer.cornerRadius = 6.0; input.layer.borderWidth = 1.0; input.layer.borderColor = self.theme.borderColor.CGColor; input.enabled = callable; input.alpha = callable ? 1.0 : 0.55;
+            objc_setAssociatedObject(input, kZNM43CandidateKey, key, OBJC_ASSOCIATION_COPY_NONATOMIC);
+            [input addTarget:self action:@selector(znm43_argumentChanged:) forControlEvents:UIControlEventEditingChanged];
+            [input addTarget:self action:@selector(znm43_doneEditing:) forControlEvents:UIControlEventEditingDidEndOnExit];
+            [card addSubview:input];
+        }
+
+        CGFloat assemblyY = argc == 1 ? 84.0 : 55.0;
+        UILabel *assembly = [self label:ZNM43AssemblyDisplay(candidate[@"assembly"] ?: @"?") size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        assembly.frame = CGRectMake(13, assemblyY, leftW - 8.0, 16); assembly.lineBreakMode = NSLineBreakByTruncatingTail; [card addSubview:assembly];
+
+        UIButton *test = [self zn40_button:@"测试执行" selector:@selector(znm43_testCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 7, rightW, 28)];
+        objc_setAssociatedObject(test, kZNM43CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC); test.enabled = callable; test.alpha = callable ? 1.0 : 0.48; test.titleLabel.font = [self menuFont:8.3 weight:UIFontWeightSemibold]; test.backgroundColor = [self.theme.accentColor colorWithAlphaComponent:0.17]; test.layer.borderColor = self.theme.accentColor.CGColor; [card addSubview:test];
+        UIButton *create = [self zn40_button:@"创建方法" selector:@selector(znm43_createCandidate:) frame:CGRectMake(card.bounds.size.width - rightW - 10, 41, rightW, 28)];
+        objc_setAssociatedObject(create, kZNM43CandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC); create.enabled = callable; create.alpha = callable ? 1.0 : 0.48; create.titleLabel.font = [self menuFont:8.3 weight:UIFontWeightSemibold]; [card addSubview:create];
+        [self.contentView addSubview:card]; y += cardH + 8.0;
+    }
+    [self zn40_updateContentHeight:y];
+}
+
+- (void)znm43_filterTapped:(UIButton *)sender { NSNumber *n = objc_getAssociatedObject(sender, kZNM43ArityKey); [self znm42_setFilter:n ? n.integerValue : -1]; [self renderPage]; }
+- (void)znm43_argumentChanged:(UITextField *)field { NSString *key = objc_getAssociatedObject(field, kZNM43CandidateKey); if (key.length) [self znm42_inputStore][key] = field.text ?: @""; }
+- (void)znm43_openDetail:(UIButton *)sender { NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM43CandidateKey); if (!candidate) return; [self zn60v3_setSelected:candidate]; [self zn60v3_setPage:2]; [self renderPage]; }
+
+- (NSArray<NSString *> *)znm43_argumentValues:(NSDictionary *)candidate {
+    NSInteger argc = [candidate[@"argumentCount"] integerValue]; if (argc == 0) return @[]; if (argc != 1) return @[];
+    NSString *value = [self znm42_inputStore][ZNM43CandidateIdentity(candidate)]; return value ? @[value] : @[@""];
+}
+
+- (void)znm43_testCandidate:(UIButton *)sender {
+    NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM43CandidateKey); if (!candidate) return;
+    NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue]; NSArray<NSString *> *values = [self znm43_argumentValues:candidate]; NSDictionary *info = ZNM43ArgumentInfo(candidate);
+    if (argc == 1 && !ZNM43IsStringType(info[@"type"]) && ![values.firstObject length]) { [self zn60v3_setStatus:@"Runtime Invoke FAILED：请输入 /1 参数值"]; [self renderPage]; return; }
+    NSString *error = nil;
+    NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAssembly:([candidate[@"assembly"] isKindOfClass:NSString.class] ? candidate[@"assembly"] : @"Assembly-CSharp.dll") namespace:([candidate[@"namespace"] isKindOfClass:NSString.class] ? candidate[@"namespace"] : @"") className:([candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"") method:([candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"") argumentCount:argc argumentValues:values error:&error];
+    if (result) {
+        BOOL isStatic = [result[@"static"] boolValue];
+        NSString *suffix = isStatic ? @"static" : [NSString stringWithFormat:@"instance=0x%llX", (unsigned long long)[result[@"instance"] unsignedLongLongValue]];
+        [self zn60v3_setStatus:[NSString stringWithFormat:@"Runtime Invoke SUCCESS：%@ · %@", ZNM43ShortName(candidate), suffix]];
+    } else [self zn60v3_setStatus:error ?: @"Runtime Invoke FAILED"];
+    [self renderPage];
+}
+
+- (void)znm43_createCandidate:(UIButton *)sender {
+    NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM43CandidateKey); if (!candidate) return;
+    NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue]; NSArray<NSString *> *values = [self znm43_argumentValues:candidate]; NSDictionary *info = ZNM43ArgumentInfo(candidate);
+    if (argc == 1 && !ZNM43IsStringType(info[@"type"]) && ![values.firstObject length]) { [self zn60v3_setStatus:@"Builder：请输入 /1 参数值后再创建方法"]; [self renderPage]; return; }
+    NSString *error = nil;
+    ZNRuntimeMethodAction *action = [[ZNRuntimeActionStore sharedStore] addMethodCandidate:candidate title:candidate[@"method"] argumentValues:values error:&error];
+    [self zn60v3_setStatus:action ? [NSString stringWithFormat:@"已加入 Builder：%@ args=%@", action.canonicalIdentity, action.argumentValues] : (error ?: @"创建 Runtime Method Call 失败")];
+    [self renderPage];
+}
+
+- (void)znm43_renderDetailAtWidth:(CGFloat)width {
+    // RuntimeMethodCallFinderUI previously wrapped detail with another test/create card.
+    // Call its alias that points to the pre-wrapper detail chain, keeping ABI/address info only.
+    [self znrmc_renderDetailAtWidth:width];
+}
+
+@end
+
+static void ZNM43Swap(Class cls, SEL a, SEL b) {
+    Method ma = class_getInstanceMethod(cls, a); Method mb = class_getInstanceMethod(cls, b); if (ma && mb) method_exchangeImplementations(ma, mb);
+}
+
+extern "C" void ZNInstallMethodFinderM43UIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040"); if (!cls) return;
+        ZNM43Swap(cls, @selector(zn60v3_renderSearchAtWidth:), @selector(znm43_renderSearchAtWidth:));
+        ZNM43Swap(cls, @selector(zn60v3_startSearch:), @selector(znm43_startSearch:));
+        ZNM43Swap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm43_renderResultsAtWidth:));
+        ZNM43Swap(cls, @selector(zn60v3_renderDetailAtWidth:), @selector(znm43_renderDetailAtWidth:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.3-ui] assembly picker + custom result limit + lower /1 input + Done key + detail cleanup installed"];
+    });
+}
+
+#pragma mark - END ZNMethodFinderM43UI.mm
+
+
+#pragma mark - BEGIN ZNMethodFinderM43Polish.mm
+#line 1 "ZNMethodFinderM43Polish.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNPatchCore.h"
+
+static const NSInteger kZNM43PolishLimitTag = 643001;
+
+static NSString *ZNM43PolishAssemblyDisplay(NSString *assembly) {
+    NSString *value = assembly ?: @"";
+    return [value.lowercaseString hasSuffix:@".dll"] && value.length > 4
+        ? [value substringToIndex:value.length - 4] : value;
+}
+
+static void ZNM43PolishHideAssemblyLabels(UIView *root, NSString *display) {
+    if (!root || !display.length) return;
+    for (UIView *view in root.subviews) {
+        if ([view isKindOfClass:UILabel.class]) {
+            UILabel *label = (UILabel *)view;
+            if ([label.text isEqualToString:display]) label.hidden = YES;
+        }
+        ZNM43PolishHideAssemblyLabels(view, display);
+    }
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNMethodFinderM43Polish)
+- (void)znm43p_renderSearchAtWidth:(CGFloat)width;
+- (void)znm43p_renderResultsAtWidth:(CGFloat)width;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNMethodFinderM43Polish)
+
+- (void)znm43p_renderSearchAtWidth:(CGFloat)width {
+    [self znm43p_renderSearchAtWidth:width];
+    UITextField *limit = (UITextField *)[self.contentView viewWithTag:kZNM43PolishLimitTag];
+    if ([limit isKindOfClass:UITextField.class]) {
+        limit.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
+        limit.returnKeyType = UIReturnKeyDone;
+    }
+}
+
+- (void)znm43p_renderResultsAtWidth:(CGFloat)width {
+    [self znm43p_renderResultsAtWidth:width];
+    NSString *assembly = [self znm43_selectedAssembly];
+    if (!assembly.length) return;
+    ZNM43PolishHideAssemblyLabels(self.contentView, ZNM43PolishAssemblyDisplay(assembly));
+}
+
+@end
+
+static void ZNM43PolishSwap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallMethodFinderM43PolishDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM43PolishSwap(cls, @selector(zn60v3_renderSearchAtWidth:), @selector(znm43p_renderSearchAtWidth:));
+        ZNM43PolishSwap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm43p_renderResultsAtWidth:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.3-polish] Done keyboard + deduplicated single-Assembly result labels installed"];
+    });
+}
+
+#pragma mark - END ZNMethodFinderM43Polish.mm
+
+
+#pragma mark - BEGIN ZNInstanceSelectionV2UI.mm
+#line 1 "ZNInstanceSelectionV2UI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+
+#import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPResolver.h"
+#import "ZNRuntimeActionRuntime.h"
+#import "ZNPatchCore.h"
+
+static const uint32_t kZNM44MethodAttributeStatic = 0x0010u;
+static const NSInteger kZNM44FeatureExecuteTagBase = 672000;
+static const NSInteger kZNM44FeatureCompactExecuteTagBase = 673000;
+
+typedef uint32_t (*ZNM44MethodGetFlagsFn)(const void *, uint32_t *);
+
+static UIViewController *ZNM44TopController(UIViewController *vc) {
+    if (!vc) return nil;
+    if (vc.presentedViewController && !vc.presentedViewController.isBeingDismissed) return ZNM44TopController(vc.presentedViewController);
+    if ([vc isKindOfClass:UINavigationController.class]) return ZNM44TopController(((UINavigationController *)vc).visibleViewController ?: vc);
+    if ([vc isKindOfClass:UITabBarController.class]) return ZNM44TopController(((UITabBarController *)vc).selectedViewController ?: vc);
+    if ([vc isKindOfClass:UISplitViewController.class]) return ZNM44TopController(((UISplitViewController *)vc).viewControllers.lastObject ?: vc);
+    return vc;
+}
+
+static void ZNM44CollectTestButtons(UIView *view, id target, NSMutableArray<UIButton *> *out) {
+    for (UIView *child in view.subviews) {
+        if ([child isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)child;
+            NSArray<NSString *> *actions = [button actionsForTarget:target forControlEvent:UIControlEventTouchUpInside] ?: @[];
+            if ([actions containsObject:NSStringFromSelector(@selector(znm43_testCandidate:))]) [out addObject:button];
+        }
+        ZNM44CollectTestButtons(child, target, out);
+    }
+}
+
+static CGFloat ZNM44ButtonY(UIButton *button, UIView *contentView) {
+    CGRect rect = [button convertRect:button.bounds toView:contentView];
+    return CGRectGetMinY(rect);
+}
+
+static NSDictionary *ZNM44CandidateForButton(ZNRuntimeMenuControllerV040 *controller, UIButton *sender) {
+    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
+    NSInteger filter = [controller znm42_filter];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in all) {
+        if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [visible addObject:candidate];
+    }
+    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+    ZNM44CollectTestButtons(controller.contentView, controller, buttons);
+    [buttons sortUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        CGFloat ay = ZNM44ButtonY(a, controller.contentView);
+        CGFloat by = ZNM44ButtonY(b, controller.contentView);
+        if (ay < by) return NSOrderedAscending;
+        if (ay > by) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+    NSUInteger index = [buttons indexOfObjectIdenticalTo:sender];
+    return index != NSNotFound && index < visible.count ? visible[index] : nil;
+}
+
+static void *ZNM44ResolveSymbol(NSString *path, const char *name) {
+    void *symbol = dlsym(RTLD_DEFAULT, name);
+    if (symbol || !path.length) return symbol;
+#ifdef RTLD_NOLOAD
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+#else
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY);
+#endif
+    return handle ? dlsym(handle, name) : NULL;
+}
+
+static BOOL ZNM44MethodIsStatic(NSString *assembly,
+                                NSString *namespaceName,
+                                NSString *className,
+                                NSString *methodName,
+                                NSUInteger argumentCount,
+                                NSNumber *methodInfoHint,
+                                BOOL *known) {
+    if (known) *known = NO;
+    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    if (!resolver.isAvailable) return NO;
+    uintptr_t methodInfo = [methodInfoHint unsignedLongLongValue];
+    if (!methodInfo) {
+        NSDictionary *resolved = [resolver resolveMethodAssembly:assembly
+                                                       namespace:namespaceName ?: @""
+                                                       className:className
+                                                          method:methodName
+                                                   argumentCount:(NSInteger)argumentCount];
+        methodInfo = [resolved[@"methodInfo"] unsignedLongLongValue];
+    }
+    if (!methodInfo) return NO;
+    ZNM44MethodGetFlagsFn getFlags = (ZNM44MethodGetFlagsFn)ZNM44ResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
+    if (!getFlags) return NO;
+    uint32_t implFlags = 0;
+    uint32_t flags = getFlags((const void *)methodInfo, &implFlags);
+    if (known) *known = YES;
+    return (flags & kZNM44MethodAttributeStatic) != 0;
+}
+
+typedef void (^ZNM44ReadyBlock)(void);
+
+static void ZNM44EnsureInstance(ZNRuntimeMenuControllerV040 *controller,
+                                NSString *assembly,
+                                NSString *namespaceName,
+                                NSString *className,
+                                UIView *sourceView,
+                                ZNM44ReadyBlock ready) {
+    ZNIL2CPPInstanceResolver *resolver = [ZNIL2CPPInstanceResolver sharedResolver];
+    uintptr_t selected = [resolver znm44_selectedInstanceForAssembly:assembly namespace:namespaceName className:className];
+    if (selected) {
+        NSString *validationError = nil;
+        if ([resolver znm44_validateInstanceAddress:selected assembly:assembly namespace:namespaceName className:className error:&validationError]) {
+            if (ready) ready();
+            return;
+        }
+        [resolver znm44_clearSelectedInstanceForAssembly:assembly namespace:namespaceName className:className];
+    }
+
+    NSString *diagnostics = nil;
+    NSString *findError = nil;
+    NSArray<NSNumber *> *instances = [resolver candidateAddressesForAssembly:assembly
+                                                                    namespace:namespaceName ?: @""
+                                                                    className:className
+                                                                        limit:32
+                                                                  diagnostics:&diagnostics
+                                                                        error:&findError];
+    if (!instances.count) {
+        [controller zn60v3_setStatus:findError ?: @"Instance Resolver：没有找到活实例"];
+        [controller renderPage];
+        return;
+    }
+    if (instances.count == 1) {
+        NSString *selectionError = nil;
+        if ([resolver znm44_selectInstanceAddress:instances.firstObject.unsignedLongLongValue
+                                         assembly:assembly
+                                        namespace:namespaceName ?: @""
+                                        className:className
+                                            error:&selectionError]) {
+            if (ready) ready();
+        } else {
+            [controller zn60v3_setStatus:selectionError ?: @"Instance Resolver：唯一实例验证失败"];
+            [controller renderPage];
+        }
+        return;
+    }
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"选择实例 · %@", className ?: @"Object"]
+                                                                   message:[NSString stringWithFormat:@"发现 %lu 个活实例；本次选择仅在当前进程有效", (unsigned long)instances.count]
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak ZNRuntimeMenuControllerV040 *weakController = controller;
+    for (NSUInteger i = 0; i < instances.count; i++) {
+        uintptr_t address = instances[i].unsignedLongLongValue;
+        NSString *title = [NSString stringWithFormat:@"实例 %lu · 0x%llX", (unsigned long)(i + 1), (unsigned long long)address];
+        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            ZNRuntimeMenuControllerV040 *strongController = weakController;
+            if (!strongController) return;
+            NSString *selectionError = nil;
+            BOOL ok = [[ZNIL2CPPInstanceResolver sharedResolver] znm44_selectInstanceAddress:address
+                                                                                     assembly:assembly
+                                                                                    namespace:namespaceName ?: @""
+                                                                                    className:className
+                                                                                        error:&selectionError];
+            if (ok) {
+                [strongController zn60v3_setStatus:[NSString stringWithFormat:@"已选择 %@ 实例：0x%llX", className ?: @"Object", (unsigned long long)address]];
+                if (ready) ready();
+            } else {
+                [strongController zn60v3_setStatus:selectionError ?: @"实例验证失败"];
+                [strongController renderPage];
+            }
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIWindow *window = controller.hostWindow ?: [controller currentWindow];
+    UIViewController *presenter = ZNM44TopController(window.rootViewController);
+    if (!presenter) return;
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover) {
+        popover.sourceView = sourceView ?: controller.contentView;
+        popover.sourceRect = sourceView ? sourceView.bounds : controller.contentView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNInstanceSelectionV2UI)
+- (void)znm44_testCandidate:(UIButton *)sender;
+- (void)znm44_executeAction:(UIButton *)sender;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNInstanceSelectionV2UI)
+
+- (void)znm44_testCandidate:(UIButton *)sender {
+    NSDictionary *candidate = ZNM44CandidateForButton(self, sender);
+    if (!candidate) {
+        [self znm44_testCandidate:sender];
+        return;
+    }
+    NSString *assembly = candidate[@"assembly"] ?: @"Assembly-CSharp.dll";
+    NSString *namespaceName = candidate[@"namespace"] ?: @"";
+    NSString *className = candidate[@"class"] ?: @"";
+    NSString *methodName = candidate[@"method"] ?: @"";
+    NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
+    BOOL known = NO;
+    BOOL isStatic = ZNM44MethodIsStatic(assembly, namespaceName, className, methodName, argc, candidate[@"methodInfo"], &known);
+    if (!known || isStatic) {
+        [self znm44_testCandidate:sender];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    ZNM44EnsureInstance(self, assembly, namespaceName, className, sender, ^{
+        [weakSelf znm44_testCandidate:sender];
+    });
+}
+
+- (void)znm44_executeAction:(UIButton *)sender {
+    NSInteger index = sender.tag - kZNM44FeatureExecuteTagBase;
+    if (sender.tag >= kZNM44FeatureCompactExecuteTagBase) index = sender.tag - kZNM44FeatureCompactExecuteTagBase;
+    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
+    [runtime refresh];
+    if (index < 0 || (NSUInteger)index >= runtime.records.count) {
+        [self znm44_executeAction:sender];
+        return;
+    }
+    ZNRuntimeMethodActionRecord *record = runtime.records[(NSUInteger)index];
+    BOOL known = NO;
+    BOOL isStatic = ZNM44MethodIsStatic(record.assembly,
+                                        record.namespaceName,
+                                        record.className,
+                                        record.methodName,
+                                        record.argumentCount,
+                                        nil,
+                                        &known);
+    if (!known || isStatic) {
+        [self znm44_executeAction:sender];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    ZNM44EnsureInstance(self, record.assembly, record.namespaceName, record.className, sender, ^{
+        [weakSelf znm44_executeAction:sender];
+    });
+}
+
+@end
+
+static void ZNM44Swap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallInstanceSelectionV2UIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        ZNInstallIL2CPPInstanceSelectionV2Deferred();
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM44Swap(cls, @selector(znm43_testCandidate:), @selector(znm44_testCandidate:));
+        ZNM44Swap(cls, @selector(znrmc_executeAction:), @selector(znm44_executeAction:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[instance-selection-v2] multi-instance picker UI installed"];
+    });
+}
+
+#pragma mark - END ZNInstanceSelectionV2UI.mm
+
+
+#pragma mark - BEGIN ZNM441Hotfix.mm
+#line 1 "ZNM441Hotfix.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <mach-o/dyld.h>
+#import <dlfcn.h>
+#import <errno.h>
+#import <ctype.h>
+
+#import "ZNBinaryPatchWorkspace.h"
+#import "ZNIL2CPPABIMetadata.h"
+#import "ZNIL2CPPHybridFinder.h"
+#import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPInvokeEngine.h"
+#import "ZNIL2CPPResolver.h"
+#import "ZNPatchCore.h"
+
+// M4.4.1 hotfix
+// 1) Finder keyboard Search and visible Search button share one submit handler.
+// 2) Finder accepts bare HEX / 0x / rva: forms and va: runtime addresses.
+// 3) Patch Offset accepts bare HEX and normalizes to 0x... on Done.
+// 4) /1 Unity value structs Vector2/Vector3/Quaternion/Color are supported as
+//    comma/space separated float components; unsupported /1 fields show why.
+
+static const NSInteger kZNM441LimitTag = 643001;
+static const uint32_t kZNM441MethodAttributeStatic = 0x0010u;
+
+typedef void *(*ZNM441RuntimeInvokeFn)(const void *method, void *object, void **params, void **exception);
+typedef uint32_t (*ZNM441MethodGetFlagsFn)(const void *method, uint32_t *iflags);
+
+typedef struct { float x, y; } ZNM441Vector2;
+typedef struct { float x, y, z; } ZNM441Vector3;
+typedef struct { float x, y, z, w; } ZNM441Quaternion;
+typedef struct { float r, g, b, a; } ZNM441Color;
+
+static NSString *ZNM441Trim(NSString *value) {
+    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static BOOL ZNM441AllHex(NSString *value, BOOL *hasDigit) {
+    NSString *s = ZNM441Trim(value);
+    if (!s.length) return NO;
+    BOOL digit = NO;
+    for (NSUInteger i = 0; i < s.length; i++) {
+        unichar c = [s characterAtIndex:i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return NO;
+        if (c >= '0' && c <= '9') digit = YES;
+    }
+    if (hasDigit) *hasDigit = digit;
+    return YES;
+}
+
+static BOOL ZNM441ParseHexBody(NSString *body, uint64_t *outValue) {
+    NSString *s = ZNM441Trim(body);
+    if ([s.lowercaseString hasPrefix:@"0x"]) s = [s substringFromIndex:2];
+    if (!s.length || !ZNM441AllHex(s, NULL)) return NO;
+    const char *raw = s.UTF8String;
+    if (!raw) return NO;
+    errno = 0;
+    char *end = NULL;
+    unsigned long long value = strtoull(raw, &end, 16);
+    if (errno || end == raw || (end && *end)) return NO;
+    if (outValue) *outValue = (uint64_t)value;
+    return YES;
+}
+
+static uintptr_t ZNM441UnityRuntimeBase(void) {
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const char *raw = _dyld_get_image_name(i);
+        if (!raw) continue;
+        NSString *path = [NSString stringWithUTF8String:raw] ?: @"";
+        if ([path.lastPathComponent isEqualToString:@"UnityFramework"] ||
+            [path rangeOfString:@"UnityFramework.framework/UnityFramework" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return (uintptr_t)_dyld_get_image_header(i);
+        }
+    }
+    return 0;
+}
+
+static NSString *ZNM441NormalizeFinderQuery(NSString *raw, BOOL *isAddress, NSString **error) {
+    NSString *s = ZNM441Trim(raw);
+    if (isAddress) *isAddress = NO;
+    if (!s.length) return s;
+
+    NSString *lower = s.lowercaseString;
+    BOOL explicitRVA = [lower hasPrefix:@"rva:"];
+    BOOL explicitVA = [lower hasPrefix:@"va:"];
+    BOOL explicit0x = [lower hasPrefix:@"0x"];
+    BOOL hasDigit = NO;
+    BOOL bareHex = ZNM441AllHex(s, &hasDigit) && hasDigit && s.length >= 5;
+    if (!explicitRVA && !explicitVA && !explicit0x && !bareHex) return s;
+
+    NSString *body = s;
+    if (explicitRVA) body = [s substringFromIndex:4];
+    else if (explicitVA) body = [s substringFromIndex:3];
+
+    uint64_t value = 0;
+    if (!ZNM441ParseHexBody(body, &value)) {
+        if (error) *error = [NSString stringWithFormat:@"地址格式无效：%@", raw ?: @""];
+        return nil;
+    }
+    if (explicitVA) {
+        uintptr_t base = ZNM441UnityRuntimeBase();
+        if (!base || value < (uint64_t)base) {
+            if (error) *error = [NSString stringWithFormat:@"Runtime VA 无法换算 UnityFramework RVA：0x%llX", (unsigned long long)value];
+            return nil;
+        }
+        value -= (uint64_t)base;
+    }
+    if (isAddress) *isAddress = YES;
+    return [NSString stringWithFormat:@"rva:0x%llX", (unsigned long long)value];
+}
+
+static NSString *ZNM441NormalizePatchOffset(NSString *raw) {
+    NSString *s = ZNM441Trim(raw);
+    if (!s.length) return @"";
+    NSString *lower = s.lowercaseString;
+    if ([lower hasPrefix:@"rva:"]) s = [s substringFromIndex:4];
+    uint64_t value = 0;
+    if (!ZNM441ParseHexBody(s, &value)) return raw ?: @"";
+    return [NSString stringWithFormat:@"0x%llX", (unsigned long long)value];
+}
+
+static NSString *ZNM441SimpleTypeName(NSString *typeName) {
+    NSString *t = ZNM441Trim(typeName);
+    NSArray<NSString *> *parts = [t componentsSeparatedByString:@"."];
+    return parts.lastObject.length ? parts.lastObject : t;
+}
+
+static NSUInteger ZNM441StructComponentCount(NSString *typeName) {
+    NSString *n = ZNM441Trim(typeName).lowercaseString;
+    if ([n isEqualToString:@"unityengine.vector2"] || [n isEqualToString:@"vector2"]) return 2;
+    if ([n isEqualToString:@"unityengine.vector3"] || [n isEqualToString:@"vector3"]) return 3;
+    if ([n isEqualToString:@"unityengine.quaternion"] || [n isEqualToString:@"quaternion"]) return 4;
+    if ([n isEqualToString:@"unityengine.color"] || [n isEqualToString:@"color"]) return 4;
+    return 0;
+}
+
+static BOOL ZNM441ParseFloatComponents(NSString *text, NSUInteger expected, float outValues[4], NSString **error) {
+    NSMutableCharacterSet *separators = [[NSCharacterSet whitespaceAndNewlineCharacterSet] mutableCopy];
+    [separators addCharactersInString:@",，;；"];
+    NSArray<NSString *> *rawParts = [ZNM441Trim(text) componentsSeparatedByCharactersInSet:separators];
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *part in rawParts) if (ZNM441Trim(part).length) [parts addObject:ZNM441Trim(part)];
+    if (parts.count != expected) {
+        if (error) *error = [NSString stringWithFormat:@"需要 %lu 个浮点分量，当前=%lu", (unsigned long)expected, (unsigned long)parts.count];
+        return NO;
+    }
+    for (NSUInteger i = 0; i < expected; i++) {
+        const char *raw = parts[i].UTF8String;
+        if (!raw) return NO;
+        errno = 0;
+        char *end = NULL;
+        double value = strtod(raw, &end);
+        while (end && *end && isspace((unsigned char)*end)) end++;
+        if (errno || end == raw || (end && *end)) {
+            if (error) *error = [NSString stringWithFormat:@"第 %lu 个分量不是有效浮点数：%@", (unsigned long)i + 1, parts[i]];
+            return NO;
+        }
+        outValues[i] = (float)value;
+    }
+    return YES;
+}
+
+static void *ZNM441ResolveSymbol(NSString *unityPath, const char *name) {
+    void *symbol = dlsym(RTLD_DEFAULT, name);
+    if (symbol || !unityPath.length) return symbol;
+#ifdef RTLD_NOLOAD
+    void *handle = dlopen(unityPath.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+#else
+    void *handle = dlopen(unityPath.fileSystemRepresentation, RTLD_LAZY);
+#endif
+    return handle ? dlsym(handle, name) : NULL;
+}
+
+static void ZNM441Walk(UIView *root, void (^block)(UIView *view)) {
+    if (!root || !block) return;
+    block(root);
+    for (UIView *child in root.subviews) ZNM441Walk(child, block);
+}
+
+static void ZNM441EnableCardActions(UIView *root) {
+    if (!root) return;
+    for (UIView *view in root.subviews) {
+        if ([view isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)view;
+            NSString *title = [button titleForState:UIControlStateNormal] ?: @"";
+            if ([title isEqualToString:@"测试执行"] || [title isEqualToString:@"创建方法"]) {
+                button.enabled = YES;
+                button.alpha = 1.0;
+            }
+        }
+    }
+}
+
+static NSString *ZNM441UnsupportedFieldReason(NSString *placeholder) {
+    NSString *p = placeholder ?: @"";
+    NSString *lower = p.lowercaseString;
+    if ([p containsString:@"&"]) return @"ref/out 暂不支持";
+    if ([p containsString:@"*"]) return @"pointer 暂不支持";
+    if ([lower containsString:@"?"]) return @"ABI 类型不可用";
+    if ([lower containsString:@"list"] || [lower containsString:@"dictionary"] || [lower containsString:@"[]"] ||
+        [lower containsString:@"gameobject"] || [lower containsString:@"component"] || [lower containsString:@"transform"]) {
+        return @"对象参数暂不支持";
+    }
+    return @"对象/复杂值类型暂不支持";
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM441Hotfix)
+- (void)znm441_renderSearchAtWidth:(CGFloat)width;
+- (void)znm441_renderResultsAtWidth:(CGFloat)width;
+- (void)znm441_submitSearch:(id)sender;
+- (void)znm441_endEditing:(UITextField *)field;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM441Hotfix)
+
+- (void)znm441_renderSearchAtWidth:(CGFloat)width {
+    [self znm441_renderSearchAtWidth:width];
+
+    __block UITextField *queryField = nil;
+    __block UIButton *searchButton = nil;
+    ZNM441Walk(self.contentView, ^(UIView *view) {
+        if ([view isKindOfClass:UITextField.class]) {
+            UITextField *field = (UITextField *)view;
+            if (field.tag != kZNM441LimitTag && field.returnKeyType == UIReturnKeySearch) queryField = field;
+        } else if ([view isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)view;
+            if ([[button titleForState:UIControlStateNormal] isEqualToString:@"搜索"]) searchButton = button;
+        }
+    });
+
+    if (queryField) {
+        [queryField removeTarget:nil action:NULL forControlEvents:UIControlEventEditingDidEndOnExit];
+        [queryField addTarget:self action:@selector(znm441_submitSearch:) forControlEvents:UIControlEventEditingDidEndOnExit];
+    }
+    if (searchButton) {
+        [searchButton removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
+        [searchButton addTarget:self action:@selector(znm441_submitSearch:) forControlEvents:UIControlEventTouchUpInside];
+    }
+}
+
+- (void)znm441_submitSearch:(id)sender {
+    (void)sender;
+    [self.hostWindow endEditing:YES];
+
+    UITextField *limitField = (UITextField *)[self.contentView viewWithTag:kZNM441LimitTag];
+    if ([limitField isKindOfClass:UITextField.class] && limitField.text.length) {
+        NSInteger rawLimit = limitField.text.integerValue;
+        NSUInteger value = (NSUInteger)MAX(1, MIN(1024, rawLimit));
+        [self zn60v3_setLimit:value];
+    }
+
+    NSString *rawQuery = ZNM441Trim([self zn57mf_query]);
+    if (!rawQuery.length) {
+        [self zn60v3_setStatus:@"请输入方法名或地址"];
+        [self renderPage];
+        return;
+    }
+
+    BOOL addressQuery = NO;
+    NSString *normalizeError = nil;
+    NSString *query = ZNM441NormalizeFinderQuery(rawQuery, &addressQuery, &normalizeError);
+    if (!query) {
+        [self zn60v3_setStatus:normalizeError ?: @"地址格式无效"];
+        [self renderPage];
+        return;
+    }
+    if (addressQuery && ![query isEqualToString:rawQuery]) [self zn57mf_setQuery:query];
+
+    NSString *assembly = [self znm43_selectedAssembly] ?: @"";
+    NSString *expression = query;
+    if (assembly.length && !addressQuery && [query rangeOfString:@"!"].location == NSNotFound) {
+        expression = [NSString stringWithFormat:@"%@!%@", assembly, query];
+    }
+
+    NSString *searchError = nil;
+    NSArray<NSDictionary *> *items = [[ZNIL2CPPHybridFinder sharedFinder] zn60_searchCandidates:expression
+                                                                                           limit:[self zn60v3_limit]
+                                                                                           error:&searchError];
+    if (!items.count) {
+        [self zn60v3_setStatus:searchError ?: @"没有搜索结果"];
+        [self zn60v3_setPage:0];
+        [self renderPage];
+        return;
+    }
+
+    [self zn60v3_setCandidates:items];
+    [self zn60v3_setSelected:nil];
+    NSDictionary *stats = items.firstObject[@"searchStats"] ?: @{};
+    NSString *scope = addressQuery ? @"地址反查" : (assembly.length ? ZNM441SimpleTypeName([assembly stringByDeletingPathExtension]) : @"全部 Assembly");
+    [self zn60v3_setStatus:[NSString stringWithFormat:@"%@ · %@：%lu 个候选 · %@ classes · %.1fms",
+                              scope,
+                              query,
+                              (unsigned long)items.count,
+                              stats[@"classesScanned"] ?: @0,
+                              [stats[@"elapsedMs"] doubleValue]]];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.4.1-search] scope=%@ raw=%@ normalized=%@ limit=%lu -> %lu",
+                                         scope, rawQuery, query, (unsigned long)[self zn60v3_limit], (unsigned long)items.count]];
+    [self zn60v3_setPage:1];
+    [self renderPage];
+}
+
+- (void)znm441_renderResultsAtWidth:(CGFloat)width {
+    [self znm441_renderResultsAtWidth:width];
+    ZNM441Walk(self.contentView, ^(UIView *view) {
+        if (![view isKindOfClass:UITextField.class]) return;
+        UITextField *field = (UITextField *)view;
+        if (field.enabled) return;
+        NSString *placeholder = field.placeholder ?: @"";
+        NSString *lower = placeholder.lowercaseString;
+        NSUInteger components = 0;
+        NSString *componentHint = nil;
+        if ([lower containsString:@"vector2"]) { components = 2; componentHint = @"x,y"; }
+        else if ([lower containsString:@"vector3"]) { components = 3; componentHint = @"x,y,z"; }
+        else if ([lower containsString:@"quaternion"]) { components = 4; componentHint = @"x,y,z,w"; }
+        else if ([lower containsString:@"color"]) { components = 4; componentHint = @"r,g,b,a"; }
+
+        if (components) {
+            field.enabled = YES;
+            field.alpha = 1.0;
+            field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
+            field.returnKeyType = UIReturnKeyDone;
+            if (![placeholder containsString:componentHint]) {
+                field.placeholder = placeholder.length ? [NSString stringWithFormat:@"%@ · %@", placeholder, componentHint] : componentHint;
+            }
+            ZNM441EnableCardActions(field.superview);
+        } else if (![placeholder containsString:@"暂不支持"]) {
+            NSString *reason = ZNM441UnsupportedFieldReason(placeholder);
+            field.placeholder = placeholder.length ? [NSString stringWithFormat:@"%@ · %@", placeholder, reason] : reason;
+        }
+    });
+}
+
+- (void)znm441_endEditing:(UITextField *)field {
+    if (field.tag >= 441000 && field.tag < 442000) {
+        NSString *normalized = ZNM441NormalizePatchOffset(field.text ?: @"");
+        field.text = normalized;
+        [[ZNBinaryPatchWorkspace sharedWorkspace] updateOffset:normalized row:(NSUInteger)(field.tag - 441000)];
+    }
+    [self znm441_endEditing:field];
+}
+
+@end
+
+@interface ZNIL2CPPInvokeEngine (ZNM441CommonStruct)
+- (NSDictionary<NSString *, id> * _Nullable)znm441_executeAssembly:(NSString *)assembly
+                                                          namespace:(NSString *)namespaceName
+                                                          className:(NSString *)className
+                                                             method:(NSString *)methodName
+                                                      argumentCount:(NSUInteger)argumentCount
+                                                     argumentValues:(NSArray<NSString *> *)argumentValues
+                                                              error:(NSString * _Nullable * _Nullable)error;
+@end
+
+@implementation ZNIL2CPPInvokeEngine (ZNM441CommonStruct)
+
+- (NSDictionary<NSString *,id> *)znm441_executeAssembly:(NSString *)assembly
+                                               namespace:(NSString *)namespaceName
+                                               className:(NSString *)className
+                                                  method:(NSString *)methodName
+                                           argumentCount:(NSUInteger)argumentCount
+                                          argumentValues:(NSArray<NSString *> *)argumentValues
+                                                   error:(NSString **)error {
+    if (argumentCount != 1 || argumentValues.count != 1) {
+        return [self znm441_executeAssembly:assembly namespace:namespaceName className:className method:methodName argumentCount:argumentCount argumentValues:argumentValues error:error];
+    }
+
+    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    if (!resolver.isAvailable) {
+        return [self znm441_executeAssembly:assembly namespace:namespaceName className:className method:methodName argumentCount:argumentCount argumentValues:argumentValues error:error];
+    }
+    NSDictionary *resolved = [resolver resolveMethodAssembly:assembly namespace:namespaceName ?: @"" className:className method:methodName argumentCount:1];
+    uintptr_t methodInfo = [resolved[@"methodInfo"] unsignedLongLongValue];
+    if (!methodInfo) {
+        return [self znm441_executeAssembly:assembly namespace:namespaceName className:className method:methodName argumentCount:argumentCount argumentValues:argumentValues error:error];
+    }
+
+    NSMutableDictionary *candidate = [NSMutableDictionary dictionaryWithDictionary:resolved ?: @{}];
+    candidate[@"methodInfo"] = @(methodInfo);
+    candidate[@"assembly"] = assembly ?: @"";
+    candidate[@"namespace"] = namespaceName ?: @"";
+    candidate[@"class"] = className ?: @"";
+    candidate[@"method"] = methodName ?: @"";
+    candidate[@"argumentCount"] = @1;
+    NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
+    NSDictionary *param = [abi[@"parameters"] firstObject];
+    NSString *typeName = [param[@"name"] isKindOfClass:NSString.class] ? param[@"name"] : @"";
+    NSUInteger componentCount = ZNM441StructComponentCount(typeName);
+    if (!componentCount || [param[@"byRef"] boolValue] || [param[@"pointer"] boolValue]) {
+        return [self znm441_executeAssembly:assembly namespace:namespaceName className:className method:methodName argumentCount:argumentCount argumentValues:argumentValues error:error];
+    }
+    if ([abi[@"genericStatusKnown"] boolValue] && [abi[@"generic"] boolValue]) {
+        if (error) *error = @"FAILED_ARGUMENT_ABI：generic definition 暂不执行 Unity struct 参数";
+        return nil;
+    }
+
+    float components[4] = {0, 0, 0, 0};
+    NSString *parseError = nil;
+    if (!ZNM441ParseFloatComponents(argumentValues.firstObject, componentCount, components, &parseError)) {
+        if (error) *error = [NSString stringWithFormat:@"FAILED_ARGUMENT_VALUE：%@ %@", ZNM441SimpleTypeName(typeName), parseError ?: @"格式错误"];
+        return nil;
+    }
+
+    ZNM441RuntimeInvokeFn runtimeInvoke = (ZNM441RuntimeInvokeFn)ZNM441ResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
+    ZNM441MethodGetFlagsFn methodGetFlags = (ZNM441MethodGetFlagsFn)ZNM441ResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
+    if (!runtimeInvoke || !methodGetFlags) {
+        if (error) *error = @"FAILED_INVOKE_UNAVAILABLE：Unity struct invoke 所需 IL2CPP API 不完整";
+        return nil;
+    }
+
+    uint32_t implFlags = 0;
+    uint32_t methodFlags = methodGetFlags((const void *)methodInfo, &implFlags);
+    BOOL isStatic = (methodFlags & kZNM441MethodAttributeStatic) != 0;
+    void *targetObject = NULL;
+    NSString *instanceDiagnostics = @"";
+    if (!isStatic) {
+        NSString *instanceError = nil;
+        targetObject = [[ZNIL2CPPInstanceResolver sharedResolver] resolveUniqueInstanceForAssembly:assembly
+                                                                                        namespace:namespaceName ?: @""
+                                                                                        className:className
+                                                                                      diagnostics:&instanceDiagnostics
+                                                                                            error:&instanceError];
+        if (!targetObject) {
+            if (error) *error = instanceError ?: @"FAILED_INSTANCE_REQUIRED：无法解析对象实例";
+            return nil;
+        }
+    }
+
+    ZNM441Vector2 v2 = { components[0], components[1] };
+    ZNM441Vector3 v3 = { components[0], components[1], components[2] };
+    ZNM441Quaternion q = { components[0], components[1], components[2], components[3] };
+    ZNM441Color color = { components[0], components[1], components[2], components[3] };
+    void *valuePtr = NULL;
+    NSString *simple = ZNM441SimpleTypeName(typeName).lowercaseString;
+    if ([simple isEqualToString:@"vector2"]) valuePtr = &v2;
+    else if ([simple isEqualToString:@"vector3"]) valuePtr = &v3;
+    else if ([simple isEqualToString:@"quaternion"]) valuePtr = &q;
+    else if ([simple isEqualToString:@"color"]) valuePtr = &color;
+    if (!valuePtr) {
+        return [self znm441_executeAssembly:assembly namespace:namespaceName className:className method:methodName argumentCount:argumentCount argumentValues:argumentValues error:error];
+    }
+
+    void *params[1] = { valuePtr };
+    void *exception = NULL;
+    void *result = runtimeInvoke((const void *)methodInfo, targetObject, params, &exception);
+    if (exception) {
+        if (error) *error = [NSString stringWithFormat:@"FAILED_EXCEPTION：IL2CPP exception=0x%llX", (unsigned long long)(uintptr_t)exception];
+        return nil;
+    }
+
+    NSDictionary *output = @{
+        @"status": @"SUCCESS",
+        @"methodInfo": @(methodInfo),
+        @"methodPointer": resolved[@"methodPointer"] ?: @0,
+        @"pointerSource": resolved[@"pointerSource"] ?: @"unavailable",
+        @"methodFlags": @(methodFlags),
+        @"implFlags": @(implFlags),
+        @"static": @(isStatic),
+        @"instance": @((uintptr_t)targetObject),
+        @"instanceDiagnostics": instanceDiagnostics ?: @"",
+        @"argumentCount": @1,
+        @"argumentValues": argumentValues ?: @[],
+        @"parameterType": typeName ?: @"",
+        @"result": @((uintptr_t)result),
+        @"m441CommonStruct": @YES,
+    };
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.4.1-struct] SUCCESS %@!%@.%@::%@/1 type=%@ value=%@ static=%@ object=0x%llX",
+                                         assembly ?: @"", namespaceName ?: @"", className ?: @"", methodName ?: @"",
+                                         typeName ?: @"", argumentValues.firstObject ?: @"", isStatic ? @"YES" : @"NO",
+                                         (unsigned long long)(uintptr_t)targetObject]];
+    if (error) *error = nil;
+    return output;
+}
+
+@end
+
+static void ZNM441Swap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM441HotfixDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (menu) {
+            ZNM441Swap(menu, @selector(zn60v3_renderSearchAtWidth:), @selector(znm441_renderSearchAtWidth:));
+            ZNM441Swap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(znm441_renderResultsAtWidth:));
+            ZNM441Swap(menu, @selector(zn44_endEditing:), @selector(znm441_endEditing:));
+        }
+        Class engine = ZNIL2CPPInvokeEngine.class;
+        ZNM441Swap(engine,
+                   @selector(executeAssembly:namespace:className:method:argumentCount:argumentValues:error:),
+                   @selector(znm441_executeAssembly:namespace:className:method:argumentCount:argumentValues:error:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.4.1-hotfix] unified search route + hex normalization + common Unity /1 structs installed"];
+    });
+}
+
+#pragma mark - END ZNM441Hotfix.mm
+
+
+#pragma mark - BEGIN ZNM442SearchRestore.mm
+#line 1 "ZNM442SearchRestore.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <mach-o/dyld.h>
+#import <errno.h>
+
+#import "ZNPatchCore.h"
+
+// M4.4.2 search-route restore
+//
+// M4.3 swaps zn60v3_startSearch: <-> znm43_startSearch:. After that swap the
+// selector znm43_startSearch: intentionally points at the original, device-
+// proven V3 search implementation. M4.4.1 accidentally bypassed that path by
+// rebinding both keyboard Search and the visible Search button to a third
+// implementation. This outer hotfix keeps M4.4.1's input improvements but
+// routes both UI entry points back through the proven V3 implementation.
+//
+// Assembly semantics are also restored:
+// - before the user explicitly chooses an Assembly, search remains global and
+//   the V3 backend keeps its original Assembly-CSharp-first priority;
+// - after an explicit picker choice, a non-empty Assembly becomes a strict
+//   Assembly filter by temporarily qualifying the query as Assembly!query.
+
+static const void *kZNM442AssemblyExplicitKey = &kZNM442AssemblyExplicitKey;
+static const NSInteger kZNM442LimitTag = 643001;
+
+static NSString *ZNM442Trim(NSString *value) {
+    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static void ZNM442Walk(UIView *root, void (^block)(UIView *view)) {
+    if (!root || !block) return;
+    block(root);
+    for (UIView *subview in root.subviews) ZNM442Walk(subview, block);
+}
+
+static BOOL ZNM442AllHex(NSString *value, BOOL *hasDigit) {
+    NSString *s = ZNM442Trim(value);
+    if (!s.length) return NO;
+    BOOL digit = NO;
+    for (NSUInteger i = 0; i < s.length; i++) {
+        unichar c = [s characterAtIndex:i];
+        BOOL hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        if (!hex) return NO;
+        if (c >= '0' && c <= '9') digit = YES;
+    }
+    if (hasDigit) *hasDigit = digit;
+    return YES;
+}
+
+static BOOL ZNM442ParseHexBody(NSString *body, uint64_t *outValue) {
+    NSString *s = ZNM442Trim(body);
+    if ([s.lowercaseString hasPrefix:@"0x"]) s = [s substringFromIndex:2];
+    if (!s.length || !ZNM442AllHex(s, NULL)) return NO;
+    const char *raw = s.UTF8String;
+    if (!raw) return NO;
+    errno = 0;
+    char *end = NULL;
+    unsigned long long value = strtoull(raw, &end, 16);
+    if (errno || end == raw || (end && *end)) return NO;
+    if (outValue) *outValue = (uint64_t)value;
+    return YES;
+}
+
+static uintptr_t ZNM442UnityRuntimeBase(void) {
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const char *raw = _dyld_get_image_name(i);
+        if (!raw) continue;
+        NSString *path = [NSString stringWithUTF8String:raw] ?: @"";
+        if ([path.lastPathComponent isEqualToString:@"UnityFramework"] ||
+            [path rangeOfString:@"UnityFramework.framework/UnityFramework" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return (uintptr_t)_dyld_get_image_header(i);
+        }
+    }
+    return 0;
+}
+
+static NSString *ZNM442NormalizeQuery(NSString *raw, BOOL *isAddress, NSString **error) {
+    NSString *s = ZNM442Trim(raw);
+    if (isAddress) *isAddress = NO;
+    if (!s.length) return s;
+
+    NSString *lower = s.lowercaseString;
+    BOOL explicitRVA = [lower hasPrefix:@"rva:"];
+    BOOL explicitVA = [lower hasPrefix:@"va:"];
+    BOOL explicit0x = [lower hasPrefix:@"0x"];
+    BOOL hasDigit = NO;
+    BOOL bareHex = ZNM442AllHex(s, &hasDigit) && hasDigit && s.length >= 5;
+    if (!explicitRVA && !explicitVA && !explicit0x && !bareHex) return s;
+
+    NSString *body = s;
+    if (explicitRVA) body = [s substringFromIndex:4];
+    else if (explicitVA) body = [s substringFromIndex:3];
+
+    uint64_t value = 0;
+    if (!ZNM442ParseHexBody(body, &value)) {
+        if (error) *error = [NSString stringWithFormat:@"地址格式无效：%@", raw ?: @""];
+        return nil;
+    }
+    if (explicitVA) {
+        uintptr_t base = ZNM442UnityRuntimeBase();
+        if (!base || value < (uint64_t)base) {
+            if (error) *error = [NSString stringWithFormat:@"Runtime VA 无法换算 UnityFramework RVA：0x%llX", (unsigned long long)value];
+            return nil;
+        }
+        value -= (uint64_t)base;
+    }
+    if (isAddress) *isAddress = YES;
+    return [NSString stringWithFormat:@"rva:0x%llX", (unsigned long long)value];
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM442SearchRestore)
+- (void)znm442_renderSearchAtWidth:(CGFloat)width;
+- (void)znm442_submitSearch:(id)sender;
+- (void)znm442_setSelectedAssembly:(NSString *)value;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM442SearchRestore)
+
+- (void)znm442_setSelectedAssembly:(NSString *)value {
+    // This method is swapped with znm43_setSelectedAssembly:. Calling the alias
+    // reaches the original setter while this flag records explicit user intent.
+    objc_setAssociatedObject(self, kZNM442AssemblyExplicitKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self znm442_setSelectedAssembly:value];
+}
+
+- (void)znm442_renderSearchAtWidth:(CGFloat)width {
+    // Call the previous outer render chain (M4.4.1 -> M4.3 -> V3).
+    [self znm442_renderSearchAtWidth:width];
+
+    __block UITextField *queryField = nil;
+    __block UIButton *searchButton = nil;
+    __block UIButton *assemblyButton = nil;
+    ZNM442Walk(self.contentView, ^(UIView *view) {
+        if ([view isKindOfClass:UITextField.class]) {
+            UITextField *field = (UITextField *)view;
+            if (field.tag != kZNM442LimitTag && field.returnKeyType == UIReturnKeySearch) queryField = field;
+        } else if ([view isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)view;
+            NSString *title = [button titleForState:UIControlStateNormal] ?: @"";
+            if ([title isEqualToString:@"搜索"]) searchButton = button;
+            if ([title containsString:@"Assembly-CSharp"] && [title containsString:@"›"]) assemblyButton = button;
+        }
+    });
+
+    if (queryField) {
+        [queryField removeTarget:nil action:NULL forControlEvents:UIControlEventEditingDidEndOnExit];
+        [queryField addTarget:self action:@selector(znm442_submitSearch:) forControlEvents:UIControlEventEditingDidEndOnExit];
+    }
+    if (searchButton) {
+        [searchButton removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
+        [searchButton addTarget:self action:@selector(znm442_submitSearch:) forControlEvents:UIControlEventTouchUpInside];
+    }
+
+    BOOL explicitAssembly = [objc_getAssociatedObject(self, kZNM442AssemblyExplicitKey) boolValue];
+    if (!explicitAssembly && assemblyButton) {
+        [assemblyButton setTitle:@"Assembly-CSharp · 优先  ›" forState:UIControlStateNormal];
+    }
+}
+
+- (void)znm442_submitSearch:(id)sender {
+    UITextField *limitField = (UITextField *)[self.contentView viewWithTag:kZNM442LimitTag];
+    if ([limitField isKindOfClass:UITextField.class] && limitField.text.length) {
+        NSInteger raw = limitField.text.integerValue;
+        [self zn60v3_setLimit:(NSUInteger)MAX(1, MIN(1024, raw))];
+    }
+
+    NSString *rawQuery = ZNM442Trim([self zn57mf_query]);
+    if (!rawQuery.length) return;
+
+    BOOL addressQuery = NO;
+    NSString *normalizeError = nil;
+    NSString *normalized = ZNM442NormalizeQuery(rawQuery, &addressQuery, &normalizeError);
+    if (!normalized) {
+        // Fall back to the proven V3 path with the original text so the existing
+        // UI/status chain reports the same error semantics as before.
+        normalized = rawQuery;
+    }
+
+    BOOL explicitAssembly = [objc_getAssociatedObject(self, kZNM442AssemblyExplicitKey) boolValue];
+    NSString *assembly = [self znm43_selectedAssembly] ?: @"";
+    NSString *expression = normalized;
+    if (!addressQuery && explicitAssembly && assembly.length && [normalized rangeOfString:@"!"].location == NSNotFound) {
+        expression = [NSString stringWithFormat:@"%@!%@", assembly, normalized];
+    }
+
+    // Critical behavior: delegate execution to selector znm43_startSearch:.
+    // Because M4.3 already exchanged implementations, this selector is the
+    // original V3 search implementation that was device-proven by the visible
+    // Search button before M4.4.1.
+    [self zn57mf_setQuery:expression];
+    [self znm43_startSearch:sender];
+
+    // Do not leak temporary Assembly! qualification back into the visible field.
+    [self zn57mf_setQuery:normalized];
+    ZNM442Walk(self.contentView, ^(UIView *view) {
+        if (![view isKindOfClass:UITextField.class]) return;
+        UITextField *field = (UITextField *)view;
+        if (field.tag != kZNM442LimitTag && field.returnKeyType == UIReturnKeySearch) field.text = normalized;
+    });
+
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.4.2-search-restore] raw=%@ normalized=%@ explicitAssembly=%@ assembly=%@ engine=proven-v3",
+                                         rawQuery,
+                                         normalized,
+                                         explicitAssembly ? @"YES" : @"NO",
+                                         assembly.length ? assembly : @"<all>"]];
+}
+
+@end
+
+static void ZNM442Swap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM442SearchRestoreDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!menu) return;
+        ZNM442Swap(menu, @selector(zn60v3_renderSearchAtWidth:), @selector(znm442_renderSearchAtWidth:));
+        ZNM442Swap(menu, @selector(znm43_setSelectedAssembly:), @selector(znm442_setSelectedAssembly:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.4.2-search-restore] proven V3 engine restored for keyboard + button; Assembly-CSharp default is priority, explicit picker choice is strict"];
+    });
+}
+
+#pragma mark - END ZNM442SearchRestore.mm
+
+
+#pragma mark - BEGIN ZNM45AddressOwningMethodUI.mm
+#line 1 "ZNM45AddressOwningMethodUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <mach-o/dyld.h>
+#import <errno.h>
+
+#import "ZNIL2CPPOwningMethodResolver.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+// M4.5 outer Finder layer.
+// Named method searches remain on M4.4.2's device-proven V3 route. Address
+// queries are intercepted and resolved by an interval-aware owning-method
+// resolver so an instruction inside a method can map back to MethodInfo.
+// Unsupported /1 arguments are rendered as explanatory labels instead of
+// disabled gray text fields; only actually marshalable parameters stay inputs.
+
+static NSString *ZNM45Trim(NSString *value) {
+    return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static BOOL ZNM45AllHex(NSString *value, BOOL *hasDigit) {
+    NSString *s = ZNM45Trim(value);
+    if (!s.length) return NO;
+    BOOL digit = NO;
+    for (NSUInteger i = 0; i < s.length; i++) {
+        unichar c = [s characterAtIndex:i];
+        BOOL hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        if (!hex) return NO;
+        if (c >= '0' && c <= '9') digit = YES;
+    }
+    if (hasDigit) *hasDigit = digit;
+    return YES;
+}
+
+static BOOL ZNM45ParseHex(NSString *body, uint64_t *value) {
+    NSString *s = ZNM45Trim(body);
+    if ([s.lowercaseString hasPrefix:@"0x"]) s = [s substringFromIndex:2];
+    if (!s.length || !ZNM45AllHex(s, NULL)) return NO;
+    const char *raw = s.UTF8String;
+    if (!raw) return NO;
+    errno = 0;
+    char *end = NULL;
+    unsigned long long parsed = strtoull(raw, &end, 16);
+    if (errno || end == raw || (end && *end)) return NO;
+    if (value) *value = (uint64_t)parsed;
+    return YES;
+}
+
+static uintptr_t ZNM45UnityRuntimeBase(void) {
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const char *raw = _dyld_get_image_name(i);
+        if (!raw) continue;
+        NSString *path = [NSString stringWithUTF8String:raw] ?: @"";
+        if ([path.lastPathComponent isEqualToString:@"UnityFramework"] ||
+            [path rangeOfString:@"UnityFramework.framework/UnityFramework" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return (uintptr_t)_dyld_get_image_header(i);
+        }
+    }
+    return 0;
+}
+
+static BOOL ZNM45NormalizeAddress(NSString *raw, uint64_t *rva, NSString **normalized, NSString **error) {
+    NSString *s = ZNM45Trim(raw);
+    if (!s.length) return NO;
+    NSString *lower = s.lowercaseString;
+    BOOL explicitRVA = [lower hasPrefix:@"rva:"];
+    BOOL explicitVA = [lower hasPrefix:@"va:"];
+    BOOL explicit0x = [lower hasPrefix:@"0x"];
+    BOOL hasDigit = NO;
+    BOOL bareHex = ZNM45AllHex(s, &hasDigit) && hasDigit && s.length >= 5;
+    if (!explicitRVA && !explicitVA && !explicit0x && !bareHex) return NO;
+
+    NSString *body = s;
+    if (explicitRVA) body = [s substringFromIndex:4];
+    else if (explicitVA) body = [s substringFromIndex:3];
+
+    uint64_t value = 0;
+    if (!ZNM45ParseHex(body, &value)) {
+        if (error) *error = [NSString stringWithFormat:@"M4.5：地址格式无效：%@", raw ?: @""];
+        return YES;
+    }
+    if (explicitVA) {
+        uintptr_t base = ZNM45UnityRuntimeBase();
+        if (!base || value < (uint64_t)base) {
+            if (error) *error = [NSString stringWithFormat:@"M4.5：Runtime VA 无法换算 UnityFramework RVA：0x%llX", (unsigned long long)value];
+            return YES;
+        }
+        value -= (uint64_t)base;
+    }
+    if (rva) *rva = value;
+    if (normalized) *normalized = [NSString stringWithFormat:@"rva:0x%llX", (unsigned long long)value];
+    return YES;
+}
+
+static CGFloat ZNM45BottomY(UIView *content) {
+    CGFloat bottom = 0;
+    for (UIView *view in content.subviews) bottom = MAX(bottom, CGRectGetMaxY(view.frame));
+    return bottom;
+}
+
+static BOOL ZNM45UnsupportedReasonText(NSString *text) {
+    NSString *value = text ?: @"";
+    if (!value.length) return NO;
+    return [value containsString:@"暂不支持"] ||
+           [value containsString:@"ABI 类型不可用"] ||
+           [value containsString:@"尚未识别"];
+}
+
+static void ZNM45ReplaceUnsupportedInputs(UIView *root, ZNTheme *theme) {
+    if (!root) return;
+    NSArray<UIView *> *children = [root.subviews copy];
+    for (UIView *view in children) {
+        if ([view isKindOfClass:UITextField.class]) {
+            UITextField *field = (UITextField *)view;
+            NSString *reason = field.placeholder ?: @"";
+            if (!field.enabled && ZNM45UnsupportedReasonText(reason) && field.superview) {
+                UILabel *label = [[UILabel alloc] initWithFrame:field.frame];
+                label.text = reason;
+                label.textColor = theme.secondaryTextColor;
+                label.font = [UIFont systemFontOfSize:8.4 weight:UIFontWeightRegular];
+                label.numberOfLines = 2;
+                label.lineBreakMode = NSLineBreakByTruncatingTail;
+                label.adjustsFontSizeToFitWidth = YES;
+                label.minimumScaleFactor = 0.72;
+                label.backgroundColor = UIColor.clearColor;
+                label.alpha = 1.0;
+                [field.superview insertSubview:label aboveSubview:field];
+                [field removeFromSuperview];
+                continue;
+            }
+        }
+        ZNM45ReplaceUnsupportedInputs(view, theme);
+    }
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM45AddressOwningMethod)
+- (void)znm45_submitSearch:(id)sender;
+- (void)znm45_renderResultsAtWidth:(CGFloat)width;
+- (void)znm45_renderDetailAtWidth:(CGFloat)width;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM45AddressOwningMethod)
+
+- (void)znm45_submitSearch:(id)sender {
+    NSString *raw = ZNM45Trim([self zn57mf_query]);
+    uint64_t rva = 0;
+    NSString *normalized = nil;
+    NSString *normalizeError = nil;
+    BOOL addressQuery = ZNM45NormalizeAddress(raw, &rva, &normalized, &normalizeError);
+    if (!addressQuery) {
+        // After swizzling, this alias reaches M4.4.2's proven named-search route.
+        [self znm45_submitSearch:sender];
+        return;
+    }
+
+    [self.hostWindow endEditing:YES];
+    if (normalizeError.length) {
+        [self zn60v3_setStatus:normalizeError];
+        [self zn60v3_setPage:0];
+        [self renderPage];
+        return;
+    }
+
+    [self zn57mf_setQuery:normalized ?: raw];
+    NSString *resolveError = nil;
+    NSArray<NSDictionary *> *items = [[ZNIL2CPPOwningMethodResolver sharedResolver] resolveRVA:rva
+                                                                                          limit:[self zn60v3_limit]
+                                                                                          error:&resolveError];
+    if (!items.count) {
+        [self zn60v3_setStatus:resolveError ?: @"M4.5：找不到所属 IL2CPP 方法"];
+        [self zn60v3_setPage:0];
+        [self renderPage];
+        return;
+    }
+
+    [self zn60v3_setCandidates:items];
+    [self zn60v3_setSelected:nil];
+    NSDictionary *first = items.firstObject;
+    NSString *className = first[@"class"] ?: @"?";
+    NSString *methodName = first[@"method"] ?: @"?";
+    NSInteger argc = [first[@"argumentCount"] integerValue];
+    uint64_t methodRVA = [first[@"methodRVA"] unsignedLongLongValue];
+    uint64_t delta = [first[@"intraMethodOffset"] unsignedLongLongValue];
+    NSString *suffix = delta ? [NSString stringWithFormat:@" +0x%llX", (unsigned long long)delta] : @" · 方法入口";
+    NSString *shared = items.count > 1 ? [NSString stringWithFormat:@" · %lu 个共享代码入口候选", (unsigned long)items.count] : @"";
+    [self zn60v3_setStatus:[NSString stringWithFormat:@"0x%llX → %@::%@/%ld · start=0x%llX%@%@",
+                              (unsigned long long)rva,
+                              className,
+                              methodName,
+                              (long)argc,
+                              (unsigned long long)methodRVA,
+                              suffix,
+                              shared]];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.5-owning-method-ui] query=%@ rva=0x%llX candidates=%lu start=0x%llX delta=0x%llX",
+                                         raw,
+                                         (unsigned long long)rva,
+                                         (unsigned long)items.count,
+                                         (unsigned long long)methodRVA,
+                                         (unsigned long long)delta]];
+    [self zn60v3_setPage:1];
+    [self renderPage];
+}
+
+- (void)znm45_renderResultsAtWidth:(CGFloat)width {
+    // Previous chain renders normal supported inputs and M4.4.1 reason text.
+    [self znm45_renderResultsAtWidth:width];
+    ZNM45ReplaceUnsupportedInputs(self.contentView, self.theme);
+}
+
+- (void)znm45_renderDetailAtWidth:(CGFloat)width {
+    // Alias reaches the previous detail renderer chain (M4.3 cleanup + V3 info).
+    [self znm45_renderDetailAtWidth:width];
+    NSDictionary *candidate = [self zn60v3_selected];
+    if (![candidate[@"ownershipKind"] isKindOfClass:NSString.class]) return;
+
+    CGFloat y = ZNM45BottomY(self.contentView) + 8.0;
+    UIView *card = [self cardAtY:y height:112 width:width compact:NO];
+    UILabel *title = [self label:@"地址归属（M4.5）" size:10.6 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    title.frame = CGRectMake(13, 7, card.bounds.size.width - 26, 18);
+    [card addSubview:title];
+
+    NSString *query = candidate[@"queryRVAText"] ?: candidate[@"rvaText"] ?: @"—";
+    NSString *start = candidate[@"methodRVAText"] ?: @"—";
+    NSString *offset = candidate[@"intraMethodOffsetText"] ?: @"+0x0";
+    NSString *next = candidate[@"nextMethodRVAText"] ?: @"—";
+    NSString *kind = candidate[@"ownershipKind"] ?: @"?";
+    NSArray<NSString *> *lines = @[
+        [NSString stringWithFormat:@"查询 RVA      %@", query],
+        [NSString stringWithFormat:@"方法入口       %@  (%@)", start, offset],
+        [NSString stringWithFormat:@"下一方法入口   %@", next],
+        [NSString stringWithFormat:@"判定           %@", kind],
+    ];
+    CGFloat ly = 30.0;
+    for (NSString *line in lines) {
+        UILabel *label = [self label:line size:8.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        label.frame = CGRectMake(13, ly, card.bounds.size.width - 26, 17);
+        label.adjustsFontSizeToFitWidth = YES;
+        label.minimumScaleFactor = 0.7;
+        [card addSubview:label];
+        ly += 18.0;
+    }
+    [self.contentView addSubview:card];
+    [self zn40_updateContentHeight:y + 120.0];
+}
+
+@end
+
+static void ZNM45Swap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM45AddressOwningMethodDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!menu) return;
+        ZNM45Swap(menu, @selector(znm442_submitSearch:), @selector(znm45_submitSearch:));
+        ZNM45Swap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(znm45_renderResultsAtWidth:));
+        ZNM45Swap(menu, @selector(zn60v3_renderDetailAtWidth:), @selector(znm45_renderDetailAtWidth:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.5-owning-method] address owning-method resolver + unsupported-argument-label UI installed; named search remains proven-v3"];
+    });
+}
+
+#pragma mark - END ZNM45AddressOwningMethodUI.mm
+
+
+#pragma mark - BEGIN ZNM46FullSignatureUI.mm
+#line 1 "ZNM46FullSignatureUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+
+#import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPInvokeEngine.h"
+#import "ZNIL2CPPMethodSignature.h"
+#import "ZNIL2CPPResolver.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const uint32_t kZNM46MethodAttributeStatic = 0x0010u;
+typedef uint32_t (*ZNM46MethodGetFlagsFn)(const void *, uint32_t *);
+
+typedef void (^ZNM46ReadyBlock)(void);
+
+static NSString *ZNM46LegacyShortName(NSDictionary *candidate) {
+    NSString *method = [candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"Method";
+    NSInteger argc = [candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)] ? [candidate[@"argumentCount"] integerValue] : -1;
+    return argc >= 0 ? [NSString stringWithFormat:@"%@/%ld", method, (long)argc] : method;
+}
+
+static NSString *ZNM46CandidateCollisionKey(NSDictionary *candidate) {
+    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@",
+            candidate[@"assembly"] ?: @"",
+            candidate[@"namespace"] ?: @"",
+            candidate[@"class"] ?: @"",
+            candidate[@"method"] ?: @"",
+            candidate[@"argumentCount"] ?: @(-1)];
+}
+
+static NSArray<NSDictionary *> *ZNM46VisibleCandidates(ZNRuntimeMenuControllerV040 *controller) {
+    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
+    NSInteger filter = [controller znm42_filter];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in all) {
+        if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [visible addObject:candidate];
+    }
+    return visible;
+}
+
+static void ZNM46CollectTestButtons(UIView *view, id target, NSMutableArray<UIButton *> *out) {
+    for (UIView *child in view.subviews) {
+        if ([child isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)child;
+            NSArray<NSString *> *actions = [button actionsForTarget:target forControlEvent:UIControlEventTouchUpInside] ?: @[];
+            if ([actions containsObject:NSStringFromSelector(@selector(znm43_testCandidate:))]) [out addObject:button];
+        }
+        ZNM46CollectTestButtons(child, target, out);
+    }
+}
+
+static CGFloat ZNM46ViewY(UIView *view, UIView *content) {
+    return CGRectGetMinY([view convertRect:view.bounds toView:content]);
+}
+
+static NSDictionary *ZNM46CandidateForButton(ZNRuntimeMenuControllerV040 *controller, UIButton *sender) {
+    NSArray<NSDictionary *> *visible = ZNM46VisibleCandidates(controller);
+    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+    ZNM46CollectTestButtons(controller.contentView, controller, buttons);
+    [buttons sortUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        CGFloat ay = ZNM46ViewY(a, controller.contentView), by = ZNM46ViewY(b, controller.contentView);
+        return ay < by ? NSOrderedAscending : ay > by ? NSOrderedDescending : NSOrderedSame;
+    }];
+    NSUInteger index = [buttons indexOfObjectIdenticalTo:sender];
+    return index != NSNotFound && index < visible.count ? visible[index] : nil;
+}
+
+static void ZNM46CollectMethodLabels(UIView *view,
+                                     UIView *content,
+                                     NSSet<NSString *> *legacyNames,
+                                     NSMutableArray<UILabel *> *out) {
+    for (UIView *child in view.subviews) {
+        if ([child isKindOfClass:UILabel.class]) {
+            UILabel *label = (UILabel *)child;
+            if ([legacyNames containsObject:label.text ?: @""]) [out addObject:label];
+        }
+        ZNM46CollectMethodLabels(child, content, legacyNames, out);
+    }
+}
+
+static void *ZNM46ResolveSymbol(NSString *path, const char *name) {
+    void *p = dlsym(RTLD_DEFAULT, name);
+    if (p || !path.length) return p;
+#ifdef RTLD_NOLOAD
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+#else
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY);
+#endif
+    return handle ? dlsym(handle, name) : NULL;
+}
+
+static UIViewController *ZNM46TopController(UIViewController *vc) {
+    if (!vc) return nil;
+    if (vc.presentedViewController && !vc.presentedViewController.isBeingDismissed) return ZNM46TopController(vc.presentedViewController);
+    if ([vc isKindOfClass:UINavigationController.class]) return ZNM46TopController(((UINavigationController *)vc).visibleViewController ?: vc);
+    if ([vc isKindOfClass:UITabBarController.class]) return ZNM46TopController(((UITabBarController *)vc).selectedViewController ?: vc);
+    if ([vc isKindOfClass:UISplitViewController.class]) return ZNM46TopController(((UISplitViewController *)vc).viewControllers.lastObject ?: vc);
+    return vc;
+}
+
+static BOOL ZNM46CandidateIsStatic(NSDictionary *candidate, BOOL *known) {
+    if (known) *known = NO;
+    uintptr_t methodInfo = [candidate[@"methodInfo"] unsignedLongLongValue];
+    if (!methodInfo) return NO;
+    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    ZNM46MethodGetFlagsFn getFlags = (ZNM46MethodGetFlagsFn)ZNM46ResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
+    if (!getFlags) return NO;
+    uint32_t implFlags = 0;
+    uint32_t flags = getFlags((const void *)methodInfo, &implFlags);
+    if (known) *known = YES;
+    return (flags & kZNM46MethodAttributeStatic) != 0;
+}
+
+static ZNRuntimeMethodAction *ZNM46EphemeralAction(NSDictionary *candidate,
+                                                   NSArray<NSString *> *values,
+                                                   NSString **error) {
+    NSString *signatureError = nil;
+    NSArray<NSString *> *types = ZNIL2CPPParameterTypeNamesForCandidate(candidate, &signatureError);
+    NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
+    if (!types || types.count != argc) {
+        if (error) *error = signatureError ?: @"M4.6：无法读取完整参数签名";
+        return nil;
+    }
+    ZNRuntimeMethodAction *action = [ZNRuntimeMethodAction new];
+    action.assembly = [candidate[@"assembly"] isKindOfClass:NSString.class] ? candidate[@"assembly"] : @"Assembly-CSharp.dll";
+    action.namespaceName = [candidate[@"namespace"] isKindOfClass:NSString.class] ? candidate[@"namespace"] : @"";
+    action.className = [candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"";
+    action.methodName = [candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"";
+    action.argumentCount = argc;
+    action.argumentValues = values ?: @[];
+    action.parameterTypeNames = types;
+    action.signatureAvailable = YES;
+    action.title = action.methodName;
+    return action;
+}
+
+static void ZNM46ExecuteExactCandidate(ZNRuntimeMenuControllerV040 *controller,
+                                       NSDictionary *candidate) {
+    NSArray<NSString *> *values = [controller znm43_argumentValues:candidate] ?: @[];
+    NSString *actionError = nil;
+    ZNRuntimeMethodAction *action = ZNM46EphemeralAction(candidate, values, &actionError);
+    if (!action) {
+        [controller zn60v3_setStatus:actionError ?: @"M4.6：完整签名不可用"];
+        [controller renderPage];
+        return;
+    }
+    NSString *invokeError = nil;
+    NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&invokeError];
+    if (result) {
+        BOOL isStatic = [result[@"static"] boolValue];
+        NSString *suffix = isStatic ? @"static" : [NSString stringWithFormat:@"instance=0x%llX", (unsigned long long)[result[@"instance"] unsignedLongLongValue]];
+        [controller zn60v3_setStatus:[NSString stringWithFormat:@"Runtime Invoke SUCCESS：%@ · %@", action.canonicalIdentity, suffix]];
+    } else {
+        [controller zn60v3_setStatus:invokeError ?: @"Runtime Invoke FAILED"];
+    }
+    [controller renderPage];
+}
+
+static void ZNM46EnsureInstanceThenExecute(ZNRuntimeMenuControllerV040 *controller,
+                                           NSDictionary *candidate,
+                                           UIView *sourceView) {
+    NSString *assembly = candidate[@"assembly"] ?: @"Assembly-CSharp.dll";
+    NSString *namespaceName = candidate[@"namespace"] ?: @"";
+    NSString *className = candidate[@"class"] ?: @"";
+    ZNIL2CPPInstanceResolver *resolver = [ZNIL2CPPInstanceResolver sharedResolver];
+
+    uintptr_t selected = [resolver znm44_selectedInstanceForAssembly:assembly namespace:namespaceName className:className];
+    if (selected) {
+        NSString *validationError = nil;
+        if ([resolver znm44_validateInstanceAddress:selected assembly:assembly namespace:namespaceName className:className error:&validationError]) {
+            ZNM46ExecuteExactCandidate(controller, candidate);
+            return;
+        }
+        [resolver znm44_clearSelectedInstanceForAssembly:assembly namespace:namespaceName className:className];
+    }
+
+    NSString *diagnostics = nil;
+    NSString *findError = nil;
+    NSArray<NSNumber *> *instances = [resolver candidateAddressesForAssembly:assembly
+                                                                    namespace:namespaceName
+                                                                    className:className
+                                                                        limit:32
+                                                                  diagnostics:&diagnostics
+                                                                        error:&findError];
+    if (!instances.count) {
+        [controller zn60v3_setStatus:findError ?: @"M4.6 Instance Resolver：没有找到活实例"];
+        [controller renderPage];
+        return;
+    }
+    if (instances.count == 1) {
+        NSString *selectionError = nil;
+        if ([resolver znm44_selectInstanceAddress:instances.firstObject.unsignedLongLongValue
+                                         assembly:assembly
+                                        namespace:namespaceName
+                                        className:className
+                                            error:&selectionError]) {
+            ZNM46ExecuteExactCandidate(controller, candidate);
+        } else {
+            [controller zn60v3_setStatus:selectionError ?: @"M4.6 Instance Resolver：唯一实例验证失败"];
+            [controller renderPage];
+        }
+        return;
+    }
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"选择实例 · %@", className.length ? className : @"Object"]
+                                                                   message:[NSString stringWithFormat:@"发现 %lu 个活实例；完整方法签名已锁定，实例选择仅当前进程有效", (unsigned long)instances.count]
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak ZNRuntimeMenuControllerV040 *weakController = controller;
+    for (NSUInteger i = 0; i < instances.count; i++) {
+        uintptr_t address = instances[i].unsignedLongLongValue;
+        [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"实例 %lu · 0x%llX", (unsigned long)(i + 1), (unsigned long long)address]
+                                                   style:UIAlertActionStyleDefault
+                                                 handler:^(__unused UIAlertAction *a) {
+            ZNRuntimeMenuControllerV040 *strong = weakController;
+            if (!strong) return;
+            NSString *selectionError = nil;
+            if ([[ZNIL2CPPInstanceResolver sharedResolver] znm44_selectInstanceAddress:address
+                                                                              assembly:assembly
+                                                                             namespace:namespaceName
+                                                                             className:className
+                                                                                 error:&selectionError]) {
+                ZNM46ExecuteExactCandidate(strong, candidate);
+            } else {
+                [strong zn60v3_setStatus:selectionError ?: @"M4.6 实例验证失败"];
+                [strong renderPage];
+            }
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIWindow *window = controller.hostWindow ?: [controller currentWindow];
+    UIViewController *presenter = ZNM46TopController(window.rootViewController);
+    if (!presenter) return;
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover) {
+        popover.sourceView = sourceView ?: controller.contentView;
+        popover.sourceRect = sourceView ? sourceView.bounds : controller.contentView.bounds;
+    }
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM46FullSignatureUI)
+- (void)znm46_testCandidate:(UIButton *)sender;
+- (void)znm46_createPatch:(id)sender;
+- (void)znm46_renderResultsAtWidth:(CGFloat)width;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM46FullSignatureUI)
+
+- (void)znm46_testCandidate:(UIButton *)sender {
+    NSDictionary *candidate = ZNM46CandidateForButton(self, sender);
+    if (!candidate) {
+        [self znm46_testCandidate:sender];
+        return;
+    }
+    NSString *signatureError = nil;
+    NSArray *types = ZNIL2CPPParameterTypeNamesForCandidate(candidate, &signatureError);
+    if (!types || types.count != [candidate[@"argumentCount"] unsignedIntegerValue]) {
+        // Preserve the M4.5 path when the runtime hides signature APIs. Do not
+        // claim exact-overload resolution in this compatibility fallback.
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.6-signature-ui] legacy test fallback %@ reason=%@",
+                                             ZNM46LegacyShortName(candidate), signatureError ?: @"signature unavailable"]];
+        [self znm46_testCandidate:sender];
+        return;
+    }
+
+    BOOL staticKnown = NO;
+    BOOL isStatic = ZNM46CandidateIsStatic(candidate, &staticKnown);
+    if (!staticKnown || isStatic) {
+        ZNM46ExecuteExactCandidate(self, candidate);
+        return;
+    }
+    ZNM46EnsureInstanceThenExecute(self, candidate, sender);
+}
+
+- (void)znm46_createPatch:(id)sender {
+    NSDictionary *candidate = [self zn60v3_selected];
+    if (!candidate || ![candidate[@"addressResolved"] boolValue]) {
+        [self znm46_createPatch:sender];
+        return;
+    }
+    uint64_t exactRVA = [candidate[@"queryRVA"] respondsToSelector:@selector(unsignedLongLongValue)]
+        ? [candidate[@"queryRVA"] unsignedLongLongValue]
+        : [candidate[@"rva"] unsignedLongLongValue];
+    if (!exactRVA) {
+        [self znm46_createPatch:sender];
+        return;
+    }
+
+    NSString *previous = [self zn57mf_query] ?: @"";
+    NSString *exactQuery = [NSString stringWithFormat:@"rva:0x%llX", (unsigned long long)exactRVA];
+    [self zn57mf_setQuery:exactQuery];
+    // zn61v3_createPatch: is the post-swap alias containing the original V3
+    // implementation. Calling it directly intentionally bypasses the older
+    // Method/N PatchBridge wrapper so overload identity cannot be re-guessed.
+    [self zn61v3_createPatch:sender];
+    [self zn57mf_setQuery:previous];
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.6-signature-ui] Static Patch locked to exact candidate RVA %@", exactQuery]];
+}
+
+- (void)znm46_renderResultsAtWidth:(CGFloat)width {
+    [self znm46_renderResultsAtWidth:width];
+    NSArray<NSDictionary *> *visible = ZNM46VisibleCandidates(self);
+    if (visible.count < 2) return;
+
+    NSMutableDictionary<NSString *, NSNumber *> *counts = [NSMutableDictionary dictionary];
+    NSMutableSet<NSString *> *legacyNames = [NSMutableSet set];
+    for (NSDictionary *candidate in visible) {
+        NSString *key = ZNM46CandidateCollisionKey(candidate);
+        counts[key] = @([counts[key] unsignedIntegerValue] + 1);
+        [legacyNames addObject:ZNM46LegacyShortName(candidate)];
+    }
+
+    BOOL hasCollision = NO;
+    for (NSNumber *count in counts.allValues) if (count.unsignedIntegerValue > 1) { hasCollision = YES; break; }
+    if (!hasCollision) return;
+
+    NSMutableArray<UILabel *> *labels = [NSMutableArray array];
+    ZNM46CollectMethodLabels(self.contentView, self.contentView, legacyNames, labels);
+    [labels sortUsingComparator:^NSComparisonResult(UILabel *a, UILabel *b) {
+        CGFloat ay = ZNM46ViewY(a, self.contentView), by = ZNM46ViewY(b, self.contentView);
+        return ay < by ? NSOrderedAscending : ay > by ? NSOrderedDescending : NSOrderedSame;
+    }];
+    if (labels.count < visible.count) return;
+
+    for (NSUInteger i = 0; i < visible.count && i < labels.count; i++) {
+        NSDictionary *candidate = visible[i];
+        if ([counts[ZNM46CandidateCollisionKey(candidate)] unsignedIntegerValue] <= 1) continue;
+        NSString *signatureError = nil;
+        NSArray<NSString *> *types = ZNIL2CPPParameterTypeNamesForCandidate(candidate, &signatureError);
+        if (!types || types.count != [candidate[@"argumentCount"] unsignedIntegerValue]) continue;
+        labels[i].text = ZNIL2CPPShortSignature(candidate[@"method"] ?: @"Method", types);
+        labels[i].adjustsFontSizeToFitWidth = YES;
+        labels[i].minimumScaleFactor = 0.55;
+    }
+}
+
+@end
+
+static void ZNM46UISwap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM46FullSignatureUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!menu) return;
+        ZNM46UISwap(menu, @selector(znm43_testCandidate:), @selector(znm46_testCandidate:));
+        ZNM46UISwap(menu, @selector(zn60v3_createPatch:), @selector(znm46_createPatch:));
+        ZNM46UISwap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(znm46_renderResultsAtWidth:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.6-signature-ui] exact candidate test + exact-RVA Static Patch + overload labels installed"];
+    });
+}
+
+#pragma mark - END ZNM46FullSignatureUI.mm
+
+
+#pragma mark - BEGIN ZNM461Polish.mm
+#line 1 "ZNM461Polish.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNBinaryPatchWorkspace.h"
+#import "ZNIL2CPPMethodSignature.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const CGFloat kZNM461SignatureRowHeight = 16.0;
+
+static NSString *ZNM461LegacyName(NSDictionary *candidate) {
+    NSString *method = [candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"Method";
+    NSInteger argc = [candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)] ? [candidate[@"argumentCount"] integerValue] : -1;
+    return argc >= 0 ? [NSString stringWithFormat:@"%@/%ld", method, (long)argc] : method;
+}
+
+static NSString *ZNM461CollisionKey(NSDictionary *candidate) {
+    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@",
+            candidate[@"assembly"] ?: @"",
+            candidate[@"namespace"] ?: @"",
+            candidate[@"class"] ?: @"",
+            candidate[@"method"] ?: @"",
+            candidate[@"argumentCount"] ?: @(-1)];
+}
+
+static NSArray<NSDictionary *> *ZNM461VisibleCandidates(ZNRuntimeMenuControllerV040 *controller) {
+    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
+    NSInteger filter = [controller znm42_filter];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in all) {
+        if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [visible addObject:candidate];
+    }
+    return visible;
+}
+
+static CGFloat ZNM461Y(UIView *view, UIView *root) {
+    return CGRectGetMinY([view convertRect:view.bounds toView:root]);
+}
+
+static void ZNM461CollectButtons(UIView *view,
+                                 id target,
+                                 SEL selector,
+                                 NSMutableArray<UIButton *> *out) {
+    for (UIView *child in view.subviews) {
+        if ([child isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)child;
+            NSArray<NSString *> *actions = [button actionsForTarget:target forControlEvent:UIControlEventTouchUpInside] ?: @[];
+            if ([actions containsObject:NSStringFromSelector(selector)]) [out addObject:button];
+        }
+        ZNM461CollectButtons(child, target, selector, out);
+    }
+}
+
+static UILabel *ZNM461MethodLabelInCard(UIView *card) {
+    UILabel *best = nil;
+    for (UIView *view in card.subviews) {
+        if (![view isKindOfClass:UILabel.class]) continue;
+        UILabel *label = (UILabel *)view;
+        CGFloat y = CGRectGetMinY(label.frame);
+        if (y >= 4.0 && y <= 28.0) {
+            if (!best || y < CGRectGetMinY(best.frame)) best = label;
+        }
+    }
+    return best;
+}
+
+static void ZNM461MoveLowerLabels(UIView *card, CGFloat threshold, CGFloat delta) {
+    for (UIView *view in card.subviews) {
+        if (![view isKindOfClass:UILabel.class]) continue;
+        if (CGRectGetMinY(view.frame) < threshold) continue;
+        CGRect frame = view.frame;
+        frame.origin.y += delta;
+        view.frame = frame;
+    }
+}
+
+static CGFloat ZNM461Bottom(UIView *root) {
+    CGFloat bottom = 0;
+    for (UIView *view in root.subviews) bottom = MAX(bottom, CGRectGetMaxY(view.frame));
+    return bottom;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM461Polish)
+- (void)znm461_renderPage;
+- (void)znm461_renderResultsAtWidth:(CGFloat)width;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM461Polish)
+
+- (void)znm461_renderPage {
+    [self znm461_renderPage];
+
+    ZNBinaryPatchWorkspace *workspace = [ZNBinaryPatchWorkspace sharedWorkspace];
+    NSUInteger runtimeCount = [ZNRuntimeActionStore sharedStore].actionsSnapshot.count;
+    BOOL runtimeOnlyReady = runtimeCount > 0 && workspace.filledCount == 0;
+    if (!runtimeOnlyReady) return;
+
+    // ZNUXFixesV2 historically re-applies a Static-only filledCount gate after
+    // the Builder page renders. Runtime-only generation has its own safe path,
+    // so override that UI gate after the complete render chain.
+    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+    ZNM461CollectButtons(self.contentView, self, @selector(zn44_buildBinary:), buttons);
+    for (UIButton *button in buttons) {
+        button.enabled = !workspace.isBuilding;
+        button.alpha = button.enabled ? 1.0 : 0.5;
+    }
+}
+
+- (void)znm461_renderResultsAtWidth:(CGFloat)width {
+    [self znm461_renderResultsAtWidth:width];
+
+    NSArray<NSDictionary *> *visible = ZNM461VisibleCandidates(self);
+    if (visible.count < 2) return;
+
+    NSMutableDictionary<NSString *, NSNumber *> *counts = [NSMutableDictionary dictionary];
+    for (NSDictionary *candidate in visible) {
+        NSString *key = ZNM461CollisionKey(candidate);
+        counts[key] = @([counts[key] unsignedIntegerValue] + 1);
+    }
+
+    NSMutableArray<UIButton *> *testButtons = [NSMutableArray array];
+    ZNM461CollectButtons(self.contentView, self, @selector(znm43_testCandidate:), testButtons);
+    [testButtons sortUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        CGFloat ay = ZNM461Y(a, self.contentView), by = ZNM461Y(b, self.contentView);
+        return ay < by ? NSOrderedAscending : ay > by ? NSOrderedDescending : NSOrderedSame;
+    }];
+    if (testButtons.count < visible.count) return;
+
+    for (NSUInteger i = 0; i < visible.count && i < testButtons.count; i++) {
+        NSDictionary *candidate = visible[i];
+        if ([counts[ZNM461CollisionKey(candidate)] unsignedIntegerValue] <= 1) continue;
+
+        NSString *signatureError = nil;
+        NSArray<NSString *> *types = ZNIL2CPPParameterTypeNamesForCandidate(candidate, &signatureError);
+        if (!types || types.count != [candidate[@"argumentCount"] unsignedIntegerValue]) continue;
+
+        UIButton *test = testButtons[i];
+        UIView *card = test.superview;
+        if (!card || card.superview != self.contentView) continue;
+
+        // M4.6 V1 replaced the top title with Method(Type). M4.6.1 restores the
+        // compact Method/N title and moves exact overload identity below input.
+        UILabel *methodLabel = ZNM461MethodLabelInCard(card);
+        if (methodLabel) methodLabel.text = ZNM461LegacyName(candidate);
+
+        NSInteger argc = [candidate[@"argumentCount"] integerValue];
+        CGFloat signatureY = argc == 1 ? 82.0 : 54.0;
+        CGFloat oldBottom = CGRectGetMaxY(card.frame);
+
+        // Existing Assembly row occupies this vertical slot. Shift it down one
+        // helper row (hidden Assembly labels are moved too, keeping all-mode UI).
+        ZNM461MoveLowerLabels(card, signatureY - 2.0, kZNM461SignatureRowHeight);
+
+        CGRect cardFrame = card.frame;
+        cardFrame.size.height += kZNM461SignatureRowHeight;
+        card.frame = cardFrame;
+
+        CGFloat rightEdge = MAX(80.0, CGRectGetMinX(test.frame) - 8.0);
+        UILabel *signature = [[UILabel alloc] initWithFrame:CGRectMake(13.0,
+                                                                      signatureY,
+                                                                      MAX(40.0, rightEdge - 13.0),
+                                                                      15.0)];
+        signature.text = ZNIL2CPPShortSignature(candidate[@"method"] ?: @"Method", types);
+        signature.textColor = self.theme.secondaryTextColor;
+        signature.font = [UIFont monospacedSystemFontOfSize:7.9 weight:UIFontWeightMedium];
+        signature.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        signature.adjustsFontSizeToFitWidth = YES;
+        signature.minimumScaleFactor = 0.65;
+        signature.userInteractionEnabled = NO;
+        [card addSubview:signature];
+
+        // Result cards are top-level siblings. Preserve their spacing by moving
+        // everything that originally followed this card by exactly one row.
+        for (UIView *sibling in self.contentView.subviews) {
+            if (sibling == card) continue;
+            if (CGRectGetMinY(sibling.frame) + 0.5 < oldBottom) continue;
+            CGRect frame = sibling.frame;
+            frame.origin.y += kZNM461SignatureRowHeight;
+            sibling.frame = frame;
+        }
+    }
+
+    [self zn40_updateContentHeight:ZNM461Bottom(self.contentView) + 8.0];
+}
+
+@end
+
+static void ZNM461Swap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM461PolishDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM461Swap(cls, @selector(renderPage), @selector(znm461_renderPage));
+        ZNM461Swap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm461_renderResultsAtWidth:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.6.1-polish] signature helper row + runtime-only build gate override installed"];
+    });
+}
+
+#pragma mark - END ZNM461Polish.mm
+
+
+#pragma mark - BEGIN ZNM462CandidateBindingUI.mm
+#line 1 "ZNM462CandidateBindingUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+
+#import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPInvokeEngine.h"
+#import "ZNIL2CPPMethodSignature.h"
+#import "ZNIL2CPPResolver.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNPatchCore.h"
+
+// M4.6.2 removes the fragile "sort test buttons by Y and assume candidate order"
+// execution route. M4.3 already creates result cards in candidate order and
+// stores the real candidate on each button. This outer render layer walks the
+// freshly-created result hierarchy in insertion order once, gives every test
+// button an explicit M4.6.2 candidate association, then replaces its target
+// with a handler that never performs geometric lookup.
+static const void *kZNM462BoundCandidateKey = &kZNM462BoundCandidateKey;
+static const uint32_t kZNM462MethodAttributeStatic = 0x0010u;
+typedef uint32_t (*ZNM462MethodGetFlagsFn)(const void *, uint32_t *);
+
+static NSArray<NSDictionary *> *ZNM462VisibleCandidates(ZNRuntimeMenuControllerV040 *controller) {
+    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
+    NSInteger filter = [controller znm42_filter];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in all) {
+        if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [visible addObject:candidate];
+    }
+    return visible;
+}
+
+static void ZNM462CollectTestButtonsInHierarchyOrder(UIView *root,
+                                                      id target,
+                                                      NSMutableArray<UIButton *> *buttons) {
+    for (UIView *child in root.subviews) {
+        if ([child isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)child;
+            NSArray<NSString *> *actions = [button actionsForTarget:target forControlEvent:UIControlEventTouchUpInside] ?: @[];
+            if ([actions containsObject:NSStringFromSelector(@selector(znm43_testCandidate:))]) [buttons addObject:button];
+        }
+        ZNM462CollectTestButtonsInHierarchyOrder(child, target, buttons);
+    }
+}
+
+static void *ZNM462Symbol(NSString *path, const char *name) {
+    void *symbol = dlsym(RTLD_DEFAULT, name);
+    if (symbol || !path.length) return symbol;
+#ifdef RTLD_NOLOAD
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+#else
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY);
+#endif
+    return handle ? dlsym(handle, name) : NULL;
+}
+
+static BOOL ZNM462CandidateIsStatic(NSDictionary *candidate, BOOL *known) {
+    if (known) *known = NO;
+    uintptr_t methodInfo = [candidate[@"methodInfo"] unsignedLongLongValue];
+    if (!methodInfo) return NO;
+    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    ZNM462MethodGetFlagsFn getFlags = (ZNM462MethodGetFlagsFn)ZNM462Symbol(resolver.unityPath, "il2cpp_method_get_flags");
+    if (!getFlags) return NO;
+    uint32_t implFlags = 0;
+    uint32_t flags = getFlags((const void *)methodInfo, &implFlags);
+    if (known) *known = YES;
+    return (flags & kZNM462MethodAttributeStatic) != 0;
+}
+
+static UIViewController *ZNM462TopController(UIViewController *vc) {
+    if (!vc) return nil;
+    if (vc.presentedViewController && !vc.presentedViewController.isBeingDismissed) return ZNM462TopController(vc.presentedViewController);
+    if ([vc isKindOfClass:UINavigationController.class]) return ZNM462TopController(((UINavigationController *)vc).visibleViewController ?: vc);
+    if ([vc isKindOfClass:UITabBarController.class]) return ZNM462TopController(((UITabBarController *)vc).selectedViewController ?: vc);
+    if ([vc isKindOfClass:UISplitViewController.class]) return ZNM462TopController(((UISplitViewController *)vc).viewControllers.lastObject ?: vc);
+    return vc;
+}
+
+static ZNRuntimeMethodAction *ZNM462ExactAction(ZNRuntimeMenuControllerV040 *controller,
+                                                NSDictionary *candidate,
+                                                NSArray<NSString *> *types) {
+    ZNRuntimeMethodAction *action = [ZNRuntimeMethodAction new];
+    action.assembly = [candidate[@"assembly"] isKindOfClass:NSString.class] ? candidate[@"assembly"] : @"Assembly-CSharp.dll";
+    action.namespaceName = [candidate[@"namespace"] isKindOfClass:NSString.class] ? candidate[@"namespace"] : @"";
+    action.className = [candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"";
+    action.methodName = [candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"";
+    action.argumentCount = [candidate[@"argumentCount"] unsignedIntegerValue];
+    action.argumentValues = [controller znm43_argumentValues:candidate] ?: @[];
+    action.parameterTypeNames = types ?: @[];
+    action.signatureAvailable = YES;
+    action.title = action.methodName;
+    return action;
+}
+
+static void ZNM462ExecuteExact(ZNRuntimeMenuControllerV040 *controller,
+                               NSDictionary *candidate,
+                               NSArray<NSString *> *types) {
+    ZNRuntimeMethodAction *action = ZNM462ExactAction(controller, candidate, types);
+    NSString *error = nil;
+    NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&error];
+    if (result) {
+        BOOL isStatic = [result[@"static"] boolValue];
+        NSString *suffix = isStatic ? @"static" : [NSString stringWithFormat:@"instance=0x%llX", (unsigned long long)[result[@"instance"] unsignedLongLongValue]];
+        [controller zn60v3_setStatus:[NSString stringWithFormat:@"Runtime Invoke SUCCESS：%@ · %@", action.canonicalIdentity, suffix]];
+    } else {
+        [controller zn60v3_setStatus:error ?: @"Runtime Invoke FAILED"];
+    }
+    [controller renderPage];
+}
+
+typedef void (^ZNM462ReadyBlock)(void);
+static void ZNM462EnsureInstance(ZNRuntimeMenuControllerV040 *controller,
+                                 NSDictionary *candidate,
+                                 UIView *sourceView,
+                                 ZNM462ReadyBlock ready) {
+    NSString *assembly = candidate[@"assembly"] ?: @"Assembly-CSharp.dll";
+    NSString *namespaceName = candidate[@"namespace"] ?: @"";
+    NSString *className = candidate[@"class"] ?: @"";
+    ZNIL2CPPInstanceResolver *resolver = [ZNIL2CPPInstanceResolver sharedResolver];
+
+    uintptr_t selected = [resolver znm44_selectedInstanceForAssembly:assembly namespace:namespaceName className:className];
+    if (selected) {
+        NSString *validationError = nil;
+        if ([resolver znm44_validateInstanceAddress:selected assembly:assembly namespace:namespaceName className:className error:&validationError]) {
+            if (ready) ready();
+            return;
+        }
+        [resolver znm44_clearSelectedInstanceForAssembly:assembly namespace:namespaceName className:className];
+    }
+
+    NSString *diagnostics = nil;
+    NSString *findError = nil;
+    NSArray<NSNumber *> *instances = [resolver candidateAddressesForAssembly:assembly
+                                                                    namespace:namespaceName
+                                                                    className:className
+                                                                        limit:32
+                                                                  diagnostics:&diagnostics
+                                                                        error:&findError];
+    if (!instances.count) {
+        [controller zn60v3_setStatus:findError ?: @"M4.6.2 Instance Resolver：没有找到活实例"];
+        [controller renderPage];
+        return;
+    }
+    if (instances.count == 1) {
+        NSString *selectionError = nil;
+        if ([resolver znm44_selectInstanceAddress:instances.firstObject.unsignedLongLongValue
+                                         assembly:assembly
+                                        namespace:namespaceName
+                                        className:className
+                                            error:&selectionError]) {
+            if (ready) ready();
+        } else {
+            [controller zn60v3_setStatus:selectionError ?: @"M4.6.2 Instance Resolver：唯一实例验证失败"];
+            [controller renderPage];
+        }
+        return;
+    }
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"选择实例 · %@", className.length ? className : @"Object"]
+                                                                   message:[NSString stringWithFormat:@"发现 %lu 个活实例；M4.6.2 使用 GCHandle（可用时）保持当前会话 receiver", (unsigned long)instances.count]
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak ZNRuntimeMenuControllerV040 *weakController = controller;
+    for (NSUInteger i = 0; i < instances.count; i++) {
+        uintptr_t address = instances[i].unsignedLongLongValue;
+        [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"实例 %lu · 0x%llX", (unsigned long)(i + 1), (unsigned long long)address]
+                                                   style:UIAlertActionStyleDefault
+                                                 handler:^(__unused UIAlertAction *a) {
+            ZNRuntimeMenuControllerV040 *strong = weakController;
+            if (!strong) return;
+            NSString *selectionError = nil;
+            if ([[ZNIL2CPPInstanceResolver sharedResolver] znm44_selectInstanceAddress:address
+                                                                              assembly:assembly
+                                                                             namespace:namespaceName
+                                                                             className:className
+                                                                                 error:&selectionError]) {
+                if (ready) ready();
+            } else {
+                [strong zn60v3_setStatus:selectionError ?: @"M4.6.2 receiver 选择失败"];
+                [strong renderPage];
+            }
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIWindow *window = controller.hostWindow ?: [controller currentWindow];
+    UIViewController *presenter = ZNM462TopController(window.rootViewController);
+    if (!presenter) return;
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover) {
+        popover.sourceView = sourceView ?: controller.contentView;
+        popover.sourceRect = sourceView ? sourceView.bounds : controller.contentView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM462CandidateBindingUI)
+- (void)znm462_renderResultsAtWidth:(CGFloat)width;
+- (void)znm462_boundTestCandidate:(UIButton *)sender;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM462CandidateBindingUI)
+
+- (void)znm462_renderResultsAtWidth:(CGFloat)width {
+    [self znm462_renderResultsAtWidth:width];
+
+    NSArray<NSDictionary *> *visible = ZNM462VisibleCandidates(self);
+    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+    ZNM462CollectTestButtonsInHierarchyOrder(self.contentView, self, buttons);
+    if (!visible.count || buttons.count != visible.count) {
+        if (visible.count || buttons.count) {
+            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.6.2-candidate-binding] count mismatch candidates=%lu buttons=%lu; preserving previous route",
+                                                 (unsigned long)visible.count, (unsigned long)buttons.count]];
+        }
+        return;
+    }
+
+    for (NSUInteger i = 0; i < visible.count; i++) {
+        UIButton *button = buttons[i];
+        NSDictionary *candidate = visible[i];
+        objc_setAssociatedObject(button, kZNM462BoundCandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [button removeTarget:self action:@selector(znm43_testCandidate:) forControlEvents:UIControlEventTouchUpInside];
+        [button addTarget:self action:@selector(znm462_boundTestCandidate:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.6.2-candidate-binding] explicitly bound %lu result buttons without Y-coordinate mapping",
+                                         (unsigned long)visible.count]];
+}
+
+- (void)znm462_boundTestCandidate:(UIButton *)sender {
+    NSDictionary *candidate = objc_getAssociatedObject(sender, kZNM462BoundCandidateKey);
+    if (!candidate) {
+        // Fail-safe only: an unbound button keeps the previous M4.6 route.
+        [self znm43_testCandidate:sender];
+        return;
+    }
+
+    NSString *signatureError = nil;
+    NSArray<NSString *> *types = ZNIL2CPPParameterTypeNamesForCandidate(candidate, &signatureError);
+    BOOL exact = types && types.count == [candidate[@"argumentCount"] unsignedIntegerValue];
+
+    BOOL staticKnown = NO;
+    BOOL isStatic = ZNM462CandidateIsStatic(candidate, &staticKnown);
+    void (^execute)(void) = ^{
+        if (exact) {
+            ZNM462ExecuteExact(self, candidate, types);
+        } else {
+            // znm44_testCandidate: is the post-M4.4 selector alias containing
+            // the original M4.3 candidate-associated handler. It consumes the
+            // association placed on the button at creation, so no geometry is
+            // used even in the legacy signature fallback.
+            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.6.2-candidate-binding] exact signature unavailable; direct candidate legacy route reason=%@",
+                                                 signatureError ?: @"signature unavailable"]];
+            [self znm44_testCandidate:sender];
+        }
+    };
+
+    if (!staticKnown || isStatic) {
+        execute();
+        return;
+    }
+    ZNM462EnsureInstance(self, candidate, sender, execute);
+}
+
+@end
+
+static void ZNM462UISwap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM462CandidateBindingUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM462UISwap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm462_renderResultsAtWidth:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.6.2-candidate-binding] structural explicit binding layer installed"];
+    });
+}
+
+#pragma mark - END ZNM462CandidateBindingUI.mm
+
+
+#pragma mark - BEGIN ZNM47ReceiverCaptureUI.mm
+#line 1 "ZNM47ReceiverCaptureUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+
+#import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPResolver.h"
+#import "ZNM47ReceiverCapture.h"
+#import "ZNPatchCore.h"
+
+static const void *kZNM47CaptureCandidateKey = &kZNM47CaptureCandidateKey;
+static const uint32_t kZNM47MethodAttributeStatic = 0x0010u;
+typedef uint32_t (*ZNM47MethodGetFlagsFn)(const void *, uint32_t *);
+
+static NSArray<NSDictionary *> *ZNM47VisibleCandidates(ZNRuntimeMenuControllerV040 *controller) {
+    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
+    NSInteger filter = [controller znm42_filter];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in all) {
+        if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [visible addObject:candidate];
+    }
+    return visible;
+}
+
+static void ZNM47CollectBoundTestButtons(UIView *root,
+                                         id target,
+                                         NSMutableArray<UIButton *> *buttons) {
+    for (UIView *child in root.subviews) {
+        if ([child isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)child;
+            NSArray<NSString *> *actions = [button actionsForTarget:target forControlEvent:UIControlEventTouchUpInside] ?: @[];
+            if ([actions containsObject:NSStringFromSelector(@selector(znm462_boundTestCandidate:))]) [buttons addObject:button];
+        }
+        ZNM47CollectBoundTestButtons(child, target, buttons);
+    }
+}
+
+static void *ZNM47Symbol(NSString *path, const char *name) {
+    void *symbol = dlsym(RTLD_DEFAULT, name);
+    if (symbol || !path.length) return symbol;
+#ifdef RTLD_NOLOAD
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+#else
+    void *handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY);
+#endif
+    return handle ? dlsym(handle, name) : NULL;
+}
+
+static BOOL ZNM47CandidateIsInstance(NSDictionary *candidate) {
+    uintptr_t methodInfo = [candidate[@"methodInfo"] unsignedLongLongValue];
+    if (!methodInfo) return NO;
+    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    ZNM47MethodGetFlagsFn getFlags = (ZNM47MethodGetFlagsFn)ZNM47Symbol(resolver.unityPath, "il2cpp_method_get_flags");
+    if (!getFlags) return NO;
+    uint32_t implFlags = 0;
+    uint32_t flags = getFlags((const void *)methodInfo, &implFlags);
+    return (flags & kZNM47MethodAttributeStatic) == 0;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM47ReceiverCaptureUI)
+- (void)znm47_renderResultsAtWidth:(CGFloat)width;
+- (void)znm47_captureLongPress:(UILongPressGestureRecognizer *)gesture;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM47ReceiverCaptureUI)
+
+- (void)znm47_renderResultsAtWidth:(CGFloat)width {
+    [self znm47_renderResultsAtWidth:width];
+
+    NSArray<NSDictionary *> *visible = ZNM47VisibleCandidates(self);
+    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+    ZNM47CollectBoundTestButtons(self.contentView, self, buttons);
+    if (!visible.count || visible.count != buttons.count) return;
+
+    NSUInteger armed = 0;
+    for (NSUInteger i = 0; i < visible.count; i++) {
+        NSDictionary *candidate = visible[i];
+        UIButton *button = buttons[i];
+        if (!ZNM47CandidateIsInstance(candidate)) continue;
+        uintptr_t methodPointer = [candidate[@"methodPointer"] unsignedLongLongValue];
+        if (!methodPointer || (methodPointer & 3ULL)) continue;
+
+        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(znm47_captureLongPress:)];
+        longPress.minimumPressDuration = 0.65;
+        longPress.cancelsTouchesInView = YES;
+        objc_setAssociatedObject(longPress, kZNM47CaptureCandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [button addGestureRecognizer:longPress];
+        [button setTitle:@"测试/捕获" forState:UIControlStateNormal];
+        armed++;
+    }
+    if (armed) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.7-receiver-ui] capture gesture armed on %lu instance method buttons", (unsigned long)armed]];
+    }
+}
+
+- (void)znm47_captureLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    NSDictionary *candidate = objc_getAssociatedObject(gesture, kZNM47CaptureCandidateKey);
+    if (!candidate) return;
+
+    if (ZNM47ReceiverCaptureBusy()) {
+        [self zn60v3_setStatus:@"M4.7 Receiver Capture：已有捕获任务运行中"];
+        [self renderPage];
+        return;
+    }
+
+    NSString *assembly = [candidate[@"assembly"] isKindOfClass:NSString.class] ? candidate[@"assembly"] : @"Assembly-CSharp.dll";
+    NSString *namespaceName = [candidate[@"namespace"] isKindOfClass:NSString.class] ? candidate[@"namespace"] : @"";
+    NSString *className = [candidate[@"class"] isKindOfClass:NSString.class] ? candidate[@"class"] : @"";
+    NSString *methodName = [candidate[@"method"] isKindOfClass:NSString.class] ? candidate[@"method"] : @"Method";
+
+    __weak typeof(self) weakSelf = self;
+    NSString *startError = nil;
+    BOOL started = ZNM47StartReceiverCapture(candidate, 5.0, ^(uintptr_t receiver, NSString *captureError) {
+        ZNRuntimeMenuControllerV040 *strong = weakSelf;
+        if (!strong) return;
+        if (!receiver) {
+            [strong zn60v3_setStatus:captureError ?: @"M4.7 Receiver Capture：未捕获到实例"];
+            [strong renderPage];
+            return;
+        }
+
+        ZNIL2CPPInstanceResolver *resolver = [ZNIL2CPPInstanceResolver sharedResolver];
+        NSString *validationError = nil;
+        if (![resolver znm44_validateInstanceAddress:receiver
+                                           assembly:assembly
+                                          namespace:namespaceName
+                                          className:className
+                                              error:&validationError]) {
+            [strong zn60v3_setStatus:[NSString stringWithFormat:@"M4.7 捕获到 x0=0x%llX，但类型验证失败：%@",
+                                      (unsigned long long)receiver,
+                                      validationError ?: @"unknown"]];
+            [strong renderPage];
+            return;
+        }
+
+        NSString *selectionError = nil;
+        if (![resolver znm44_selectInstanceAddress:receiver
+                                          assembly:assembly
+                                         namespace:namespaceName
+                                         className:className
+                                             error:&selectionError]) {
+            [strong zn60v3_setStatus:selectionError ?: @"M4.7：捕获 receiver 保存失败"];
+            [strong renderPage];
+            return;
+        }
+
+        [strong zn60v3_setStatus:[NSString stringWithFormat:@"M4.7 捕获成功：%@.%@ receiver=0x%llX；现在可直接点测试执行",
+                                  className.length ? className : @"?",
+                                  methodName,
+                                  (unsigned long long)receiver]];
+        [strong renderPage];
+    }, &startError);
+
+    if (!started) {
+        [self zn60v3_setStatus:startError ?: @"M4.7 Receiver Capture 启动失败"];
+        [self renderPage];
+        return;
+    }
+
+    [self zn60v3_setStatus:[NSString stringWithFormat:@"M4.7 捕获中（5 秒）：请在游戏里触发 %@.%@；捕获的是 ARM64 x0/this",
+                            className.length ? className : @"?",
+                            methodName]];
+    [self renderPage];
+}
+
+@end
+
+static void ZNM47ReceiverUISwap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM47ReceiverCaptureUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM47ReceiverUISwap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm47_renderResultsAtWidth:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.7-receiver-ui] long-press receiver capture layer installed"];
+    });
+}
+
+#pragma mark - END ZNM47ReceiverCaptureUI.mm
+
+
+#pragma mark - BEGIN ZNM47MultiArgUI.mm
+#line 1 "ZNM47MultiArgUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNIL2CPPABIMetadata.h"
+#import "ZNIL2CPPMethodSignature.h"
+#import "ZNRuntimeActionFormat.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const void *kZNM47ArgumentKey = &kZNM47ArgumentKey;
+static const NSInteger kZNM47ArgumentTagBase = 647200;
+
+static NSString *ZNM47DisplayAssembly(NSString *assembly) {
+    NSString *s = assembly ?: @"";
+    return [s.lowercaseString hasSuffix:@".dll"] && s.length > 4 ? [s substringToIndex:s.length - 4] : s;
+}
+
+static NSString *ZNM47CandidateIdentity(NSDictionary *candidate) {
+    NSString *canonical = [candidate[@"canonical"] isKindOfClass:NSString.class] ? candidate[@"canonical"] : @"";
+    if (canonical.length) return canonical;
+    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@",
+            candidate[@"assembly"] ?: @"", candidate[@"namespace"] ?: @"", candidate[@"class"] ?: @"",
+            candidate[@"method"] ?: @"", candidate[@"argumentCount"] ?: @(-1)];
+}
+
+static NSString *ZNM47ArgumentStoreKey(NSDictionary *candidate, NSUInteger index) {
+    return [NSString stringWithFormat:@"%@#arg:%lu", ZNM47CandidateIdentity(candidate), (unsigned long)index];
+}
+
+static NSArray<NSDictionary *> *ZNM47Visible(ZNRuntimeMenuControllerV040 *controller) {
+    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
+    NSInteger filter = [controller znm42_filter];
+    NSMutableArray *visible = [NSMutableArray array];
+    for (NSDictionary *candidate in all) if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [visible addObject:candidate];
+    return visible;
+}
+
+static void ZNM47CollectBoundButtons(UIView *root, id target, NSMutableArray<UIButton *> *out) {
+    for (UIView *child in root.subviews) {
+        if ([child isKindOfClass:UIButton.class]) {
+            UIButton *button = (UIButton *)child;
+            NSArray<NSString *> *actions = [button actionsForTarget:target forControlEvent:UIControlEventTouchUpInside] ?: @[];
+            if ([actions containsObject:NSStringFromSelector(@selector(znm462_boundTestCandidate:))]) [out addObject:button];
+        }
+        ZNM47CollectBoundButtons(child, target, out);
+    }
+}
+
+static UIButton *ZNM47CreateButton(UIView *card) {
+    for (UIView *view in card.subviews) {
+        if (![view isKindOfClass:UIButton.class]) continue;
+        UIButton *button = (UIButton *)view;
+        if ([[button titleForState:UIControlStateNormal] isEqualToString:@"创建方法"]) return button;
+    }
+    return nil;
+}
+
+static UILabel *ZNM47LabelWithText(UIView *card, NSString *text) {
+    for (UIView *view in card.subviews) {
+        if ([view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqualToString:text]) return (UILabel *)view;
+    }
+    return nil;
+}
+
+static CGFloat ZNM47Bottom(UIView *root) {
+    CGFloat bottom = 0;
+    for (UIView *view in root.subviews) bottom = MAX(bottom, CGRectGetMaxY(view.frame));
+    return bottom;
+}
+
+static NSString *ZNM47ShortType(NSString *type) {
+    NSArray<NSString *> *parts = [type ?: @"" componentsSeparatedByString:@"."];
+    NSString *last = parts.lastObject;
+    return last.length ? last : (type ?: @"?");
+}
+
+static NSUInteger ZNM47StructCount(NSString *type) {
+    NSString *n = [type ?: @"" lowercaseString];
+    if ([n isEqualToString:@"unityengine.vector2"] || [n isEqualToString:@"vector2"]) return 2;
+    if ([n isEqualToString:@"unityengine.vector3"] || [n isEqualToString:@"vector3"]) return 3;
+    if ([n isEqualToString:@"unityengine.quaternion"] || [n isEqualToString:@"quaternion"] ||
+        [n isEqualToString:@"unityengine.color"] || [n isEqualToString:@"color"]) return 4;
+    return 0;
+}
+
+static BOOL ZNM47IsString(NSString *type) {
+    NSString *n = [type ?: @"" lowercaseString];
+    return [n isEqualToString:@"system.string"] || [n isEqualToString:@"string"];
+}
+
+static NSString *ZNM47UnsupportedReason(NSDictionary *param) {
+    if ([param[@"byRef"] boolValue]) return @"ref/out 暂不支持";
+    if ([param[@"pointer"] boolValue]) return @"pointer 暂不支持";
+    NSString *type = param[@"name"] ?: @"?";
+    if (ZNM47IsString(type)) return nil;
+    ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    switch (kind) {
+        case ZNIL2CPPABIValueKindBool:
+        case ZNIL2CPPABIValueKindSigned32:
+        case ZNIL2CPPABIValueKindUnsigned32:
+        case ZNIL2CPPABIValueKindSigned64:
+        case ZNIL2CPPABIValueKindUnsigned64:
+        case ZNIL2CPPABIValueKindFloat32:
+        case ZNIL2CPPABIValueKindFloat64:
+            return nil;
+        case ZNIL2CPPABIValueKindComplexValueType:
+            return ZNM47StructCount(type) ? nil : [NSString stringWithFormat:@"%@ 暂不支持", ZNM47ShortType(type)];
+        case ZNIL2CPPABIValueKindObjectReference:
+            return [NSString stringWithFormat:@"%@ 对象参数暂不支持", ZNM47ShortType(type)];
+        default:
+            return [NSString stringWithFormat:@"%@ 类型未识别", ZNM47ShortType(type)];
+    }
+}
+
+static UITextField *ZNM47Field(CGRect frame, ZNTheme *theme, UIFont *font) {
+    UITextField *field = [[UITextField alloc] initWithFrame:frame];
+    field.textColor = theme.primaryTextColor;
+    field.backgroundColor = theme.controlColor;
+    field.tintColor = theme.accentColor;
+    field.font = font;
+    field.autocorrectionType = UITextAutocorrectionTypeNo;
+    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    field.returnKeyType = UIReturnKeyDone;
+    field.layer.cornerRadius = 6.0;
+    field.layer.borderWidth = 1.0;
+    field.layer.borderColor = theme.borderColor.CGColor;
+    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 7, 1)];
+    field.leftView = pad;
+    field.leftViewMode = UITextFieldViewModeAlways;
+    return field;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM47MultiArgUI)
+- (void)znm47ma_renderResultsAtWidth:(CGFloat)width;
+- (NSArray<NSString *> *)znm47ma_argumentValues:(NSDictionary *)candidate;
+- (void)znm47ma_argumentChanged:(UITextField *)field;
+- (void)znm47ma_done:(UITextField *)field;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM47MultiArgUI)
+
+- (NSArray<NSString *> *)znm47ma_argumentValues:(NSDictionary *)candidate {
+    NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
+    if (argc < 2) return [self znm47ma_argumentValues:candidate];
+    if (argc > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) return @[];
+    NSMutableArray<NSString *> *values = [NSMutableArray arrayWithCapacity:argc];
+    for (NSUInteger i = 0; i < argc; i++) [values addObject:[self znm42_inputStore][ZNM47ArgumentStoreKey(candidate, i)] ?: @""];
+    return [values copy];
+}
+
+- (void)znm47ma_argumentChanged:(UITextField *)field {
+    NSString *key = objc_getAssociatedObject(field, kZNM47ArgumentKey);
+    if (key.length) [self znm42_inputStore][key] = field.text ?: @"";
+}
+
+- (void)znm47ma_done:(UITextField *)field {
+    [self znm47ma_argumentChanged:field];
+    [field resignFirstResponder];
+}
+
+- (void)znm47ma_renderResultsAtWidth:(CGFloat)width {
+    [self znm47ma_renderResultsAtWidth:width];
+
+    NSArray<NSDictionary *> *visible = ZNM47Visible(self);
+    NSMutableArray<UIButton *> *testButtons = [NSMutableArray array];
+    ZNM47CollectBoundButtons(self.contentView, self, testButtons);
+    if (!visible.count || visible.count != testButtons.count) return;
+
+    for (NSUInteger i = 0; i < visible.count; i++) {
+        NSDictionary *candidate = visible[i];
+        NSUInteger argc = [candidate[@"argumentCount"] unsignedIntegerValue];
+        if (argc < 2 || argc > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) continue;
+
+        UIButton *test = testButtons[i];
+        UIView *card = test.superview;
+        if (!card || card.superview != self.contentView) continue;
+        UIButton *create = ZNM47CreateButton(card);
+
+        NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
+        NSArray<NSDictionary *> *params = [abi[@"parameters"] isKindOfClass:NSArray.class] ? abi[@"parameters"] : nil;
+        BOOL metadataOK = [abi[@"available"] boolValue] && params.count == argc && !([abi[@"genericStatusKnown"] boolValue] && [abi[@"generic"] boolValue]);
+        BOOL callable = metadataOK;
+        NSMutableArray<NSString *> *types = [NSMutableArray arrayWithCapacity:argc];
+        if (metadataOK) {
+            for (NSDictionary *param in params) {
+                NSString *type = param[@"name"] ?: @"?";
+                [types addObject:type];
+                if (ZNM47UnsupportedReason(param).length) callable = NO;
+            }
+        }
+
+        CGFloat oldBottom = CGRectGetMaxY(card.frame);
+        CGFloat oldHeight = CGRectGetHeight(card.frame);
+        CGFloat leftRight = CGRectGetMinX(test.frame) - 8.0;
+        CGFloat inputY = 54.0;
+        CGFloat rowStep = 34.0;
+
+        for (NSUInteger arg = 0; arg < argc; arg++) {
+            NSDictionary *param = metadataOK ? params[arg] : nil;
+            NSString *type = param ? (param[@"name"] ?: @"?") : @"?";
+            NSString *name = param ? (param[@"paramName"] ?: @"") : @"";
+            NSString *reason = param ? ZNM47UnsupportedReason(param) : (abi[@"reason"] ?: @"参数 ABI 不可用");
+            CGRect frame = CGRectMake(13.0, inputY + arg * rowStep, MAX(60.0, leftRight - 13.0), 28.0);
+            if (!reason.length) {
+                UITextField *field = ZNM47Field(frame, self.theme, [self menuFont:8.9 weight:UIFontWeightMedium]);
+                NSString *shortType = ZNM47ShortType(type);
+                field.placeholder = name.length
+                    ? [NSString stringWithFormat:@"参数%lu · %@ · %@", (unsigned long)arg + 1, name, shortType]
+                    : [NSString stringWithFormat:@"参数%lu · %@", (unsigned long)arg + 1, shortType];
+                NSString *key = ZNM47ArgumentStoreKey(candidate, arg);
+                field.text = [self znm42_inputStore][key] ?: @"";
+                field.keyboardType = ZNM47IsString(type) ? UIKeyboardTypeDefault : UIKeyboardTypeNumbersAndPunctuation;
+                field.tag = kZNM47ArgumentTagBase + (NSInteger)arg;
+                objc_setAssociatedObject(field, kZNM47ArgumentKey, key, OBJC_ASSOCIATION_COPY_NONATOMIC);
+                [field addTarget:self action:@selector(znm47ma_argumentChanged:) forControlEvents:UIControlEventEditingChanged];
+                [field addTarget:self action:@selector(znm47ma_done:) forControlEvents:UIControlEventEditingDidEndOnExit];
+                [card addSubview:field];
+            } else {
+                UILabel *label = [[UILabel alloc] initWithFrame:frame];
+                label.text = [NSString stringWithFormat:@"参数%lu · %@ · %@", (unsigned long)arg + 1, ZNM47ShortType(type), reason];
+                label.textColor = self.theme.secondaryTextColor;
+                label.font = [self menuFont:8.2 weight:UIFontWeightRegular];
+                label.lineBreakMode = NSLineBreakByTruncatingMiddle;
+                [card addSubview:label];
+            }
+        }
+
+        NSString *assemblyText = ZNM47DisplayAssembly(candidate[@"assembly"] ?: @"?");
+        UILabel *assembly = ZNM47LabelWithText(card, assemblyText);
+        NSString *signatureText = metadataOK ? ZNIL2CPPShortSignature(candidate[@"method"] ?: @"Method", types) : nil;
+        UILabel *signature = signatureText.length ? ZNM47LabelWithText(card, signatureText) : nil;
+
+        CGFloat signatureY = inputY + argc * rowStep;
+        if (signature) {
+            CGRect f = signature.frame; f.origin.y = signatureY; signature.frame = f;
+        }
+        CGFloat assemblyY = signatureY + (signature ? 17.0 : 0.0);
+        if (assembly) {
+            CGRect f = assembly.frame; f.origin.y = assemblyY; assembly.frame = f;
+        }
+        CGFloat desiredHeight = assemblyY + 22.0;
+        if (desiredHeight < oldHeight) desiredHeight = oldHeight;
+        CGFloat delta = desiredHeight - oldHeight;
+        if (delta > 0.5) {
+            CGRect f = card.frame; f.size.height = desiredHeight; card.frame = f;
+            for (UIView *sibling in self.contentView.subviews) {
+                if (sibling == card) continue;
+                if (CGRectGetMinY(sibling.frame) + 0.5 < oldBottom) continue;
+                CGRect sf = sibling.frame; sf.origin.y += delta; sibling.frame = sf;
+            }
+        }
+
+        test.enabled = callable;
+        test.alpha = callable ? 1.0 : 0.48;
+        if (create) { create.enabled = callable; create.alpha = callable ? 1.0 : 0.48; }
+    }
+
+    [self zn40_updateContentHeight:ZNM47Bottom(self.contentView) + 8.0];
+}
+
+@end
+
+static void ZNM47UISwap(Class cls, SEL a, SEL b) {
+    Method ma = class_getInstanceMethod(cls, a), mb = class_getInstanceMethod(cls, b);
+    if (ma && mb) method_exchangeImplementations(ma, mb);
+}
+
+extern "C" void ZNInstallM47MultiArgUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM47UISwap(cls, @selector(zn60v3_renderResultsAtWidth:), @selector(znm47ma_renderResultsAtWidth:));
+        ZNM47UISwap(cls, @selector(znm43_argumentValues:), @selector(znm47ma_argumentValues:));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.7-multiarg-ui] /2-/8 dynamic parameter rows installed"];
+    });
+}
+
+#pragma mark - END ZNM47MultiArgUI.mm
+
+
+#pragma mark - BEGIN ZNM47BuilderArgsUI.mm
+#line 1 "ZNM47BuilderArgsUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNRuntimeActionFormat.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNTheme.h"
+#import "ZNPatchCore.h"
+
+static const NSInteger kZNM47BuilderTitleTagBase = 672000;
+static const NSInteger kZNM47BuilderArgTagBase = 690000;
+static const void *kZNM47BuilderActionIndexKey = &kZNM47BuilderActionIndexKey;
+static const void *kZNM47BuilderArgumentIndexKey = &kZNM47BuilderArgumentIndexKey;
+
+static CGFloat ZNM47BuilderBottom(UIView *root) {
+    CGFloat y = 0;
+    for (UIView *view in root.subviews) y = MAX(y, CGRectGetMaxY(view.frame));
+    return y;
+}
+
+static UITextField *ZNM47BuilderField(CGRect frame, ZNTheme *theme) {
+    UITextField *field = [[UITextField alloc] initWithFrame:frame];
+    field.textColor = theme.primaryTextColor;
+    field.backgroundColor = theme.controlColor;
+    field.tintColor = theme.accentColor;
+    field.font = [UIFont monospacedDigitSystemFontOfSize:9.2 weight:UIFontWeightMedium];
+    field.autocorrectionType = UITextAutocorrectionTypeNo;
+    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    field.returnKeyType = UIReturnKeyDone;
+    field.layer.cornerRadius = 6.0;
+    field.layer.borderWidth = 1.0;
+    field.layer.borderColor = theme.borderColor.CGColor;
+    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 6, 1)];
+    field.leftView = pad;
+    field.leftViewMode = UITextFieldViewModeAlways;
+    return field;
+}
+
+static UITextField *ZNM47FindTitleField(UIView *root, NSUInteger index) {
+    NSInteger tag = kZNM47BuilderTitleTagBase + (NSInteger)index;
+    for (UIView *view in root.subviews) {
+        if ([view isKindOfClass:UITextField.class] && view.tag == tag) return (UITextField *)view;
+        UITextField *nested = ZNM47FindTitleField(view, index);
+        if (nested) return nested;
+    }
+    return nil;
+}
+
+@interface ZNRuntimeMenuControllerV040 (ZNM47BuilderArgsUI)
+- (void)znm47b_renderOther;
+- (void)znm47b_argumentEnded:(UITextField *)field;
+@end
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM47BuilderArgsUI)
+
+- (void)znm47b_renderOther {
+    [self znm47b_renderOther];
+
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    for (NSUInteger i = 0; i < actions.count; i++) {
+        ZNRuntimeMethodAction *action = actions[i];
+        if (action.argumentCount < 2 || action.argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) continue;
+
+        UITextField *titleField = ZNM47FindTitleField(self.contentView, i);
+        UIView *card = titleField.superview;
+        if (!card || card.superview != self.contentView) continue;
+
+        CGFloat oldBottom = CGRectGetMaxY(card.frame);
+        CGFloat oldHeight = CGRectGetHeight(card.frame);
+        CGFloat rowY = 68.0;
+        CGFloat rowStep = 34.0;
+
+        for (NSUInteger arg = 0; arg < action.argumentCount; arg++) {
+            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(13, rowY + arg * rowStep, 48, 28)];
+            NSString *type = (action.parameterTypeNames.count == action.argumentCount) ? action.parameterTypeNames[arg] : @"?";
+            NSArray<NSString *> *parts = [type componentsSeparatedByString:@"."];
+            NSString *last = parts.lastObject;
+            NSString *shortType = last.length ? last : type;
+            label.text = [NSString stringWithFormat:@"参数%lu", (unsigned long)arg + 1];
+            label.textColor = self.theme.secondaryTextColor;
+            label.font = [UIFont systemFontOfSize:8.2 weight:UIFontWeightSemibold];
+            [card addSubview:label];
+
+            UITextField *field = ZNM47BuilderField(CGRectMake(60, rowY + arg * rowStep, card.bounds.size.width - 73, 28), self.theme);
+            field.tag = kZNM47BuilderArgTagBase + (NSInteger)(i * ZN_RUNTIME_ACTION_MAX_ARGUMENTS + arg);
+            field.text = action.argumentValues.count == action.argumentCount ? action.argumentValues[arg] : @"";
+            field.placeholder = [NSString stringWithFormat:@"参数%lu · %@", (unsigned long)arg + 1, shortType ?: @"?"];
+            objc_setAssociatedObject(field, kZNM47BuilderActionIndexKey, @(i), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(field, kZNM47BuilderArgumentIndexKey, @(arg), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [field addTarget:self action:@selector(znm47b_argumentEnded:) forControlEvents:UIControlEventEditingDidEndOnExit | UIControlEventEditingDidEnd];
+            [card addSubview:field];
+        }
+
+        CGFloat desired = rowY + action.argumentCount * rowStep + 5.0;
+        CGFloat delta = MAX(0.0, desired - oldHeight);
+        if (delta > 0.5) {
+            CGRect frame = card.frame; frame.size.height = desired; card.frame = frame;
+            for (UIView *sibling in self.contentView.subviews) {
+                if (sibling == card) continue;
+                if (CGRectGetMinY(sibling.frame) + 0.5 < oldBottom) continue;
+                CGRect sf = sibling.frame; sf.origin.y += delta; sibling.frame = sf;
+            }
+        }
+    }
+    [self zn40_updateContentHeight:ZNM47BuilderBottom(self.contentView) + 8.0];
+}
+
+- (void)znm47b_argumentEnded:(UITextField *)field {
+    NSNumber *actionIndexNumber = objc_getAssociatedObject(field, kZNM47BuilderActionIndexKey);
+    NSNumber *argumentIndexNumber = objc_getAssociatedObject(field, kZNM47BuilderArgumentIndexKey);
+    if (!actionIndexNumber || !argumentIndexNumber) return;
+    NSUInteger actionIndex = actionIndexNumber.unsignedIntegerValue;
+    NSUInteger argumentIndex = argumentIndexNumber.unsignedIntegerValue;
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    if (actionIndex >= actions.count) return;
+    ZNRuntimeMethodAction *action = actions[actionIndex];
+    if (argumentIndex >= action.argumentCount) return;
+
+    NSMutableArray<NSString *> *values = [NSMutableArray arrayWithCapacity:action.argumentCount];
+    for (NSUInteger i = 0; i < action.argumentCount; i++) {
+        NSString *value = (action.argumentValues.count == action.argumentCount) ? action.argumentValues[i] : @"";
+        [values addObject:value ?: @""];
+    }
+    values[argumentIndex] = field.text ?: @"";
+    NSString *error = nil;
+    if (![[ZNRuntimeActionStore sharedStore] updateArgumentValues:values atIndex:actionIndex error:&error]) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.7-builder-args] update failed index=%lu arg=%lu error=%@",
+                                             (unsigned long)actionIndex, (unsigned long)argumentIndex, error ?: @"unknown"]];
+    }
+    [field resignFirstResponder];
+}
+
+@end
+
+static void ZNM47BuilderSwap(Class cls, SEL a, SEL b) {
+    Method ma = class_getInstanceMethod(cls, a), mb = class_getInstanceMethod(cls, b);
+    if (ma && mb) method_exchangeImplementations(ma, mb);
+}
+
+extern "C" void ZNInstallM47BuilderArgsUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM47BuilderSwap(cls, @selector(zn50b_renderOther), @selector(znm47b_renderOther));
+        [[ZNRuntimeLogger sharedLogger] log:@"[m4.7-builder-args] /2-/8 Builder parameter editor installed"];
+    });
+}
+
+#pragma mark - END ZNM47BuilderArgsUI.mm
+
+
+#pragma mark - BEGIN ZNM47VersionUI.mm
+#line 1 "ZNM47VersionUI.mm"
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+#import "ZNBuildVersion.h"
+#import "ZNPatchCore.h"
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM47VersionUI)
+
+- (void)znm47_tick:(NSTimer *)timer {
+    [self znm47_tick:timer];
+    if (!self.uiReady || !self.footerLabel) return;
+    self.footerLabel.text = [NSString stringWithFormat:@"PatchCore %@    %@    iOS %@",
+                            ZN_MENU_VERSION_DISPLAY,
+                            ZN_MENU_VERSION_FEATURE,
+                            UIDevice.currentDevice.systemVersion];
+}
+
+@end
+
+static void ZNM47VersionSwap(Class cls, SEL original, SEL replacement) {
+    Method a = class_getInstanceMethod(cls, original);
+    Method b = class_getInstanceMethod(cls, replacement);
+    if (a && b) method_exchangeImplementations(a, b);
+}
+
+extern "C" void ZNInstallM47VersionUIDeferred(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"ZNRuntimeMenuControllerV040");
+        if (!cls) return;
+        ZNM47VersionSwap(cls, @selector(tick:), @selector(znm47_tick:));
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m4.7-version] footer version source installed %@", ZN_MENU_VERSION_DISPLAY]];
+    });
+}
+
+#pragma mark - END ZNM47VersionUI.mm
