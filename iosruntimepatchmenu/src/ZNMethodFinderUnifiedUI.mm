@@ -238,6 +238,7 @@ static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
     BOOL callable=metadataOK;
     BOOL argScale=NO;
     BOOL callbackShortCircuit=NO;
+    BOOL structFieldTransform=NO;
     BOOL returnBoolOverride=metadataOK&&((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]==ZNIL2CPPABIValueKindBool)&&
                             ![abi[@"generic"] boolValue]&&![abi[@"inflated"] boolValue];
     NSMutableArray<NSString *> *types=[NSMutableArray array];
@@ -250,6 +251,7 @@ static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
             if(unsupported.length)callable=NO;
             if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]==ZNIL2CPPABIValueKindSigned32)argScale=YES;
             ZNIL2CPPABIValueKind pk=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+            if(pk==ZNIL2CPPABIValueKindComplexValueType||[param[@"byRef"] boolValue])structFieldTransform=YES;
             BOOL gpr=(pk==ZNIL2CPPABIValueKindBool||pk==ZNIL2CPPABIValueKindSigned32||
                       pk==ZNIL2CPPABIValueKindUnsigned32||pk==ZNIL2CPPABIValueKindSigned64||
                       pk==ZNIL2CPPABIValueKindUnsigned64||pk==ZNIL2CPPABIValueKindPointer||
@@ -272,7 +274,7 @@ static NSDictionary *ZNM54AnalyzeCandidate(NSDictionary *candidate) {
         @"metadataOK":@(metadataOK),
         @"callable":@(callable),
         @"types":[types copy],
-        @"hookEnabled":@(argScale||callbackShortCircuit||returnBoolOverride)
+        @"hookEnabled":@(argScale||callbackShortCircuit||returnBoolOverride||structFieldTransform)
     };
     [ZNM54AnalysisCache() setObject:analysis forKey:key];
     return analysis;
