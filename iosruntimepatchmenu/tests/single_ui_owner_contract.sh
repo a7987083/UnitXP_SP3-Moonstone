@@ -73,4 +73,17 @@ grep -q 'ZNBuildManifest manifestForWorkspace' "$SRC/ZNBuildCapabilityRegistry.m
 grep -q 'buildSnapshotForRowIndexes' "$SRC/ZNBuildExecutor.mm"
 grep -q 'ZNRegisterBuildItemProvider' "$SRC/ZNBuildManifest.h"
 
+# M6.8.4 Generated Data Layout V1 is the only supported newly-generated layout.
+test -f "$SRC/ZNGeneratedDataLayout.h"
+grep -q 'ZN44_STATIC_HEADER_FLAG_GENERATED_LAYOUT_V1' "$SRC/ZNStaticPatchFormat.h"
+grep -q 'ZNGeneratedDataLayoutV1LocateRuntimeAction' "$SRC/ZNRuntimeActionBuilder.mm"
+grep -q 'ZNGeneratedDataLayoutV1LocateRuntimeAction' "$SRC/ZNRuntimeActionSignaturePostprocess.mm"
+grep -q 'ZNGeneratedDataLayoutV1LocateRuntimeAction' "$SRC/ZNRuntimeActionRuntime.mm"
+grep -q 'ZNGeneratedDataLayoutV1LocateRuntimeAction' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNGeneratedDataLayoutV1LocateRuntimeAction' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+grep -q 'return-bool-override' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+grep -q 'struct-field-transform' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+! grep -q 'section+staticBytes' "$SRC/ZNRuntimeActionRuntime.mm"
+! grep -q 'section+staticBytes' "$SRC/ZNNativeHookRuntime.mm"
+
 echo "single UI owner + M6.8.4 BuildManifest contract: OK"
