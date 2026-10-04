@@ -1,6 +1,8 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 typedef NS_ENUM(NSUInteger, ZNBuildItemDomain) {
     ZNBuildItemDomainStatic = 1,
     ZNBuildItemDomainRuntime = 2,
@@ -18,3 +20,5 @@ typedef NS_ENUM(NSUInteger, ZNBuildItemDomain) {
                           domain:(ZNBuildItemDomain)domain
                         metadata:(NSDictionary<NSString *, id> *)metadata;
 @end
+
+NS_ASSUME_NONNULL_END
