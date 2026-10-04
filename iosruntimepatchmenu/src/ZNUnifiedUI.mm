@@ -12033,6 +12033,7 @@ extern "C" void ZNInstallM49GenericInvokeEditableArgsDeferred(void) {
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookRuntime.h"
+#import "ZNNativeHookScheduler.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
@@ -17944,11 +17945,8 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
     [NSUserDefaults.standardUserDefaults setInteger:value forKey:key];
 
-    NSString *error=nil;
-    // M6.4 contract: keep the hook installed even at multiplier=1.
-    // setValue installs on first use, then only updates the atomic multiplier.
-    BOOL ok=[[ZNNativeHookRuntime sharedRuntime] setValue:value forAction:hook error:&error];
-    if(!ok&&error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-runtime] slider commit %@ failed: %@",hook.title,error]];
+    // M6.8.6: UI submits desired state only. Scheduler owns prepare/install/retry.
+    [[ZNNativeHookScheduler sharedScheduler] setDesiredValue:value forAction:hook];
     [self znm640_nativeHookSliderChanged:sender];
 }
 
@@ -17963,13 +17961,9 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 
     NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
     [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
-    NSString *error=nil;
-    BOOL ok=[[ZNNativeHookRuntime sharedRuntime] setValue:(sender.isOn?1:0) forAction:hook error:&error];
-    if(!ok){
-        sender.on=!sender.isOn;
-        [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
-        if(error.length)[[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-switch] %@ failed: %@",hook.title,error]];
-    }
+    // Permanent hook lifecycle: OFF means enabled=0 in the runtime slot,
+    // never DobbyDestroy from the menu path.
+    [[ZNNativeHookScheduler sharedScheduler] setDesiredValue:(sender.isOn?1:0) forAction:hook];
 }
 
 - (void)znm630_hardCutSwitchChanged:(UISwitch *)sender {
