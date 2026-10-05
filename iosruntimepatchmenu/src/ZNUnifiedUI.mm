@@ -488,6 +488,10 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
 
 - (void)layoutSidebar {
     CGFloat y=6,w=CGRectGetWidth(self.sidebarView.bounds); for (UIButton *b in self.sidebarButtons) { b.frame=CGRectMake(6,y,w-12,31); y+=34; }
+    if([self.sidebarView isKindOfClass:UIScrollView.class]){
+        UIScrollView *scroll=(UIScrollView *)self.sidebarView;
+        scroll.contentSize=CGSizeMake(MAX(1.0,w),MAX(CGRectGetHeight(scroll.bounds)+1.0,y+6.0));
+    }
 }
 
 - (void)applyTheme {
@@ -525,7 +529,7 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
     self.titleLabel=[UILabel new]; [self.headerView addSubview:self.titleLabel]; self.subtitleLabel=[UILabel new]; [self.headerView addSubview:self.subtitleLabel]; self.readyDot=[UIView new]; self.readyDot.layer.cornerRadius=4; [self.headerView addSubview:self.readyDot]; self.readyLabel=[self label:@"Ready" size:10.5 weight:UIFontWeightMedium color:self.theme.primaryTextColor]; [self.headerView addSubview:self.readyLabel];
     self.themeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.themeButton setImage:ZNSymbol(@"paintpalette.fill",14,UIImageSymbolWeightSemibold) forState:UIControlStateNormal]; [self.themeButton addTarget:self action:@selector(themeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.themeButton];
     self.modeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.modeButton addTarget:self action:@selector(modeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.modeButton]; self.closeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.closeButton setTitle:@"×" forState:UIControlStateNormal]; self.closeButton.titleLabel.font=[UIFont systemFontOfSize:22 weight:UIFontWeightLight]; [self.closeButton addTarget:self action:@selector(closeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.closeButton];
-    self.sidebarView=[UIView new]; [self.panel addSubview:self.sidebarView]; for (NSInteger i=0;i<self.categories.count;i++) { UIButton *b=[UIButton buttonWithType:UIButtonTypeCustom]; b.tag=3000+i; b.layer.cornerRadius=7; b.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft; b.contentEdgeInsets=UIEdgeInsetsMake(0,8,0,3); [b setImage:ZNSymbol(self.categorySymbols[i],12.5,UIImageSymbolWeightSemibold) forState:UIControlStateNormal]; [b setTitle:[NSString stringWithFormat:@"  %@",self.categories[i]] forState:UIControlStateNormal]; [b addTarget:self action:@selector(categoryTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.sidebarView addSubview:b]; [self.sidebarButtons addObject:b]; }
+    self.sidebarView=(UIView *)[UIScrollView new]; UIScrollView *sidebarScroll=(UIScrollView *)self.sidebarView; sidebarScroll.showsVerticalScrollIndicator=YES; sidebarScroll.alwaysBounceVertical=YES; sidebarScroll.directionalLockEnabled=YES; [self.panel addSubview:self.sidebarView]; for (NSInteger i=0;i<self.categories.count;i++) { UIButton *b=[UIButton buttonWithType:UIButtonTypeCustom]; b.tag=3000+i; b.layer.cornerRadius=7; b.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft; b.contentEdgeInsets=UIEdgeInsetsMake(0,8,0,3); [b setImage:ZNSymbol(self.categorySymbols[i],12.5,UIImageSymbolWeightSemibold) forState:UIControlStateNormal]; [b setTitle:[NSString stringWithFormat:@"  %@",self.categories[i]] forState:UIControlStateNormal]; [b addTarget:self action:@selector(categoryTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.sidebarView addSubview:b]; [self.sidebarButtons addObject:b]; }
     self.contentScroll=[UIScrollView new]; self.contentScroll.showsVerticalScrollIndicator=YES; [self.panel addSubview:self.contentScroll]; self.contentView=[UIView new]; [self.contentScroll addSubview:self.contentView]; self.footerView=[UIView new]; [self.panel addSubview:self.footerView]; self.footerLabel=[self label:@"" size:8.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor]; [self.footerView addSubview:self.footerLabel];
     self.panel.hidden=YES; [window addSubview:self.floatButton]; [window addSubview:self.panel]; self.uiReady=YES; [self layoutForWindow:window initial:YES]; [self applyTheme]; self.footerLabel.text=[NSString stringWithFormat:@"UnityFramework    Runtime 0.2.4    iOS %@",UIDevice.currentDevice.systemVersion]; NSLog(@"[ZonoePatch v0.2.4] UI ready compact=%d theme=%@ category=%ld",self.compactMode,[ZNTheme nameForMode:self.themeMode],(long)self.selectedCategory);
 }
@@ -13325,6 +13329,7 @@ static const void *kZNM613AnalysisKey = &kZNM613AnalysisKey;
 - (void)zn52x_batchTestInstances:(UIButton *)sender;
 - (void)zn52x_directUnavailable:(UIButton *)sender;
 - (void)znm613_argumentChanged:(UITextField *)field;
+- (void)znm613_argumentDone:(UITextField *)field;
 - (void)znm613_selectRuntimeMode:(UIButton *)sender;
 - (void)znm613_createCurrentMode:(UIButton *)sender;
 - (void)znm613_testRuntime:(UIButton *)sender;
@@ -13470,7 +13475,7 @@ static NSArray<NSString *> *ZNM613ArgumentValues(ZNRuntimeMenuControllerV040 *se
 static NSString *ZNM613ParamAutoLabel(NSDictionary *param) {
     NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"?";
     NSString *codec=ZNComplexStructCodecKeyForManagedType(type);
-    if([codec isEqualToString:ZNComplexStructCodecObscuredInt])return @"Complex Struct · ObscuredInt Codec";
+    if([codec isEqualToString:ZNComplexStructCodecObscuredInt])return @"ObscuredInt Codec · ARM64 indirect struct";
     if([codec isEqualToString:ZNComplexStructCodecSecureLongWholeAccessor])return @"Complex Struct · SecureLong Codec";
     ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
     switch(kind){
@@ -13600,26 +13605,7 @@ static NSDictionary *ZNM613AnalyzeCandidate(NSDictionary *candidate) {
     }
 
     NSString *directReason=nil;
-    BOOL directOK=metadataOK;
-    if(directOK&&([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue])){
-        directOK=NO;directReason=@"Direct Native Call V1 不支持 generic/inflated";
-    }
-    if(directOK&&(![abi[@"methodPointer"] unsignedLongLongValue]||![abi[@"methodInfo"] unsignedLongLongValue])){
-        directOK=NO;directReason=@"Direct Native Call 缺少 methodPointer/MethodInfo";
-    }
-    if(directOK){
-        for(NSDictionary *p in params){
-            if([p[@"byRef"] boolValue]||!ZNM613GPRKind((ZNIL2CPPABIValueKind)[p[@"kind"] integerValue])){
-                directOK=NO;directReason=[NSString stringWithFormat:@"参数 %@ 不是 GPR-safe",p[@"name"]?:@"?"];break;
-            }
-        }
-    }
-    ZNIL2CPPABIValueKind rk=(ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue];
-    if(directOK&&rk!=ZNIL2CPPABIValueKindVoid&&!ZNM613GPRKind(rk)){
-        directOK=NO;directReason=[NSString stringWithFormat:@"返回 %@ 不是 GPR-safe",ret[@"name"]?:@"?"];
-    }
-    NSUInteger directGPR=params.count+1+([abi[@"instance"] boolValue]?1u:0u);
-    if(directOK&&directGPR>8){directOK=NO;directReason=@"Direct Native Call 超过 x0~x7 参数预算";}
+    BOOL directOK=metadataOK && [[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&directReason];
 
     NSString *hookError=nil;
     NSDictionary *hookPlan=ZNM613HookPlanFromABI(candidate,abi,&hookError);
@@ -13882,17 +13868,23 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     [self.contentView addSubview:filterCard];
     y+=52.0;
 
-    NSString *pageStatus=[self zn60v3_status];
+    NSString *liveHookText=[[ZNNativeHookRuntime sharedRuntime] liveTestStatus];
+    NSString *pageStatus=liveHookText.length?liveHookText:[self zn60v3_status];
     if(pageStatus.length){
-        CGFloat statusH=48.0;
+        BOOL live=liveHookText.length>0;
+        CGFloat statusH=live?88.0:48.0;
         UIView *statusCard=[self cardAtY:y height:statusH width:width compact:NO];
-        UILabel *status=[self label:pageStatus size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        UILabel *status=[self label:pageStatus size:(live?8.0:8.1) weight:UIFontWeightRegular
+                             color:(live?self.theme.primaryTextColor:self.theme.secondaryTextColor)];
+        status.tag=kZNM65LiveHookStatusTag;
         status.frame=CGRectMake(13,6,statusCard.bounds.size.width-26,statusH-12);
-        status.numberOfLines=2;
+        status.numberOfLines=live?6:2;
+        if(live)status.font=[UIFont monospacedSystemFontOfSize:7.9 weight:UIFontWeightRegular];
         [statusCard addSubview:status];
         [self.contentView addSubview:statusCard];
         y+=statusH+8.0;
     }
+    [self znm65_startLiveHookStatusTimer];
 
     for(NSUInteger row=0;row<visible.count;row++){
         NSDictionary *candidate=visible[row];
@@ -14071,6 +14063,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
             objc_setAssociatedObject(field,kZNM613ArgCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(field,kZNM613ArgIndexKey,@(arg),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [field addTarget:self action:@selector(znm613_argumentChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
+            [field addTarget:self action:@selector(znm613_argumentDone:) forControlEvents:UIControlEventEditingDidEndOnExit];
             [card addSubview:field];
             py+=27.0;
 
@@ -14136,6 +14129,11 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     if(!candidate||!index)return;
     ZNM613ArgumentStore(self)[ZNM613ArgumentStoreKey(candidate,index.unsignedIntegerValue)]=field.text?:@"";
     if(field.editing==NO)[field resignFirstResponder];
+}
+
+- (void)znm613_argumentDone:(UITextField *)field {
+    [self znm613_argumentChanged:field];
+    [field resignFirstResponder];
 }
 
 - (void)znm613_selectRuntimeMode:(UIButton *)sender {
