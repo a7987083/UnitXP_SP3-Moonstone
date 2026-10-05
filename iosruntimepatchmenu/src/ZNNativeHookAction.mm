@@ -1,5 +1,6 @@
 #import "ZNNativeHookAction.h"
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNComplexStructCodec.h"
 #import "ZNIL2CPPMethodSignature.h"
 #import "ZNPatchCore.h"
 
@@ -210,11 +211,11 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
            ![a.fieldCodec isEqualToString:@"secure-long-accessor"]||
            !a.codecClassName.length||!a.codecGetterMethod.length||!a.codecSetterMethod.length)return nil;
     }else if(a.templateKind==ZNNativeHookTemplateComplexStructTransform){
+        NSString *expected=ZNComplexStructCodecKeyForManagedType(a.codecClassName);
         if(a.fieldArgumentIndex==NSNotFound||a.fieldArgumentIndex>=a.argumentCount||
            ![a.fieldArgumentMode isEqualToString:@"indirect-pointer"]||
-           ![a.fieldCodec isEqualToString:@"secure-long-whole-accessor"]||
-           a.fieldOffset!=0||
-           !a.codecClassName.length||!a.codecGetterMethod.length||!a.codecSetterMethod.length)return nil;
+           !a.fieldCodec.length||![expected isEqualToString:a.fieldCodec]||
+           a.fieldOffset!=0||!a.codecClassName.length)return nil;
     }else{
         return nil;
     }
@@ -442,12 +443,14 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         return nil;
     }
 
-    NSString *ca=ZNNHTrim(codecAssembly);if(!ca.length)ca=@"Percent.Scripting.Stdlib.dll";
-    NSString *cn=ZNNHTrim(codecNamespace),*cc=ZNNHTrim(codecClass),*cg=ZNNHTrim(getterMethod),*cs=ZNNHTrim(setterMethod);
-    if(!cc.length||!cg.length||!cs.length){
-        if(error)*error=@"Whole Struct codec 的类/getter/setter 不能为空";
+    (void)codecAssembly;(void)codecNamespace;(void)codecClass;(void)getterMethod;(void)setterMethod;
+    NSString *managedType=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"";
+    NSString *codecKey=ZNComplexStructCodecKeyForManagedType(managedType);
+    if(!codecKey.length){
+        if(error)*error=[NSString stringWithFormat:@"Complex Struct 未注册匹配 Codec：%@",managedType.length?managedType:@"?"];
         return nil;
     }
+    NSString *normalizedType=ZNComplexStructNormalizedManagedType(managedType);
 
     NSMutableArray *types=[NSMutableArray arrayWithCapacity:params.count];
     for(NSDictionary *p in params)[types addObject:[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?"];
@@ -459,9 +462,9 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.fieldArgumentIndex=argumentIndex;
     a.fieldArgumentMode=@"indirect-pointer";
     a.fieldOffset=0;
-    a.fieldCodec=@"secure-long-whole-accessor";
-    a.codecAssembly=ca;a.codecNamespaceName=cn;a.codecClassName=cc;
-    a.codecGetterMethod=cg;a.codecSetterMethod=cs;a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=1;
+    a.fieldCodec=codecKey;
+    a.codecAssembly=@"";a.codecNamespaceName=@"";a.codecClassName=normalizedType;
+    a.codecGetterMethod=@"";a.codecSetterMethod=@"";a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=0;
     a.minValue=minValue;a.maxValue=maxValue;a.defaultValue=defaultValue;
     a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Struct Multiplier",methodName];
     a.featureDescription=[NSString stringWithFormat:@"Complex Struct Transform · arg%lu · decode/transform/encode · %@",
