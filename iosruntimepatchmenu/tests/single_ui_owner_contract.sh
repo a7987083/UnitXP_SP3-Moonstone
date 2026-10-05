@@ -283,7 +283,8 @@ assert "@selector(znm47_captureLongPress:)" not in block
 assert "@selector(zn51_chainTapped:)" not in block
 assert "@selector(znm613_captureLongPress:)" in block
 assert "@selector(znm613_chainTapped:)" in block
-assert "liveHookText.length?" not in block
+assert "znm65_startLiveHookStatusTimer" in block
+assert "kZNM65LiveHookStatusTag" in block
 PY
 
 python3 - "$UI" <<'PY'
