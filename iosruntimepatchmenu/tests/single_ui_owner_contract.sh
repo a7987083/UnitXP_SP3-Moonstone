@@ -244,6 +244,10 @@ grep -q 'Generated Direct Call 禁止点击时动态解析 receiver' "$SRC/ZNDir
 grep -q 'Generated Client 不允许点击时动态解析 receiver' "$SRC/ZNM47MultiArgInvoke.mm"
 grep -q 'Debug/authoring Direct Test remains dynamic by design' "$SRC/ZNBuiltInCapabilityAdapters.mm"
 grep -q 'Prepared Runtime Descriptor' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+grep -q 'prepare Immediate Chain nodes at build time\|preparedOnly' "$SRC/ZNRuntimeActionBuildPrepare.mm"
+grep -q 'chainBindings' "$SRC/ZNPreparedClientRuntime.mm"
+grep -q 'FAILED_PREPARED_CHAIN' "$SRC/ZNM52ImmediateChainV2.mm"
+grep -q '!ZNIL2CPPPreparedExecutionActive()' "$SRC/ZNM50ManagedReturnChaining.mm"
 
 # M6.11 Instant Menu Open + Lazy Capability Init contract.
 grep -q 'instant-menu prewarm ready; first tap is show-only' "$UI"
