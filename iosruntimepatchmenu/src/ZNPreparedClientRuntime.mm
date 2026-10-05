@@ -42,6 +42,43 @@ static NSString *ZNM614RuntimeUUIDForHeader(const struct mach_header_64 *mh) {
     return @"";
 }
 
+static ZNRuntimeMethodAction *ZNM614PreparedActionForChainNode(NSDictionary *node) {
+    ZNRuntimeMethodAction *action=[ZNRuntimeMethodAction new];
+    action.title=[node[@"title"] isKindOfClass:NSString.class]?node[@"title"]:@"Chain Node";
+    action.group=@"Immediate Chain";
+    action.assembly=[node[@"assembly"] isKindOfClass:NSString.class]?node[@"assembly"]:@"Assembly-CSharp.dll";
+    action.namespaceName=[node[@"namespace"] isKindOfClass:NSString.class]?node[@"namespace"]:@"";
+    action.className=[node[@"class"] isKindOfClass:NSString.class]?node[@"class"]:@"";
+    action.methodName=[node[@"method"] isKindOfClass:NSString.class]?node[@"method"]:@"";
+    action.argumentValues=[node[@"argumentValues"] isKindOfClass:NSArray.class]?node[@"argumentValues"]:@[];
+    action.parameterTypeNames=[node[@"parameterTypeNames"] isKindOfClass:NSArray.class]?node[@"parameterTypeNames"]:@[];
+    action.argumentCount=action.argumentValues.count;
+    action.signatureAvailable=action.parameterTypeNames.count==action.argumentCount;
+    action.argumentControlConfigs=@[];
+    action.immediateChain=@{};
+    return action;
+}
+
+static NSDictionary *ZNM614ResolvePreparedAction(ZNRuntimeMethodAction *action,NSString **error) {
+    if(action.signatureAvailable&&action.parameterTypeNames.count==action.argumentCount){
+        return [[ZNIL2CPPFullSignatureResolver sharedResolver]
+            resolveAssembly:action.assembly
+                   namespace:action.namespaceName?:@""
+                   className:action.className
+                      method:action.methodName
+          parameterTypeNames:action.parameterTypeNames
+                       error:error];
+    }
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    NSDictionary *resolved=[resolver resolveMethodAssembly:action.assembly
+                                                  namespace:action.namespaceName?:@""
+                                                  className:action.className
+                                                     method:action.methodName
+                                              argumentCount:(NSInteger)action.argumentCount];
+    if(!resolved&&error)*error=resolver.lastError?:@"Prepared action resolve 失败";
+    return resolved;
+}
+
 static NSDictionary *ZNM614ResolveRecord(ZNRuntimeMethodActionRecord *record,NSString **error) {
     if(record.signatureAvailable&&record.parameterTypeNames.count==record.argumentCount){
         return [[ZNIL2CPPFullSignatureResolver sharedResolver]
@@ -207,10 +244,49 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
             if(!receiver)pendingReceiver=YES;
         }
 
+        NSMutableDictionary *chainBindings=[NSMutableDictionary dictionary];
+        NSDictionary *chain=[record.immediateChain isKindOfClass:NSDictionary.class]?record.immediateChain:nil;
+        NSArray *nodes=([chain[@"version"] integerValue]==2&&[chain[@"nodes"] isKindOfClass:NSArray.class])?chain[@"nodes"]:nil;
+        for(NSDictionary *node in nodes?:@[]){
+            if(![node[@"prepared"] boolValue] ||
+               ![node[@"preparedRVA"] unsignedLongLongValue] ||
+               ![node[@"preparedUUID"] isKindOfClass:NSString.class] ||
+               ![(NSString *)node[@"preparedUUID"] length] ||
+               ![node[@"preparedStaticKnown"] boolValue]){
+                continue;
+            }
+            ZNRuntimeMethodAction *nodeAction=ZNM614PreparedActionForChainNode(node);
+            NSString *nodeError=nil;
+            NSDictionary *nodeResolved=ZNM614ResolvePreparedAction(nodeAction,&nodeError);
+            uintptr_t nodeMI=[nodeResolved[@"methodInfo"] unsignedLongLongValue];
+            uintptr_t nodePointer=[nodeResolved[@"methodPointer"] unsignedLongLongValue];
+            if(!nodeMI||!nodePointer)continue;
+            Dl_info nodeInfo={0};
+            if(dladdr((const void *)nodePointer,&nodeInfo)==0||!nodeInfo.dli_fbase)continue;
+            uintptr_t nodeBase=(uintptr_t)nodeInfo.dli_fbase;
+            NSString *nodeUUID=ZNM614RuntimeUUIDForHeader((const struct mach_header_64 *)nodeBase);
+            if(![nodeUUID isEqualToString:node[@"preparedUUID"]] ||
+               nodePointer<nodeBase ||
+               (uint64_t)(nodePointer-nodeBase)!=[node[@"preparedRVA"] unsignedLongLongValue])continue;
+            uint32_t nodeImpl=0;
+            BOOL nodeStatic=(getFlags((const void *)nodeMI,&nodeImpl)&kZNM614MethodAttributeStatic)!=0;
+            if(nodeStatic!=[node[@"preparedIsStatic"] boolValue])continue;
+            NSMutableDictionary *nodeCandidate=[nodeResolved mutableCopy]?:[NSMutableDictionary dictionary];
+            nodeCandidate[@"assembly"]=nodeAction.assembly?:@"";
+            nodeCandidate[@"namespace"]=nodeAction.namespaceName?:@"";
+            nodeCandidate[@"class"]=nodeAction.className?:@"";
+            nodeCandidate[@"method"]=nodeAction.methodName?:@"";
+            nodeCandidate[@"argumentCount"]=@(nodeAction.argumentCount);
+            nodeCandidate[@"canonical"]=nodeAction.canonicalIdentity?:@"";
+            chainBindings[nodeAction.canonicalIdentity?:@""]=@{@"resolved":[nodeCandidate copy],
+                                                                @"static":@(nodeStatic)};
+        }
+
         NSDictionary *binding=@{@"resolved":[candidate copy],
                                 @"receiver":@(receiver),
                                 @"static":@(isStatic),
-                                @"identity":record.canonicalIdentity?:@""};
+                                @"identity":record.canonicalIdentity?:@"",
+                                @"chainBindings":[chainBindings copy]};
         @synchronized(self){self.bindings[@(record.actionID)]=binding;}
     }
     if(handle)dlclose(handle);
@@ -242,7 +318,8 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
              @"method":record.methodName?:@"",
              @"argumentCount":@(record.argumentCount),
              @"resolved":binding[@"resolved"]?:@{},
-             @"receiver":binding[@"receiver"]?:@0};
+             @"receiver":binding[@"receiver"]?:@0,
+             @"chainBindings":binding[@"chainBindings"]?:@{}};
 }
 
 - (BOOL)executeRuntimeRecord:(ZNRuntimeMethodActionRecord *)record values:(NSArray<NSString *> *)values error:(NSString **)error {
