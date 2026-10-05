@@ -18,6 +18,7 @@
 #import "ZNRuntimeActionFormat.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionRuntime.h"
+#import "ZNStaticDispatchRuntime.h"
 #import "ZNPatchCore.h"
 
 static const uint32_t kZNM614MethodAttributeStatic=0x0010u;
@@ -159,6 +160,9 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
 }
 
 - (BOOL)zn_reconcileNow {
+    // Static metadata is also discovered during startup. Historical customer UI
+    // refresh() calls therefore hit the O(1) discovery cache instead of scanning.
+    [[ZNStaticDispatchRuntime sharedRuntime] refresh];
     ZNRuntimeActionRuntime *table=[ZNRuntimeActionRuntime sharedRuntime];
     [table refresh];
     NSArray<ZNRuntimeMethodActionRecord *> *all=[(table.records?:@[]) arrayByAddingObjectsFromArray:table.directRecords?:@[]];
