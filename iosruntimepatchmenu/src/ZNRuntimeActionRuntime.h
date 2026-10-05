@@ -4,6 +4,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface ZNRuntimeMethodActionRecord : NSObject
 @property(nonatomic,assign,readonly) uint32_t actionID;
+@property(nonatomic,assign,readonly) NSInteger executionKind;
 @property(nonatomic,copy,readonly) NSString *title;
 @property(nonatomic,copy,readonly) NSString *group;
 @property(nonatomic,copy,readonly) NSString *featureDescription;
@@ -24,6 +25,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface ZNRuntimeActionRuntime : NSObject
 + (instancetype)sharedRuntime;
 @property(nonatomic,copy,readonly) NSArray<ZNRuntimeMethodActionRecord *> *records;
+@property(nonatomic,copy,readonly) NSArray<ZNRuntimeMethodActionRecord *> *directRecords;
 @property(nonatomic,copy,readonly) NSString *lastStatus;
 - (void)refresh;
 - (BOOL)executeRecord:(ZNRuntimeMethodActionRecord *)record error:(NSString * _Nullable * _Nullable)error;
