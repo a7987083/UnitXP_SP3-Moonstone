@@ -9,7 +9,8 @@ typedef NS_ENUM(uint32_t, ZNNativeHookTemplateKind) {
     ZNNativeHookTemplateArgScaleInt32 = 1,
     ZNNativeHookTemplateManagedCallbackShortCircuit = 2,
     ZNNativeHookTemplateReturnBoolOverride = 3,
-    ZNNativeHookTemplateStructFieldTransform = 4,
+    ZNNativeHookTemplateStructFieldTransform = 4, // legacy offset-based codec
+    ZNNativeHookTemplateComplexStructTransform = 5, // whole struct decode/transform/encode
 };
 
 static inline NSString *ZNNativeHookTemplateKey(ZNNativeHookTemplateKind kind) {
@@ -18,6 +19,7 @@ static inline NSString *ZNNativeHookTemplateKey(ZNNativeHookTemplateKind kind) {
         case ZNNativeHookTemplateManagedCallbackShortCircuit: return @"managed-callback-short-circuit";
         case ZNNativeHookTemplateReturnBoolOverride: return @"return-bool-override";
         case ZNNativeHookTemplateStructFieldTransform: return @"struct-field-transform";
+        case ZNNativeHookTemplateComplexStructTransform: return @"complex-struct-transform";
         default: return @"invalid";
     }
 }
