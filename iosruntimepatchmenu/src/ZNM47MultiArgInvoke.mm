@@ -118,6 +118,15 @@ static NSDictionary *ZNM47ResolveAction(ZNRuntimeMethodAction *action, NSString 
 }
 
 static void *ZNM47InstanceForAction(ZNRuntimeMethodAction *action, NSString **diagnostics, NSString **error) {
+    if(ZNIL2CPPPreparedExecutionActive()){
+        uintptr_t prepared=ZNIL2CPPPreparedExecutionReceiver();
+        if(prepared){
+            if(diagnostics)*diagnostics=@"prepared-receiver";
+            return (void *)prepared;
+        }
+        if(error)*error=@"FAILED_PREPARED_RECEIVER：Generated Client 不允许点击时动态解析 receiver";
+        return NULL;
+    }
     ZNIL2CPPInstanceResolver *resolver = [ZNIL2CPPInstanceResolver sharedResolver];
     uintptr_t selected = [resolver znm44_selectedInstanceForAssembly:action.assembly
                                                             namespace:action.namespaceName ?: @""
