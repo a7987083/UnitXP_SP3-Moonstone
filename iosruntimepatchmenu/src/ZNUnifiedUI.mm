@@ -13897,7 +13897,6 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     for(NSUInteger row=0;row<visible.count;row++){
         NSDictionary *candidate=visible[row];
         NSDictionary *analysis=ZNM613AnalyzeCandidate(candidate);
-        NSDictionary *abi=[analysis[@"abi"] isKindOfClass:NSDictionary.class]?analysis[@"abi"]:@{};
         NSArray<NSDictionary *> *params=[analysis[@"params"] isKindOfClass:NSArray.class]?analysis[@"params"]:@[];
         NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
         BOOL runtimeOK=[analysis[@"runtimeOK"] boolValue];
