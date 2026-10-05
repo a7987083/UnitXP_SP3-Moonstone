@@ -25,7 +25,7 @@ grep -q '方法查找' "$UI"
 grep -q 'IL2CPP Native Hook' "$UI"
 grep -q '生成新二进制' "$UI"
 grep -q 'Hook 测试' "$UI"
-grep -q 'Direct Native Call：当前分支尚未接入 backend' "$UI"
+grep -q 'ZNCapabilityDirectNativeCallIdentifier' "$UI"
 grep -q 'method_exchangeImplementations' "$UI"
 grep -q 'ZNRMCBuilderFinalizeBuildGate' "$UI"
 grep -q 'ZNBuildCapabilityRegistry.h' "$UI"
@@ -203,6 +203,22 @@ grep -q 'ZNCapabilityStaticPatchIdentifier' "$SRC/ZNBuiltInCapabilityAdapters.mm
 grep -q 'ZNCapabilityRuntimeMethodIdentifier' "$SRC/ZNBuiltInCapabilityAdapters.mm"
 grep -q 'ZNCapabilityNativeHookIdentifier' "$SRC/ZNBuiltInCapabilityAdapters.mm"
 
+# M6.13 Direct Call plugin + Complex Struct Codec contract.
+test -f "$SRC/ZNDirectNativeCallEngine.h"
+test -f "$SRC/ZNDirectNativeCallEngine.mm"
+test -f "$SRC/ZNComplexStructCodec.h"
+test -f "$SRC/ZNComplexStructCodec.mm"
+grep -q 'src/ZNDirectNativeCallEngine.mm' "$MAKEFILE"
+grep -q 'src/ZNComplexStructCodec.mm' "$MAKEFILE"
+grep -q 'ZNCapabilityDirectNativeCallIdentifier' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+grep -q 'ZNDirectNativeCallCapabilityAdapter' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+grep -q 'complex-struct-transform' "$SRC/ZNNativeHookTemplate.h"
+grep -q 'secure-long-whole-accessor' "$SRC/ZNComplexStructCodec.mm"
+grep -q 'ZNComplexStructTransformFn' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNNativeHookTemplateComplexStructTransform' "$SRC/ZNRuntimeActionBuilder.mm"
+grep -q 'complex-struct-transform' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+grep -q 'Field Offset：不需要' "$UI"
+
 # M6.11 Instant Menu Open + Lazy Capability Init contract.
 grep -q 'instant-menu prewarm ready; first tap is show-only' "$UI"
 grep -q 'The user.*first' "$UI" || true
@@ -242,4 +258,4 @@ assert "ZonoePatchShow" in tap
 assert "dispatch_after" not in tap
 PY
 
-echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared + M6.10 Static Prepatch + M6.11 Instant Menu + M6.12 Capability substrate contract: OK"
+echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared + M6.10 Static Prepatch + M6.11 Instant Menu + M6.12 Capability substrate + M6.13 Plugin/Struct Codec contract: OK"
