@@ -5,6 +5,7 @@
 #import "ZNRuntimeActionModel.h"
 #import "ZNNativeHookAction.h"
 #import "ZNNativeHookBuildPrepare.h"
+#import "ZNNativeHookStaticPrepatch.h"
 #import "ZNRuntimeActionBuilder.h"
 #import "ZNRuntimeActionSignaturePostprocess.h"
 #import "ZNM462RuntimeOnlyVerifier.h"
@@ -277,7 +278,21 @@ static BOOL ZNM69EmitRuntimeActionTable(ZNBuildManifest *manifest,
                                       BOOL runtimeOnlyBase,
                                       NSString **report,
                                       NSString **error) {
-            return ZNM69EmitRuntimeActionTable(manifest,builderOutputs,runtimeOnlyBase,report,error);
+            NSString *prepatchReport=nil,*prepatchError=nil;
+            if(!ZNBuildInstallStaticPreparedNativeHooksV1(builderOutputs,&prepatchReport,&prepatchError)){
+                if(error)*error=prepatchError ?: @"Static Prepared Native Hook 预埋失败";
+                return NO;
+            }
+            NSString *tableReport=nil,*tableError=nil;
+            if(!ZNM69EmitRuntimeActionTable(manifest,builderOutputs,runtimeOnlyBase,&tableReport,&tableError)){
+                if(error)*error=tableError ?: @"Runtime Action Table emit 失败";
+                return NO;
+            }
+            NSMutableArray<NSString *> *parts=[NSMutableArray array];
+            if(prepatchReport.length)[parts addObject:prepatchReport];
+            if(tableReport.length)[parts addObject:tableReport];
+            if(report)*report=[parts componentsJoinedByString:@"\n"];
+            return YES;
         };
         self.providers[nativeHookProvider.identifier]=nativeHookProvider;
     }
