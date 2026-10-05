@@ -13,6 +13,7 @@ enum {
     ZNRuntimeActionKindInvalid = 0,
     ZNRuntimeActionKindIL2CPPMethodCall = 1,
     ZNRuntimeActionKindIL2CPPNativeHook = 2,
+    ZNRuntimeActionKindDirectNativeCall = 3,
 };
 
 typedef uint32_t ZNRuntimeActionFlags;
