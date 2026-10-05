@@ -654,85 +654,60 @@ static BOOL ZNNativePreparedTargetForAction(ZNNativeHookAction *action,
                                              uintptr_t *outBase,
                                              uintptr_t *outTarget,
                                              NSString **error) {
-    if(!action.preparedDescriptor||!action.preparedRVA||!action.preparedUUID.length||
-       !action.preparedStaticKnown){
-        if(error)*error=@"Native Hook 缺少 M6.9 Prepared Descriptor；请重新生成二进制";
+    // Prepared metadata is an optional fast-path only. Generated clients are
+    // allowed to resolve at startup when Build did not (or could not) prepare it.
+    if(action.preparedDescriptor&&action.preparedRVA&&action.preparedUUID.length&&action.preparedStaticKnown){
+        uint32_t count=_dyld_image_count();
+        for(uint32_t i=0;i<count;i++){
+            const char *cpath=_dyld_get_image_name(i);
+            const struct mach_header *raw=_dyld_get_image_header(i);
+            if(!cpath||!raw||raw->magic!=MH_MAGIC_64)continue;
+            NSString *path=[NSString stringWithUTF8String:cpath]?:@"";
+            BOOL unity=[path.lastPathComponent isEqualToString:@"UnityFramework"]||
+                       [path rangeOfString:@"UnityFramework.framework/UnityFramework"
+                                   options:NSCaseInsensitiveSearch].location!=NSNotFound;
+            if(!unity)continue;
+
+            const struct mach_header_64 *mh=(const struct mach_header_64 *)raw;
+            NSString *uuid=ZNNativePreparedUUIDForHeader(mh);
+            uintptr_t base=(uintptr_t)raw;
+            if(uuid.length&&[uuid caseInsensitiveCompare:action.preparedUUID]==NSOrderedSame&&
+               action.preparedRVA<=UINTPTR_MAX-base){
+                uintptr_t target=base+(uintptr_t)action.preparedRVA;
+                if(outBase)*outBase=base;
+                if(outTarget)*outTarget=target;
+                return YES;
+            }
+            break;
+        }
+        [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:
+            @"[native-hook-startup] prepared descriptor stale; fallback to startup resolve %@",
+            action.canonicalIdentity?:@"?"]];
+    }
+
+    NSString *inner=nil;
+    NSDictionary *resolved=ZNNativeResolveDescriptor(action.assembly?:@"Assembly-CSharp.dll",
+                                                       action.namespaceName?:@"",
+                                                       action.className?:@"",
+                                                       action.methodName?:@"",
+                                                       action.argumentCount,
+                                                       nil,
+                                                       &inner);
+    uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
+    if(!resolved||!target){
+        if(error)*error=inner?:@"Native Hook startup resolve 尚未就绪";
         return NO;
     }
 
-    uint32_t count=_dyld_image_count();
-    for(uint32_t i=0;i<count;i++){
-        const char *cpath=_dyld_get_image_name(i);
-        const struct mach_header *raw=_dyld_get_image_header(i);
-        if(!cpath||!raw||raw->magic!=MH_MAGIC_64)continue;
-        NSString *path=[NSString stringWithUTF8String:cpath]?:@"";
-        BOOL unity=[path.lastPathComponent isEqualToString:@"UnityFramework"]||
-                   [path rangeOfString:@"UnityFramework.framework/UnityFramework"
-                               options:NSCaseInsensitiveSearch].location!=NSNotFound;
-        if(!unity)continue;
-
-        const struct mach_header_64 *mh=(const struct mach_header_64 *)raw;
-        NSString *uuid=ZNNativePreparedUUIDForHeader(mh);
-        if(!uuid.length||[uuid caseInsensitiveCompare:action.preparedUUID]!=NSOrderedSame){
-            if(error)*error=[NSString stringWithFormat:
-                @"Native Hook UnityFramework UUID 不匹配：prepared=%@ runtime=%@",
-                action.preparedUUID?:@"",uuid?:@""];
-            return NO;
-        }
-
-        uintptr_t base=(uintptr_t)raw;
-        if(action.preparedRVA>UINTPTR_MAX-base){
-            if(error)*error=@"Native Hook Prepared RVA 地址溢出";
-            return NO;
-        }
-        uintptr_t target=base+(uintptr_t)action.preparedRVA;
-
-        const uint8_t *cursor=(const uint8_t *)(mh+1),*limit=cursor+mh->sizeofcmds;
-        uint64_t textVM=UINT64_MAX;
-        for(uint32_t j=0;j<mh->ncmds;j++){
-            if(cursor+sizeof(struct load_command)>limit)break;
-            const struct load_command *lc=(const struct load_command *)cursor;
-            if(lc->cmdsize<sizeof(*lc)||cursor+lc->cmdsize>limit)break;
-            if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(struct segment_command_64)){
-                const struct segment_command_64 *seg=(const struct segment_command_64 *)cursor;
-                if(strncmp(seg->segname,SEG_TEXT,16)==0){textVM=seg->vmaddr;break;}
-            }
-            cursor+=lc->cmdsize;
-        }
-        if(textVM==UINT64_MAX){
-            if(error)*error=@"Native Hook 无法读取 UnityFramework __TEXT";
-            return NO;
-        }
-
-        BOOL executable=NO;
-        cursor=(const uint8_t *)(mh+1);
-        for(uint32_t j=0;j<mh->ncmds;j++){
-            if(cursor+sizeof(struct load_command)>limit)break;
-            const struct load_command *lc=(const struct load_command *)cursor;
-            if(lc->cmdsize<sizeof(*lc)||cursor+lc->cmdsize>limit)break;
-            if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(struct segment_command_64)){
-                const struct segment_command_64 *seg=(const struct segment_command_64 *)cursor;
-                if((seg->initprot&VM_PROT_EXECUTE)&&seg->vmaddr>=textVM){
-                    uintptr_t start=base+(uintptr_t)(seg->vmaddr-textVM);
-                    uintptr_t finish=start+(uintptr_t)seg->vmsize;
-                    if(target>=start&&target<finish){executable=YES;break;}
-                }
-            }
-            cursor+=lc->cmdsize;
-        }
-        if(!executable){
-            if(error)*error=[NSString stringWithFormat:
-                @"Native Hook Prepared RVA 0x%llX 不在 executable segment",
-                (unsigned long long)action.preparedRVA];
-            return NO;
-        }
-        if(outBase)*outBase=base;
-        if(outTarget)*outTarget=target;
-        return YES;
+    Dl_info info={0};
+    if(dladdr((const void *)target,&info)==0||!info.dli_fbase){
+        if(error)*error=@"Native Hook startup resolve 无法定位目标 Mach-O";
+        return NO;
     }
-
-    if(error)*error=@"Native Hook 等待 UnityFramework image";
-    return NO;
+    action.preparedIsStatic=[resolved[@"static"] boolValue];
+    if(outBase)*outBase=(uintptr_t)info.dli_fbase;
+    if(outTarget)*outTarget=target;
+    return YES;
 }
 
 static BOOL ZNNativeRuntimeAddressHasProtection(uintptr_t imageBase,
