@@ -252,14 +252,21 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
     BOOL instance=[abi[@"instance"] boolValue];
     uintptr_t receiver=0;
     if(instance){
-        NSString *assembly=[candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"Assembly-CSharp.dll";
-        NSString *ns=[candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"";
-        NSString *cls=[candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"";
-        ZNIL2CPPInstanceResolver *resolver=[ZNIL2CPPInstanceResolver sharedResolver];
-        receiver=[resolver znm44_selectedInstanceForAssembly:assembly namespace:ns className:cls];
+        receiver=[candidate[@"preparedReceiver"] unsignedLongLongValue];
+        if(!receiver && ZNIL2CPPPreparedExecutionActive()){
+            if(error)*error=@"FAILED_PREPARED_RECEIVER：Generated Direct Call 禁止点击时动态解析 receiver";
+            return nil;
+        }
         if(!receiver){
-            NSString *diag=nil,*inner=nil;
-            receiver=(uintptr_t)[resolver resolveUniqueInstanceForAssembly:assembly namespace:ns className:cls diagnostics:&diag error:&inner];
+            NSString *assembly=[candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"Assembly-CSharp.dll";
+            NSString *ns=[candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"";
+            NSString *cls=[candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"";
+            ZNIL2CPPInstanceResolver *resolver=[ZNIL2CPPInstanceResolver sharedResolver];
+            receiver=[resolver znm44_selectedInstanceForAssembly:assembly namespace:ns className:cls];
+            if(!receiver){
+                NSString *diag=nil,*inner=nil;
+                receiver=(uintptr_t)[resolver resolveUniqueInstanceForAssembly:assembly namespace:ns className:cls diagnostics:&diag error:&inner];
+            }
         }
         if(!receiver){if(error)*error=@"Direct Native Call instance 方法需要先选择唯一实例";return nil;}
         argv[n++]=receiver;
