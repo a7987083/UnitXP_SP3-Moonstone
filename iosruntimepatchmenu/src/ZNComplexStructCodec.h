@@ -32,7 +32,7 @@ FOUNDATION_EXPORT NSString * const ZNComplexStructCodecObscuredInt;
 @end
 
 // Exact Type -> Codec mapping. Unknown complex types intentionally return nil.
-FOUNDATION_EXPORT nullable NSString *ZNComplexStructCodecKeyForManagedType(NSString *managedTypeName);
+FOUNDATION_EXPORT NSString * _Nullable ZNComplexStructCodecKeyForManagedType(NSString *managedTypeName);
 FOUNDATION_EXPORT NSString *ZNComplexStructNormalizedManagedType(NSString *managedTypeName);
 
 FOUNDATION_EXPORT void ZNRegisterBuiltInComplexStructCodecs(void);
