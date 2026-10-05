@@ -16,6 +16,7 @@ NSNotificationName const ZNRuntimeCapabilitySnapshotDidChangeNotification =
 @interface ZNRuntimeCapabilitySnapshot ()
 @property(nonatomic,copy,readwrite) NSArray<ZNStaticPatchRecord *> *staticRecords;
 @property(nonatomic,copy,readwrite) NSArray<ZNRuntimeMethodActionRecord *> *runtimeMethods;
+@property(nonatomic,copy,readwrite) NSArray<ZNRuntimeMethodActionRecord *> *directNativeCalls;
 @property(nonatomic,copy,readwrite) NSArray<ZNNativeHookAction *> *nativeHooks;
 @property(nonatomic,assign,readwrite) uint64_t generation;
 @property(nonatomic,assign,readwrite) uint32_t imageCount;
@@ -57,6 +58,7 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
     ZNRuntimeCapabilitySnapshot *empty=[ZNRuntimeCapabilitySnapshot new];
     empty.staticRecords=@[];
     empty.runtimeMethods=@[];
+    empty.directNativeCalls=@[];
     empty.nativeHooks=@[];
     empty.generation=0;
     empty.imageCount=0;
@@ -128,10 +130,12 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
             id<ZNRuntimeCapabilityAdapter> staticAdapter=[registry adapterForIdentifier:ZNCapabilityStaticPatchIdentifier];
             id<ZNRuntimeCapabilityAdapter> methodAdapter=[registry adapterForIdentifier:ZNCapabilityRuntimeMethodIdentifier];
             id<ZNRuntimeCapabilityAdapter> hookAdapter=[registry adapterForIdentifier:ZNCapabilityNativeHookIdentifier];
+            id<ZNRuntimeCapabilityAdapter> directAdapter=[registry adapterForIdentifier:ZNCapabilityDirectNativeCallIdentifier];
 
             ZNRuntimeCapabilitySnapshot *snapshot=[ZNRuntimeCapabilitySnapshot new];
             snapshot.staticRecords=(NSArray<ZNStaticPatchRecord *> *)[[staticAdapter snapshotItems] copy] ?: @[];
             snapshot.runtimeMethods=(NSArray<ZNRuntimeMethodActionRecord *> *)[[methodAdapter snapshotItems] copy] ?: @[];
+            snapshot.directNativeCalls=(NSArray<ZNRuntimeMethodActionRecord *> *)[[directAdapter snapshotItems] copy] ?: @[];
             snapshot.nativeHooks=(NSArray<ZNNativeHookAction *> *)[[hookAdapter snapshotItems] copy] ?: @[];
             snapshot.imageCount=_dyld_image_count();
 
@@ -142,11 +146,12 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
 
             double elapsed=(CFAbsoluteTimeGetCurrent()-startedAt)*1000.0;
             [[ZNRuntimeLogger sharedLogger] log:
-             [NSString stringWithFormat:@"[runtime-capability] snapshot gen=%llu images=%u static=%lu runtime=%lu hooks=%lu %.2fms thread=%@",
+             [NSString stringWithFormat:@"[runtime-capability] snapshot gen=%llu images=%u static=%lu runtime=%lu direct=%lu hooks=%lu %.2fms thread=%@",
               snapshot.generation,
               snapshot.imageCount,
               (unsigned long)snapshot.staticRecords.count,
               (unsigned long)snapshot.runtimeMethods.count,
+              (unsigned long)snapshot.directNativeCalls.count,
               (unsigned long)snapshot.nativeHooks.count,
               elapsed,
               NSThread.isMainThread ? @"main" : @"background"]];
