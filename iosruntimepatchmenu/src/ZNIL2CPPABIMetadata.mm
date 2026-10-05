@@ -1,4 +1,5 @@
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNIL2CPPResolver.h"
 
 #import <Foundation/Foundation.h>
 #import <mach-o/dyld.h>
@@ -204,6 +205,11 @@ ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSString *typeName) {
 
 NSDictionary<NSString *, id> *ZNIL2CPPDescribeMethodABI(NSDictionary<NSString *, id> *candidate) {
     uintptr_t methodInfoAddress = (uintptr_t)[candidate[@"methodInfo"] unsignedLongLongValue];
+    if(ZNIL2CPPPreparedExecutionActive()){
+        NSDictionary *ctx=ZNIL2CPPPreparedExecutionCurrentContext();
+        NSDictionary *cached=[ctx[@"abi"] isKindOfClass:NSDictionary.class]?ctx[@"abi"]:nil;
+        if(cached.count && [cached[@"methodInfo"] unsignedLongLongValue]==methodInfoAddress)return cached;
+    }
     uintptr_t methodPointer = (uintptr_t)[candidate[@"methodPointer"] unsignedLongLongValue];
     const ZNABIAPI &api = ZNABIResolvedAPI();
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
