@@ -110,8 +110,10 @@ static NSDictionary<NSString *,id> *ZNM69ResolvePreparedDescriptor(
     BOOL isStatic=(flags&kZNM69MethodAttributeStatic)!=0;
 
     uint64_t codecGetterRVA=0,codecSetterRVA=0;
-    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform ||
-       action.templateKind==ZNNativeHookTemplateComplexStructTransform){
+    // Legacy field-offset codec still bakes two accessor RVAs.
+    // ComplexStructTransform resolves its exact type codec during capability
+    // prewarm/install because codecs may require more than two functions.
+    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform){
         NSDictionary *getter=[resolver resolveMethodAssembly:action.codecAssembly
                                                    namespace:action.codecNamespaceName ?: @""
                                                    className:action.codecClassName
@@ -212,6 +214,6 @@ BOOL ZNBuildPrepareNativeHookDescriptorsV1(NSString **report, NSString **error) 
     if(report)*report=[NSString stringWithFormat:
         @"Prepared Native Hook：%lu actions · RVA/UUID/static%@",
         (unsigned long)prepared.count,
-        structCodecCount ? @" + codec RVA" : @""];
+        structCodecCount ? @" + codec prepare" : @""];
     return YES;
 }
