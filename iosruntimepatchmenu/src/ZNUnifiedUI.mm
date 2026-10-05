@@ -13331,6 +13331,148 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
                                             source:(UIButton *)source;
 - (void)zn68_presentStructFieldConfigForCandidate:(NSDictionary *)candidate
                                      argumentIndex:(NSUInteger)argumentIndex
+                                            source:(UIButton *)source;
+@end
+
+static NSString *ZNM52XString(id value) {
+    return [value isKindOfClass:NSString.class] ? value : @"";
+}
+
+static NSArray<NSDictionary *> *ZNM52XVisible(ZNRuntimeMenuControllerV040 *controller) {
+    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
+    NSInteger filter = [controller znm42_filter];
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
+    for (NSDictionary *candidate in all) {
+        if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [out addObject:candidate];
+    }
+    return out;
+}
+
+static void ZNM52XCollectChainButtons(UIView *root, NSMutableArray<UIButton *> *out) {
+    for (UIView *view in root.subviews) {
+        if ([view isKindOfClass:UIButton.class]) {
+            NSString *title = [(UIButton *)view titleForState:UIControlStateNormal] ?: @"";
+            if ([title isEqualToString:@"链式调用"] || [title isEqualToString:@"执行链"]) [out addObject:(UIButton *)view];
+        }
+        ZNM52XCollectChainButtons(view, out);
+    }
+}
+
+static UIButton *ZNM52XButtonWithTitles(UIView *card, NSArray<NSString *> *titles) {
+    for (UIView *view in card.subviews) {
+        if (![view isKindOfClass:UIButton.class]) continue;
+        UIButton *button=(UIButton *)view;
+        NSString *title=[button titleForState:UIControlStateNormal] ?: @"";
+        if ([titles containsObject:title]) return button;
+    }
+    return nil;
+}
+
+static BOOL ZNM52XMethodIsInstance(NSDictionary *candidate, BOOL *known) {
+    if(known)*known=NO;
+    uintptr_t methodInfo=[candidate[@"methodInfo"] unsignedLongLongValue];
+    if(!methodInfo)return NO;
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    ZNM52XMethodGetFlagsFn getFlags=(ZNM52XMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_method_get_flags");
+    if(!getFlags)return NO;
+    uint32_t implFlags=0;
+    uint32_t flags=getFlags((const void *)methodInfo,&implFlags);
+    if(known)*known=YES;
+    return (flags&kZNM52XMethodAttributeStatic)==0;
+}
+
+static BOOL ZNM52XBatchSafe(NSDictionary *candidate) {
+    if([candidate[@"argumentCount"] unsignedIntegerValue]!=0)return NO;
+    NSString *method=ZNM52XString(candidate[@"method"]).lowercaseString;
+    return [method hasPrefix:@"get_"] || [method hasPrefix:@"is"] ||
+           [method hasPrefix:@"has"] || [method hasPrefix:@"can"];
+}
+
+static void ZNM52XStyleGridButton(UIButton *button,CGFloat x,CGFloat y,CGFloat w,CGFloat h) {
+    if(!button)return;
+    button.frame=CGRectMake(x,y,w,h);
+    button.titleLabel.font=[UIFont systemFontOfSize:8.1 weight:UIFontWeightSemibold];
+    button.titleLabel.adjustsFontSizeToFitWidth=YES;
+    button.titleLabel.minimumScaleFactor=.65;
+}
+
+static BOOL ZNM52XCandidateMatches(NSDictionary *candidate, ZNRuntimeMethodAction *action) {
+    NSDictionary *chain = [action.immediateChain isKindOfClass:NSDictionary.class] ? action.immediateChain : @{};
+    NSArray *nodes = [chain[@"nodes"] isKindOfClass:NSArray.class] ? chain[@"nodes"] : nil;
+    if ([chain[@"version"] integerValue] != 2 || !nodes.count) return NO;
+    NSString *assembly = ZNM52XString(candidate[@"assembly"]); if (!assembly.length) assembly = @"Assembly-CSharp.dll";
+    return [action.assembly isEqualToString:assembly] &&
+           [(action.namespaceName ?: @"") isEqualToString:ZNM52XString(candidate[@"namespace"])] &&
+           [action.className isEqualToString:ZNM52XString(candidate[@"class"])] &&
+           [action.methodName isEqualToString:ZNM52XString(candidate[@"method"])] &&
+           action.argumentCount == [candidate[@"argumentCount"] unsignedIntegerValue];
+}
+
+static NSInteger ZNM52XFindChain(NSDictionary *candidate, ZNRuntimeMethodAction **outAction) {
+    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+    for (NSInteger i = (NSInteger)actions.count - 1; i >= 0; i--) {
+        ZNRuntimeMethodAction *action = actions[(NSUInteger)i];
+        if (ZNM52XCandidateMatches(candidate, action)) {
+            if (outAction) *outAction = action;
+            return i;
+        }
+    }
+    return NSNotFound;
+}
+
+static UIViewController *ZNM52XTop(UIWindow *window) {
+    UIViewController *vc = window.rootViewController;
+    while (vc.presentedViewController) vc = vc.presentedViewController;
+    return vc;
+}
+
+static NSString *ZNM52XTrace(NSDictionary *result) {
+    NSArray *trace = [result[@"chainTrace"] isKindOfClass:NSArray.class] ? result[@"chainTrace"] : @[];
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (NSDictionary *level in trace) {
+        NSString *identity = ZNM52XString(level[@"identity"]);
+        [lines addObject:[NSString stringWithFormat:@"L%@ %@ → %@", level[@"level"] ?: @"?", identity.length ? identity : @"?", level[@"returnValue"] ?: @"?"]];
+    }
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+@implementation ZNRuntimeMenuControllerV040 (ZNM52ChainExecuteButton)
+
+- (void)zn68_presentStructFieldPickerForCandidate:(NSDictionary *)candidate
+                                           indices:(NSArray<NSNumber *> *)indices
+                                            source:(UIButton *)source {
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(indices.count==1){
+        [self zn68_presentStructFieldConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:source];
+        return;
+    }
+    UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"选择 Struct 参数"
+                                                                   message:@"ComplexStructTransform V1 · whole struct codec · 无需 Field Offset"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf=self;
+    for(NSNumber *n in indices){
+        NSUInteger idx=n.unsignedIntegerValue;
+        NSDictionary *p=idx<params.count?params[idx]:@{};
+        NSString *pn=[p[@"paramName"] isKindOfClass:NSString.class]?p[@"paramName"]:@"";
+        NSString *tn=[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"complex value";
+        NSString *title=pn.length?[NSString stringWithFormat:@"参数%lu · %@ · %@",(unsigned long)idx+1,pn,tn]:
+                                  [NSString stringWithFormat:@"参数%lu · %@",(unsigned long)idx+1,tn];
+        [picker addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+            [weakSelf zn68_presentStructFieldConfigForCandidate:candidate argumentIndex:idx source:source];
+        }]];
+    }
+    [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(!top)return;
+    UIPopoverPresentationController *popover=picker.popoverPresentationController;
+    if(popover){popover.sourceView=source;popover.sourceRect=source.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
+    [top presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)zn68_presentStructFieldConfigForCandidate:(NSDictionary *)candidate
+                                     argumentIndex:(NSUInteger)argumentIndex
                                             source:(UIButton *)source {
     (void)source;
     NSString *method=ZNM52XString(candidate[@"method"]);
