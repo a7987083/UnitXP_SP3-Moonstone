@@ -46,6 +46,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,assign) uint64_t preparedCodecGetterRVA;
 @property(nonatomic,assign) uint64_t preparedCodecSetterRVA;
 
+// M6.10 static-prepared inline hook descriptor.
+// UnityFramework is patched before signing; runtime only writes the replacement
+// pointer into the writable hook slot. No runtime __TEXT modification.
+@property(nonatomic,assign) BOOL staticPrepatch;
+@property(nonatomic,assign) uint64_t staticHookSlotRVA;
+@property(nonatomic,assign) uint64_t staticTrampolineRVA;
+@property(nonatomic,assign) uint64_t staticCodeCaveRVA;
+@property(nonatomic,assign) uint32_t staticDisplacedInstruction;
+
 // Legacy authoring hints retained only as input to build-time prepare.
 // Generated M6.9 binaries do not use them as a startup Resolver fallback.
 @property(nonatomic,assign) uint64_t fallbackRVA;
@@ -94,6 +103,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)updatePreparedDescriptor:(NSDictionary<NSString *, id> *)descriptor
                          atIndex:(NSUInteger)index
                            error:(NSString * _Nullable * _Nullable)error;
+
+// M6.10 emit-time metadata after UnityFramework has been statically instrumented.
+- (BOOL)updateStaticPrepatchDescriptor:(NSDictionary<NSString *, id> *)descriptor
+                               atIndex:(NSUInteger)index
+                                 error:(NSString * _Nullable * _Nullable)error;
 
 - (BOOL)updateTitle:(nullable NSString *)title atIndex:(NSUInteger)index;
 - (BOOL)updateDescription:(nullable NSString *)featureDescription atIndex:(NSUInteger)index;
