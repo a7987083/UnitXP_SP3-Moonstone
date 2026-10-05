@@ -811,6 +811,31 @@ static BOOL ZNNativeStaticPrepatchBind(ZNNativeHookAction *action,
     return YES;
 }
 
+static BOOL ZNNativePermanentBridgeBind(ZNNativeHookAction *action,
+                                        uintptr_t target,
+                                        void *replacement,
+                                        uintptr_t *outOriginal,
+                                        NSString **error) {
+    if(action.staticPrepatch)
+        return ZNNativeStaticPrepatchBind(action,target,replacement,outOriginal,error);
+
+    void *original=NULL;
+    NSString *inner=nil;
+    if(![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
+                                                             replacement:replacement
+                                                                original:&original
+                                                                   error:&inner]){
+        if(error)*error=inner?:@"Native Hook startup Dobby install 失败";
+        return NO;
+    }
+    if(outOriginal)*outOriginal=(uintptr_t)original;
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:
+        @"[native-hook-startup] Dobby bind action=%u target=0x%llX replacement=0x%llX original=0x%llX",
+        action.actionID,(unsigned long long)target,(unsigned long long)(uintptr_t)replacement,
+        (unsigned long long)(uintptr_t)original]];
+    return YES;
+}
+
 static BOOL ZNNativeStaticPrepatchClear(ZNNativeHookAction *action,
                                         uintptr_t target,
                                         NSString **error) {
@@ -1808,7 +1833,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
     uintptr_t original=0;NSString *hookError=nil;
     if(slotIndex>=kZNNativeMaxSlots||
-       !ZNNativeStaticPrepatchBind(action,target,gZNArgScaleBridgeReplacements[slotIndex],&original,&hookError)){
+       !ZNNativePermanentBridgeBind(action,target,gZNArgScaleBridgeReplacements[slotIndex],&original,&hookError)){
         slot->target.store(0,std::memory_order_release);
         slot->actionID.store(0,std::memory_order_relaxed);
         if(error)*error=hookError?:@"Prepared ArgScale static bind 失败";
@@ -1857,7 +1882,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
     uintptr_t original=0;NSString *hookError=nil;
     if(slotIndex>=kZNReturnBoolMaxSlots||
-       !ZNNativeStaticPrepatchBind(action,target,gZNReturnBoolReplacements[slotIndex],&original,&hookError)){
+       !ZNNativePermanentBridgeBind(action,target,gZNReturnBoolReplacements[slotIndex],&original,&hookError)){
         slot->target.store(0,std::memory_order_release);
         slot->actionID.store(0,std::memory_order_relaxed);
         if(error)*error=hookError?:@"Prepared ReturnBool static bind 失败";
@@ -1923,7 +1948,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
     uintptr_t original=0;NSString *hookError=nil;
     if(slotIndex>=kZNManagedCallbackMaxSlots||
-       !ZNNativeStaticPrepatchBind(action,target,gZNManagedCallbackReplacements[slotIndex],&original,&hookError)){
+       !ZNNativePermanentBridgeBind(action,target,gZNManagedCallbackReplacements[slotIndex],&original,&hookError)){
         slot->target.store(0,std::memory_order_release);
         slot->actionID.store(0,std::memory_order_relaxed);
         if(error)*error=hookError?:@"Prepared ManagedCallback static bind 失败";
@@ -1969,17 +1994,25 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         transform=(uintptr_t)tv.pointerValue;
         if(!transform){if(error)*error=@"Prepared Complex Struct codec 未注册";return NO;}
     }else{
-        if(!action.preparedCodecGetterRVA||!action.preparedCodecSetterRVA){
-            if(error)*error=@"StructField Prepared Descriptor 缺少 codec RVA";
-            return NO;
+        if(action.preparedCodecGetterRVA&&action.preparedCodecSetterRVA){
+            if(action.preparedCodecGetterRVA>UINTPTR_MAX-base||
+               action.preparedCodecSetterRVA>UINTPTR_MAX-base){
+                if(error)*error=@"StructField codec RVA 地址溢出";
+                return NO;
+            }
+            fn0=base+(uintptr_t)action.preparedCodecGetterRVA;
+            fn1=base+(uintptr_t)action.preparedCodecSetterRVA;
+        }else{
+            NSDictionary *codec=ZNNativeResolveSecureLongCodec(action.codecAssembly,
+                                                               action.codecNamespaceName,
+                                                               action.codecClassName,
+                                                               action.codecGetterMethod,
+                                                               action.codecSetterMethod,
+                                                               error);
+            if(!codec)return NO;
+            fn0=[codec[@"getter"] unsignedLongLongValue];
+            fn1=[codec[@"setter"] unsignedLongLongValue];
         }
-        if(action.preparedCodecGetterRVA>UINTPTR_MAX-base||
-           action.preparedCodecSetterRVA>UINTPTR_MAX-base){
-            if(error)*error=@"StructField codec RVA 地址溢出";
-            return NO;
-        }
-        fn0=base+(uintptr_t)action.preparedCodecGetterRVA;
-        fn1=base+(uintptr_t)action.preparedCodecSetterRVA;
     }
 
     uint32_t reg=0;
@@ -2051,7 +2084,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
     uintptr_t original=0;NSString *hookError=nil;
     if(slotIndex>=kZNStructFieldMaxSlots||
-       !ZNNativeStaticPrepatchBind(action,target,gZNStructFieldBridgeReplacements[slotIndex],&original,&hookError)){
+       !ZNNativePermanentBridgeBind(action,target,gZNStructFieldBridgeReplacements[slotIndex],&original,&hookError)){
         slot->target.store(0,std::memory_order_release);
         slot->actionID.store(0,std::memory_order_relaxed);
         if(error)*error=hookError?:@"Prepared StructField static bind 失败";
