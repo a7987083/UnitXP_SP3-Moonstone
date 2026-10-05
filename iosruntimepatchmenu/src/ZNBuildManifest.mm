@@ -86,6 +86,7 @@ static BOOL ZNM69PrepareRuntimeMethodProvider(NSString **error) {
         if(error)*error=preparedError?:@"Prepared Runtime descriptor 生成失败";
         return NO;
     }
+    (void)preparedReport;
     ZNRuntimeActionStore *store=[ZNRuntimeActionStore sharedStore];
     NSArray<ZNRuntimeMethodAction *> *actions=[store actionsSnapshot];
     for(NSUInteger actionIndex=0;actionIndex<actions.count;actionIndex++) {
