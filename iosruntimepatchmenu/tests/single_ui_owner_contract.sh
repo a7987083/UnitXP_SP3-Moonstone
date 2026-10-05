@@ -158,4 +158,32 @@ assert "installTemporaryManagedCallbackShortCircuitForCandidate" not in formal
 assert "installTemporaryStructFieldTransformForCandidate" not in formal
 PY
 
-echo "single UI owner + M6.8.6 Permanent Hook Lifecycle + M6.9 Prepared Descriptor contract: OK"
+# M6.10 Static Prepared Native Hook Backend contract.
+test -f "$SRC/ZNNativeHookStaticPrepatch.h"
+test -f "$SRC/ZNNativeHookStaticPrepatch.mm"
+grep -q 'src/ZNNativeHookStaticPrepatch.mm' "$MAKEFILE"
+grep -q 'ZNBuildInstallStaticPreparedNativeHooksV1' "$SRC/ZNBuildManifest.mm"
+grep -q 'resolutionMode":@"static-prepatch-v1"' "$SRC/ZNRuntimeActionBuilder.mm"
+grep -q 'staticHookSlotRVA' "$SRC/ZNNativeHookAction.h"
+grep -q 'ZNNativeStaticPrepatchBind' "$SRC/ZNNativeHookRuntime.mm"
+grep -q '__atomic_store_n' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNM610RelocationSafeFirstInstruction' "$SRC/ZNNativeHookStaticPrepatch.mm"
+grep -q 'ZNM610BranchImm26' "$SRC/ZNNativeHookStaticPrepatch.mm"
+grep -q 'ZNAdhocResignMachOAtPath' "$SRC/ZNNativeHookStaticPrepatch.mm"
+python3 - "$SRC/ZNNativeHookRuntime.mm" <<'PY'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+start=s.index("- (BOOL)installAction:(ZNNativeHookAction *)action value:")
+end=s.index("// Permanent lifecycle:", start)
+formal=s[start:end]
+assert "ZNNativeStaticPrepatchBind" not in formal or "zn_installPrepared" in formal
+assert "installResolvedTarget" not in formal
+assert "ZNNativeHookBackend sharedBackend" not in formal
+assert "DobbyHook" not in formal
+assert "ZNNativeResolveDescriptor" not in formal
+PY
+grep -q 'if(action.staticPrepatch)' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNNativeStaticPrepatchClear' "$SRC/ZNNativeHookRuntime.mm"
+
+echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared Descriptor + M6.10 Static Prepatch contract: OK"
