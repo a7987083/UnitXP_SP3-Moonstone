@@ -1685,6 +1685,68 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     return @"";
 }
 
+- (BOOL)zn_installPreparedArgScaleAction:(ZNNativeHookAction *)action
+                                          target:(uintptr_t)target
+                                           value:(NSInteger)value
+                                           error:(NSString **)error {
+    if(value<1||value>1000){if(error)*error=@"ArgScaleInt32 倍率必须在 1~1000";return NO;}
+    uint32_t reg=0;
+    if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
+                                     action.argumentIndex,
+                                     action.argumentCount,&reg)){
+        if(error)*error=@"Prepared ArgScale 参数无法映射到 ARM64 x0~x7";
+        return NO;
+    }
+    if(ZNManagedCallbackSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)||ZNStructFieldSlotForTarget(target)){
+        if(error)*error=@"同一 target 已安装其他 Native Hook";
+        return NO;
+    }
+
+    ZNNativeSlot *existing=ZNNativeSlotForTarget(target);
+    if(existing){
+        uint32_t owner=existing->actionID.load(std::memory_order_acquire);
+        if(owner&&owner!=action.actionID){if(error)*error=@"target 已由其他 ArgScale Action 占用";return NO;}
+        if(existing->registerIndex.load(std::memory_order_relaxed)!=reg){
+            if(error)*error=@"Prepared ArgScale register 与已安装 Hook 不一致";return NO;
+        }
+        existing->actionID.store(action.actionID,std::memory_order_release);
+        existing->multiplier.store((int32_t)value,std::memory_order_release);
+        existing->enabled.store(value!=1?1u:0u,std::memory_order_release);
+        if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindArgScale,target,
+                                     existing->original.load(std::memory_order_acquire),existing)){
+            if(error)*error=@"Permanent Hook registry 已满";return NO;
+        }
+        return YES;
+    }
+
+    ZNNativeSlot *slot=ZNNativeFreeSlot();
+    if(!slot){if(error)*error=@"Native Hook slot 已满";return NO;}
+    NSUInteger slotIndex=(NSUInteger)(slot-gZNNativeSlots);
+    slot->multiplier.store((int32_t)value,std::memory_order_relaxed);
+    slot->enabled.store(value!=1?1u:0u,std::memory_order_relaxed);
+    slot->hits.store(0,std::memory_order_relaxed);
+    slot->lastBefore.store(0,std::memory_order_relaxed);
+    slot->lastAfter.store(0,std::memory_order_relaxed);
+    slot->registerIndex.store(reg,std::memory_order_relaxed);
+    slot->actionID.store(action.actionID,std::memory_order_relaxed);
+    slot->original.store(0,std::memory_order_relaxed);
+    slot->target.store(target,std::memory_order_release);
+
+    uintptr_t original=0;NSString *hookError=nil;
+    if(slotIndex>=kZNNativeMaxSlots||
+       !ZNNativeStaticPrepatchBind(action,target,gZNArgScaleBridgeReplacements[slotIndex],&original,&hookError)){
+        slot->target.store(0,std::memory_order_release);
+        slot->actionID.store(0,std::memory_order_relaxed);
+        if(error)*error=hookError?:@"Prepared ArgScale static bind 失败";
+        return NO;
+    }
+    slot->original.store(original,std::memory_order_release);
+    if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindArgScale,target,original,slot)){
+        if(error)*error=@"Permanent Hook registry 已满";return NO;
+    }
+    return YES;
+}
+
 - (BOOL)zn_installPreparedReturnBoolAction:(ZNNativeHookAction *)action
                                             target:(uintptr_t)target
                                              value:(NSInteger)value
@@ -1719,20 +1781,17 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->original.store(0,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
 
-    void *original=NULL;NSString *hookError=nil;
+    uintptr_t original=0;NSString *hookError=nil;
     if(slotIndex>=kZNReturnBoolMaxSlots||
-       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
-                                                              replacement:gZNReturnBoolReplacements[slotIndex]
-                                                                 original:&original
-                                                                    error:&hookError]){
+       !ZNNativeStaticPrepatchBind(action,target,gZNReturnBoolReplacements[slotIndex],&original,&hookError)){
         slot->target.store(0,std::memory_order_release);
         slot->actionID.store(0,std::memory_order_relaxed);
-        if(error)*error=hookError?:@"Prepared ReturnBool DobbyHook 安装失败";
+        if(error)*error=hookError?:@"Prepared ReturnBool static bind 失败";
         return NO;
     }
-    slot->original.store((uintptr_t)original,std::memory_order_release);
+    slot->original.store(original,std::memory_order_release);
     if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindReturnBool,target,
-                                 (uintptr_t)original,slot)){
+                                 original,slot)){
         if(error)*error=@"Permanent Hook registry 已满";return NO;
     }
     return YES;
@@ -1788,20 +1847,17 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->original.store(0,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
 
-    void *original=NULL;NSString *hookError=nil;
+    uintptr_t original=0;NSString *hookError=nil;
     if(slotIndex>=kZNManagedCallbackMaxSlots||
-       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
-                                                              replacement:gZNManagedCallbackReplacements[slotIndex]
-                                                                 original:&original
-                                                                    error:&hookError]){
+       !ZNNativeStaticPrepatchBind(action,target,gZNManagedCallbackReplacements[slotIndex],&original,&hookError)){
         slot->target.store(0,std::memory_order_release);
         slot->actionID.store(0,std::memory_order_relaxed);
-        if(error)*error=hookError?:@"Prepared ManagedCallback DobbyHook 安装失败";
+        if(error)*error=hookError?:@"Prepared ManagedCallback static bind 失败";
         return NO;
     }
-    slot->original.store((uintptr_t)original,std::memory_order_release);
+    slot->original.store(original,std::memory_order_release);
     if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindManagedCallback,target,
-                                 (uintptr_t)original,slot)){
+                                 original,slot)){
         if(error)*error=@"Permanent Hook registry 已满";return NO;
     }
     return YES;
@@ -1875,20 +1931,17 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->original.store(0,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
 
-    void *original=NULL;NSString *hookError=nil;
+    uintptr_t original=0;NSString *hookError=nil;
     if(slotIndex>=kZNStructFieldMaxSlots||
-       ![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:target
-                                                              replacement:gZNStructFieldBridgeReplacements[slotIndex]
-                                                                 original:&original
-                                                                    error:&hookError]){
+       !ZNNativeStaticPrepatchBind(action,target,gZNStructFieldBridgeReplacements[slotIndex],&original,&hookError)){
         slot->target.store(0,std::memory_order_release);
         slot->actionID.store(0,std::memory_order_relaxed);
-        if(error)*error=hookError?:@"Prepared StructField DobbyHook 安装失败";
+        if(error)*error=hookError?:@"Prepared StructField static bind 失败";
         return NO;
     }
-    slot->original.store((uintptr_t)original,std::memory_order_release);
+    slot->original.store(original,std::memory_order_release);
     if(!ZNNativeHookRegistryBind(action.actionID,ZNNativeHookSlotKindStructField,target,
-                                 (uintptr_t)original,slot)){
+                                 original,slot)){
         if(error)*error=@"Permanent Hook registry 已满";return NO;
     }
     return YES;
@@ -1911,13 +1964,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         return [self zn_installPreparedStructFieldAction:action base:base target:target value:value error:error];
 
     if(action.templateKind==ZNNativeHookTemplateArgScaleInt32)
-        return [self installResolvedTarget:target
-                                  isStatic:action.preparedIsStatic
-                             argumentIndex:action.argumentIndex
-                             argumentCount:action.argumentCount
-                                multiplier:value
-                                  actionID:action.actionID
-                                     error:error];
+        return [self zn_installPreparedArgScaleAction:action target:target value:value error:error];
 
     if(error)*error=@"Native Hook Action 模板不受支持";
     return NO;
