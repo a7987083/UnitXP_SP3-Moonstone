@@ -99,15 +99,13 @@ static BOOL ZNM462NativeHookConfigValid(const uint8_t *table,
         NSString *mode=[cfg[@"fieldArgumentMode"] isKindOfClass:NSString.class]?cfg[@"fieldArgumentMode"]:@"";
         NSString *codec=[cfg[@"fieldCodec"] isKindOfClass:NSString.class]?cfg[@"fieldCodec"]:@"";
         NSString *codecClass=[cfg[@"codecClass"] isKindOfClass:NSString.class]?cfg[@"codecClass"]:@"";
-        NSString *getter=[cfg[@"codecGetterMethod"] isKindOfClass:NSString.class]?cfg[@"codecGetterMethod"]:@"";
-        NSString *setter=[cfg[@"codecSetterMethod"] isKindOfClass:NSString.class]?cfg[@"codecSetterMethod"]:@"";
         uint64_t fieldOffset=[cfg[@"fieldOffset"] unsignedLongLongValue];
         NSInteger min=[cfg[@"min"] integerValue],max=[cfg[@"max"] integerValue],def=[cfg[@"default"] integerValue];
+        NSString *expected=ZNComplexStructCodecKeyForManagedType(codecClass);
         return arg < entry->argumentCount &&
                [mode isEqualToString:@"indirect-pointer"] &&
-               [codec isEqualToString:@"secure-long-whole-accessor"] &&
-               fieldOffset == 0 &&
-               codecClass.length && getter.length && setter.length &&
+               codec.length && [expected isEqualToString:codec] &&
+               fieldOffset == 0 && codecClass.length &&
                min >= 1 && max >= min && def >= min && def <= max;
     }
     return NO;
