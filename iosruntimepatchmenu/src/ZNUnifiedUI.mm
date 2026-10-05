@@ -13316,10 +13316,7 @@ static const void *kZNM613ArgCandidateKey = &kZNM613ArgCandidateKey;
 static const void *kZNM613ArgIndexKey = &kZNM613ArgIndexKey;
 static const void *kZNM613ArgumentStoreKey = &kZNM613ArgumentStoreKey;
 static const void *kZNM613ModeStoreKey = &kZNM613ModeStoreKey;
-static const uint32_t kZNM52XMethodAttributeStatic = 0x0010u;
-
-typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
-
+static const void *kZNM613AnalysisKey = &kZNM613AnalysisKey;
 @interface ZNRuntimeMenuControllerV040 (ZNM52ChainExecuteButton)
 - (void)zn52x_renderResultsAtWidth:(CGFloat)width;
 - (void)zn52x_executeChainTapped:(UIButton *)sender;
@@ -13381,19 +13378,6 @@ static UIButton *ZNM52XButtonWithTitles(UIView *card, NSArray<NSString *> *title
     return nil;
 }
 
-static BOOL ZNM52XMethodIsInstance(NSDictionary *candidate, BOOL *known) {
-    if(known)*known=NO;
-    uintptr_t methodInfo=[candidate[@"methodInfo"] unsignedLongLongValue];
-    if(!methodInfo)return NO;
-    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
-    [resolver refresh];
-    ZNM52XMethodGetFlagsFn getFlags=(ZNM52XMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_method_get_flags");
-    if(!getFlags)return NO;
-    uint32_t implFlags=0;
-    uint32_t flags=getFlags((const void *)methodInfo,&implFlags);
-    if(known)*known=YES;
-    return (flags&kZNM52XMethodAttributeStatic)==0;
-}
 
 static BOOL ZNM52XBatchSafe(NSDictionary *candidate) {
     if([candidate[@"argumentCount"] unsignedIntegerValue]!=0)return NO;
@@ -13471,8 +13455,6 @@ static NSString *ZNM613ArgumentStoreKey(NSDictionary *candidate,NSUInteger index
 }
 
 static NSArray<NSString *> *ZNM613ArgumentValues(ZNRuntimeMenuControllerV040 *self,NSDictionary *candidate) {
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
     NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
     NSMutableArray *values=[NSMutableArray arrayWithCapacity:argc];
     NSMutableDictionary *store=ZNM613ArgumentStore(self);
@@ -13481,7 +13463,6 @@ static NSArray<NSString *> *ZNM613ArgumentValues(ZNRuntimeMenuControllerV040 *se
         NSString *value=[store[key] isKindOfClass:NSString.class]?store[key]:@"";
         [values addObject:value];
     }
-    (void)params;
     return values;
 }
 
@@ -13504,38 +13485,77 @@ static NSString *ZNM613ParamAutoLabel(NSDictionary *param) {
     }
 }
 
-static NSDictionary *ZNM613HookPlan(NSDictionary *candidate,NSString **error) {
-    ZNNativeHookRuntime *runtime=[ZNNativeHookRuntime sharedRuntime];
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+static BOOL ZNM613GPRKind(ZNIL2CPPABIValueKind kind) {
+    return kind==ZNIL2CPPABIValueKindBool||
+           kind==ZNIL2CPPABIValueKindSigned32||kind==ZNIL2CPPABIValueKindUnsigned32||
+           kind==ZNIL2CPPABIValueKindSigned64||kind==ZNIL2CPPABIValueKindUnsigned64||
+           kind==ZNIL2CPPABIValueKindPointer||kind==ZNIL2CPPABIValueKindObjectReference;
+}
 
-    NSString *argReason=nil,*cbReason=nil,*retReason=nil,*structReason=nil;
-    NSArray<NSNumber *> *intArgs=[runtime supportedInt32ArgumentIndicesForCandidate:candidate reason:&argReason];
-    NSArray<NSNumber *> *cbArgs=[runtime supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&cbReason];
-    BOOL retBool=[runtime supportsReturnBoolOverrideForCandidate:candidate reason:&retReason];
-    NSArray<NSNumber *> *structArgs=[runtime supportedStructFieldArgumentIndicesForCandidate:candidate reason:&structReason];
+static NSDictionary *ZNM613HookPlanFromABI(NSDictionary *candidate,NSDictionary *abi,NSString **error) {
+    NSArray<NSDictionary *> *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
 
-    NSMutableArray<NSNumber *> *exactStruct=[NSMutableArray array];
-    for(NSNumber *n in structArgs){
-        NSUInteger idx=n.unsignedIntegerValue;
-        if(idx<params.count){
-            NSString *type=[params[idx][@"name"] isKindOfClass:NSString.class]?params[idx][@"name"]:@"";
-            if(ZNComplexStructCodecKeyForManagedType(type).length)[exactStruct addObject:n];
-        }
+    if(![abi[@"available"] boolValue]||params.count!=argc){
+        if(error)*error=[abi[@"reason"] isKindOfClass:NSString.class]?abi[@"reason"]:@"参数 ABI 不完整";
+        return nil;
+    }
+    if([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue]){
+        if(error)*error=@"Native Hook 自动模式不支持 generic/inflated";
+        return nil;
     }
 
-    NSUInteger alternatives=(intArgs.count?1:0)+(cbArgs.count?1:0)+(retBool?1:0)+(exactStruct.count?1:0);
+    BOOL instanceKnown=[abi[@"instanceKnown"] boolValue];
+    BOOL instance=[abi[@"instance"] boolValue];
+    NSUInteger gprBase=instance?1u:0u;
+
+    NSMutableArray<NSNumber *> *intArgs=[NSMutableArray array];
+    NSMutableArray<NSNumber *> *cbArgs=[NSMutableArray array];
+    NSMutableArray<NSNumber *> *structArgs=[NSMutableArray array];
+    BOOL allGPR=YES,allReturnSafe=YES;
+
+    for(NSUInteger i=0;i<params.count;i++){
+        NSDictionary *p=params[i];
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
+        BOOL byRef=[p[@"byRef"] boolValue];
+        NSString *type=[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"";
+        NSString *lower=type.lowercaseString;
+
+        if(kind==ZNIL2CPPABIValueKindSigned32&&!byRef&&gprBase+i<8)[intArgs addObject:@(i)];
+
+        BOOL callback=(kind==ZNIL2CPPABIValueKindObjectReference&&
+                       [lower containsString:@"system.action"]&&
+                       [lower containsString:@"system.boolean"]);
+        if(callback&&gprBase+i<8)[cbArgs addObject:@(i)];
+
+        NSString *codec=ZNComplexStructCodecKeyForManagedType(type);
+        BOOL complex=(kind==ZNIL2CPPABIValueKindComplexValueType)||byRef;
+        if(complex&&codec.length&&instanceKnown&&gprBase+i<8)[structArgs addObject:@(i)];
+
+        if(!ZNM613GPRKind(kind))allGPR=NO;
+        if(!ZNM613GPRKind(kind)||byRef)allReturnSafe=NO;
+    }
+
+    BOOL callbackOK=((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]==ZNIL2CPPABIValueKindVoid)&&
+                    allGPR&&gprBase+argc<=7u&&cbArgs.count>0;
+    if(!callbackOK)[cbArgs removeAllObjects];
+
+    BOOL returnBool=((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]==ZNIL2CPPABIValueKindBool)&&
+                    allReturnSafe&&gprBase+argc<=7u;
+
+    NSUInteger alternatives=(intArgs.count?1:0)+(cbArgs.count?1:0)+(returnBool?1:0)+(structArgs.count?1:0);
     if(alternatives==0){
-        if(error)*error=structReason.length?structReason:(retReason.length?retReason:(cbReason.length?cbReason:(argReason.length?argReason:@"没有可用 Native Hook 方案")));
+        if(error)*error=@"没有唯一且 ABI-safe 的 Native Hook 自动方案";
         return nil;
     }
     if(alternatives>1){
-        if(error)*error=@"检测到多个 Native Hook 方案；当前自动模式拒绝猜测，请缩小到唯一语义";
+        if(error)*error=@"检测到多个 Native Hook 方案；自动模式拒绝猜测";
         return nil;
     }
-    if(exactStruct.count){
-        if(exactStruct.count!=1){if(error)*error=@"存在多个可识别 Complex Struct 参数；自动模式拒绝猜测";return nil;}
-        NSUInteger idx=exactStruct.firstObject.unsignedIntegerValue;
+    if(structArgs.count){
+        if(structArgs.count!=1){if(error)*error=@"存在多个可识别 Complex Struct 参数；自动模式拒绝猜测";return nil;}
+        NSUInteger idx=structArgs.firstObject.unsignedIntegerValue;
         NSString *type=[params[idx][@"name"] isKindOfClass:NSString.class]?params[idx][@"name"]:@"";
         return @{@"kind":@"complex",@"index":@(idx),@"type":type,
                  @"codec":ZNComplexStructCodecKeyForManagedType(type)?:@""};
@@ -13548,10 +13568,89 @@ static NSDictionary *ZNM613HookPlan(NSDictionary *candidate,NSString **error) {
         if(cbArgs.count!=1){if(error)*error=@"存在多个 Bool Callback 参数；自动模式拒绝猜测";return nil;}
         return @{@"kind":@"callback",@"index":cbArgs.firstObject};
     }
-    if(retBool)return @{@"kind":@"return-bool"};
+    if(returnBool)return @{@"kind":@"return-bool"};
     return nil;
 }
 
+static NSCache<NSString *,NSDictionary *> *ZNM613AnalysisCache(void) {
+    static NSCache<NSString *,NSDictionary *> *cache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken,^{cache=[NSCache new];cache.countLimit=512;});
+    return cache;
+}
+
+static NSDictionary *ZNM613AnalyzeCandidate(NSDictionary *candidate) {
+    NSString *key=[NSString stringWithFormat:@"%@|mi:%llX|mp:%llX",
+                   ZNM613CandidateIdentity(candidate),
+                   (unsigned long long)[candidate[@"methodInfo"] unsignedLongLongValue],
+                   (unsigned long long)[candidate[@"methodPointer"] unsignedLongLongValue]];
+    NSDictionary *cached=[ZNM613AnalysisCache() objectForKey:key];
+    if(cached)return cached;
+
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate)?:@{};
+    NSArray<NSDictionary *> *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+
+    BOOL metadataOK=[abi[@"available"] boolValue]&&params.count==argc&&argc<=ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
+    BOOL runtimeOK=metadataOK;
+    if(runtimeOK){
+        for(NSDictionary *p in params)if(ZNM54UnsupportedReason(p).length){runtimeOK=NO;break;}
+    }
+
+    NSString *directReason=nil;
+    BOOL directOK=metadataOK;
+    if(directOK&&([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue])){
+        directOK=NO;directReason=@"Direct Native Call V1 不支持 generic/inflated";
+    }
+    if(directOK&&(![abi[@"methodPointer"] unsignedLongLongValue]||![abi[@"methodInfo"] unsignedLongLongValue])){
+        directOK=NO;directReason=@"Direct Native Call 缺少 methodPointer/MethodInfo";
+    }
+    if(directOK){
+        for(NSDictionary *p in params){
+            if([p[@"byRef"] boolValue]||!ZNM613GPRKind((ZNIL2CPPABIValueKind)[p[@"kind"] integerValue])){
+                directOK=NO;directReason=[NSString stringWithFormat:@"参数 %@ 不是 GPR-safe",p[@"name"]?:@"?"];break;
+            }
+        }
+    }
+    ZNIL2CPPABIValueKind rk=(ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue];
+    if(directOK&&rk!=ZNIL2CPPABIValueKindVoid&&!ZNM613GPRKind(rk)){
+        directOK=NO;directReason=[NSString stringWithFormat:@"返回 %@ 不是 GPR-safe",ret[@"name"]?:@"?"];
+    }
+    NSUInteger directGPR=params.count+1+([abi[@"instance"] boolValue]?1u:0u);
+    if(directOK&&directGPR>8){directOK=NO;directReason=@"Direct Native Call 超过 x0~x7 参数预算";}
+
+    NSString *hookError=nil;
+    NSDictionary *hookPlan=ZNM613HookPlanFromABI(candidate,abi,&hookError);
+
+    BOOL instanceKnown=[abi[@"instanceKnown"] boolValue];
+    BOOL instance=instanceKnown&&[abi[@"instance"] boolValue];
+    uintptr_t methodPointer=[candidate[@"methodPointer"] unsignedLongLongValue];
+    BOOL canCapture=instanceKnown&&instance&&methodPointer&&((methodPointer&3ULL)==0);
+
+    NSDictionary *analysis=@{
+        @"abi":abi,
+        @"params":params,
+        @"runtimeOK":@(runtimeOK),
+        @"directOK":@(directOK),
+        @"directReason":directReason?:@"",
+        @"hookPlan":hookPlan?:@{},
+        @"hookError":hookError?:@"",
+        @"hookOK":@(hookPlan!=nil),
+        @"instanceKnown":@(instanceKnown),
+        @"instance":@(instance),
+        @"canCapture":@(canCapture)
+    };
+    [ZNM613AnalysisCache() setObject:analysis forKey:key];
+    return analysis;
+}
+
+static NSDictionary *ZNM613HookPlan(NSDictionary *candidate,NSString **error) {
+    NSDictionary *analysis=ZNM613AnalyzeCandidate(candidate);
+    NSDictionary *plan=[analysis[@"hookPlan"] isKindOfClass:NSDictionary.class]?analysis[@"hookPlan"]:@{};
+    if(!plan.count&&error)*error=[analysis[@"hookError"] isKindOfClass:NSString.class]?analysis[@"hookError"]:@"Native Hook 自动方案不可用";
+    return plan.count?plan:nil;
+}
 static NSMutableDictionary *ZNM613ModeStore(ZNRuntimeMenuControllerV040 *self) {
     NSMutableDictionary *store=objc_getAssociatedObject(self,kZNM613ModeStoreKey);
     if(!store){
@@ -13577,11 +13676,11 @@ static void ZNM613ApplyModeVisual(ZNRuntimeMenuControllerV040 *self,UIView *card
     UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
     UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Native Call"]);
     UIButton *hook=ZNM52XButtonWithTitles(card,@[@"Native Hook"]);
-    BOOL runtimeOK=[ZNM54AnalyzeCandidate(candidate)[@"callable"] boolValue];
-    NSString *directReason=nil;
-    BOOL directOK=[[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&directReason];
-    NSString *hookError=nil;
-    BOOL hookOK=ZNM613HookPlan(candidate,&hookError)!=nil;
+    NSDictionary *analysis=objc_getAssociatedObject(card,kZNM613AnalysisKey);
+    if(![analysis isKindOfClass:NSDictionary.class])analysis=ZNM613AnalyzeCandidate(candidate);
+    BOOL runtimeOK=[analysis[@"runtimeOK"] boolValue];
+    BOOL directOK=[analysis[@"directOK"] boolValue];
+    BOOL hookOK=[analysis[@"hookOK"] boolValue];
 
     ZNM613StyleModeButton(direct,[mode isEqualToString:@"direct"],self.theme);
     ZNM613StyleModeButton(hook,[mode isEqualToString:@"hook"],self.theme);
@@ -13726,6 +13825,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
 }
 
 - (void)zn52x_renderResultsAtWidth:(CGFloat)width {
+    [self znm65_stopLiveHookStatusTimer];
     // M6.13.1: this method is the sole Result Card renderer.
     // Do NOT call the pre-swizzle renderer and then append views.
     NSArray<NSDictionary *> *all=[self zn60v3_candidates]?:@[];
@@ -13781,38 +13881,33 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     [self.contentView addSubview:filterCard];
     y+=52.0;
 
-    NSString *liveHookText=[[ZNNativeHookRuntime sharedRuntime] liveTestStatus];
-    NSString *pageStatus=liveHookText.length?liveHookText:[self zn60v3_status];
+    NSString *pageStatus=[self zn60v3_status];
     if(pageStatus.length){
-        CGFloat statusH=liveHookText.length?76.0:48.0;
+        CGFloat statusH=48.0;
         UIView *statusCard=[self cardAtY:y height:statusH width:width compact:NO];
         UILabel *status=[self label:pageStatus size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
-        status.tag=kZNM65LiveHookStatusTag;
         status.frame=CGRectMake(13,6,statusCard.bounds.size.width-26,statusH-12);
-        status.numberOfLines=liveHookText.length?5:2;
+        status.numberOfLines=2;
         [statusCard addSubview:status];
         [self.contentView addSubview:statusCard];
         y+=statusH+8.0;
     }
-    [self znm65_startLiveHookStatusTimer];
 
     for(NSUInteger row=0;row<visible.count;row++){
         NSDictionary *candidate=visible[row];
-        NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate)?:@{};
-        NSArray<NSDictionary *> *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+        NSDictionary *analysis=ZNM613AnalyzeCandidate(candidate);
+        NSDictionary *abi=[analysis[@"abi"] isKindOfClass:NSDictionary.class]?analysis[@"abi"]:@{};
+        NSArray<NSDictionary *> *params=[analysis[@"params"] isKindOfClass:NSArray.class]?analysis[@"params"]:@[];
         NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
-        BOOL runtimeOK=[ZNM54AnalyzeCandidate(candidate)[@"callable"] boolValue];
-
-        NSString *directReason=nil;
-        BOOL directOK=[[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&directReason];
-        NSString *hookError=nil;
-        NSDictionary *hookPlan=ZNM613HookPlan(candidate,&hookError);
-        BOOL hookOK=(hookPlan!=nil);
-
-        BOOL known=NO;
-        BOOL instance=ZNM52XMethodIsInstance(candidate,&known);
-        BOOL canCapture=known&&instance&&[candidate[@"methodPointer"] unsignedLongLongValue]&&
-                        (([candidate[@"methodPointer"] unsignedLongLongValue]&3ULL)==0);
+        BOOL runtimeOK=[analysis[@"runtimeOK"] boolValue];
+        BOOL directOK=[analysis[@"directOK"] boolValue];
+        NSString *directReason=[analysis[@"directReason"] isKindOfClass:NSString.class]?analysis[@"directReason"]:@"";
+        NSDictionary *hookPlan=[analysis[@"hookPlan"] isKindOfClass:NSDictionary.class]?analysis[@"hookPlan"]:@{};
+        BOOL hookOK=[analysis[@"hookOK"] boolValue];
+        NSString *hookError=[analysis[@"hookError"] isKindOfClass:NSString.class]?analysis[@"hookError"]:@"";
+        BOOL known=[analysis[@"instanceKnown"] boolValue];
+        BOOL instance=[analysis[@"instance"] boolValue];
+        BOOL canCapture=[analysis[@"canCapture"] boolValue];
 
         const CGFloat railW=190.0;
         const CGFloat railGap=6.0;
@@ -13822,6 +13917,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         CGFloat statusBlockH=52.0;
         CGFloat cardH=topAreaH+paramH+statusBlockH+8.0;
         UIView *card=[self cardAtY:y height:cardH width:width compact:NO];
+        objc_setAssociatedObject(card,kZNM613AnalysisKey,analysis,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         CGFloat leftW=MAX(120.0,CGRectGetWidth(card.bounds)-railW-rightInset-23.0);
         UIButton *detail=[UIButton buttonWithType:UIButtonTypeCustom];
@@ -14049,7 +14145,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     if(!candidate)return;
     ZNM613SetModeForCard(self,sender.superview,candidate,@"runtime");
 
-    BOOL runtimeOK=[ZNM54AnalyzeCandidate(candidate)[@"callable"] boolValue];
+    BOOL runtimeOK=[ZNM613AnalyzeCandidate(candidate)[@"runtimeOK"] boolValue];
     if(!runtimeOK){
         [self zn60v3_setStatus:@"Runtime Method：当前 ABI 不支持直接执行；实例方法可长按“测试/捕获”捕获 receiver"];
         [self renderPage];
@@ -14114,7 +14210,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     }
     if([mode isEqualToString:@"hook"]){
         NSDictionary *plan=ZNM613HookPlan(candidate,&error);
-        if(!plan){[self zn60v3_setStatus:error?:@"Native Hook 自动方案不可用"];return;}
+        if(!plan){[self zn60v3_setStatus:error?:@"Native Hook 自动方案不可用"];[self renderPage];return;}
         NSString *kind=plan[@"kind"];
         ZNNativeHookAction *created=nil;
         NSString *title=[NSString stringWithFormat:@"%@ Hook",ZNM52XString(candidate[@"method"])];
@@ -14193,9 +14289,11 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     if(!candidate){[self zn60v3_setStatus:@"Direct Native Call：candidate 为空"];return;}
     NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
     NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
-    NSString *reason=nil;
-    if(![[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&reason]){
-        [self zn60v3_setStatus:reason?:@"Direct Native Call：当前 ABI 不受支持"];
+    NSDictionary *analysis=ZNM613AnalyzeCandidate(candidate);
+    NSString *reason=[analysis[@"directReason"] isKindOfClass:NSString.class]?analysis[@"directReason"]:@"";
+    if(![analysis[@"directOK"] boolValue]){
+        [self zn60v3_setStatus:reason.length?reason:@"Direct Native Call：当前 ABI 不受支持"];
+        [self renderPage];
         return;
     }
     ZNM613SetModeForCard(self,sender.superview,candidate,@"direct");
@@ -14212,6 +14310,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         ? [NSString stringWithFormat:@"Direct Native Call SUCCESS · %@ = %@",
            result[@"returnType"]?:@"return",result[@"returnValue"]?:@"void"]
         : (error?:@"Direct Native Call FAILED")];
+    [self renderPage];
 }
 
 - (void)zn64_testModeTapped:(UIButton *)sender {
@@ -14255,6 +14354,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     NSDictionary *plan=ZNM613HookPlan(candidate,&error);
     if(!plan){
         [self zn60v3_setStatus:error?:@"Native Hook：unsupported"];
+        [self renderPage];
         return;
     }
     ZNM613SetModeForCard(self,sender.superview,candidate,@"hook");
@@ -14263,6 +14363,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         ? [NSString stringWithFormat:@" · %@ · %@",plan[@"type"]?:@"?",plan[@"codec"]?:@"?"]
         : (plan[@"index"]?[NSString stringWithFormat:@" · arg%lu",(unsigned long)[plan[@"index"] unsignedIntegerValue]+1]:@"");
     [self zn60v3_setStatus:[NSString stringWithFormat:@"Native Hook READY · %@%@",kind,extra]];
+    [self renderPage];
 }
 
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
