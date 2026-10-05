@@ -10,6 +10,7 @@ FOUNDATION_EXPORT void ZNIL2CPPPreparedExecutionPush(NSDictionary<NSString *,id>
 FOUNDATION_EXPORT void ZNIL2CPPPreparedExecutionPop(void);
 FOUNDATION_EXPORT BOOL ZNIL2CPPPreparedExecutionActive(void);
 FOUNDATION_EXPORT uintptr_t ZNIL2CPPPreparedExecutionReceiver(void);
+FOUNDATION_EXPORT NSDictionary<NSString *,id> * _Nullable ZNIL2CPPPreparedExecutionCurrentContext(void);
 
 @interface ZNIL2CPPResolver : NSObject
 + (instancetype)sharedResolver;
