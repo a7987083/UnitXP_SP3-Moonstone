@@ -2,6 +2,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef NS_ENUM(NSInteger, ZNRuntimeExecutionKind) {
+    ZNRuntimeExecutionKindMethodCall = 1,
+    ZNRuntimeExecutionKindDirectNativeCall = 3,
+};
+
 typedef NS_ENUM(NSInteger, ZNRuntimeArgumentControlType) {
     ZNRuntimeArgumentControlTypeFixed = 0,
     ZNRuntimeArgumentControlTypeSwitch = 1,
@@ -16,6 +21,7 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 
 @interface ZNRuntimeMethodAction : NSObject <NSCopying>
 @property(nonatomic,assign) uint32_t actionID;
+@property(nonatomic,assign) ZNRuntimeExecutionKind executionKind;
 @property(nonatomic,copy) NSString *title;
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSString *featureDescription;
@@ -51,6 +57,10 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
                                                  title:(nullable NSString *)title
                                         argumentValues:(NSArray<NSString *> *)argumentValues
                                                  error:(NSString * _Nullable * _Nullable)error;
+- (nullable ZNRuntimeMethodAction *)addDirectNativeCallCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                          title:(nullable NSString *)title
+                                                 argumentValues:(NSArray<NSString *> *)argumentValues
+                                                          error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)updateTitle:(nullable NSString *)title
             atIndex:(NSUInteger)index
               error:(NSString * _Nullable * _Nullable)error;
