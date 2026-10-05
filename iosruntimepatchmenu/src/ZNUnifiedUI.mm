@@ -13304,6 +13304,8 @@ __attribute__((constructor)) static void ZN51SInstallSilentCustomerExecution(voi
 #import "ZNCapabilityRegistry.h"
 #import "ZNBuiltInCapabilityAdapters.h"
 #import "ZNDirectNativeCallEngine.h"
+#import "ZNComplexStructCodec.h"
+#import "ZNComplexStructCodecResolver.h"
 #import "ZNPatchCore.h"
 
 static const void *kZNM52XActionKey = &kZNM52XActionKey;
@@ -13482,10 +13484,16 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSDictionary *param=argumentIndex<params.count?params[argumentIndex]:@{};
     NSString *pn=[param[@"paramName"] isKindOfClass:NSString.class]?param[@"paramName"]:@"";
     NSString *tn=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"complex value";
+    NSString *codecKey=ZNComplexStructCodecKeyForManagedType(tn);
+    NSString *codecDisplay=[codecKey isEqualToString:ZNComplexStructCodecObscuredInt]?@"ObscuredInt Codec":
+                           ([codecKey isEqualToString:ZNComplexStructCodecSecureLongWholeAccessor]?@"SecureLong Codec":@"Unsupported");
+    NSString *codecError=nil;
+    NSDictionary *resolvedCodec=codecKey.length?[[ZNComplexStructCodecResolver sharedResolver] resolveManagedType:tn error:&codecError]:nil;
     NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
-    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n参数：%lu%@ · %@\n模式：whole struct decode → transform → encode\nCodec：SecureLong whole accessor\nAccessor：get_Value/0 + set_Value/1\nField Offset：不需要\n\n%@",
+    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n参数：%lu%@ · %@\n模式：whole struct decode → transform → encode\nCodec：%@\n状态：%@\nField Offset：不需要\n\n%@",
                        ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,
-                       (unsigned long)argumentIndex+1,pn.length?[NSString stringWithFormat:@" · %@",pn]:@"",tn,diag?:@""];
+                       (unsigned long)argumentIndex+1,pn.length?[NSString stringWithFormat:@" · %@",pn]:@"",tn,
+                       codecDisplay,resolvedCodec?@"ready":(codecError?:@"unsupported"),diag?:@""];
 
     UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Complex Struct Transform 测试"
                                                                   message:message
@@ -13507,16 +13515,16 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         NSString *error=nil;
         BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryComplexStructTransformForCandidate:candidate
                                                                                          argumentIndex:argumentIndex
-                                                                                          codecAssembly:@"Percent.Scripting.Stdlib.dll"
-                                                                                         codecNamespace:@"Percent.Scripting.Stdlib.SecureValue"
-                                                                                             codecClass:@"SecureLong"
-                                                                                          getterMethod:@"get_Value"
-                                                                                          setterMethod:@"set_Value"
+                                                                                          codecAssembly:@""
+                                                                                         codecNamespace:@""
+                                                                                             codecClass:@""
+                                                                                          getterMethod:@""
+                                                                                          setterMethod:@""
                                                                                             multiplier:multiplier
                                                                                                  error:&error];
         [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"ComplexStructTransform 已安装 · %@ arg%lu ×%ld · 无 Field Offset",
-               method,(unsigned long)argumentIndex+1,(long)multiplier]
+            ? [NSString stringWithFormat:@"ComplexStructTransform 已安装 · %@ · %@ arg%lu ×%ld",
+               codecDisplay,method,(unsigned long)argumentIndex+1,(long)multiplier]
             : (error?:@"ComplexStructTransform 安装失败")];
         [weakSelf renderPage];
     }]];
@@ -13537,18 +13545,18 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addComplexStructTransformCandidate:candidate
                                                                                                  title:title
                                                                                          argumentIndex:argumentIndex
-                                                                                          codecAssembly:@"Percent.Scripting.Stdlib.dll"
-                                                                                         codecNamespace:@"Percent.Scripting.Stdlib.SecureValue"
-                                                                                             codecClass:@"SecureLong"
-                                                                                          getterMethod:@"get_Value"
-                                                                                          setterMethod:@"set_Value"
+                                                                                          codecAssembly:@""
+                                                                                         codecNamespace:@""
+                                                                                             codecClass:@""
+                                                                                          getterMethod:@""
+                                                                                          setterMethod:@""
                                                                                                    min:1
                                                                                                    max:maxValue
                                                                                           defaultValue:1
                                                                                                  error:&error];
         [weakSelf zn60v3_setStatus:created
-            ? [NSString stringWithFormat:@"已创建 ComplexStructTransform：%@ · whole codec · Slider 1~%ld",
-               created.title,(long)maxValue]
+            ? [NSString stringWithFormat:@"已创建 ComplexStructTransform：%@ · %@ · Slider 1~%ld",
+               created.title,codecDisplay,(long)maxValue]
             : (error?:@"创建 ComplexStructTransform 失败")];
     }]];
 
