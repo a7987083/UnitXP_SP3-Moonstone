@@ -33,10 +33,10 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
 }
 
 @implementation ZNRuntimeMethodAction
-- (instancetype)init { self=[super init];if(!self)return nil;_executionKind=ZNRuntimeExecutionKindMethodCall;_title=@"";_group=@"Runtime Methods";_featureDescription=@"";_assembly=@"Assembly-CSharp.dll";_namespaceName=@"";_className=@"";_methodName=@"";_argumentValues=@[];_parameterTypeNames=@[];_signatureAvailable=NO;_argumentControlConfigs=@[];_immediateChain=@{};return self; }
+- (instancetype)init { self=[super init];if(!self)return nil;_executionKind=ZNRuntimeExecutionKindMethodCall;_title=@"";_group=@"Runtime Methods";_featureDescription=@"";_assembly=@"Assembly-CSharp.dll";_namespaceName=@"";_className=@"";_methodName=@"";_argumentValues=@[];_parameterTypeNames=@[];_signatureAvailable=NO;_argumentControlConfigs=@[];_immediateChain=@{};_preparedDescriptor=NO;_preparedRVA=0;_preparedUUID=@"";_preparedStaticKnown=NO;_preparedIsStatic=NO;return self; }
 - (NSString *)legacyCanonicalIdentity {NSString *owner=self.namespaceName.length?[NSString stringWithFormat:@"%@.%@",self.namespaceName,self.className]:self.className;return [NSString stringWithFormat:@"%@!%@::%@/%lu",self.assembly?:@"",owner?:@"",self.methodName?:@"",(unsigned long)self.argumentCount];}
 - (NSString *)canonicalIdentity {if(self.signatureAvailable&&self.parameterTypeNames.count==self.argumentCount)return ZNIL2CPPFullMethodIdentity(self.assembly?:@"",self.namespaceName?:@"",self.className?:@"",self.methodName?:@"",self.parameterTypeNames?:@[]);return self.legacyCanonicalIdentity;}
-- (id)copyWithZone:(NSZone *)zone {ZNRuntimeMethodAction *copy=[[[self class] allocWithZone:zone]init];copy.actionID=self.actionID;copy.executionKind=self.executionKind;copy.title=self.title;copy.group=self.group;copy.featureDescription=self.featureDescription?:@"";copy.assembly=self.assembly;copy.namespaceName=self.namespaceName;copy.className=self.className;copy.methodName=self.methodName;copy.argumentCount=self.argumentCount;copy.argumentValues=self.argumentValues?:@[];copy.parameterTypeNames=self.parameterTypeNames?:@[];copy.signatureAvailable=self.signatureAvailable;copy.argumentControlConfigs=self.argumentControlConfigs?:@[];copy.immediateChain=self.immediateChain?:@{};return copy;}
+- (id)copyWithZone:(NSZone *)zone {ZNRuntimeMethodAction *copy=[[[self class] allocWithZone:zone]init];copy.actionID=self.actionID;copy.executionKind=self.executionKind;copy.title=self.title;copy.group=self.group;copy.featureDescription=self.featureDescription?:@"";copy.assembly=self.assembly;copy.namespaceName=self.namespaceName;copy.className=self.className;copy.methodName=self.methodName;copy.argumentCount=self.argumentCount;copy.argumentValues=self.argumentValues?:@[];copy.parameterTypeNames=self.parameterTypeNames?:@[];copy.signatureAvailable=self.signatureAvailable;copy.argumentControlConfigs=self.argumentControlConfigs?:@[];copy.immediateChain=self.immediateChain?:@{};copy.preparedDescriptor=self.preparedDescriptor;copy.preparedRVA=self.preparedRVA;copy.preparedUUID=self.preparedUUID?:@"";copy.preparedStaticKnown=self.preparedStaticKnown;copy.preparedIsStatic=self.preparedIsStatic;return copy;}
 @end
 
 @interface ZNRuntimeActionStore ()
@@ -79,6 +79,22 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
         action.argumentControlConfigs=[clean copy];return YES;}
 }
 - (BOOL)updateImmediateChain:(NSDictionary<NSString *,id> *)chain atIndex:(NSUInteger)index error:(NSString **)error {@synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}ZNRuntimeMethodAction *action=self.mutableActions[index];if(!chain.count){action.immediateChain=@{};return YES;}NSString *className=[chain[@"class"] isKindOfClass:NSString.class]?chain[@"class"]:@"";NSString *method=[chain[@"method"] isKindOfClass:NSString.class]?chain[@"method"]:@"";NSInteger argc=[chain[@"argumentCount"]integerValue];if(!className.length||!method.length||argc<0||argc>(NSInteger)ZN_RUNTIME_ACTION_MAX_ARGUMENTS){if(error)*error=@"链式目标 Class/Method/argc 无效";return NO;}action.immediateChain=[chain copy];return YES;}}
+- (BOOL)updatePreparedDescriptor:(NSDictionary<NSString *,id> *)descriptor atIndex:(NSUInteger)index error:(NSString **)error {
+    @synchronized(self){
+        if(index>=self.mutableActions.count){if(error)*error=@"Runtime Action 索引已失效";return NO;}
+        uint64_t rva=[descriptor[@"rva"] unsignedLongLongValue];
+        NSString *uuid=[descriptor[@"uuid"] isKindOfClass:NSString.class]?descriptor[@"uuid"]:@"";
+        BOOL staticKnown=[descriptor[@"staticKnown"] boolValue];
+        if(!rva||!uuid.length||!staticKnown){if(error)*error=@"Prepared Runtime descriptor 不完整";return NO;}
+        ZNRuntimeMethodAction *action=self.mutableActions[index];
+        action.preparedDescriptor=YES;
+        action.preparedRVA=rva;
+        action.preparedUUID=uuid;
+        action.preparedStaticKnown=YES;
+        action.preparedIsStatic=[descriptor[@"isStatic"] boolValue];
+        return YES;
+    }
+}
 - (BOOL)removeActionAtIndex:(NSUInteger)index {@synchronized(self){if(index>=self.mutableActions.count)return NO;[self.mutableActions removeObjectAtIndex:index];return YES;}}
 - (void)clear {@synchronized(self){[self.mutableActions removeAllObjects];}}
 - (NSArray<ZNRuntimeMethodAction *> *)actionsSnapshot {@synchronized(self){NSMutableArray *copy=[NSMutableArray arrayWithCapacity:self.mutableActions.count];for(ZNRuntimeMethodAction *action in self.mutableActions)[copy addObject:[action copy]];return [copy copy];}}
