@@ -16205,6 +16205,14 @@ static NSString *ZNM582ValueText(double value, NSDictionary *cfg) {
     return [NSString stringWithFormat:@"%.6g", value];
 }
 
+static NSArray<ZNRuntimeMethodActionRecord *> *ZNM613UnifiedRuntimeRecords(void) {
+    ZNRuntimeCapabilitySnapshot *snapshot=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot;
+    NSMutableArray<ZNRuntimeMethodActionRecord *> *records=[NSMutableArray array];
+    [records addObjectsFromArray:snapshot.runtimeMethods?:@[]];
+    [records addObjectsFromArray:snapshot.directNativeCalls?:@[]];
+    return records;
+}
+
 static NSString *ZNM582RecordKey(ZNRuntimeMethodActionRecord *record) {
     NSString *identity = record.canonicalIdentity.length ? record.canonicalIdentity : [NSString stringWithFormat:@"%@::%@/%lu", record.className ?: @"", record.methodName ?: @"", (unsigned long)record.argumentCount];
     return [NSString stringWithFormat:@"%u|%@", record.actionID, identity ?: @""];
@@ -16272,7 +16280,7 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     [self znm58_removeCards];
 
     // Runtime capability snapshot is immutable for this render pass.
-    NSArray<ZNRuntimeMethodActionRecord *> *records = coordinator.currentSnapshot.runtimeMethods ?: @[];
+    NSArray<ZNRuntimeMethodActionRecord *> *records = ZNM613UnifiedRuntimeRecords();
     [self znm581_removeStaticEmptyStateIfRuntimeExists:records];
 
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
@@ -16399,8 +16407,9 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     NSUInteger recordIndex = (NSUInteger)slot / ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
     NSUInteger arg = (NSUInteger)slot % ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
     ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    if (recordIndex >= runtime.records.count) return;
-    ZNRuntimeMethodActionRecord *record = runtime.records[recordIndex];
+    NSArray<ZNRuntimeMethodActionRecord *> *records=ZNM613UnifiedRuntimeRecords();
+    if (recordIndex >= records.count) return;
+    ZNRuntimeMethodActionRecord *record = records[recordIndex];
     NSDictionary *cfg = record.argumentControlConfigs.count == record.argumentCount && arg < record.argumentCount ? record.argumentControlConfigs[arg] : @{};
     control.value = ZNM58Quantize(control.value, cfg, control.minimumValue, control.maximumValue);
     UIView *view = [self.contentView viewWithTag:kZNM58ValueTag + slot];
@@ -16442,8 +16451,9 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     if (index < 0) return;
 
     ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    if ((NSUInteger)index >= runtime.records.count) return;
-    ZNRuntimeMethodActionRecord *record = runtime.records[(NSUInteger)index];
+    NSArray<ZNRuntimeMethodActionRecord *> *records=ZNM613UnifiedRuntimeRecords();
+    if ((NSUInteger)index >= records.count) return;
+    ZNRuntimeMethodActionRecord *record = records[(NSUInteger)index];
     NSArray<NSString *> *storedValues = ZNM582StoredValues(record);
 
     NSMutableArray<NSString *> *values = [NSMutableArray arrayWithArray:(storedValues.count == record.argumentCount ? storedValues : (record.argumentValues ?: @[]))];
@@ -16475,9 +16485,18 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     action.immediateChain = record.immediateChain;
 
     NSString *error = nil;
-    NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&error];
-    if (result) {
-        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.8.3-control] %@ SUCCESS persisted=%@", action.canonicalIdentity ?: @"?", values ?: @[]]];
+    BOOL ok=NO;
+    if(record.executionKind==ZNRuntimeActionKindDirectNativeCall){
+        id<ZNRuntimeCapabilityAdapter> adapter=[[ZNCapabilityRegistry sharedRegistry] adapterForIdentifier:ZNCapabilityDirectNativeCallIdentifier];
+        ok=[adapter respondsToSelector:@selector(activateItem:value:error:)] &&
+           [adapter activateItem:record value:values error:&error];
+    }else{
+        NSDictionary *result=[[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&error];
+        ok=result!=nil;
+    }
+    if (ok) {
+        [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.13-unified-control] kind=%ld %@ SUCCESS persisted=%@",
+                                             (long)record.executionKind,action.canonicalIdentity ?: @"?", values ?: @[]]];
         return;
     }
 
@@ -17577,7 +17596,10 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
     [coordinator requestRefresh];
     ZNRuntimeCapabilitySnapshot *snapshot=coordinator.currentSnapshot;
-    NSArray<ZNRuntimeMethodActionRecord *> *records=snapshot.runtimeMethods?:@[];
+    NSMutableArray<ZNRuntimeMethodActionRecord *> *allRecords=[NSMutableArray array];
+    [allRecords addObjectsFromArray:snapshot.runtimeMethods?:@[]];
+    [allRecords addObjectsFromArray:snapshot.directNativeCalls?:@[]];
+    NSArray<ZNRuntimeMethodActionRecord *> *records=[allRecords copy];
     NSArray<ZNNativeHookAction *> *hooks=snapshot.nativeHooks?:@[];
     if (!records.count && !hooks.count) return y;
 
