@@ -11,10 +11,14 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <atomic>
 
 @interface ZNDirectNativeCallEngine ()
 @property(nonatomic,copy,readwrite) NSDictionary<NSString *,id> *lastResult;
 @end
+
+static std::atomic<int32_t> gZNDNCObscuredIntValueSize(0);
+static NSDictionary<NSString *,id> *gZNDNCObscuredIntCodec=nil;
 
 static BOOL ZNDNCGPRKind(ZNIL2CPPABIValueKind kind) {
     return kind==ZNIL2CPPABIValueKindBool ||
@@ -65,6 +69,8 @@ typedef void *(*ZNDNCClassFromNameFn)(const void *,const char *,const char *);
 typedef int32_t (*ZNDNCClassValueSizeFn)(void *,uint32_t *);
 
 static int32_t ZNDNCObscuredIntValueSize(NSString *imagePath, NSString **error) {
+    int32_t cached=gZNDNCObscuredIntValueSize.load(std::memory_order_acquire);
+    if(cached>0)return cached;
     ZNDNCDomainGetFn domainGet=(ZNDNCDomainGetFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_domain_get");
     ZNDNCDomainGetAssembliesFn assembliesFn=(ZNDNCDomainGetAssembliesFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_domain_get_assemblies");
     ZNDNCAssemblyGetImageFn imageFn=(ZNDNCAssemblyGetImageFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_assembly_get_image");
@@ -88,6 +94,7 @@ static int32_t ZNDNCObscuredIntValueSize(NSString *imagePath, NSString **error) 
         if(error)*error=[NSString stringWithFormat:@"ObscuredInt bridge：value-size=%d，不符合 ARM64 indirect struct 条件",size];
         return 0;
     }
+    gZNDNCObscuredIntValueSize.store(size,std::memory_order_release);
     return size;
 }
 
@@ -104,8 +111,17 @@ static BOOL ZNDNCPrepareObscuredIntIndirect(NSString *text, void **outBuffer, NS
     if(!resolver.isAvailable){if(error)*error=resolver.lastError?:@"IL2CPP Resolver 不可用";return NO;}
 
     NSString *inner=nil;
-    NSDictionary *codec=[[ZNComplexStructCodecResolver sharedResolver]
-        resolveManagedType:@"CodeStage.AntiCheat.ObscuredTypes.ObscuredInt" error:&inner];
+    NSDictionary *codec=nil;
+    @synchronized([ZNDirectNativeCallEngine class]){codec=gZNDNCObscuredIntCodec;}
+    if(!codec && ZNIL2CPPPreparedExecutionActive()){
+        if(error)*error=@"FAILED_PREPARED_CODEC：ObscuredInt codec 未在启动期预热";
+        return NO;
+    }
+    if(!codec){
+        codec=[[ZNComplexStructCodecResolver sharedResolver]
+            resolveManagedType:@"CodeStage.AntiCheat.ObscuredTypes.ObscuredInt" error:&inner];
+        if(codec)@synchronized([ZNDirectNativeCallEngine class]){gZNDNCObscuredIntCodec=[codec copy];}
+    }
     if(!codec){
         if(error)*error=inner?:@"ObscuredInt Codec resolve 失败";
         return NO;
@@ -204,6 +220,21 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
     return engine;
 }
 - (BOOL)prepare:(NSString **)error {(void)error;return YES;}
+
+- (BOOL)prepareManagedType:(NSString *)managedType error:(NSString **)error {
+    NSString *type=ZNComplexStructNormalizedManagedType(managedType);
+    if(![type isEqualToString:@"CodeStage.AntiCheat.ObscuredTypes.ObscuredInt"])return YES;
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    if(!resolver.isAvailable){if(error)*error=resolver.lastError?:@"IL2CPP Resolver 不可用";return NO;}
+    NSString *inner=nil;
+    NSDictionary *codec=[[ZNComplexStructCodecResolver sharedResolver] resolveManagedType:type error:&inner];
+    if(!codec){if(error)*error=inner?:@"ObscuredInt Codec prewarm 失败";return NO;}
+    int32_t size=ZNDNCObscuredIntValueSize(resolver.unityPath,&inner);
+    if(size<=0){if(error)*error=inner?:@"ObscuredInt value-size prewarm 失败";return NO;}
+    @synchronized([ZNDirectNativeCallEngine class]){gZNDNCObscuredIntCodec=[codec copy];}
+    return YES;
+}
 
 - (BOOL)supportsCandidate:(NSDictionary<NSString *,id> *)candidate reason:(NSString **)reason {
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
