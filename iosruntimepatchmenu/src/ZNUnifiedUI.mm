@@ -13331,148 +13331,6 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
                                             source:(UIButton *)source;
 - (void)zn68_presentStructFieldConfigForCandidate:(NSDictionary *)candidate
                                      argumentIndex:(NSUInteger)argumentIndex
-                                            source:(UIButton *)source;
-@end
-
-static NSString *ZNM52XString(id value) {
-    return [value isKindOfClass:NSString.class] ? value : @"";
-}
-
-static NSArray<NSDictionary *> *ZNM52XVisible(ZNRuntimeMenuControllerV040 *controller) {
-    NSArray<NSDictionary *> *all = [controller zn60v3_candidates] ?: @[];
-    NSInteger filter = [controller znm42_filter];
-    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
-    for (NSDictionary *candidate in all) {
-        if (filter < 0 || [candidate[@"argumentCount"] integerValue] == filter) [out addObject:candidate];
-    }
-    return out;
-}
-
-static void ZNM52XCollectChainButtons(UIView *root, NSMutableArray<UIButton *> *out) {
-    for (UIView *view in root.subviews) {
-        if ([view isKindOfClass:UIButton.class]) {
-            NSString *title = [(UIButton *)view titleForState:UIControlStateNormal] ?: @"";
-            if ([title isEqualToString:@"链式调用"] || [title isEqualToString:@"执行链"]) [out addObject:(UIButton *)view];
-        }
-        ZNM52XCollectChainButtons(view, out);
-    }
-}
-
-static UIButton *ZNM52XButtonWithTitles(UIView *card, NSArray<NSString *> *titles) {
-    for (UIView *view in card.subviews) {
-        if (![view isKindOfClass:UIButton.class]) continue;
-        UIButton *button=(UIButton *)view;
-        NSString *title=[button titleForState:UIControlStateNormal] ?: @"";
-        if ([titles containsObject:title]) return button;
-    }
-    return nil;
-}
-
-static BOOL ZNM52XMethodIsInstance(NSDictionary *candidate, BOOL *known) {
-    if(known)*known=NO;
-    uintptr_t methodInfo=[candidate[@"methodInfo"] unsignedLongLongValue];
-    if(!methodInfo)return NO;
-    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
-    [resolver refresh];
-    ZNM52XMethodGetFlagsFn getFlags=(ZNM52XMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_method_get_flags");
-    if(!getFlags)return NO;
-    uint32_t implFlags=0;
-    uint32_t flags=getFlags((const void *)methodInfo,&implFlags);
-    if(known)*known=YES;
-    return (flags&kZNM52XMethodAttributeStatic)==0;
-}
-
-static BOOL ZNM52XBatchSafe(NSDictionary *candidate) {
-    if([candidate[@"argumentCount"] unsignedIntegerValue]!=0)return NO;
-    NSString *method=ZNM52XString(candidate[@"method"]).lowercaseString;
-    return [method hasPrefix:@"get_"] || [method hasPrefix:@"is"] ||
-           [method hasPrefix:@"has"] || [method hasPrefix:@"can"];
-}
-
-static void ZNM52XStyleGridButton(UIButton *button,CGFloat x,CGFloat y,CGFloat w,CGFloat h) {
-    if(!button)return;
-    button.frame=CGRectMake(x,y,w,h);
-    button.titleLabel.font=[UIFont systemFontOfSize:8.1 weight:UIFontWeightSemibold];
-    button.titleLabel.adjustsFontSizeToFitWidth=YES;
-    button.titleLabel.minimumScaleFactor=.65;
-}
-
-static BOOL ZNM52XCandidateMatches(NSDictionary *candidate, ZNRuntimeMethodAction *action) {
-    NSDictionary *chain = [action.immediateChain isKindOfClass:NSDictionary.class] ? action.immediateChain : @{};
-    NSArray *nodes = [chain[@"nodes"] isKindOfClass:NSArray.class] ? chain[@"nodes"] : nil;
-    if ([chain[@"version"] integerValue] != 2 || !nodes.count) return NO;
-    NSString *assembly = ZNM52XString(candidate[@"assembly"]); if (!assembly.length) assembly = @"Assembly-CSharp.dll";
-    return [action.assembly isEqualToString:assembly] &&
-           [(action.namespaceName ?: @"") isEqualToString:ZNM52XString(candidate[@"namespace"])] &&
-           [action.className isEqualToString:ZNM52XString(candidate[@"class"])] &&
-           [action.methodName isEqualToString:ZNM52XString(candidate[@"method"])] &&
-           action.argumentCount == [candidate[@"argumentCount"] unsignedIntegerValue];
-}
-
-static NSInteger ZNM52XFindChain(NSDictionary *candidate, ZNRuntimeMethodAction **outAction) {
-    NSArray<ZNRuntimeMethodAction *> *actions = [[ZNRuntimeActionStore sharedStore] actionsSnapshot];
-    for (NSInteger i = (NSInteger)actions.count - 1; i >= 0; i--) {
-        ZNRuntimeMethodAction *action = actions[(NSUInteger)i];
-        if (ZNM52XCandidateMatches(candidate, action)) {
-            if (outAction) *outAction = action;
-            return i;
-        }
-    }
-    return NSNotFound;
-}
-
-static UIViewController *ZNM52XTop(UIWindow *window) {
-    UIViewController *vc = window.rootViewController;
-    while (vc.presentedViewController) vc = vc.presentedViewController;
-    return vc;
-}
-
-static NSString *ZNM52XTrace(NSDictionary *result) {
-    NSArray *trace = [result[@"chainTrace"] isKindOfClass:NSArray.class] ? result[@"chainTrace"] : @[];
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    for (NSDictionary *level in trace) {
-        NSString *identity = ZNM52XString(level[@"identity"]);
-        [lines addObject:[NSString stringWithFormat:@"L%@ %@ → %@", level[@"level"] ?: @"?", identity.length ? identity : @"?", level[@"returnValue"] ?: @"?"]];
-    }
-    return [lines componentsJoinedByString:@"\n"];
-}
-
-@implementation ZNRuntimeMenuControllerV040 (ZNM52ChainExecuteButton)
-
-- (void)zn68_presentStructFieldPickerForCandidate:(NSDictionary *)candidate
-                                           indices:(NSArray<NSNumber *> *)indices
-                                            source:(UIButton *)source {
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
-    if(indices.count==1){
-        [self zn68_presentStructFieldConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:source];
-        return;
-    }
-    UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"选择 Struct 参数"
-                                                                   message:@"StructFieldTransform V1 · indirect-pointer"
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    __weak typeof(self) weakSelf=self;
-    for(NSNumber *n in indices){
-        NSUInteger idx=n.unsignedIntegerValue;
-        NSDictionary *p=idx<params.count?params[idx]:@{};
-        NSString *pn=[p[@"paramName"] isKindOfClass:NSString.class]?p[@"paramName"]:@"";
-        NSString *tn=[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"complex value";
-        NSString *title=pn.length?[NSString stringWithFormat:@"参数%lu · %@ · %@",(unsigned long)idx+1,pn,tn]:
-                                  [NSString stringWithFormat:@"参数%lu · %@",(unsigned long)idx+1,tn];
-        [picker addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-            [weakSelf zn68_presentStructFieldConfigForCandidate:candidate argumentIndex:idx source:source];
-        }]];
-    }
-    [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    UIViewController *top=ZNM52XTop(self.hostWindow);
-    if(!top)return;
-    UIPopoverPresentationController *popover=picker.popoverPresentationController;
-    if(popover){popover.sourceView=source;popover.sourceRect=source.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
-    [top presentViewController:picker animated:YES completion:nil];
-}
-
-- (void)zn68_presentStructFieldConfigForCandidate:(NSDictionary *)candidate
-                                     argumentIndex:(NSUInteger)argumentIndex
                                             source:(UIButton *)source {
     (void)source;
     NSString *method=ZNM52XString(candidate[@"method"]);
@@ -13482,18 +13340,13 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSString *pn=[param[@"paramName"] isKindOfClass:NSString.class]?param[@"paramName"]:@"";
     NSString *tn=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"complex value";
     NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
-    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n参数：%lu%@ · %@\n模式：indirect-pointer\nCodec：SecureLong accessor\nAccessor：get_Value/0 + set_Value/1\n\n%@",
+    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n参数：%lu%@ · %@\n模式：whole struct decode → transform → encode\nCodec：SecureLong whole accessor\nAccessor：get_Value/0 + set_Value/1\nField Offset：不需要\n\n%@",
                        ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,
                        (unsigned long)argumentIndex+1,pn.length?[NSString stringWithFormat:@" · %@",pn]:@"",tn,diag?:@""];
 
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Struct Field Transform 测试"
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Complex Struct Transform 测试"
                                                                   message:message
                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){
-        field.placeholder=@"Field Offset，例如 0x48";
-        field.text=@"0x48";
-        field.autocapitalizationType=UITextAutocapitalizationTypeNone;
-    }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *field){
         field.placeholder=@"测试倍率，例如 5";
         field.text=@"5";
@@ -13506,78 +13359,60 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     }];
 
     __weak typeof(self) weakSelf=self;
-    uint64_t (^parseOffset)(NSString *) = ^uint64_t(NSString *raw){
-        NSString *s=[[raw?:@"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] lowercaseString];
-        unsigned long long value=0;
-        NSScanner *scanner=[NSScanner scannerWithString:s];
-        if([s hasPrefix:@"0x"]){scanner.scanLocation=2;[scanner scanHexLongLong:&value];}
-        else [scanner scanUnsignedLongLong:&value];
-        return (uint64_t)value;
-    };
-
     [alert addAction:[UIAlertAction actionWithTitle:@"安装 / 更新测试 Hook" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        uint64_t offset=parseOffset(alert.textFields[0].text);
-        NSInteger multiplier=alert.textFields[1].text.integerValue;
+        NSInteger multiplier=MAX(1,alert.textFields[0].text.integerValue);
         NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryStructFieldTransformForCandidate:candidate
-                                                                                        argumentIndex:argumentIndex
-                                                                                         argumentMode:@"indirect-pointer"
-                                                                                          fieldOffset:offset
-                                                                                           fieldCodec:@"secure-long-accessor"
-                                                                                        codecAssembly:@"Percent.Scripting.Stdlib.dll"
-                                                                                       codecNamespace:@"Percent.Scripting.Stdlib.SecureValue"
-                                                                                           codecClass:@"SecureLong"
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryComplexStructTransformForCandidate:candidate
+                                                                                         argumentIndex:argumentIndex
+                                                                                          codecAssembly:@"Percent.Scripting.Stdlib.dll"
+                                                                                         codecNamespace:@"Percent.Scripting.Stdlib.SecureValue"
+                                                                                             codecClass:@"SecureLong"
                                                                                           getterMethod:@"get_Value"
                                                                                           setterMethod:@"set_Value"
-                                                                                           multiplier:multiplier
-                                                                                                error:&error];
+                                                                                            multiplier:multiplier
+                                                                                                 error:&error];
         [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"StructFieldTransform 已安装 · %@ arg%lu +0x%llX ×%ld；触发伤害后看实时状态",
-               method,(unsigned long)argumentIndex,(unsigned long long)offset,(long)multiplier]
-            : (error?:@"StructFieldTransform 安装失败")];
+            ? [NSString stringWithFormat:@"ComplexStructTransform 已安装 · %@ arg%lu ×%ld · 无 Field Offset",
+               method,(unsigned long)argumentIndex+1,(long)multiplier]
+            : (error?:@"ComplexStructTransform 安装失败")];
         [weakSelf renderPage];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
         NSString *error=nil;
         BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
-        [weakSelf zn60v3_setStatus:ok?@"StructFieldTransform 已移除，目标已恢复":(error?:@"恢复原方法失败")];
+        [weakSelf zn60v3_setStatus:ok?@"ComplexStructTransform 已移除，目标已恢复":(error?:@"恢复原方法失败")];
         [weakSelf renderPage];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        uint64_t offset=parseOffset(alert.textFields[0].text);
-        NSInteger multiplier=MAX(1,alert.textFields[1].text.integerValue);
-        NSInteger maxValue=MAX(multiplier,alert.textFields[2].text.integerValue);
+        NSInteger multiplier=MAX(1,alert.textFields[0].text.integerValue);
+        NSInteger maxValue=MAX(multiplier,alert.textFields[1].text.integerValue);
         maxValue=MIN(MAX(maxValue,1),1000);
         NSString *error=nil;
-        NSString *title=[NSString stringWithFormat:@"%@ Field Multiplier",method.length?method:@"Native Hook"];
-        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addStructFieldTransformCandidate:candidate
-                                                                                              title:title
-                                                                                      argumentIndex:argumentIndex
-                                                                                       argumentMode:@"indirect-pointer"
-                                                                                        fieldOffset:offset
-                                                                                         fieldCodec:@"secure-long-accessor"
-                                                                                      codecAssembly:@"Percent.Scripting.Stdlib.dll"
-                                                                                     codecNamespace:@"Percent.Scripting.Stdlib.SecureValue"
-                                                                                         codecClass:@"SecureLong"
-                                                                                        getterMethod:@"get_Value"
-                                                                                        setterMethod:@"set_Value"
-                                                                                              min:1
-                                                                                              max:maxValue
-                                                                                     defaultValue:1
-                                                                                            error:&error];
+        NSString *title=[NSString stringWithFormat:@"%@ Struct Multiplier",method.length?method:@"Native Hook"];
+        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addComplexStructTransformCandidate:candidate
+                                                                                                 title:title
+                                                                                         argumentIndex:argumentIndex
+                                                                                          codecAssembly:@"Percent.Scripting.Stdlib.dll"
+                                                                                         codecNamespace:@"Percent.Scripting.Stdlib.SecureValue"
+                                                                                             codecClass:@"SecureLong"
+                                                                                          getterMethod:@"get_Value"
+                                                                                          setterMethod:@"set_Value"
+                                                                                                   min:1
+                                                                                                   max:maxValue
+                                                                                          defaultValue:1
+                                                                                                 error:&error];
         [weakSelf zn60v3_setStatus:created
-            ? [NSString stringWithFormat:@"已创建 StructFieldTransform：%@ · +0x%llX · Slider 1~%ld",
-               created.title,(unsigned long long)offset,(long)maxValue]
-            : (error?:@"创建 StructFieldTransform 失败")];
+            ? [NSString stringWithFormat:@"已创建 ComplexStructTransform：%@ · whole codec · Slider 1~%ld",
+               created.title,(long)maxValue]
+            : (error?:@"创建 ComplexStructTransform 失败")];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     UIViewController *top=ZNM52XTop(self.hostWindow);
     if(top)[top presentViewController:alert animated:YES completion:nil];
 }
-
 
 - (void)zn52x_renderResultsAtWidth:(CGFloat)width {
     [self zn52x_renderResultsAtWidth:width];
@@ -13756,7 +13591,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     NSUInteger templateCount=(indices.count?1:0)+(callbackIndices.count?1:0)+(returnBool?1:0)+(structIndices.count?1:0);
     if(templateCount>1){
         UIAlertController *templates=[UIAlertController alertControllerWithTitle:@"选择 Native Hook 模板"
-                                                                         message:@"M6.6"
+                                                                         message:@"M6.13 · Plugin + Complex Struct Codec"
                                                                   preferredStyle:UIAlertControllerStyleActionSheet];
         __weak typeof(self) weakSelf=self;
         if(indices.count){
@@ -13775,7 +13610,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
             }]];
         }
         if(structIndices.count){
-            [templates addAction:[UIAlertAction actionWithTitle:@"Struct Field Transform" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+            [templates addAction:[UIAlertAction actionWithTitle:@"Complex Struct Transform" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
                 [weakSelf zn68_presentStructFieldPickerForCandidate:candidate indices:structIndices source:sender];
             }]];
         }
