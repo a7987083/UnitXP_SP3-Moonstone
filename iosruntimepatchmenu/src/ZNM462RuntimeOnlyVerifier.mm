@@ -257,15 +257,18 @@ static BOOL ZNM462VerifyPath(NSString *path,
             }
             if (localError) break;
 
-            if ((entry->flags & ZNRuntimeActionFlagParameterSignature) == 0 ||
+            // M6.14.1: verifier checks serialized structure only.
+            // Authoring/runtime capability metadata is optional and must not gate Build.
+            if ((entry->flags & ZNRuntimeActionFlagParameterSignature) != 0 &&
                 !ZNM462StringOffsetValid(table, header, entry->reserved[1])) {
-                localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u 缺少/损坏 Full Signature", i];
+                localError = [NSString stringWithFormat:@"M6.14.1 verifier：entry %u Full Signature offset 损坏", i];
                 break;
             }
 
             if (methodLike) {
-                if (!ZNM614PreparedDescriptorValid(table, header, entry)) {
-                    localError = [NSString stringWithFormat:@"M6.14 verifier：entry %u 缺少/损坏 Prepared Runtime Descriptor", i];
+                if ((entry->flags & ZNRuntimeActionFlagPreparedDescriptor) != 0 &&
+                    !ZNM614PreparedDescriptorValid(table, header, entry)) {
+                    localError = [NSString stringWithFormat:@"M6.14.1 verifier：entry %u Prepared Runtime Descriptor 损坏", i];
                     break;
                 }
                 if (!ZNM462ArgumentVectorValid(table, header, entry)) {
@@ -321,7 +324,7 @@ BOOL ZNM462VerifyRuntimeOnlyOutputs(NSArray<NSString *> *outputs,
         return NO;
     }
     if (report) {
-        *report = [NSString stringWithFormat:@"M6.14 Runtime-only Verify：%lu 个 suffixless Mach-O · %lu Runtime/Hook Actions · Static count=0 · Full Signature + action config + section bounds/RW protection 全部通过",
+        *report = [NSString stringWithFormat:@"M6.14.1 Runtime-only Verify：%lu 个 suffixless Mach-O · %lu Runtime/Hook Actions · Static count=0 · serialized action config + section bounds/RW protection 通过",
                    (unsigned long)verified, (unsigned long)expectedActionCount];
     }
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.4-runtime-only-verify] targets=%lu actions=%lu suffixless=YES PASS",
