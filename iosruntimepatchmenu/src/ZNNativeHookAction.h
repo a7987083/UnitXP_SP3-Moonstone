@@ -81,6 +81,18 @@ NS_ASSUME_NONNULL_BEGIN
                                                            callbackValue:(BOOL)callbackValue
                                                             skipOriginal:(BOOL)skipOriginal
                                                                    error:(NSString * _Nullable * _Nullable)error;
+- (nullable ZNNativeHookAction *)addComplexStructTransformCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                               title:(nullable NSString *)title
+                                                       argumentIndex:(NSUInteger)argumentIndex
+                                                        codecAssembly:(NSString *)codecAssembly
+                                                       codecNamespace:(NSString *)codecNamespace
+                                                           codecClass:(NSString *)codecClass
+                                                        getterMethod:(NSString *)getterMethod
+                                                        setterMethod:(NSString *)setterMethod
+                                                                  min:(NSInteger)minValue
+                                                                  max:(NSInteger)maxValue
+                                                         defaultValue:(NSInteger)defaultValue
+                                                                error:(NSString * _Nullable * _Nullable)error;
 - (nullable ZNNativeHookAction *)addStructFieldTransformCandidate:(NSDictionary<NSString *, id> *)candidate
                                                             title:(nullable NSString *)title
                                                     argumentIndex:(NSUInteger)argumentIndex
