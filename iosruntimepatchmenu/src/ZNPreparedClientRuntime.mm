@@ -11,6 +11,7 @@
 #import "ZNComplexStructCodecResolver.h"
 #import "ZNDirectNativeCallEngine.h"
 #import "ZNIL2CPPInstanceResolver.h"
+#import "ZNIL2CPPABIMetadata.h"
 #import "ZNIL2CPPInstanceSelectionV2.h"
 #import "ZNIL2CPPInvokeEngine.h"
 #import "ZNIL2CPPMethodSignature.h"
@@ -214,6 +215,7 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
         candidate[@"method"]=record.methodName?:@"";
         candidate[@"argumentCount"]=@(record.argumentCount);
         candidate[@"canonical"]=record.canonicalIdentity?:@"";
+        NSDictionary *preparedABI=ZNIL2CPPDescribeMethodABI(candidate)?:@{};
 
         if(record.executionKind==ZNRuntimeActionKindDirectNativeCall){
             NSString *why=nil;
@@ -288,13 +290,16 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
             nodeCandidate[@"method"]=nodeAction.methodName?:@"";
             nodeCandidate[@"argumentCount"]=@(nodeAction.argumentCount);
             nodeCandidate[@"canonical"]=nodeAction.canonicalIdentity?:@"";
+            NSDictionary *nodeABI=ZNIL2CPPDescribeMethodABI(nodeCandidate)?:@{};
             chainBindings[nodeAction.canonicalIdentity?:@""]=@{@"resolved":[nodeCandidate copy],
-                                                                @"static":@(nodeStatic)};
+                                                                @"static":@(nodeStatic),
+                                                                @"abi":nodeABI};
         }
 
         NSDictionary *binding=@{@"resolved":[candidate copy],
                                 @"receiver":@(receiver),
                                 @"static":@(isStatic),
+                                @"abi":preparedABI,
                                 @"identity":record.canonicalIdentity?:@"",
                                 @"chainBindings":[chainBindings copy]};
         @synchronized(self){self.bindings[@(record.actionID)]=binding;}
@@ -329,6 +334,7 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
              @"argumentCount":@(record.argumentCount),
              @"resolved":binding[@"resolved"]?:@{},
              @"receiver":binding[@"receiver"]?:@0,
+             @"abi":binding[@"abi"]?:@{},
              @"chainBindings":binding[@"chainBindings"]?:@{}};
 }
 
