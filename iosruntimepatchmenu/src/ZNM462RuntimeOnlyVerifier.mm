@@ -3,6 +3,7 @@
 #import "ZNStaticPatchFormat.h"
 #import "ZNGeneratedDataLayout.h"
 #import "ZNPatchCore.h"
+#import "ZNComplexStructCodec.h"
 
 #import <mach-o/loader.h>
 #import <mach/vm_prot.h>
