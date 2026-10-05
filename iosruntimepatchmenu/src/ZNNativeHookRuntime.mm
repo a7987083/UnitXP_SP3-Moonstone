@@ -850,14 +850,21 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=1;
             a.minValue=min;a.maxValue=max;a.defaultValue=def;
         }
+        NSString *resolutionMode=[cfg[@"resolutionMode"] isKindOfClass:NSString.class]?cfg[@"resolutionMode"]:@"";
         a.preparedDescriptor=[cfg[@"prepared"] boolValue] ||
-                             [cfg[@"resolutionMode"] isEqual:@"prepared-rva"];
+                             [resolutionMode isEqual:@"prepared-rva"] ||
+                             [resolutionMode isEqual:@"static-prepatch-v1"];
         a.preparedRVA=[cfg[@"preparedRVA"] unsignedLongLongValue];
         a.preparedUUID=[cfg[@"preparedUUID"] isKindOfClass:NSString.class]?cfg[@"preparedUUID"]:@"";
         a.preparedStaticKnown=[cfg[@"preparedStaticKnown"] boolValue];
         a.preparedIsStatic=[cfg[@"preparedIsStatic"] boolValue];
         a.preparedCodecGetterRVA=[cfg[@"preparedCodecGetterRVA"] unsignedLongLongValue];
         a.preparedCodecSetterRVA=[cfg[@"preparedCodecSetterRVA"] unsignedLongLongValue];
+        a.staticPrepatch=[cfg[@"staticPrepatch"] boolValue]||[resolutionMode isEqual:@"static-prepatch-v1"];
+        a.staticHookSlotRVA=[cfg[@"staticHookSlotRVA"] unsignedLongLongValue];
+        a.staticTrampolineRVA=[cfg[@"staticTrampolineRVA"] unsignedLongLongValue];
+        a.staticCodeCaveRVA=[cfg[@"staticCodeCaveRVA"] unsignedLongLongValue];
+        a.staticDisplacedInstruction=[cfg[@"staticDisplacedInstruction"] unsignedIntValue];
         a.fallbackRVA=[cfg[@"fallbackRVA"] unsignedLongLongValue];
         a.fallbackUUID=[cfg[@"fallbackUUID"] isKindOfClass:NSString.class]?cfg[@"fallbackUUID"]:@"";
         NSString *key=[NSString stringWithFormat:@"%u|%@",a.actionID,a.canonicalIdentity];
