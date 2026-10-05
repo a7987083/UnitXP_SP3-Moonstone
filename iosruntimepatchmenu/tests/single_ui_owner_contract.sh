@@ -140,7 +140,7 @@ test -f "$SRC/ZNNativeHookBuildPrepare.h"
 test -f "$SRC/ZNNativeHookBuildPrepare.mm"
 grep -q 'src/ZNNativeHookBuildPrepare.mm' "$MAKEFILE"
 grep -q 'ZNBuildPrepareNativeHookDescriptorsV1' "$SRC/ZNBuildManifest.mm"
-grep -q 'resolutionMode":@"prepared-rva"' "$SRC/ZNRuntimeActionBuilder.mm"
+grep -Eq 'resolutionMode":@"(prepared-rva|static-prepatch-v1)"' "$SRC/ZNRuntimeActionBuilder.mm"
 grep -q 'preparedRVA' "$SRC/ZNNativeHookAction.h"
 grep -q 'ZNNativePreparedTargetForAction' "$SRC/ZNNativeHookRuntime.mm"
 grep -q '缺少 M6.9 Prepared Descriptor' "$SRC/ZNNativeHookRuntime.mm"
@@ -149,7 +149,10 @@ from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
 start=s.index("- (BOOL)installAction:(ZNNativeHookAction *)action value:")
-end=s.index("// M6.8.6 permanent lifecycle", start)
+end=s.find("// Permanent lifecycle:", start)
+if end < 0:
+    end=s.find("// M6.8.6 permanent lifecycle", start)
+assert end > start
 formal=s[start:end]
 assert "ZNNativePreparedTargetForAction" in formal
 assert "ZNNativeResolveDescriptor" not in formal
