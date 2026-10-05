@@ -12,6 +12,7 @@
 #import "ZNGeneratedDataLayout.h"
 #import "ZNIL2CPPMethodSignature.h"
 #import "ZNComplexStructCodec.h"
+#import "ZNComplexStructCodecResolver.h"
 
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
@@ -186,6 +187,13 @@ typedef struct {
     std::atomic<uintptr_t> original;
     std::atomic<uintptr_t> getter;
     std::atomic<uintptr_t> setter;
+    std::atomic<uintptr_t> function2;
+    std::atomic<uintptr_t> function3;
+    std::atomic<uintptr_t> methodInfo0;
+    std::atomic<uintptr_t> methodInfo1;
+    std::atomic<uintptr_t> methodInfo2;
+    std::atomic<uintptr_t> methodInfo3;
+    std::atomic<uint32_t> codecVariant;
     std::atomic<int32_t> multiplier;
     std::atomic<uint32_t> enabled;
     std::atomic<uint64_t> hits;
@@ -258,8 +266,19 @@ void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs) {
     int64_t before=0,after=0;
     uintptr_t field=base;
     if(transformAddr){
+        ZNComplexStructResolvedFunctions functions={
+            getterAddr,
+            slot->methodInfo0.load(std::memory_order_acquire),
+            setterAddr,
+            slot->methodInfo1.load(std::memory_order_acquire),
+            slot->function2.load(std::memory_order_acquire),
+            slot->methodInfo2.load(std::memory_order_acquire),
+            slot->function3.load(std::memory_order_acquire),
+            slot->methodInfo3.load(std::memory_order_acquire),
+            slot->codecVariant.load(std::memory_order_relaxed)
+        };
         ZNComplexStructTransformFn transform=(ZNComplexStructTransformFn)transformAddr;
-        if(!transform(base,getterAddr,setterAddr,multiplier,&before,&after)){
+        if(!transform(base,&functions,multiplier,&before,&after)){
             slot->failures.fetch_add(1,std::memory_order_relaxed);
             return;
         }
@@ -1310,16 +1329,26 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                       setterMethod:(NSString *)setterMethod
                                                         multiplier:(NSInteger)multiplier
                                                              error:(NSString **)error {
+    (void)codecAssembly;(void)codecNamespace;(void)codecClass;(void)getterMethod;(void)setterMethod;
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(argumentIndex>=params.count){if(error)*error=@"Complex Struct 参数索引无效";return NO;}
+    NSString *managedType=[params[argumentIndex][@"name"] isKindOfClass:NSString.class]?params[argumentIndex][@"name"]:@"";
+    NSString *codecKey=ZNComplexStructCodecKeyForManagedType(managedType);
+    if(!codecKey.length){
+        if(error)*error=[NSString stringWithFormat:@"Complex Struct 未注册匹配 Codec：%@",managedType.length?managedType:@"?"];
+        return NO;
+    }
     return [self installTemporaryStructFieldTransformForCandidate:candidate
                                                     argumentIndex:argumentIndex
                                                      argumentMode:@"indirect-pointer"
                                                       fieldOffset:0
-                                                       fieldCodec:@"secure-long-whole-accessor"
-                                                    codecAssembly:codecAssembly
-                                                   codecNamespace:codecNamespace
-                                                       codecClass:codecClass
-                                                      getterMethod:getterMethod
-                                                      setterMethod:setterMethod
+                                                       fieldCodec:codecKey
+                                                    codecAssembly:@""
+                                                   codecNamespace:@""
+                                                       codecClass:ZNComplexStructNormalizedManagedType(managedType)
+                                                      getterMethod:@""
+                                                      setterMethod:@""
                                                        multiplier:multiplier
                                                             error:error];
 }
@@ -1338,9 +1367,9 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                      error:(NSString **)error {
     if(multiplier<1||multiplier>1000){if(error)*error=@"StructFieldTransform 倍率必须在 1~1000";return NO;}
     if(![argumentMode isEqualToString:@"indirect-pointer"]){if(error)*error=@"StructFieldTransform V1 仅支持 indirect-pointer";return NO;}
-    BOOL whole=[fieldCodec isEqualToString:@"secure-long-whole-accessor"];
     BOOL legacy=[fieldCodec isEqualToString:@"secure-long-accessor"];
-    if(!legacy&&!whole){if(error)*error=@"Struct codec 不支持";return NO;}
+    BOOL whole=!legacy&&[[ZNComplexStructCodecRegistry sharedRegistry] supportsCodecKey:fieldCodec];
+    if(!legacy&&!whole){if(error)*error=[NSString stringWithFormat:@"Struct codec 未注册：%@",fieldCodec?:@""];return NO;}
     if((legacy&&fieldOffset>0x100000ULL)||(whole&&fieldOffset!=0)){if(error)*error=@"Struct codec offset 与模式不匹配";return NO;}
 
     NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
@@ -1356,8 +1385,19 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         if(error)*error=@"StructFieldTransform 参数无法映射到 ARM64 x0~x7";
         return NO;
     }
-    NSDictionary *codec=ZNNativeResolveSecureLongCodec(codecAssembly,codecNamespace,codecClass,getterMethod,setterMethod,error);
-    if(!codec)return NO;
+    NSDictionary *codec=nil;
+    if(whole){
+        codec=[[ZNComplexStructCodecResolver sharedResolver] resolveManagedType:codecClass error:error];
+        if(!codec)return NO;
+        if(![codec[@"codecKey"] isEqualToString:fieldCodec]){
+            if(error)*error=[NSString stringWithFormat:@"Codec 类型不匹配：type=%@ resolved=%@ expected=%@",
+                             codecClass?:@"?",codec[@"codecKey"]?:@"?",fieldCodec?:@"?"];
+            return NO;
+        }
+    }else{
+        codec=ZNNativeResolveSecureLongCodec(codecAssembly,codecNamespace,codecClass,getterMethod,setterMethod,error);
+        if(!codec)return NO;
+    }
 
     uintptr_t target=[resolved[@"methodPointer"] unsignedLongLongValue];
     if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)){
@@ -1383,8 +1423,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNStructFieldSlot *slot=ZNStructFieldFreeSlot();
     if(!slot){if(error)*error=@"StructFieldTransform Hook slot 已满";return NO;}
     NSUInteger slotIndex=(NSUInteger)(slot-gZNStructFieldSlots);
-    slot->getter.store([codec[@"getter"] unsignedLongLongValue],std::memory_order_relaxed);
-    slot->setter.store([codec[@"setter"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->getter.store([codec[whole?@"function0":@"getter"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->setter.store([codec[whole?@"function1":@"setter"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->function2.store([codec[@"function2"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->function3.store([codec[@"function3"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->methodInfo0.store([codec[@"methodInfo0"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->methodInfo1.store([codec[@"methodInfo1"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->methodInfo2.store([codec[@"methodInfo2"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->methodInfo3.store([codec[@"methodInfo3"] unsignedLongLongValue],std::memory_order_relaxed);
+    slot->codecVariant.store([codec[@"variant"] unsignedIntValue],std::memory_order_relaxed);
     slot->multiplier.store((int32_t)multiplier,std::memory_order_relaxed);
     slot->enabled.store(multiplier!=1?1u:0u,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
@@ -1421,13 +1468,14 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
     live[@"methodPointer"]=@(target);
     self.liveCandidate=[live copy];
-    self.liveTemplate=whole?@"ComplexStructTransform V1 · Whole SecureLong Accessor":@"StructFieldTransform V1 · SecureLong Accessor";
+    self.liveTemplate=whole?[NSString stringWithFormat:@"ComplexStructTransform V1 · %@",codec[@"displayName"]?:fieldCodec]:@"StructFieldTransform V1 · SecureLong Accessor";
     self.liveLifecycle=@"installed";
     self.liveError=@"";
-    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:whole?@"[complex-struct-hook] installed target=0x%llX reg=x%u offset=0x%llX multiplier=%ld getter=0x%llX setter=0x%llX":@"[struct-field-hook] installed target=0x%llX reg=x%u offset=0x%llX multiplier=%ld getter=0x%llX setter=0x%llX",
-                                       (unsigned long long)target,reg,(unsigned long long)fieldOffset,(long)multiplier,
-                                       (unsigned long long)[codec[@"getter"] unsignedLongLongValue],
-                                       (unsigned long long)[codec[@"setter"] unsignedLongLongValue]]];
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[%@] installed target=0x%llX reg=x%u multiplier=%ld codec=%@ type=%@",
+                                       whole?@"complex-struct-hook":@"struct-field-hook",
+                                       (unsigned long long)target,reg,(long)multiplier,
+                                       whole?(codec[@"codecKey"]?:fieldCodec):fieldCodec,
+                                       whole?(codec[@"managedType"]?:codecClass):codecClass]];
     return YES;
 }
 
@@ -1661,7 +1709,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
     ZNStructFieldSlot *fieldSlot=ZNStructFieldSlotForTarget(target);
     if(fieldSlot){
-        return [NSString stringWithFormat:@"Hook 状态：已安装 ✅\nTarget：0x%llX\nHits：%llu\nFailures：%llu\nBase：0x%llX\nField：0x%llX (+0x%llX)\nSecureLong：%lld → %lld\n倍率：x%d",
+        return [NSString stringWithFormat:@"Hook 状态：已安装 ✅\nTarget：0x%llX\nHits：%llu\nFailures：%llu\nBase：0x%llX\nField：0x%llX (+0x%llX)\nValue：%lld → %lld\n倍率：x%d",
                 (unsigned long long)target,
                 (unsigned long long)fieldSlot->hits.load(std::memory_order_relaxed),
                 (unsigned long long)fieldSlot->failures.load(std::memory_order_relaxed),
