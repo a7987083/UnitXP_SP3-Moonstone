@@ -13473,7 +13473,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
 - (void)zn68_presentStructFieldConfigForCandidate:(NSDictionary *)candidate
                                      argumentIndex:(NSUInteger)argumentIndex
-                                            source:(UIButton *)source {
+                                            source:(UIButton *)source;
     (void)source;
     NSString *method=ZNM52XString(candidate[@"method"]);
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
