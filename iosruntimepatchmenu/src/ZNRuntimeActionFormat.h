@@ -30,6 +30,9 @@ enum {
     ZNRuntimeActionFlagFeatureDescription = 1u << 5,
     // M6.4 Native Hook config JSON. For NativeHook entries reserved[0] points to it.
     ZNRuntimeActionFlagNativeHookConfig = 1u << 6,
+    // M6.14 Runtime/Direct prepared descriptor JSON. For method-like entries
+    // reserved[0] points to {preparedRVA,preparedUUID,staticKnown,isStatic}.
+    ZNRuntimeActionFlagPreparedDescriptor = 1u << 7,
 };
 
 typedef struct {
@@ -56,7 +59,7 @@ typedef struct {
     uint32_t namespaceOffset;
     uint32_t classOffset;
     uint32_t methodOffset;
-    // reserved[0] argument0 text (legacy /1)
+    // reserved[0] argument0 text (legacy /1) OR M6.14 prepared descriptor JSON
     // reserved[1] full parameter signature
     // reserved[2] argument vector JSON
     // reserved[3] M5.1 argument control JSON
