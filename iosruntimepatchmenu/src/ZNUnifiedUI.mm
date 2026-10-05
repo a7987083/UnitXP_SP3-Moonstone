@@ -13301,6 +13301,9 @@ __attribute__((constructor)) static void ZN51SInstallSilentCustomerExecution(voi
 #import "ZNNativeHookAction.h"
 #import "ZNNativeHookRuntime.h"
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNCapabilityRegistry.h"
+#import "ZNBuiltInCapabilityAdapters.h"
+#import "ZNDirectNativeCallEngine.h"
 #import "ZNPatchCore.h"
 
 static const void *kZNM52XActionKey = &kZNM52XActionKey;
@@ -13681,8 +13684,28 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 }
 
 - (void)zn52x_directUnavailable:(UIButton *)sender {
-    (void)sender;
-    [self zn60v3_setStatus:@"Direct Native Call：当前分支尚未接入 backend；Native Hook 保持独立可用"];
+    NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
+    if(!candidate){[self zn60v3_setStatus:@"Direct Native Call：candidate 为空"];return;}
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSArray<NSString *> *values=argc<=1?[self znm43_argumentValues:candidate]:@[];
+    NSString *reason=nil;
+    if(![[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&reason]){
+        [self zn60v3_setStatus:reason?:@"Direct Native Call：当前 ABI 不受支持"];
+        return;
+    }
+    if(values.count!=argc){
+        [self zn60v3_setStatus:[NSString stringWithFormat:@"Direct Native Call V1：当前结果卡仅支持 /0 或 /1 参数输入；方法需要 /%lu",(unsigned long)argc]];
+        return;
+    }
+    NSString *error=nil;
+    id<ZNRuntimeCapabilityAdapter> adapter=[[ZNCapabilityRegistry sharedRegistry] adapterForIdentifier:ZNCapabilityDirectNativeCallIdentifier];
+    BOOL ok=[adapter respondsToSelector:@selector(activateItem:value:error:)] &&
+            [adapter activateItem:candidate value:values error:&error];
+    NSDictionary *result=[ZNDirectNativeCallEngine sharedEngine].lastResult;
+    [self zn60v3_setStatus:ok
+        ? [NSString stringWithFormat:@"Direct Native Call SUCCESS · %@ = %@",
+           result[@"returnType"]?:@"return",result[@"returnValue"]?:@"void"]
+        : (error?:@"Direct Native Call FAILED")];
 }
 
 - (void)zn64_testModeTapped:(UIButton *)sender {
