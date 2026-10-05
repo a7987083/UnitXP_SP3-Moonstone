@@ -39,7 +39,8 @@ static void ZNRuntimeCoreBootstrapV040(void) {
     @autoreleasepool {
         [ZNPatchManager sharedManager];
         [[ZNDeveloperGate sharedGate] refresh];
-        [[ZNIL2CPPResolver sharedResolver] refresh];
+        // M6.11: never resolve IL2CPP on menu/bootstrap path. Resolver-heavy
+        // work is lazy and owned by the feature that actually needs it.
         [[ZNRuntimeCapabilityCoordinator sharedCoordinator] start];
         ZNInstallV040Swizzles();
         [[ZNRuntimeLogger sharedLogger] log:@"Runtime Patch Menu 0.5.5 deferred bootstrap（Stock iOS / No JIT）"];
@@ -943,7 +944,6 @@ extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void) {
     if (!ZNDeferredBootstrapIsActivated()) return;
     [[ZNDeveloperGate sharedGate] refresh];
     [ZNPatchManager sharedManager];
-    [[ZNIL2CPPResolver sharedResolver] refresh];
     ZonoePatchStartBaselineV024();
 }
 extern "C" __attribute__((visibility("default"))) void ZonoePatchShow(void) {
@@ -2149,7 +2149,6 @@ extern "C" void ZNInstallRuntimeMenuV055Deferred(void) {
     @autoreleasepool {
         [ZNPatchManager sharedManager];
         [[ZNDeveloperGate sharedGate] refresh];
-        [[ZNIL2CPPResolver sharedResolver] refresh];
         ZNInstallV053CurrentUI();
         [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][deferred] v0.5.6 current UI installed after first launcher tap"];
     }
@@ -2284,40 +2283,23 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 }
 
 - (void)installIfPossible {
-    if (gZNDeferredState.load(std::memory_order_acquire) == ZNDeferredStateReady) return;
-    UIWindow *window = ZNDeferredCurrentWindow();
-    if (!window) return;
+    int state=gZNDeferredState.load(std::memory_order_acquire);
+    if(state==ZNDeferredStateReady||state==ZNDeferredStateLoading)return;
 
-    if (!self.button) {
-        UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
-        button.bounds = CGRectMake(0, 0, kZNDeferredFloatSize, kZNDeferredFloatSize);
-        button.layer.cornerRadius = kZNDeferredFloatSize * 0.5;
-        button.layer.borderWidth = 1.5;
-        button.layer.borderColor = [UIColor colorWithRed:0.42 green:0.55 blue:1.0 alpha:1.0].CGColor;
-        button.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.92];
-        [button setTitle:@"ZN" forState:UIControlStateNormal];
-        [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        button.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
-        button.layer.shadowColor = UIColor.blackColor.CGColor;
-        button.layer.shadowOpacity = 0.28;
-        button.layer.shadowRadius = 8.0;
-        button.layer.shadowOffset = CGSizeZero;
-        [button addTarget:self action:@selector(zn_activate:) forControlEvents:UIControlEventTouchUpInside];
-        [button addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(zn_pan:)]];
-        self.button = button;
-    }
+    UIWindow *window=ZNDeferredCurrentWindow();
+    if(!window)return;
 
-    if (self.button.superview != window) {
-        [self.button removeFromSuperview];
-        self.hostWindow = window;
-        NSString *stored = [NSUserDefaults.standardUserDefaults stringForKey:kZNDeferredFloatPositionKey];
-        UIEdgeInsets safe = window.safeAreaInsets;
-        CGPoint fallback = CGPointMake(CGRectGetWidth(window.bounds) - safe.right - kZNDeferredMargin - kZNDeferredFloatSize * 0.5,
-                                       CGRectGetMidY(window.bounds));
-        self.button.center = [self zn_clamp:(stored.length ? CGPointFromString(stored) : fallback) window:window];
-        [window addSubview:self.button];
-    }
-    [window bringSubviewToFront:self.button];
+    int expected=ZNDeferredStateCold;
+    if(!gZNDeferredState.compare_exchange_strong(expected,
+                                                  ZNDeferredStateLoading,
+                                                  std::memory_order_acq_rel))
+        return;
+
+    // The cold launcher is no longer a user-visible activation button. We build
+    // the real menu shell as soon as UIKit has a host window; its own floating
+    // button appears only after the shell is ready.
+    self.hostWindow=window;
+    [self zn_beginActivation];
 }
 
 - (void)zn_pan:(UIPanGestureRecognizer *)gesture {
@@ -2345,6 +2327,8 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 - (void)zn_finishActivation {
     @try {
+        // M6.11 prewarms the visual/menu wiring before the real floating button
+        // becomes interactive. No IL2CPP resolve, no build, no diagnostic probe.
         ZNRunActivationStage(@"RuntimeMenu", ^{ ZNInstallRuntimeMenuV055Deferred(); });
         ZNRunActivationStage(@"FeatureGroupUI", ^{ ZNInstallFeatureGroupUIDeferred(); });
         ZNRunActivationStage(@"PublicCompactDefaults", ^{ ZNInstallPublicCompactDefaultsDeferred(); });
@@ -2355,14 +2339,18 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         ZNRunActivationStage(@"M630HardCutUI", ^{ ZNInstallM630HardCutUIDeferred(); });
 
         gZNDeferredState.store(ZNDeferredStateReady, std::memory_order_release);
-        ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
-        ZNRunActivationStage(@"ZonoePatchShow", ^{ ZonoePatchShow(); });
 
-        dispatch_async(dispatch_get_main_queue(), ^{
+        // Start creates/attaches the real menu floating button but does NOT show
+        // the panel. Therefore the first user tap is only a show/toggle action.
+        ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
+
+        if (self.button) {
             [self.button removeFromSuperview];
             self.button = nil;
             self.hostWindow = nil;
-        });
+        }
+        [[ZNRuntimeLogger sharedLogger] log:
+            @"[bootstrap][m6.11] instant-menu prewarm ready; first tap is show-only"];
     } @catch (NSException *exception) {
         [self zn_markFailed:exception];
     }
@@ -2370,20 +2358,14 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 - (void)zn_beginActivation {
     @try {
-        // Old +load-era wrappers, then former constructor priorities 104/106/109.
+        // Install lightweight execution/UI wiring now. Expensive capability work
+        // remains lazy. In particular there is no fixed sleep and no Resolver.
         ZNRunActivationStage(@"SharedSiteExecutionProbeV3", ^{ ZNInstallSharedSiteExecutionProbeV3Deferred(); });
         ZNRunActivationStage(@"PublicCompactLayout", ^{ ZNInstallPublicCompactLayoutDeferred(); });
         ZNRunActivationStage(@"RuntimeExecutorV041", ^{ ZNInstallRuntimeExecutorV041Deferred(); });
         ZNRunActivationStage(@"RuntimeDiagnosticsV042", ^{ ZNInstallRuntimeDiagnosticsV042Deferred(); });
         ZNRunActivationStage(@"StaticDispatchPrepare", ^{ ZNPrepareStaticDispatchRuntimeDeferred(); });
-
-        // Static Dispatch historically waits 350 ms before refresh. Keep that
-        // stage behavior. This continuation is queued later on the same main
-        // queue, so the refresh must finish before the menu is revealed.
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            [self zn_finishActivation];
-        });
+        [self zn_finishActivation];
     } @catch (NSException *exception) {
         [self zn_markFailed:exception];
     }
@@ -2391,30 +2373,18 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 
 - (void)zn_activate:(id)sender {
     (void)sender;
-    int expected = ZNDeferredStateCold;
-    if (!gZNDeferredState.compare_exchange_strong(expected,
-                                                   ZNDeferredStateLoading,
-                                                   std::memory_order_acq_rel)) {
+    if(gZNDeferredState.load(std::memory_order_acquire)==ZNDeferredStateReady){
+        ZonoePatchShow();
         return;
     }
-
-    self.button.enabled = NO;
-    self.button.alpha = 0.78;
-    [self.button setTitle:@"…" forState:UIControlStateNormal];
-
-    // One UI beat makes the loading state visible before the original startup
-    // chain begins. The menu appears only after all deferred stages complete.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        [self zn_beginActivation];
-    });
+    [self installIfPossible];
 }
 
 @end
 
-// The only v0.5.7 load-time constructor. It owns the cold launcher only and
-// intentionally does not touch DeveloperGate, PatchManager, Resolver, Static
-// Dispatch, Builder, Diagnostics, Probe, Feature UI, or the menu controller.
+// M6.11 load-time bootstrap: wait until UIKit has a usable host window, then
+// prewarm the menu shell. Resolver/build/test work stays lazy. The user's first
+// tap on the real floating button performs no activation work.
 __attribute__((constructor(200))) static void ZNDeferredColdLauncherBootstrap(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[ZNDeferredLauncher sharedLauncher] installIfPossible];
