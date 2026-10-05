@@ -1,4 +1,4 @@
-name: Verify M6.11 Instant Menu + Lazy Init V1
+name: Verify M6.12 Capability Prewarm + Activation V1
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - feature/m6.9-prepared-native-hook-descriptor-v1
       - feature/m6.10-static-prepared-native-hook-v1
       - feature/m6.11-instant-menu-lazy-init-v1
+      - feature/m6.12-capability-prewarm-activation-v1
   workflow_dispatch:
 
 jobs:
@@ -93,14 +94,24 @@ jobs:
           make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/baseline-build.log
           cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_baseline.dylib
 
-      - name: Build M6.11 Instant Menu + Lazy Init V1
+      - name: Verify M6.12 capability substrate
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNCapabilityRegistry.h
+          test -f iosruntimepatchmenu/src/ZNCapabilityRegistry.mm
+          test -f iosruntimepatchmenu/src/ZNBuiltInCapabilityAdapters.mm
+          grep -Fq 'prepareAllForImageCount' iosruntimepatchmenu/src/ZNRuntimeCapabilityCoordinator.mm
+          grep -Fq 'ZNCapabilityNativeHookIdentifier' iosruntimepatchmenu/src/ZNNativeHookLifecycleBootstrap.mm
+          grep -Fq 'src/ZNCapabilityRegistry.mm' iosruntimepatchmenu/Makefile
+
+      - name: Build M6.12 Capability Prewarm + Activation V1
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/unified-build.log
           SHORT_SHA="$(git rev-parse --short=7 HEAD)"
-          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.11_${SHORT_SHA}.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.12_${SHORT_SHA}.dylib"
           cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_single_ui_owner.dylib
 
       - name: Compare binary interface and UI contracts
@@ -130,7 +141,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m6.11-instant-menu-lazy-init-verification
+          name: m6.12-capability-prewarm-activation-verification
           path: |
             /tmp/baseline-build.log
             /tmp/unified-build.log
@@ -139,5 +150,5 @@ jobs:
             /tmp/baseline-exports.txt
             /tmp/unified-exports.txt
             /tmp/ZonoePatch_single_ui_owner.dylib
-            /tmp/ZonoePatch_M6.11_*.dylib
+            /tmp/ZonoePatch_M6.12_*.dylib
           if-no-files-found: warn
