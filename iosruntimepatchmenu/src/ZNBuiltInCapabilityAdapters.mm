@@ -5,10 +5,12 @@
 #import "ZNNativeHookRuntime.h"
 #import "ZNNativeHookScheduler.h"
 #import "ZNNativeHookAction.h"
+#import "ZNDirectNativeCallEngine.h"
 
 NSString * const ZNCapabilityStaticPatchIdentifier=@"static-patch";
 NSString * const ZNCapabilityRuntimeMethodIdentifier=@"runtime-method";
 NSString * const ZNCapabilityNativeHookIdentifier=@"native-hook";
+NSString * const ZNCapabilityDirectNativeCallIdentifier=@"direct-native-call";
 
 @interface ZNStaticPatchCapabilityAdapter:NSObject<ZNRuntimeCapabilityAdapter>@end
 @implementation ZNStaticPatchCapabilityAdapter
@@ -53,6 +55,19 @@ NSString * const ZNCapabilityNativeHookIdentifier=@"native-hook";
 }
 @end
 
+
+@interface ZNDirectNativeCallCapabilityAdapter:NSObject<ZNRuntimeCapabilityAdapter>@end
+@implementation ZNDirectNativeCallCapabilityAdapter
+- (NSString *)capabilityIdentifier{return ZNCapabilityDirectNativeCallIdentifier;}
+- (BOOL)prepareForImageCount:(uint32_t)c error:(NSString **)e{(void)c;return [[ZNDirectNativeCallEngine sharedEngine] prepare:e];}
+- (NSArray *)snapshotItems{return @[];}
+- (BOOL)activateItem:(id)item value:(id)value error:(NSString **)error{
+    if(![item isKindOfClass:NSDictionary.class]){if(error)*error=@"Direct Native Call candidate 类型错误";return NO;}
+    NSArray *values=[value isKindOfClass:NSArray.class]?value:@[];
+    return [[ZNDirectNativeCallEngine sharedEngine] executeCandidate:item argumentValues:values error:error]!=nil;
+}
+@end
+
 void ZNRegisterBuiltInCapabilityAdapters(void){
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken,^{
@@ -60,5 +75,6 @@ void ZNRegisterBuiltInCapabilityAdapters(void){
         [r registerAdapter:[ZNStaticPatchCapabilityAdapter new]];
         [r registerAdapter:[ZNRuntimeMethodCapabilityAdapter new]];
         [r registerAdapter:[ZNNativeHookCapabilityAdapter new]];
+        [r registerAdapter:[ZNDirectNativeCallCapabilityAdapter new]];
     });
 }
