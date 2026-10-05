@@ -84,6 +84,11 @@ BOOL ZNIL2CPPPreparedExecutionActive(void) {
     return ZNPreparedExecutionStack().count>0;
 }
 
+uintptr_t ZNIL2CPPPreparedExecutionReceiver(void) {
+    NSDictionary *ctx=ZNPreparedExecutionStack().lastObject;
+    return [ctx[@"receiver"] unsignedLongLongValue];
+}
+
 static NSDictionary<NSString *,id> *ZNPreparedExecutionCurrent(void) {
     return ZNPreparedExecutionStack().lastObject;
 }
