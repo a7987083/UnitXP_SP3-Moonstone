@@ -137,7 +137,7 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(zn_appActive:)
                                                name:UIApplicationDidBecomeActiveNotification object:nil];
     [self requestReconcile];
-    [[ZNRuntimeLogger sharedLogger]log:@"[m6.14-prepared-client] bootstrap started; generated Runtime/Direct are prepared-only"];
+    [[ZNRuntimeLogger sharedLogger]log:@"[m6.14.1-prepared-client] bootstrap started; generated Runtime/Direct bind away from UI"];
 }
 
 - (void)zn_appActive:(NSNotification *)note {(void)note;[self requestReconcile];}
@@ -149,26 +149,26 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
         typeof(self) self=weakSelf;if(!self)return;
         BOOL pending=[self zn_reconcileNow];
         @synchronized(self){self.scheduled=NO;}
-        if(pending&&self.retryCount<8){
+        if(pending){
             self.retryCount++;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.75*NSEC_PER_SEC)),self.queue,^{
+            NSTimeInterval delay=self.retryCount<=8 ? 0.75 : 5.0;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),self.queue,^{
                 [self requestReconcile];
             });
-        }else if(!pending){
+        }else{
             self.retryCount=0;
         }
     });
 }
 
 - (BOOL)zn_reconcileNow {
-    // Static metadata is also discovered during startup. Historical customer UI
-    // refresh() calls therefore hit the O(1) discovery cache instead of scanning.
     [[ZNStaticDispatchRuntime sharedRuntime] refresh];
     ZNRuntimeActionRuntime *table=[ZNRuntimeActionRuntime sharedRuntime];
     [table refresh];
     NSArray<ZNRuntimeMethodActionRecord *> *all=[(table.records?:@[]) arrayByAddingObjectsFromArray:table.directRecords?:@[]];
     if(!all.count)return NO;
 
+    BOOL pending=NO;
     ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
     [resolver refresh];
     if(!resolver.isAvailable)return YES;
@@ -183,30 +183,41 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
     if(!getFlags)getFlags=(ZNM614MethodGetFlagsFn)dlsym(RTLD_DEFAULT,"il2cpp_method_get_flags");
     if(!getFlags){if(handle)dlclose(handle);return YES;}
 
-    BOOL pendingReceiver=NO;
     for(ZNRuntimeMethodActionRecord *record in all){
-        if(!record.preparedDescriptor||!record.preparedRVA||!record.preparedUUID.length||!record.preparedStaticKnown)continue;
         NSString *inner=nil;
         NSDictionary *resolved=ZNM614ResolveRecord(record,&inner);
         uintptr_t methodInfo=[resolved[@"methodInfo"] unsignedLongLongValue];
         uintptr_t pointer=[resolved[@"methodPointer"] unsignedLongLongValue];
         if(!methodInfo||!pointer){
-            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14-prepared-client] bind pending %@ error=%@",record.canonicalIdentity,inner?:@"resolve"]];
+            pending=YES;
+            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14.1-prepared-client] bind pending %@ error=%@",record.canonicalIdentity,inner?:@"resolve"]];
             continue;
         }
 
         Dl_info info={0};
-        if(dladdr((const void *)pointer,&info)==0||!info.dli_fbase)continue;
+        if(dladdr((const void *)pointer,&info)==0||!info.dli_fbase){
+            pending=YES;
+            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14.1-prepared-client] Mach-O pending %@",record.canonicalIdentity]];
+            continue;
+        }
         uintptr_t base=(uintptr_t)info.dli_fbase;
         NSString *uuid=ZNM614RuntimeUUIDForHeader((const struct mach_header_64 *)base);
-        if(![uuid isEqualToString:record.preparedUUID]||pointer<base||(uint64_t)(pointer-base)!=record.preparedRVA){
-            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14-prepared-client] descriptor mismatch %@",record.canonicalIdentity]];
-            continue;
+        uint64_t liveRVA=pointer>=base?(uint64_t)(pointer-base):0;
+
+        if(record.preparedDescriptor &&
+           (![uuid isEqualToString:record.preparedUUID] || !liveRVA || liveRVA!=record.preparedRVA)){
+            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:
+                @"[m6.14.1-prepared-client] stale descriptor ignored %@ prepared=%@/0x%llX live=%@/0x%llX",
+                record.canonicalIdentity,record.preparedUUID?:@"",(unsigned long long)record.preparedRVA,
+                uuid?:@"",(unsigned long long)liveRVA]];
         }
 
         uint32_t implFlags=0;
         BOOL isStatic=(getFlags((const void *)methodInfo,&implFlags)&kZNM614MethodAttributeStatic)!=0;
-        if(isStatic!=record.preparedIsStatic)continue;
+        if(record.preparedDescriptor && record.preparedStaticKnown && isStatic!=record.preparedIsStatic){
+            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:
+                @"[m6.14.1-prepared-client] stale static hint ignored %@",record.canonicalIdentity]];
+        }
 
         NSMutableDictionary *candidate=[resolved mutableCopy]?:[NSMutableDictionary dictionary];
         candidate[@"assembly"]=record.assembly?:@"";
@@ -220,7 +231,8 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
         if(record.executionKind==ZNRuntimeActionKindDirectNativeCall){
             NSString *why=nil;
             if(![[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&why]){
-                [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14-prepared-client] direct ABI rejected %@ %@",record.canonicalIdentity,why?:@""]];
+                @synchronized(self){[self.bindings removeObjectForKey:@(record.actionID)];}
+                [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14.1-prepared-client] direct ABI rejected %@ %@",record.canonicalIdentity,why?:@""]];
                 continue;
             }
             BOOL codecReady=YES;
@@ -229,12 +241,16 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
                     NSString *codecError=nil;
                     if(![[ZNDirectNativeCallEngine sharedEngine] prepareManagedType:type error:&codecError]){
                         codecReady=NO;
-                        [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14-prepared-client] codec prewarm rejected %@ %@",record.canonicalIdentity,codecError?:@""]];
+                        [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14.1-prepared-client] codec not ready %@ %@",record.canonicalIdentity,codecError?:@""]];
                         break;
                     }
                 }
             }
-            if(!codecReady)continue;
+            if(!codecReady){
+                pending=YES;
+                @synchronized(self){[self.bindings removeObjectForKey:@(record.actionID)];}
+                continue;
+            }
         }
 
         uintptr_t receiver=0;
@@ -253,36 +269,50 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
                                                                        diagnostics:&diag error:&instanceError];
                 }
             }
-            if(!receiver)pendingReceiver=YES;
+            if(!receiver)pending=YES;
         }
 
         NSMutableDictionary *chainBindings=[NSMutableDictionary dictionary];
         NSDictionary *chain=[record.immediateChain isKindOfClass:NSDictionary.class]?record.immediateChain:nil;
         NSArray *nodes=([chain[@"version"] integerValue]==2&&[chain[@"nodes"] isKindOfClass:NSArray.class])?chain[@"nodes"]:nil;
         for(NSDictionary *node in nodes?:@[]){
-            if(![node[@"prepared"] boolValue] ||
-               ![node[@"preparedRVA"] unsignedLongLongValue] ||
-               ![node[@"preparedUUID"] isKindOfClass:NSString.class] ||
-               ![(NSString *)node[@"preparedUUID"] length] ||
-               ![node[@"preparedStaticKnown"] boolValue]){
+            ZNRuntimeMethodAction *nodeAction=ZNM614PreparedActionForChainNode(node);
+            if(!nodeAction.className.length||!nodeAction.methodName.length){
+                [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14.1-prepared-client] invalid chain node %@",record.canonicalIdentity]];
                 continue;
             }
-            ZNRuntimeMethodAction *nodeAction=ZNM614PreparedActionForChainNode(node);
             NSString *nodeError=nil;
             NSDictionary *nodeResolved=ZNM614ResolvePreparedAction(nodeAction,&nodeError);
             uintptr_t nodeMI=[nodeResolved[@"methodInfo"] unsignedLongLongValue];
             uintptr_t nodePointer=[nodeResolved[@"methodPointer"] unsignedLongLongValue];
-            if(!nodeMI||!nodePointer)continue;
+            if(!nodeMI||!nodePointer){
+                pending=YES;
+                [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14.1-prepared-client] chain pending %@ node=%@ error=%@",record.canonicalIdentity,nodeAction.canonicalIdentity,nodeError?:@"resolve"]];
+                continue;
+            }
             Dl_info nodeInfo={0};
-            if(dladdr((const void *)nodePointer,&nodeInfo)==0||!nodeInfo.dli_fbase)continue;
+            if(dladdr((const void *)nodePointer,&nodeInfo)==0||!nodeInfo.dli_fbase){
+                pending=YES;
+                continue;
+            }
             uintptr_t nodeBase=(uintptr_t)nodeInfo.dli_fbase;
             NSString *nodeUUID=ZNM614RuntimeUUIDForHeader((const struct mach_header_64 *)nodeBase);
-            if(![nodeUUID isEqualToString:node[@"preparedUUID"]] ||
-               nodePointer<nodeBase ||
-               (uint64_t)(nodePointer-nodeBase)!=[node[@"preparedRVA"] unsignedLongLongValue])continue;
+            uint64_t nodeLiveRVA=nodePointer>=nodeBase?(uint64_t)(nodePointer-nodeBase):0;
+            BOOL nodeHasPrepared=[node[@"prepared"] boolValue] &&
+                                 [node[@"preparedRVA"] unsignedLongLongValue] &&
+                                 [node[@"preparedUUID"] isKindOfClass:NSString.class] &&
+                                 [(NSString *)node[@"preparedUUID"] length] &&
+                                 [node[@"preparedStaticKnown"] boolValue];
+            if(nodeHasPrepared &&
+               (![nodeUUID isEqualToString:node[@"preparedUUID"]] ||
+                !nodeLiveRVA ||
+                nodeLiveRVA!=[node[@"preparedRVA"] unsignedLongLongValue])){
+                [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:
+                    @"[m6.14.1-prepared-client] stale chain descriptor ignored %@ node=%@",
+                    record.canonicalIdentity,nodeAction.canonicalIdentity]];
+            }
             uint32_t nodeImpl=0;
             BOOL nodeStatic=(getFlags((const void *)nodeMI,&nodeImpl)&kZNM614MethodAttributeStatic)!=0;
-            if(nodeStatic!=[node[@"preparedIsStatic"] boolValue])continue;
             NSMutableDictionary *nodeCandidate=[nodeResolved mutableCopy]?:[NSMutableDictionary dictionary];
             nodeCandidate[@"assembly"]=nodeAction.assembly?:@"";
             nodeCandidate[@"namespace"]=nodeAction.namespaceName?:@"";
@@ -305,7 +335,7 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
         @synchronized(self){self.bindings[@(record.actionID)]=binding;}
     }
     if(handle)dlclose(handle);
-    return pendingReceiver;
+    return pending;
 }
 
 - (BOOL)isPreparedActionID:(uint32_t)actionID {
