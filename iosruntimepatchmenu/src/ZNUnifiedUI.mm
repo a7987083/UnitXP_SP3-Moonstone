@@ -13320,6 +13320,7 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)zn52x_reselectInstance:(UIButton *)sender;
 - (void)zn52x_batchTestInstances:(UIButton *)sender;
 - (void)zn52x_directUnavailable:(UIButton *)sender;
+- (void)znm613_applyOrRestoreHook:(UIButton *)sender;
 - (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
@@ -13473,7 +13474,7 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
 - (void)zn68_presentStructFieldConfigForCandidate:(NSDictionary *)candidate
                                      argumentIndex:(NSUInteger)argumentIndex
-                                            source:(UIButton *)source;
+                                            source:(UIButton *)source {
     (void)source;
     NSString *method=ZNM52XString(candidate[@"method"]);
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
@@ -13569,6 +13570,19 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         UIView *card=chain.superview;
         if(!card)continue;
 
+        // M6.13 UI V2: reserve a fixed 2-column, 4-row action rail on the right.
+        // Left side remains method identity + argument controls.
+        CGFloat requiredH=145.0;
+        if(CGRectGetHeight(card.frame)<requiredH){
+            CGFloat oldBottom=CGRectGetMaxY(card.frame);
+            CGFloat delta=requiredH-CGRectGetHeight(card.frame);
+            CGRect cf=card.frame;cf.size.height=requiredH;card.frame=cf;
+            for(UIView *sibling in self.contentView.subviews){
+                if(sibling==card||CGRectGetMinY(sibling.frame)+0.5<oldBottom)continue;
+                CGRect sf=sibling.frame;sf.origin.y+=delta;sibling.frame=sf;
+            }
+        }
+
         ZNRuntimeMethodAction *action=nil;
         NSInteger actionIndex=ZNM52XFindChain(candidate,&action);
         if(actionIndex!=NSNotFound&&action){
@@ -13590,20 +13604,31 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
         UIButton *test=ZNM52XButtonWithTitles(card,@[@"测试/捕获",@"测试执行"]);
         UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
-        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"测试方式",@"Hook 测试",@"Direct 测试"]);
+
+        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Native Call",@"Direct Native Call",@"Direct 测试",@"测试方式",@"Hook 测试"]);
         if(!direct){
-            direct=[self zn40_button:@"测试方式" selector:@selector(zn64_testModeTapped:) frame:CGRectZero];
+            direct=[self zn40_button:@"Native Call" selector:@selector(zn52x_directUnavailable:) frame:CGRectZero];
             [card addSubview:direct];
-        } else {
-            [direct setTitle:@"测试方式" forState:UIControlStateNormal];
-            [direct removeTarget:self action:@selector(zn52x_directUnavailable:) forControlEvents:UIControlEventTouchUpInside];
-            [direct removeTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
+        }else{
+            [direct setTitle:@"Native Call" forState:UIControlStateNormal];
             [direct removeTarget:self action:@selector(zn64_testModeTapped:) forControlEvents:UIControlEventTouchUpInside];
-            [direct addTarget:self action:@selector(zn64_testModeTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [direct removeTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [direct removeTarget:self action:@selector(zn52x_directUnavailable:) forControlEvents:UIControlEventTouchUpInside];
+            [direct addTarget:self action:@selector(zn52x_directUnavailable:) forControlEvents:UIControlEventTouchUpInside];
         }
         objc_setAssociatedObject(direct,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        direct.enabled=YES;
-        direct.alpha=1.0;
+        direct.enabled=YES;direct.alpha=1.0;
+
+        UIButton *hook=[self zn40_button:@"Native Hook" selector:@selector(zn64_hookTestTapped:) frame:CGRectZero];
+        objc_setAssociatedObject(hook,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [card addSubview:hook];
+
+        UIButton *apply=[self zn40_button:@"应用Hook/恢复Hook" selector:@selector(znm613_applyOrRestoreHook:) frame:CGRectZero];
+        objc_setAssociatedObject(apply,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate]?:@"";
+        BOOL installed=[diag containsString:@"已安装"];
+        [apply setTitle:(installed?@"恢复 Hook":@"应用 Hook") forState:UIControlStateNormal];
+        [card addSubview:apply];
 
         BOOL known=NO;
         BOOL instance=ZNM52XMethodIsInstance(candidate,&known);
@@ -13618,18 +13643,22 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         [card addSubview:reselect];
         [card addSubview:batch];
 
-        CGFloat gap=6.0,rightInset=10.0,gridW=164.0;
+        CGFloat gap=6.0,rightInset=10.0,gridW=180.0;
         CGFloat colW=(gridW-gap)/2.0;
         CGFloat x0=CGRectGetWidth(card.bounds)-rightInset-gridW;
         CGFloat x1=x0+colW+gap;
-        ZNM52XStyleGridButton(test,x0,7,colW,28);
-        ZNM52XStyleGridButton(direct,x1,7,colW,28);
-        ZNM52XStyleGridButton(create,x0,41,colW,28);
-        ZNM52XStyleGridButton(chain,x1,41,colW,28);
-        ZNM52XStyleGridButton(reselect,x0,75,colW,28);
-        ZNM52XStyleGridButton(batch,x1,75,colW,28);
+        ZNM52XStyleGridButton(test,x0,7,colW,27);
+        ZNM52XStyleGridButton(apply,x1,7,colW,27);
+        ZNM52XStyleGridButton(create,x0,39,colW,27);
+        ZNM52XStyleGridButton(chain,x1,39,colW,27);
+        ZNM52XStyleGridButton(reselect,x0,71,colW,27);
+        ZNM52XStyleGridButton(batch,x1,71,colW,27);
+        ZNM52XStyleGridButton(direct,x0,103,colW,27);
+        ZNM52XStyleGridButton(hook,x1,103,colW,27);
     }
+    [self zn40_updateContentHeight:ZN51MaxY(self.contentView)+8.0];
 }
+
 - (void)zn52x_executeChainTapped:(UIButton *)sender {
     ZNRuntimeMethodAction *action = objc_getAssociatedObject(sender, kZNM52XActionKey);
     if (!action) return;
@@ -13658,6 +13687,22 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
         [top presentViewController:alert animated:YES completion:nil];
     }
+}
+
+- (void)znm613_applyOrRestoreHook:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
+    if(!candidate)return;
+    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate]?:@"";
+    if([diag containsString:@"已安装"]){
+        NSString *error=nil;
+        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
+        [self zn60v3_setStatus:ok?@"Native Hook 已恢复原方法":(error?:@"恢复 Hook 失败")];
+        [self renderPage];
+        return;
+    }
+    // Apply uses the Native Hook resolver/config path. M6.13 resolver fix will
+    // make this fully automatic for recognized complex-struct codecs.
+    [self zn64_hookTestTapped:sender];
 }
 
 - (void)zn52x_directUnavailable:(UIButton *)sender {
@@ -14122,7 +14167,7 @@ extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void) {
     dispatch_once(&onceToken, ^{
         Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (menu) ZNM52XSwap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(zn52x_renderResultsAtWidth:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m6.4-native-hook-ui] 2-column finder actions + Dobby ArgScaleInt32 test/create installed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m6.13-ui-v2] fixed right action rail + independent Native Call/Native Hook installed"];
     });
 }
 
