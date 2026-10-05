@@ -5,8 +5,9 @@
 
 #import "ZNStaticDispatchRuntime.h"
 #import "ZNRuntimeActionRuntime.h"
-#import "ZNNativeHookRuntime.h"
 #import "ZNNativeHookAction.h"
+#import "ZNCapabilityRegistry.h"
+#import "ZNBuiltInCapabilityAdapters.h"
 #import "ZNPatchCore.h"
 
 NSNotificationName const ZNRuntimeCapabilitySnapshotDidChangeNotification =
@@ -61,6 +62,7 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
     empty.imageCount=0;
     _snapshotStorage=empty;
     _nextGeneration=1;
+    ZNRegisterBuiltInCapabilityAdapters();
     return self;
 }
 
@@ -119,18 +121,18 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
             uint32_t beforeCount=_dyld_image_count();
             double startedAt=CFAbsoluteTimeGetCurrent();
 
-            ZNStaticDispatchRuntime *staticRuntime=[ZNStaticDispatchRuntime sharedRuntime];
-            ZNRuntimeActionRuntime *methodRuntime=[ZNRuntimeActionRuntime sharedRuntime];
-            ZNNativeHookRuntime *hookRuntime=[ZNNativeHookRuntime sharedRuntime];
+            ZNCapabilityRegistry *registry=[ZNCapabilityRegistry sharedRegistry];
+            NSString *prepareError=nil;
+            BOOL prepared=[registry prepareAllForImageCount:beforeCount error:&prepareError];
 
-            [staticRuntime refresh];
-            [methodRuntime refresh];
-            [hookRuntime refreshGeneratedActions];
+            id<ZNRuntimeCapabilityAdapter> staticAdapter=[registry adapterForIdentifier:ZNCapabilityStaticPatchIdentifier];
+            id<ZNRuntimeCapabilityAdapter> methodAdapter=[registry adapterForIdentifier:ZNCapabilityRuntimeMethodIdentifier];
+            id<ZNRuntimeCapabilityAdapter> hookAdapter=[registry adapterForIdentifier:ZNCapabilityNativeHookIdentifier];
 
             ZNRuntimeCapabilitySnapshot *snapshot=[ZNRuntimeCapabilitySnapshot new];
-            snapshot.staticRecords=[staticRuntime.records copy] ?: @[];
-            snapshot.runtimeMethods=[methodRuntime.records copy] ?: @[];
-            snapshot.nativeHooks=[hookRuntime.generatedActions copy] ?: @[];
+            snapshot.staticRecords=(NSArray<ZNStaticPatchRecord *> *)[[staticAdapter snapshotItems] copy] ?: @[];
+            snapshot.runtimeMethods=(NSArray<ZNRuntimeMethodActionRecord *> *)[[methodAdapter snapshotItems] copy] ?: @[];
+            snapshot.nativeHooks=(NSArray<ZNNativeHookAction *> *)[[hookAdapter snapshotItems] copy] ?: @[];
             snapshot.imageCount=_dyld_image_count();
 
             @synchronized(self) {
@@ -148,6 +150,10 @@ static void ZNRuntimeCapabilityImageAdded(const struct mach_header *mh, intptr_t
               (unsigned long)snapshot.nativeHooks.count,
               elapsed,
               NSThread.isMainThread ? @"main" : @"background"]];
+            if(!prepared){
+                [[ZNRuntimeLogger sharedLogger] log:
+                 [NSString stringWithFormat:@"[runtime-capability] prewarm partial failure: %@",prepareError?:@"unknown"]];
+            }
 
             dispatch_async(dispatch_get_main_queue(), ^{
                 [NSNotificationCenter.defaultCenter
