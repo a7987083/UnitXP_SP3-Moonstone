@@ -239,7 +239,15 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
     void *targetObject = NULL;
     NSString *instanceDiagnostics = @"";
     if (!isStatic) {
-        if (gZNExplicitReceiverOverride) {
+        if (ZNIL2CPPPreparedExecutionActive()) {
+            uintptr_t preparedReceiver=ZNIL2CPPPreparedExecutionReceiver();
+            if(!preparedReceiver){
+                if(error)*error=@"FAILED_PREPARED_RECEIVER：Generated Client 禁止点击时动态解析 receiver";
+                return nil;
+            }
+            targetObject=(void *)preparedReceiver;
+            instanceDiagnostics=@"prepared-receiver";
+        } else if (gZNExplicitReceiverOverride) {
             NSString *validationError = nil;
             BOOL valid = [[ZNIL2CPPInstanceResolver sharedResolver]
                 znm44_validateInstanceAddress:gZNExplicitReceiverOverride
