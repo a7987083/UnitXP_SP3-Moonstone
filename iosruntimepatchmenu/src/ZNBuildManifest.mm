@@ -3,6 +3,7 @@
 #import "ZNBinaryPatchWorkspace.h"
 #import "ZNFeatureControlModel.h"
 #import "ZNRuntimeActionModel.h"
+#import "ZNRuntimeActionBuildPrepare.h"
 #import "ZNNativeHookAction.h"
 #import "ZNNativeHookBuildPrepare.h"
 #import "ZNNativeHookStaticPrepatch.h"
@@ -80,6 +81,11 @@ static BOOL ZNM684RuntimeSignatureBridge(NSArray<NSString *> *builderOutputs,
 }
 
 static BOOL ZNM69PrepareRuntimeMethodProvider(NSString **error) {
+    NSString *preparedReport=nil,*preparedError=nil;
+    if(!ZNBuildPrepareRuntimeActionDescriptorsV1(&preparedReport,&preparedError)){
+        if(error)*error=preparedError?:@"Prepared Runtime descriptor 生成失败";
+        return NO;
+    }
     ZNRuntimeActionStore *store=[ZNRuntimeActionStore sharedStore];
     NSArray<ZNRuntimeMethodAction *> *actions=[store actionsSnapshot];
     for(NSUInteger actionIndex=0;actionIndex<actions.count;actionIndex++) {
