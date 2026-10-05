@@ -13315,6 +13315,7 @@ static const void *kZNM613CreateModeKey = &kZNM613CreateModeKey;
 static const void *kZNM613ArgCandidateKey = &kZNM613ArgCandidateKey;
 static const void *kZNM613ArgIndexKey = &kZNM613ArgIndexKey;
 static const void *kZNM613ArgumentStoreKey = &kZNM613ArgumentStoreKey;
+static const void *kZNM613ModeStoreKey = &kZNM613ModeStoreKey;
 static const uint32_t kZNM52XMethodAttributeStatic = 0x0010u;
 
 typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
@@ -13329,6 +13330,7 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)znm613_argumentChanged:(UITextField *)field;
 - (void)znm613_selectRuntimeMode:(UIButton *)sender;
 - (void)znm613_createCurrentMode:(UIButton *)sender;
+- (void)znm613_testRuntime:(UIButton *)sender;
 - (void)znm613_applyOrRestoreHook:(UIButton *)sender;
 - (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
@@ -13549,9 +13551,52 @@ static NSDictionary *ZNM613HookPlan(NSDictionary *candidate,NSString **error) {
     return nil;
 }
 
-static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
+static NSMutableDictionary *ZNM613ModeStore(ZNRuntimeMenuControllerV040 *self) {
+    NSMutableDictionary *store=objc_getAssociatedObject(self,kZNM613ModeStoreKey);
+    if(!store){
+        store=[NSMutableDictionary dictionary];
+        objc_setAssociatedObject(self,kZNM613ModeStoreKey,store,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return store;
+}
+
+static NSString *ZNM613ModeForCandidate(ZNRuntimeMenuControllerV040 *self,NSDictionary *candidate) {
+    NSString *mode=ZNM613ModeStore(self)[ZNM613CandidateIdentity(candidate)];
+    return [mode isKindOfClass:NSString.class]&&mode.length?mode:@"runtime";
+}
+
+static void ZNM613StyleModeButton(UIButton *button,BOOL selected,ZNTheme *theme) {
+    if(!button)return;
+    button.backgroundColor=selected?[theme.accentColor colorWithAlphaComponent:0.30]:theme.controlColor;
+    button.layer.borderColor=(selected?theme.accentColor:theme.borderColor).CGColor;
+}
+
+static void ZNM613ApplyModeVisual(ZNRuntimeMenuControllerV040 *self,UIView *card,NSDictionary *candidate,NSString *mode) {
+    if(!card||!candidate)return;
     UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
-    if(create)objc_setAssociatedObject(create,kZNM613CreateModeKey,mode,OBJC_ASSOCIATION_COPY_NONATOMIC);
+    UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Native Call"]);
+    UIButton *hook=ZNM52XButtonWithTitles(card,@[@"Native Hook"]);
+    BOOL runtimeOK=[ZNM54AnalyzeCandidate(candidate)[@"callable"] boolValue];
+    NSString *directReason=nil;
+    BOOL directOK=[[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&directReason];
+    NSString *hookError=nil;
+    BOOL hookOK=ZNM613HookPlan(candidate,&hookError)!=nil;
+
+    ZNM613StyleModeButton(direct,[mode isEqualToString:@"direct"],self.theme);
+    ZNM613StyleModeButton(hook,[mode isEqualToString:@"hook"],self.theme);
+
+    if(create){
+        BOOL canCreate=[mode isEqualToString:@"direct"]?directOK:([mode isEqualToString:@"hook"]?hookOK:runtimeOK);
+        create.enabled=canCreate;
+        create.alpha=canCreate?1.0:.48;
+        objc_setAssociatedObject(create,kZNM613CreateModeKey,mode,OBJC_ASSOCIATION_COPY_NONATOMIC);
+    }
+}
+
+static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,NSDictionary *candidate,NSString *mode) {
+    if(!candidate||!mode.length)return;
+    ZNM613ModeStore(self)[ZNM613CandidateIdentity(candidate)]=mode;
+    ZNM613ApplyModeVisual(self,card,candidate,mode);
 }
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM52ChainExecuteButton)
@@ -13680,152 +13725,280 @@ static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
 }
 
 - (void)zn52x_renderResultsAtWidth:(CGFloat)width {
-    [self zn52x_renderResultsAtWidth:width];
+    // M6.13.1: this method is the sole Result Card renderer.
+    // Do NOT call the pre-swizzle renderer and then append views.
+    NSArray<NSDictionary *> *all=[self zn60v3_candidates]?:@[];
     NSArray<NSDictionary *> *visible=ZNM52XVisible(self);
-    NSMutableArray<UIButton *> *chainButtons=[NSMutableArray array];
-    ZNM52XCollectChainButtons(self.contentView,chainButtons);
-    if(!visible.count||chainButtons.count!=visible.count)return;
 
-    for(NSUInteger i=0;i<chainButtons.count;i++){
-        NSDictionary *candidate=visible[i];
-        UIButton *chain=chainButtons[i];
-        UIView *card=chain.superview;
-        if(!card)continue;
+    NSMutableSet<NSNumber *> *aritySet=[NSMutableSet set];
+    for(NSDictionary *candidate in all){
+        if([candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)])
+            [aritySet addObject:@([candidate[@"argumentCount"] integerValue])];
+    }
+    NSArray<NSNumber *> *arities=[[aritySet allObjects] sortedArrayUsingSelector:@selector(compare:)];
+    NSInteger filter=[self znm42_filter];
+    if(filter>=0&&![aritySet containsObject:@(filter)]){
+        filter=-1;
+        [self znm42_setFilter:-1];
+        visible=ZNM52XVisible(self);
+    }
 
-        // M6.13 UI V2: reserve a fixed 2-column, 4-row action rail on the right.
-        // Left side remains method identity + argument controls.
-        NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-        NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    CGFloat y=9.0;
+    UIView *header=[self cardAtY:y height:48 width:width compact:NO];
+    UIButton *back=[self zn60v3_plainButton:@"‹ 搜索" selector:@selector(zn60v3_backToSearch:) frame:CGRectMake(10,8,70,31)];
+    [header addSubview:back];
+    NSString *countText=filter<0
+        ? [NSString stringWithFormat:@"搜索结果（%lu）",(unsigned long)all.count]
+        : [NSString stringWithFormat:@"搜索结果（%lu/%lu）",(unsigned long)visible.count,(unsigned long)all.count];
+    UILabel *title=[self label:countText size:11.8 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+    title.frame=CGRectMake(88,8,header.bounds.size.width-100,31);
+    [header addSubview:title];
+    [self.contentView addSubview:header];
+    y+=56.0;
+
+    UIView *filterCard=[self cardAtY:y height:44 width:width compact:NO];
+    UIScrollView *filterScroll=[[UIScrollView alloc]initWithFrame:CGRectMake(10,5,filterCard.bounds.size.width-20,34)];
+    filterScroll.showsHorizontalScrollIndicator=NO;
+    CGFloat bx=0.0;
+    NSMutableArray<NSNumber *> *filterValues=[NSMutableArray arrayWithObject:@(-1)];
+    [filterValues addObjectsFromArray:arities];
+    for(NSNumber *number in filterValues){
+        NSInteger value=number.integerValue;
+        CGFloat bw=value<0?54.0:38.0;
+        UIButton *button=[self zn40_button:(value<0?@"全部":number.stringValue)
+                                  selector:@selector(znm54_filterTapped:)
+                                     frame:CGRectMake(bx,2,bw,30)];
+        objc_setAssociatedObject(button,kZNM54FilterKey,number,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        BOOL selected=(filter==value);
+        button.backgroundColor=selected?[self.theme.accentColor colorWithAlphaComponent:0.26]:self.theme.controlColor;
+        button.layer.borderColor=(selected?self.theme.accentColor:self.theme.borderColor).CGColor;
+        [filterScroll addSubview:button];
+        bx+=bw+7.0;
+    }
+    filterScroll.contentSize=CGSizeMake(MAX(filterScroll.bounds.size.width+1,bx),34);
+    [filterCard addSubview:filterScroll];
+    [self.contentView addSubview:filterCard];
+    y+=52.0;
+
+    NSString *liveHookText=[[ZNNativeHookRuntime sharedRuntime] liveTestStatus];
+    NSString *pageStatus=liveHookText.length?liveHookText:[self zn60v3_status];
+    if(pageStatus.length){
+        CGFloat statusH=liveHookText.length?76.0:48.0;
+        UIView *statusCard=[self cardAtY:y height:statusH width:width compact:NO];
+        UILabel *status=[self label:pageStatus size:8.1 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        status.tag=kZNM65LiveHookStatusTag;
+        status.frame=CGRectMake(13,6,statusCard.bounds.size.width-26,statusH-12);
+        status.numberOfLines=liveHookText.length?5:2;
+        [statusCard addSubview:status];
+        [self.contentView addSubview:statusCard];
+        y+=statusH+8.0;
+    }
+    [self znm65_startLiveHookStatusTimer];
+
+    for(NSUInteger row=0;row<visible.count;row++){
+        NSDictionary *candidate=visible[row];
+        NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate)?:@{};
+        NSArray<NSDictionary *> *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
         NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
-        CGFloat paramsHeight=argc?((CGFloat)argc*60.0+28.0):0.0;
-        CGFloat requiredH=145.0+paramsHeight+48.0;
-        if(CGRectGetHeight(card.frame)<requiredH){
-            CGFloat oldBottom=CGRectGetMaxY(card.frame);
-            CGFloat delta=requiredH-CGRectGetHeight(card.frame);
-            CGRect cf=card.frame;cf.size.height=requiredH;card.frame=cf;
-            for(UIView *sibling in self.contentView.subviews){
-                if(sibling==card||CGRectGetMinY(sibling.frame)+0.5<oldBottom)continue;
-                CGRect sf=sibling.frame;sf.origin.y+=delta;sibling.frame=sf;
-            }
-        }
+        BOOL runtimeOK=[ZNM54AnalyzeCandidate(candidate)[@"callable"] boolValue];
 
-        ZNRuntimeMethodAction *action=nil;
-        NSInteger actionIndex=ZNM52XFindChain(candidate,&action);
-        if(actionIndex!=NSNotFound&&action){
-            [chain setTitle:@"执行链" forState:UIControlStateNormal];
-            objc_setAssociatedObject(chain,kZNM52XActionKey,action,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(chain,kZNM52XIndexKey,@(actionIndex),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            [chain removeTarget:self action:@selector(zn52_chainTapped:) forControlEvents:UIControlEventTouchUpInside];
-            [chain removeTarget:self action:@selector(zn52x_executeChainTapped:) forControlEvents:UIControlEventTouchUpInside];
-            [chain addTarget:self action:@selector(zn52x_executeChainTapped:) forControlEvents:UIControlEventTouchUpInside];
-            BOOL hasLongPress=NO;
-            for(UIGestureRecognizer *g in chain.gestureRecognizers)
-                if([g isKindOfClass:UILongPressGestureRecognizer.class]){hasLongPress=YES;break;}
-            if(!hasLongPress){
-                UILongPressGestureRecognizer *longPress=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(zn52x_restartChainLongPress:)];
-                longPress.minimumPressDuration=.65;
-                [chain addGestureRecognizer:longPress];
-            }
-        }
-
-        UIButton *test=ZNM52XButtonWithTitles(card,@[@"测试/捕获",@"测试执行"]);
-        UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
-
-        UIButton *direct=ZNM52XButtonWithTitles(card,@[@"Native Call",@"Direct Native Call",@"Direct 测试",@"测试方式",@"Hook 测试"]);
-        if(!direct){
-            direct=[self zn40_button:@"Native Call" selector:@selector(zn52x_directUnavailable:) frame:CGRectZero];
-            [card addSubview:direct];
-        }else{
-            [direct setTitle:@"Native Call" forState:UIControlStateNormal];
-            [direct removeTarget:self action:@selector(zn64_testModeTapped:) forControlEvents:UIControlEventTouchUpInside];
-            [direct removeTarget:self action:@selector(zn64_hookTestTapped:) forControlEvents:UIControlEventTouchUpInside];
-            [direct removeTarget:self action:@selector(zn52x_directUnavailable:) forControlEvents:UIControlEventTouchUpInside];
-            [direct addTarget:self action:@selector(zn52x_directUnavailable:) forControlEvents:UIControlEventTouchUpInside];
-        }
-        objc_setAssociatedObject(direct,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        direct.enabled=YES;direct.alpha=1.0;
-
-        UIButton *hook=[self zn40_button:@"Native Hook" selector:@selector(zn64_hookTestTapped:) frame:CGRectZero];
-        objc_setAssociatedObject(hook,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [card addSubview:hook];
-
-        UIButton *apply=[self zn40_button:@"应用Hook/恢复Hook" selector:@selector(znm613_applyOrRestoreHook:) frame:CGRectZero];
-        objc_setAssociatedObject(apply,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate]?:@"";
-        BOOL installed=[diag containsString:@"已安装"];
-        [apply setTitle:(installed?@"恢复 Hook":@"应用 Hook") forState:UIControlStateNormal];
-        [card addSubview:apply];
+        NSString *directReason=nil;
+        BOOL directOK=[[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&directReason];
+        NSString *hookError=nil;
+        NSDictionary *hookPlan=ZNM613HookPlan(candidate,&hookError);
+        BOOL hookOK=(hookPlan!=nil);
 
         BOOL known=NO;
         BOOL instance=ZNM52XMethodIsInstance(candidate,&known);
-        UIButton *reselect=[self zn40_button:@"重新选择实例" selector:@selector(zn52x_reselectInstance:) frame:CGRectZero];
-        UIButton *batch=[self zn40_button:@"批量测试实例" selector:@selector(zn52x_batchTestInstances:) frame:CGRectZero];
+        BOOL canCapture=known&&instance&&[candidate[@"methodPointer"] unsignedLongLongValue]&&
+                        (([candidate[@"methodPointer"] unsignedLongLongValue]&3ULL)==0);
+
+        const CGFloat railW=190.0;
+        const CGFloat railGap=6.0;
+        const CGFloat rightInset=10.0;
+        const CGFloat topAreaH=140.0;
+        CGFloat paramH=argc?22.0+(CGFloat)argc*62.0:0.0;
+        CGFloat statusBlockH=52.0;
+        CGFloat cardH=topAreaH+paramH+statusBlockH+8.0;
+        UIView *card=[self cardAtY:y height:cardH width:width compact:NO];
+
+        CGFloat leftW=MAX(120.0,CGRectGetWidth(card.bounds)-railW-rightInset-23.0);
+        UIButton *detail=[UIButton buttonWithType:UIButtonTypeCustom];
+        detail.frame=CGRectMake(0,0,leftW+12.0,topAreaH-6.0);
+        objc_setAssociatedObject(detail,kZNM54CandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [detail addTarget:self action:@selector(znm54_openDetail:) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:detail];
+
+        NSString *method=ZNM52XString(candidate[@"method"]);
+        UILabel *name=[self label:[NSString stringWithFormat:@"%@/%lu",method.length?method:@"Method",(unsigned long)argc]
+                              size:10.8 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
+        name.frame=CGRectMake(13,8,leftW-8,20);
+        name.adjustsFontSizeToFitWidth=YES;
+        name.minimumScaleFactor=.65;
+        [card addSubview:name];
+
+        UILabel *owner=[self label:ZNM52XString(candidate[@"class"]) size:8.7 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        owner.frame=CGRectMake(13,32,leftW-8,17);
+        owner.lineBreakMode=NSLineBreakByTruncatingMiddle;
+        [card addSubview:owner];
+
+        NSString *assembly=ZNM54AssemblyDisplay(ZNM52XString(candidate[@"assembly"]));
+        UILabel *asmLabel=[self label:assembly size:8.0 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        asmLabel.frame=CGRectMake(13,52,leftW-8,16);
+        asmLabel.lineBreakMode=NSLineBreakByTruncatingTail;
+        [card addSubview:asmLabel];
+
+        UILabel *address=[self label:[NSString stringWithFormat:@"RVA %@ · %@",candidate[@"rvaText"]?:@"—",candidate[@"pointerKind"]?:@"?"]
+                                  size:7.6 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        address.frame=CGRectMake(13,72,leftW-8,16);
+        address.lineBreakMode=NSLineBreakByTruncatingMiddle;
+        [card addSubview:address];
+
+        NSString *mode=ZNM613ModeForCandidate(self,candidate);
+        UILabel *modeLabel=[self label:[NSString stringWithFormat:@"当前模式：%@",[mode isEqualToString:@"direct"]?@"Direct Native Call":([mode isEqualToString:@"hook"]?@"Native Hook":@"Runtime Method")]
+                                    size:7.8 weight:UIFontWeightSemibold color:self.theme.accentColor];
+        modeLabel.frame=CGRectMake(13,96,leftW-8,18);
+        [card addSubview:modeLabel];
+
+        CGFloat colW=(railW-railGap)/2.0;
+        CGFloat x0=CGRectGetWidth(card.bounds)-rightInset-railW;
+        CGFloat x1=x0+colW+railGap;
+
+        UIButton *test=[self zn40_button:(canCapture?@"测试/捕获":@"测试执行")
+                                selector:@selector(znm613_testRuntime:)
+                                   frame:CGRectMake(x0,7,colW,27)];
+        objc_setAssociatedObject(test,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        test.enabled=runtimeOK||canCapture;
+        test.alpha=test.enabled?1.0:.48;
+        [card addSubview:test];
+        if(canCapture){
+            UILongPressGestureRecognizer *capture=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(znm47_captureLongPress:)];
+            capture.minimumPressDuration=.65;
+            capture.cancelsTouchesInView=YES;
+            objc_setAssociatedObject(capture,kZNM47CaptureCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [test addGestureRecognizer:capture];
+        }
+
+        NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate]?:@"";
+        BOOL installed=[diag containsString:@"已安装"];
+        UIButton *apply=[self zn40_button:(installed?@"恢复 Hook":@"应用 Hook")
+                                 selector:@selector(znm613_applyOrRestoreHook:)
+                                    frame:CGRectMake(x1,7,colW,27)];
+        objc_setAssociatedObject(apply,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        apply.enabled=installed||hookOK;
+        apply.alpha=apply.enabled?1.0:.48;
+        [card addSubview:apply];
+
+        UIButton *create=[self zn40_button:@"创建方法"
+                                  selector:@selector(znm613_createCurrentMode:)
+                                     frame:CGRectMake(x0,39,colW,27)];
+        objc_setAssociatedObject(create,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [card addSubview:create];
+
+        ZNRuntimeMethodAction *chainAction=nil;
+        NSInteger chainIndex=ZNM52XFindChain(candidate,&chainAction);
+        UIButton *chain=[self zn40_button:(chainAction?@"执行链":@"链式调用")
+                                 selector:(chainAction?@selector(zn52x_executeChainTapped:):@selector(zn51_chainTapped:))
+                                    frame:CGRectMake(x1,39,colW,27)];
+        if(chainAction){
+            objc_setAssociatedObject(chain,kZNM52XActionKey,chainAction,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(chain,kZNM52XIndexKey,@(chainIndex),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            UILongPressGestureRecognizer *restart=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(zn52x_restartChainLongPress:)];
+            restart.minimumPressDuration=.65;
+            [chain addGestureRecognizer:restart];
+        }else{
+            objc_setAssociatedObject(chain,kZN51CandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        [card addSubview:chain];
+
+        UIButton *reselect=[self zn40_button:@"重新选择实例"
+                                    selector:@selector(zn52x_reselectInstance:)
+                                       frame:CGRectMake(x0,71,colW,27)];
         objc_setAssociatedObject(reselect,kZNM52XCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(batch,kZNM52XCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         reselect.enabled=known&&instance;
-        batch.enabled=known&&instance&&ZNM52XBatchSafe(candidate);
         reselect.alpha=reselect.enabled?1.0:.48;
-        batch.alpha=batch.enabled?1.0:.48;
         [card addSubview:reselect];
+
+        UIButton *batch=[self zn40_button:@"批量测试实例"
+                                 selector:@selector(zn52x_batchTestInstances:)
+                                    frame:CGRectMake(x1,71,colW,27)];
+        objc_setAssociatedObject(batch,kZNM52XCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        batch.enabled=known&&instance&&ZNM52XBatchSafe(candidate);
+        batch.alpha=batch.enabled?1.0:.48;
         [card addSubview:batch];
 
-        CGFloat gap=6.0,rightInset=10.0,gridW=180.0;
-        CGFloat colW=(gridW-gap)/2.0;
-        CGFloat x0=CGRectGetWidth(card.bounds)-rightInset-gridW;
-        CGFloat x1=x0+colW+gap;
-        ZNM52XStyleGridButton(test,x0,7,colW,27);
-        ZNM52XStyleGridButton(apply,x1,7,colW,27);
-        ZNM52XStyleGridButton(create,x0,39,colW,27);
-        ZNM52XStyleGridButton(chain,x1,39,colW,27);
-        ZNM52XStyleGridButton(reselect,x0,71,colW,27);
-        ZNM52XStyleGridButton(batch,x1,71,colW,27);
-        ZNM52XStyleGridButton(direct,x0,103,colW,27);
-        ZNM52XStyleGridButton(hook,x1,103,colW,27);
+        UIButton *direct=[self zn40_button:@"Native Call"
+                                  selector:@selector(zn52x_directUnavailable:)
+                                     frame:CGRectMake(x0,103,colW,27)];
+        objc_setAssociatedObject(direct,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        direct.accessibilityHint=directOK?@"Direct Native Call ABI supported":(directReason?:@"Direct Native Call unsupported");
+        [card addSubview:direct];
 
-        // Parameters are always visible below the top action rail.
-        CGFloat py=143.0;
+        UIButton *hook=[self zn40_button:@"Native Hook"
+                                selector:@selector(zn64_hookTestTapped:)
+                                   frame:CGRectMake(x1,103,colW,27)];
+        objc_setAssociatedObject(hook,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        hook.accessibilityHint=hookOK?@"Native Hook plan ready":(hookError?:@"Native Hook unsupported");
+        [card addSubview:hook];
+
+        for(UIButton *b in @[test,apply,create,chain,reselect,batch,direct,hook])
+            ZNM52XStyleGridButton(b,b.frame.origin.x,b.frame.origin.y,b.frame.size.width,b.frame.size.height);
+
+        ZNM613ApplyModeVisual(self,card,candidate,mode);
+
+        CGFloat py=topAreaH;
         if(argc){
             UILabel *paramHeader=[self label:@"参数" size:8.9 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
-            paramHeader.frame=CGRectMake(13,py,90,18);[card addSubview:paramHeader];py+=22.0;
+            paramHeader.frame=CGRectMake(13,py,width-26,18);
+            [card addSubview:paramHeader];
+            py+=22.0;
         }
+
         NSMutableDictionary *argStore=ZNM613ArgumentStore(self);
         for(NSUInteger arg=0;arg<argc;arg++){
             NSDictionary *p=arg<params.count?params[arg]:@{};
             NSString *type=[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?";
             UILabel *pl=[self label:[NSString stringWithFormat:@"参数 %lu  %@",(unsigned long)arg+1,type]
                                 size:7.9 weight:UIFontWeightRegular color:self.theme.primaryTextColor];
-            pl.frame=CGRectMake(13,py,CGRectGetWidth(card.bounds)-26,16);
-            pl.lineBreakMode=NSLineBreakByTruncatingMiddle;[card addSubview:pl];py+=17.0;
+            pl.frame=CGRectMake(13,py,width-26,16);
+            pl.lineBreakMode=NSLineBreakByTruncatingMiddle;
+            [card addSubview:pl];
+            py+=17.0;
 
-            UITextField *field=[[UITextField alloc]initWithFrame:CGRectMake(13,py,MAX(80.0,CGRectGetWidth(card.bounds)-26),25)];
+            UITextField *field=ZNM54Field(CGRectMake(13,py,width-26,25),self.theme,[UIFont monospacedDigitSystemFontOfSize:8.7 weight:UIFontWeightMedium]);
             NSString *storeKey=ZNM613ArgumentStoreKey(candidate,arg);
             field.text=[argStore[storeKey] isKindOfClass:NSString.class]?argStore[storeKey]:@"";
             field.placeholder=type;
-            field.textColor=self.theme.primaryTextColor;field.backgroundColor=self.theme.controlColor;
-            field.font=[UIFont monospacedDigitSystemFontOfSize:8.7 weight:UIFontWeightMedium];
-            field.layer.cornerRadius=6.0;field.layer.borderWidth=1.0;field.layer.borderColor=self.theme.borderColor.CGColor;
-            field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;field.returnKeyType=UIReturnKeyDone;
+            field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;
+            field.returnKeyType=UIReturnKeyDone;
             objc_setAssociatedObject(field,kZNM613ArgCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(field,kZNM613ArgIndexKey,@(arg),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [field addTarget:self action:@selector(znm613_argumentChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
-            [card addSubview:field];py+=27.0;
+            [card addSubview:field];
+            py+=27.0;
 
             UILabel *autoLabel=[self label:[@"自动识别：" stringByAppendingString:ZNM613ParamAutoLabel(p)]
                                       size:7.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
-            autoLabel.frame=CGRectMake(13,py,CGRectGetWidth(card.bounds)-26,14);[card addSubview:autoLabel];py+=16.0;
+            autoLabel.frame=CGRectMake(13,py,width-26,14);
+            [card addSubview:autoLabel];
+            py+=18.0;
         }
 
-        NSString *directReason=nil;
-        BOOL directOK=[[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&directReason];
-        NSString *hookError=nil;NSDictionary *plan=ZNM613HookPlan(candidate,&hookError);
-        NSString *status=[NSString stringWithFormat:@"状态\nNative Hook：%@\nDirect Call：%@",
-                          plan?@"ready":(hookError?:@"unsupported"),
-                          directOK?@"ABI supported":(directReason?:@"unsupported")];
-        UILabel *statusLabel=[self label:status size:7.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
-        statusLabel.frame=CGRectMake(13,py+4,CGRectGetWidth(card.bounds)-26,42);statusLabel.numberOfLines=3;
+        NSString *hookSummary=hookOK
+            ? [NSString stringWithFormat:@"ready · %@",hookPlan[@"kind"]?:@"plan"]
+            : (hookError?:@"unsupported");
+        NSString *directSummary=directOK?@"ABI supported":(directReason?:@"unsupported");
+        UILabel *statusLabel=[self label:[NSString stringWithFormat:@"状态  Native Hook：%@\nDirect Call：%@",hookSummary,directSummary]
+                                    size:7.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        statusLabel.frame=CGRectMake(13,py+3,width-26,40);
+        statusLabel.numberOfLines=2;
         [card addSubview:statusLabel];
+
+        [self.contentView addSubview:card];
+        y+=cardH+8.0;
     }
-    [self zn40_updateContentHeight:ZN51MaxY(self.contentView)+8.0];
+
+    [self zn40_updateContentHeight:y];
 }
 
 - (void)zn52x_executeChainTapped:(UIButton *)sender {
@@ -13867,7 +14040,38 @@ static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
 }
 
 - (void)znm613_selectRuntimeMode:(UIButton *)sender {
-    ZNM613SetModeForCard(sender.superview,@"runtime");
+    ZNM613SetModeForCard(self,sender.superview,objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey),@"runtime");
+}
+
+- (void)znm613_testRuntime:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
+    if(!candidate)return;
+    ZNM613SetModeForCard(self,sender.superview,candidate,@"runtime");
+
+    BOOL runtimeOK=[ZNM54AnalyzeCandidate(candidate)[@"callable"] boolValue];
+    if(!runtimeOK){
+        [self zn60v3_setStatus:@"Runtime Method：当前 ABI 不支持直接执行；实例方法可长按“测试/捕获”捕获 receiver"];
+        return;
+    }
+
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
+    if(values.count!=argc){
+        [self zn60v3_setStatus:@"Runtime Method：参数数量不匹配"];
+        return;
+    }
+    NSString *error=nil;
+    NSDictionary *result=[[ZNIL2CPPInvokeEngine sharedEngine]
+        executeAssembly:([candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"Assembly-CSharp.dll")
+              namespace:([candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"")
+              className:([candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"")
+                 method:([candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"")
+          argumentCount:argc
+         argumentValues:values
+                  error:&error];
+    [self zn60v3_setStatus:result
+        ? [NSString stringWithFormat:@"Runtime Invoke SUCCESS：%@ args=%@",ZNM52XString(candidate[@"method"]),values]
+        : (error?:@"Runtime Invoke FAILED")];
 }
 
 - (void)znm613_createCurrentMode:(UIButton *)sender {
@@ -13970,7 +14174,6 @@ static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
 
 - (void)zn52x_directUnavailable:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
-    ZNM613SetModeForCard(sender.superview,@"direct");
     if(!candidate){[self zn60v3_setStatus:@"Direct Native Call：candidate 为空"];return;}
     NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
     NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
@@ -13979,6 +14182,7 @@ static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
         [self zn60v3_setStatus:reason?:@"Direct Native Call：当前 ABI 不受支持"];
         return;
     }
+    ZNM613SetModeForCard(self,sender.superview,candidate,@"direct");
     if(values.count!=argc){
         [self zn60v3_setStatus:[NSString stringWithFormat:@"Direct Native Call V1：当前结果卡仅支持 /0 或 /1 参数输入；方法需要 /%lu",(unsigned long)argc]];
         return;
@@ -14031,13 +14235,13 @@ static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
 - (void)zn64_hookTestTapped:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
-    ZNM613SetModeForCard(sender.superview,@"hook");
     NSString *error=nil;
     NSDictionary *plan=ZNM613HookPlan(candidate,&error);
     if(!plan){
         [self zn60v3_setStatus:error?:@"Native Hook：unsupported"];
         return;
     }
+    ZNM613SetModeForCard(self,sender.superview,candidate,@"hook");
     NSString *kind=plan[@"kind"]?:@"?";
     NSString *extra=[kind isEqualToString:@"complex"]
         ? [NSString stringWithFormat:@" · %@ · %@",plan[@"type"]?:@"?",plan[@"codec"]?:@"?"]
@@ -14367,7 +14571,7 @@ extern "C" void ZNInstallM52ChainExecuteButtonDeferred(void) {
     dispatch_once(&onceToken, ^{
         Class menu = NSClassFromString(@"ZNRuntimeMenuControllerV040");
         if (menu) ZNM52XSwap(menu, @selector(zn60v3_renderResultsAtWidth:), @selector(zn52x_renderResultsAtWidth:));
-        [[ZNRuntimeLogger sharedLogger] log:@"[m6.13-ui-v2] fixed right action rail + independent Native Call/Native Hook installed"];
+        [[ZNRuntimeLogger sharedLogger] log:@"[m6.13.1-result-card] single-owner renderer; no additive overlay; explicit mode state"];
     });
 }
 
