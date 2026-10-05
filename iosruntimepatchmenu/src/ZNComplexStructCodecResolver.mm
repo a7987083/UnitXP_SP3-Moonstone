@@ -13,16 +13,21 @@ static NSDictionary *ZNCSResolveExpression(NSString *expression, NSString **erro
     return candidate;
 }
 
+@interface ZNComplexStructCodecResolver ()
+@property(nonatomic,strong) NSMutableDictionary<NSString *,NSDictionary<NSString *,id> *> *preparedCache;
+@end
+
 @implementation ZNComplexStructCodecResolver
 + (instancetype)sharedResolver {
     static ZNComplexStructCodecResolver *resolver;
     static dispatch_once_t onceToken;
-    dispatch_once(&onceToken,^{resolver=[ZNComplexStructCodecResolver new];});
+    dispatch_once(&onceToken,^{resolver=[ZNComplexStructCodecResolver new];resolver.preparedCache=[NSMutableDictionary dictionary];});
     return resolver;
 }
 
 - (NSDictionary<NSString *,id> *)resolveManagedType:(NSString *)managedTypeName error:(NSString **)error {
     NSString *type=ZNComplexStructNormalizedManagedType(managedTypeName);
+    @synchronized(self){NSDictionary *cached=self.preparedCache[type];if(cached)return cached;}
     NSString *codecKey=ZNComplexStructCodecKeyForManagedType(type);
     if(!codecKey.length){
         if(error)*error=[NSString stringWithFormat:@"Complex Struct 未注册匹配 Codec：%@",type.length?type:@"?"];
@@ -36,7 +41,7 @@ static NSDictionary *ZNCSResolveExpression(NSString *expression, NSString **erro
         if(!getter){if(error)*error=inner;return nil;}
         NSDictionary *setter=ZNCSResolveExpression([NSString stringWithFormat:@"%@::set_Value/1",owner],&inner);
         if(!setter){if(error)*error=inner;return nil;}
-        return @{
+        NSDictionary *result=@{
             @"codecKey":codecKey,
             @"managedType":type,
             @"displayName":@"SecureLong",
@@ -45,6 +50,8 @@ static NSDictionary *ZNCSResolveExpression(NSString *expression, NSString **erro
             @"function1":setter[@"methodPointer"],@"methodInfo1":setter[@"methodInfo"],
             @"function2":@0,@"methodInfo2":@0,@"function3":@0,@"methodInfo3":@0
         };
+        @synchronized(self){self.preparedCache[type]=result;}
+        return result;
     }
 
     if([codecKey isEqualToString:ZNComplexStructCodecObscuredInt]){
@@ -65,7 +72,7 @@ static NSDictionary *ZNCSResolveExpression(NSString *expression, NSString **erro
             return nil;
         }
 
-        return @{
+        NSDictionary *result=@{
             @"codecKey":codecKey,
             @"managedType":type,
             @"displayName":@"ObscuredInt",
@@ -75,6 +82,8 @@ static NSDictionary *ZNCSResolveExpression(NSString *expression, NSString **erro
             @"function2":encrypt[@"methodPointer"],@"methodInfo2":encrypt[@"methodInfo"],
             @"function3":setEncrypted[@"methodPointer"],@"methodInfo3":setEncrypted[@"methodInfo"]
         };
+        @synchronized(self){self.preparedCache[type]=result;}
+        return result;
     }
 
     if(error)*error=[NSString stringWithFormat:@"Complex Struct Codec 未实现：%@",codecKey];
