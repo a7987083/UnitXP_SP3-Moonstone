@@ -25,6 +25,16 @@ FOUNDATION_EXPORT const void * const ZNNativeHookCandidateAssociationKey;
                                         multiplier:(NSInteger)multiplier
                                              error:(NSString * _Nullable * _Nullable)error;
 
+- (BOOL)installTemporaryComplexStructTransformForCandidate:(NSDictionary<NSString *, id> *)candidate
+                                                     argumentIndex:(NSUInteger)argumentIndex
+                                                      codecAssembly:(NSString *)codecAssembly
+                                                     codecNamespace:(NSString *)codecNamespace
+                                                         codecClass:(NSString *)codecClass
+                                                      getterMethod:(NSString *)getterMethod
+                                                      setterMethod:(NSString *)setterMethod
+                                                        multiplier:(NSInteger)multiplier
+                                                             error:(NSString * _Nullable * _Nullable)error;
+
 - (BOOL)installTemporaryStructFieldTransformForCandidate:(NSDictionary<NSString *, id> *)candidate
                                              argumentIndex:(NSUInteger)argumentIndex
                                               argumentMode:(NSString *)argumentMode
