@@ -19,6 +19,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy,readonly) NSArray<NSDictionary<NSString *, id> *> *argumentControlConfigs;
 @property(nonatomic,copy,readonly) NSDictionary<NSString *, id> *immediateChain;
 @property(nonatomic,copy,readonly) NSString *sourceImage;
+@property(nonatomic,assign,readonly) BOOL preparedDescriptor;
+@property(nonatomic,assign,readonly) uint64_t preparedRVA;
+@property(nonatomic,copy,readonly) NSString *preparedUUID;
+@property(nonatomic,assign,readonly) BOOL preparedStaticKnown;
+@property(nonatomic,assign,readonly) BOOL preparedIsStatic;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @end
 
