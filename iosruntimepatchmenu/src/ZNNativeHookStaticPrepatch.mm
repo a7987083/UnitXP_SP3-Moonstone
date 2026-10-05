@@ -99,6 +99,12 @@ static BOOL ZNM610RelocationSafeFirstInstruction(uint32_t insn,NSString **reason
         if(reason)*reason=@"首指令是 literal load/prefetch，V1 不搬移 PC-relative literal";
         return NO;
     }
+    // Replacing an indirect-call BTI landing pad with a plain B would violate
+    // branch-target enforcement on arm64e/BTI-enabled binaries.
+    if((insn&UINT32_C(0xFFFFFC1F))==UINT32_C(0xD503241F)){
+        if(reason)*reason=@"首指令是 BTI landing pad，V1 不覆盖";
+        return NO;
+    }
     if(insn==0||insn==UINT32_MAX){
         if(reason)*reason=@"首指令无效";
         return NO;
