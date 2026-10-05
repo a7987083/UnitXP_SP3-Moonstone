@@ -11,6 +11,7 @@
 #import "ZNStaticPatchFormat.h"
 #import "ZNGeneratedDataLayout.h"
 #import "ZNIL2CPPMethodSignature.h"
+#import "ZNComplexStructCodec.h"
 
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
@@ -195,6 +196,7 @@ typedef struct {
     std::atomic<uintptr_t> lastField;
     std::atomic<uint32_t> argumentRegister;
     std::atomic<uint64_t> fieldOffset;
+    std::atomic<uintptr_t> codecTransform;
     std::atomic<uint32_t> actionID;
 } ZNStructFieldSlot;
 
@@ -251,17 +253,28 @@ void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs) {
         slot->failures.fetch_add(1,std::memory_order_relaxed);
         return;
     }
-    uintptr_t field=base+(uintptr_t)offset;
-    if(field<base){
-        slot->failures.fetch_add(1,std::memory_order_relaxed);
-        return;
-    }
-    ZNSecureLongGetterFn getter=(ZNSecureLongGetterFn)getterAddr;
-    ZNSecureLongSetterFn setter=(ZNSecureLongSetterFn)setterAddr;
-    int64_t before=getter(field);
     int32_t multiplier=slot->multiplier.load(std::memory_order_relaxed);
-    int64_t after=ZNNativeHookScaleInt64(before,multiplier);
-    setter(field,after);
+    uintptr_t transformAddr=slot->codecTransform.load(std::memory_order_acquire);
+    int64_t before=0,after=0;
+    uintptr_t field=base;
+    if(transformAddr){
+        ZNComplexStructTransformFn transform=(ZNComplexStructTransformFn)transformAddr;
+        if(!transform(base,getterAddr,setterAddr,multiplier,&before,&after)){
+            slot->failures.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
+    }else{
+        field=base+(uintptr_t)offset;
+        if(field<base){
+            slot->failures.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
+        ZNSecureLongGetterFn getter=(ZNSecureLongGetterFn)getterAddr;
+        ZNSecureLongSetterFn setter=(ZNSecureLongSetterFn)setterAddr;
+        before=getter(field);
+        after=ZNNativeHookScaleInt64(before,multiplier);
+        setter(field,after);
+    }
     slot->lastBase.store(base,std::memory_order_relaxed);
     slot->lastField.store(field,std::memory_order_relaxed);
     slot->lastBefore.store(before,std::memory_order_relaxed);
@@ -1031,6 +1044,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     _liveLifecycle=@"";
     _liveTemplate=@"";
     _liveError=@"";
+    ZNRegisterBuiltInComplexStructCodecs();
     return self;
 }
 
@@ -1381,6 +1395,13 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->lastField.store(0,std::memory_order_relaxed);
     slot->argumentRegister.store(reg,std::memory_order_relaxed);
     slot->fieldOffset.store(fieldOffset,std::memory_order_relaxed);
+    uintptr_t transform=0;
+    if(whole){
+        NSValue *tv=[[ZNComplexStructCodecRegistry sharedRegistry] transformValueForCodecKey:fieldCodec];
+        transform=(uintptr_t)tv.pointerValue;
+        if(!transform){if(error)*error=@"Complex Struct codec 未注册";slot->target.store(0,std::memory_order_release);return NO;}
+    }
+    slot->codecTransform.store(transform,std::memory_order_relaxed);
     slot->actionID.store(0,std::memory_order_relaxed);
     slot->original.store(0,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
@@ -1957,6 +1978,13 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->lastField.store(0,std::memory_order_relaxed);
     slot->argumentRegister.store(reg,std::memory_order_relaxed);
     slot->fieldOffset.store(action.fieldOffset,std::memory_order_relaxed);
+    uintptr_t transform=0;
+    if(action.templateKind==ZNNativeHookTemplateComplexStructTransform){
+        NSValue *tv=[[ZNComplexStructCodecRegistry sharedRegistry] transformValueForCodecKey:action.fieldCodec];
+        transform=(uintptr_t)tv.pointerValue;
+        if(!transform){slot->target.store(0,std::memory_order_release);if(error)*error=@"Prepared Complex Struct codec 未注册";return NO;}
+    }
+    slot->codecTransform.store(transform,std::memory_order_relaxed);
     slot->actionID.store(action.actionID,std::memory_order_relaxed);
     slot->original.store(0,std::memory_order_relaxed);
     slot->target.store(target,std::memory_order_release);
@@ -2097,6 +2125,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             ZNStructFieldSlot *slot=(ZNStructFieldSlot *)raw;
             slot->enabled.store(0,std::memory_order_relaxed);
             slot->original.store(0,std::memory_order_relaxed);
+            slot->codecTransform.store(0,std::memory_order_relaxed);
             slot->actionID.store(0,std::memory_order_relaxed);
             slot->target.store(0,std::memory_order_release);
             break;
