@@ -166,6 +166,16 @@ static ZNRuntimeMethodAction *ZNM52ActionForNode(NSDictionary *node) {
     return action;
 }
 
+static NSDictionary *ZNM52PreparedBindingForNode(NSDictionary *node) {
+    if(!ZNIL2CPPPreparedExecutionActive())return nil;
+    NSDictionary *ctx=ZNIL2CPPPreparedExecutionCurrentContext();
+    NSDictionary *bindings=[ctx[@"chainBindings"] isKindOfClass:NSDictionary.class]?ctx[@"chainBindings"]:nil;
+    if(!bindings.count)return nil;
+    ZNRuntimeMethodAction *action=ZNM52ActionForNode(node);
+    return [bindings[action.canonicalIdentity?:@""] isKindOfClass:NSDictionary.class]
+        ? bindings[action.canonicalIdentity?:@""] : nil;
+}
+
 static NSDictionary *ZNM52ResolveNode(NSDictionary *node, NSString **error) {
     ZNRuntimeMethodAction *action = ZNM52ActionForNode(node);
     if (!action.className.length || !action.methodName.length || action.argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) {
@@ -177,13 +187,23 @@ static NSDictionary *ZNM52ResolveNode(NSDictionary *node, NSString **error) {
         return nil;
     }
     NSString *resolveError = nil;
-    NSDictionary *resolved = [[ZNIL2CPPFullSignatureResolver sharedResolver] resolveAssembly:action.assembly
-                                                                                   namespace:action.namespaceName ?: @""
-                                                                                   className:action.className
-                                                                                      method:action.methodName
-                                                                          parameterTypeNames:action.parameterTypeNames
-                                                                                       error:&resolveError];
-    if (!resolved) { if (error) *error = resolveError ?: @"Chain node exact resolve failed"; return nil; }
+    NSDictionary *preparedBinding=ZNM52PreparedBindingForNode(node);
+    NSDictionary *resolved=nil;
+    if(ZNIL2CPPPreparedExecutionActive()){
+        resolved=[preparedBinding[@"resolved"] isKindOfClass:NSDictionary.class]?preparedBinding[@"resolved"]:nil;
+        if(!resolved){
+            if(error)*error=@"FAILED_PREPARED_CHAIN：Generated Client Chain node 未在启动期绑定";
+            return nil;
+        }
+    }else{
+        resolved=[[ZNIL2CPPFullSignatureResolver sharedResolver] resolveAssembly:action.assembly
+                                                                       namespace:action.namespaceName ?: @""
+                                                                       className:action.className
+                                                                          method:action.methodName
+                                                              parameterTypeNames:action.parameterTypeNames
+                                                                           error:&resolveError];
+        if (!resolved) { if (error) *error = resolveError ?: @"Chain node exact resolve failed"; return nil; }
+    }
     uintptr_t methodInfo = [resolved[@"methodInfo"] unsignedLongLongValue];
     uint32_t actualToken = ZNM52MethodToken(methodInfo);
     uint32_t savedToken = [node[@"token"] unsignedIntValue];
@@ -275,7 +295,31 @@ static NSDictionary *ZNM52Trace(NSUInteger level, ZNRuntimeMethodAction *action,
 
         ZNRuntimeMethodAction *next = ZNM52ActionForNode(node);
         NSString *nodeError = nil;
-        NSDictionary *result = ZNM52DecodeStringReturn([self znm52_executeAction:next error:&nodeError]);
+        NSDictionary *result = nil;
+        if(ZNIL2CPPPreparedExecutionActive()){
+            NSDictionary *rootContext=ZNIL2CPPPreparedExecutionCurrentContext();
+            NSDictionary *preparedBinding=ZNM52PreparedBindingForNode(node);
+            NSDictionary *preparedResolved=[preparedBinding[@"resolved"] isKindOfClass:NSDictionary.class]?preparedBinding[@"resolved"]:nil;
+            if(!preparedResolved){
+                if(error)*error=[NSString stringWithFormat:@"Level %lu prepared binding missing",(unsigned long)level];
+                return nil;
+            }
+            BOOL nodeStatic=[preparedBinding[@"static"] boolValue];
+            next.signatureAvailable=NO;
+            NSDictionary *nodeContext=@{@"assembly":next.assembly?:@"",
+                                        @"namespace":next.namespaceName?:@"",
+                                        @"class":next.className?:@"",
+                                        @"method":next.methodName?:@"",
+                                        @"argumentCount":@(next.argumentCount),
+                                        @"resolved":preparedResolved,
+                                        @"receiver":@(nodeStatic?0:previousRaw),
+                                        @"chainBindings":rootContext[@"chainBindings"]?:@{}};
+            ZNIL2CPPPreparedExecutionPush(nodeContext);
+            @try {result=ZNM52DecodeStringReturn([self znm52_executeAction:next error:&nodeError]);}
+            @finally {ZNIL2CPPPreparedExecutionPop();}
+        }else{
+            result=ZNM52DecodeStringReturn([self znm52_executeAction:next error:&nodeError]);
+        }
         if (!result) {
             NSString *details = ZNM52ExceptionDetails(nodeError);
             [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m5.2-chain] Level %lu %@ FAILED %@", (unsigned long)level, next.canonicalIdentity ?: @"?", details ?: @"?"]];
