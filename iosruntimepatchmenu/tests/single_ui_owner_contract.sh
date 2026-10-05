@@ -248,6 +248,7 @@ grep -q 'prepare Immediate Chain nodes at build time\|preparedOnly' "$SRC/ZNRunt
 grep -q 'chainBindings' "$SRC/ZNPreparedClientRuntime.mm"
 grep -q 'FAILED_PREPARED_CHAIN' "$SRC/ZNM52ImmediateChainV2.mm"
 grep -q '!ZNIL2CPPPreparedExecutionActive()' "$SRC/ZNM50ManagedReturnChaining.mm"
+grep -q 'prewarm generated Static metadata during startup\|ZNStaticDispatchRuntime sharedRuntime' "$SRC/ZNPreparedClientRuntime.mm"
 
 # M6.11 Instant Menu Open + Lazy Capability Init contract.
 grep -q 'instant-menu prewarm ready; first tap is show-only' "$UI"
