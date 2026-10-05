@@ -2241,6 +2241,9 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 @property(nonatomic,strong) UIButton *button;
 @property(nonatomic,weak) UIWindow *hostWindow;
 - (void)installIfPossible;
+- (void)zn_beginActivation;
+- (void)zn_finishActivation;
+- (void)zn_markFailed:(NSException *)exception;
 @end
 
 @implementation ZNDeferredLauncher
