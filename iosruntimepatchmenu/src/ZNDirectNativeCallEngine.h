@@ -8,6 +8,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)sharedEngine;
 @property(nonatomic,copy,readonly) NSDictionary<NSString *,id> *lastResult;
 - (BOOL)prepare:(NSString * _Nullable * _Nullable)error;
+- (BOOL)prepareManagedType:(NSString *)managedType
+                    error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)supportsCandidate:(NSDictionary<NSString *,id> *)candidate
                    reason:(NSString * _Nullable * _Nullable)reason;
 - (nullable NSDictionary<NSString *,id> *)executeCandidate:(NSDictionary<NSString *,id> *)candidate
