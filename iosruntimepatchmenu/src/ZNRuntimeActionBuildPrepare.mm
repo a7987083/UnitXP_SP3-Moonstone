@@ -9,6 +9,7 @@
 #import <mach-o/loader.h>
 #import <stdint.h>
 #import <uuid/uuid.h>
+#include <string.h>
 
 static const uint32_t kZNM614MethodAttributeStatic = 0x0010u;
 typedef uint32_t (*ZNM614MethodGetFlagsFn)(const void *, uint32_t *);
