@@ -269,12 +269,10 @@ static BOOL ZNM69EmitRuntimeActionTable(ZNBuildManifest *manifest,
         nativeHookProvider.prepare=^BOOL(ZNBuildManifest *manifest,
                                          ZNBinaryPatchWorkspace *workspace,
                                          NSString **error) {
-            (void)manifest;(void)workspace;
-            NSString *hookPrepareReport=nil,*hookPrepareError=nil;
-            if(!ZNBuildPrepareNativeHookDescriptorsV1(&hookPrepareReport,&hookPrepareError)) {
-                if(error)*error=hookPrepareError ?: @"Prepared Native Hook descriptor 生成失败";
-                return NO;
-            }
+            // M6.14.1 boundary: Native Hook build is serialization-only.
+            // Target resolution / ABI / codec / patch-site preparation belongs to
+            // the generated client's startup lifecycle, never to the Build gate.
+            (void)manifest;(void)workspace;(void)error;
             return YES;
         };
         nativeHookProvider.emit=^BOOL(ZNBuildManifest *manifest,
@@ -282,21 +280,7 @@ static BOOL ZNM69EmitRuntimeActionTable(ZNBuildManifest *manifest,
                                       BOOL runtimeOnlyBase,
                                       NSString **report,
                                       NSString **error) {
-            NSString *prepatchReport=nil,*prepatchError=nil;
-            if(!ZNBuildInstallStaticPreparedNativeHooksV1(builderOutputs,&prepatchReport,&prepatchError)){
-                if(error)*error=prepatchError ?: @"Static Prepared Native Hook 预埋失败";
-                return NO;
-            }
-            NSString *tableReport=nil,*tableError=nil;
-            if(!ZNM69EmitRuntimeActionTable(manifest,builderOutputs,runtimeOnlyBase,&tableReport,&tableError)){
-                if(error)*error=tableError ?: @"Runtime Action Table emit 失败";
-                return NO;
-            }
-            NSMutableArray<NSString *> *parts=[NSMutableArray array];
-            if(prepatchReport.length)[parts addObject:prepatchReport];
-            if(tableReport.length)[parts addObject:tableReport];
-            if(report)*report=[parts componentsJoinedByString:@"\n"];
-            return YES;
+            return ZNM69EmitRuntimeActionTable(manifest,builderOutputs,runtimeOnlyBase,report,error);
         };
         self.providers[nativeHookProvider.identifier]=nativeHookProvider;
     }
