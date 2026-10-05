@@ -313,6 +313,7 @@ static NSDictionary *ZNM52Trace(NSUInteger level, ZNRuntimeMethodAction *action,
                                         @"argumentCount":@(next.argumentCount),
                                         @"resolved":preparedResolved,
                                         @"receiver":@(nodeStatic?0:previousRaw),
+                                        @"abi":preparedBinding[@"abi"]?:@{},
                                         @"chainBindings":rootContext[@"chainBindings"]?:@{}};
             ZNIL2CPPPreparedExecutionPush(nodeContext);
             @try {result=ZNM52DecodeStringReturn([self znm52_executeAction:next error:&nodeError]);}
