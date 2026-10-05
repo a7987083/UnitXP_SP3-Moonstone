@@ -3007,8 +3007,6 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
     [self.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = 9.0;
-
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     NSArray<ZNStaticPatchRecord *> *staticRecords=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.staticRecords?:@[];
     NSArray<NSDictionary *> *features = ZN50FeatureGroups(staticRecords);
     ZN50RestorePersistedFeatureStates(features);
@@ -3055,8 +3053,6 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
     [self.contentView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = 7.0;
-
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     NSArray<ZNStaticPatchRecord *> *staticRecords=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.staticRecords?:@[];
     NSArray<NSDictionary *> *features = ZN50FeatureGroups(staticRecords);
     ZN50RestorePersistedFeatureStates(features);
@@ -3104,8 +3100,6 @@ static ZN50FeatureToggleControl *ZN50MakeToggle(ZNTheme *theme,
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.3-probe] toggle handler ENTER tag=%ld", (long)sender.tag]];
     NSInteger index = sender.tag - kZN50FeatureToggleTagBase;
     if (index < 0) return;
-
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     NSArray<ZNStaticPatchRecord *> *staticRecords=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.staticRecords?:@[];
     NSArray<NSDictionary *> *features = ZN50FeatureGroups(staticRecords);
     if ((NSUInteger)index >= features.count) return;
@@ -7409,7 +7403,6 @@ static void ZNRMCRemoveEmptyStaticCardIfNeeded(UIView *contentView) {
 - (void)znrmc_renderFeatureGroupsFull {
     [self znrmc_renderFeatureGroupsFull];
     ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
-    [coordinator requestRefresh];
     NSArray<ZNRuntimeMethodActionRecord *> *actions=coordinator.currentSnapshot.runtimeMethods;
     if (!actions.count) return;
 
@@ -7441,7 +7434,6 @@ static void ZNRMCRemoveEmptyStaticCardIfNeeded(UIView *contentView) {
 
 - (void)znrmc_renderFeatureGroupsCompact {
     [self znrmc_renderFeatureGroupsCompact];
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     NSArray<ZNRuntimeMethodActionRecord *> *actions=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.runtimeMethods?:@[];
     if (!actions.count) return;
 
@@ -7478,7 +7470,6 @@ static void ZNRMCRemoveEmptyStaticCardIfNeeded(UIView *contentView) {
     if (index < 0) return;
 
     ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
-    [runtime refresh];
     if ((NSUInteger)index >= runtime.records.count) return;
     ZNRuntimeMethodActionRecord *record = runtime.records[(NSUInteger)index];
     NSString *error = nil;
@@ -11777,26 +11768,15 @@ static NSDictionary *ZN49ExecuteRecordWithValues(ZNRuntimeMethodActionRecord *re
         return nil;
     }
 
-    ZNRuntimeMethodAction *action = [ZNRuntimeMethodAction new];
-    action.actionID = record.actionID;
-    action.title = record.title;
-    action.group = record.group;
-    action.assembly = record.assembly;
-    action.namespaceName = record.namespaceName;
-    action.className = record.className;
-    action.methodName = record.methodName;
-    action.argumentCount = record.argumentCount;
-    action.argumentValues = values ?: @[];
-    action.parameterTypeNames = record.parameterTypeNames ?: @[];
-    action.signatureAvailable = record.signatureAvailable;
-
-    NSString *invokeError = nil;
-    NSDictionary *result = [[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&invokeError];
-    if (!result) {
-        if (error) *error = invokeError ?: @"Runtime Method Call 执行失败";
+    NSString *invokeError=nil;
+    id<ZNRuntimeCapabilityAdapter> adapter=[[ZNCapabilityRegistry sharedRegistry] adapterForIdentifier:ZNCapabilityRuntimeMethodIdentifier];
+    BOOL ok=[adapter respondsToSelector:@selector(activateItem:value:error:)] &&
+            [adapter activateItem:record value:values?:@[] error:&invokeError];
+    if(!ok){
+        if(error)*error=invokeError?:@"Prepared Runtime Method 执行失败";
         return nil;
     }
-    return result;
+    return @{@"status":@"SUCCESS"};
 }
 
 static void ZN49RemoveLegacyRuntimeRows(UIView *contentView) {
@@ -11826,7 +11806,6 @@ static void ZN49RemoveLegacyRuntimeRows(UIView *contentView) {
 @implementation ZNRuntimeMenuControllerV040 (ZNM49GenericInvokeEditableArgs)
 
 - (void)zn49_renderRuntimeActionsCompact:(BOOL)compact {
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     NSArray<ZNRuntimeMethodActionRecord *> *records=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.runtimeMethods?:@[];
 
     ZN49RemoveLegacyRuntimeRows(self.contentView);
@@ -12973,7 +12952,6 @@ static NSString *ZN51ValueKey(uint32_t actionID, NSUInteger arg) {
 }
 
 - (void)zn51_renderRuntime:(BOOL)compact {
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     [self zn51_removeRuntimeCards];
     CGFloat width = CGRectGetWidth(self.contentView.bounds);
     CGFloat y = ZN51MaxY(self.contentView) + (compact ? 6.0 : 8.0);
@@ -16193,7 +16171,6 @@ static NSString *ZNM584FixedSummary(ZNRuntimeMethodActionRecord *record, NSArray
 }
 
 - (void)znm584_renderRuntime:(BOOL)compact {
-    [[ZNRuntimeCapabilityCoordinator sharedCoordinator] requestRefresh];
     [self znm584_removeRuntimeCards];
 
     NSArray<ZNRuntimeMethodActionRecord *> *records=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.runtimeMethods?:@[];
@@ -16945,7 +16922,6 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
 
 - (void)znm58_renderRuntime:(BOOL)compact {
     ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
-    [coordinator requestRefresh];
     [self znm58_removeCards];
 
     // Runtime capability snapshot is immutable for this render pass.
@@ -18259,7 +18235,6 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 
 - (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact {
     ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
-    [coordinator requestRefresh];
     ZNRuntimeCapabilitySnapshot *snapshot=coordinator.currentSnapshot;
     NSMutableArray<ZNRuntimeMethodActionRecord *> *allRecords=[NSMutableArray array];
     [allRecords addObjectsFromArray:snapshot.runtimeMethods?:@[]];
