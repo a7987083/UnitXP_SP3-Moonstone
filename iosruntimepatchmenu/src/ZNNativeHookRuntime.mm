@@ -917,7 +917,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         BOOL isManagedCallback=[templateKey isEqual:@"managed-callback-short-circuit"];
         BOOL isReturnBool=[templateKey isEqual:@"return-bool-override"];
         BOOL isStructField=[templateKey isEqual:@"struct-field-transform"];
-        if(!isArgScale&&!isManagedCallback&&!isReturnBool&&!isStructField)continue;
+        BOOL isComplexStruct=[templateKey isEqual:@"complex-struct-transform"];
+        if(!isArgScale&&!isManagedCallback&&!isReturnBool&&!isStructField&&!isComplexStruct)continue;
 
         NSUInteger arg=[cfg[@"argumentIndex"] unsignedIntegerValue];
         NSInteger min=[cfg[@"min"] integerValue],max=[cfg[@"max"] integerValue],def=[cfg[@"default"] integerValue];
@@ -940,6 +941,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                           ![fieldCodec isEqualToString:@"secure-long-accessor"]||fieldOffset>0x100000ULL||
                           !codecClass.length||!codecGetter.length||!codecSetter.length||
                           min<1||max<min||def<min||def>max))continue;
+        if(isComplexStruct&&(fieldArg>=entry->argumentCount||![fieldMode isEqualToString:@"indirect-pointer"]||
+                            ![fieldCodec isEqualToString:@"secure-long-whole-accessor"]||fieldOffset!=0||
+                            !codecClass.length||!codecGetter.length||!codecSetter.length||
+                            min<1||max<min||def<min||def>max))continue;
 
         NSArray *types=@[];BOOL sig=NO;
         if(entry->flags&ZNRuntimeActionFlagParameterSignature){
@@ -965,7 +970,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             a.returnBoolValue=returnBoolValue;
             a.minValue=0;a.maxValue=1;a.defaultValue=0;
         }else{
-            a.templateKind=ZNNativeHookTemplateStructFieldTransform;
+            a.templateKind=isComplexStruct?ZNNativeHookTemplateComplexStructTransform:ZNNativeHookTemplateStructFieldTransform;
             a.fieldArgumentIndex=fieldArg;a.fieldArgumentMode=fieldMode;a.fieldOffset=fieldOffset;
             a.fieldCodec=fieldCodec;a.codecAssembly=codecAssembly;a.codecNamespaceName=codecNamespace;
             a.codecClassName=codecClass;a.codecGetterMethod=codecGetter;a.codecSetterMethod=codecSetter;
@@ -1282,6 +1287,29 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
 
 
+- (BOOL)installTemporaryComplexStructTransformForCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                     argumentIndex:(NSUInteger)argumentIndex
+                                                      codecAssembly:(NSString *)codecAssembly
+                                                     codecNamespace:(NSString *)codecNamespace
+                                                         codecClass:(NSString *)codecClass
+                                                      getterMethod:(NSString *)getterMethod
+                                                      setterMethod:(NSString *)setterMethod
+                                                        multiplier:(NSInteger)multiplier
+                                                             error:(NSString **)error {
+    return [self installTemporaryStructFieldTransformForCandidate:candidate
+                                                    argumentIndex:argumentIndex
+                                                     argumentMode:@"indirect-pointer"
+                                                      fieldOffset:0
+                                                       fieldCodec:@"secure-long-whole-accessor"
+                                                    codecAssembly:codecAssembly
+                                                   codecNamespace:codecNamespace
+                                                       codecClass:codecClass
+                                                      getterMethod:getterMethod
+                                                      setterMethod:setterMethod
+                                                       multiplier:multiplier
+                                                            error:error];
+}
+
 - (BOOL)installTemporaryStructFieldTransformForCandidate:(NSDictionary<NSString *,id> *)candidate
                                              argumentIndex:(NSUInteger)argumentIndex
                                               argumentMode:(NSString *)argumentMode
@@ -1296,8 +1324,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                      error:(NSString **)error {
     if(multiplier<1||multiplier>1000){if(error)*error=@"StructFieldTransform 倍率必须在 1~1000";return NO;}
     if(![argumentMode isEqualToString:@"indirect-pointer"]){if(error)*error=@"StructFieldTransform V1 仅支持 indirect-pointer";return NO;}
-    if(![fieldCodec isEqualToString:@"secure-long-accessor"]){if(error)*error=@"StructFieldTransform V1 仅支持 secure-long-accessor";return NO;}
-    if(fieldOffset>0x100000ULL){if(error)*error=@"字段 offset 超出 V1 安全范围";return NO;}
+    BOOL whole=[fieldCodec isEqualToString:@"secure-long-whole-accessor"];
+    BOOL legacy=[fieldCodec isEqualToString:@"secure-long-accessor"];
+    if(!legacy&&!whole){if(error)*error=@"Struct codec 不支持";return NO;}
+    if((legacy&&fieldOffset>0x100000ULL)||(whole&&fieldOffset!=0)){if(error)*error=@"Struct codec offset 与模式不匹配";return NO;}
 
     NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
     NSString *ns=ZNNativeString(candidate[@"namespace"]);
@@ -1370,10 +1400,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSMutableDictionary *live=[candidate mutableCopy]?:[NSMutableDictionary dictionary];
     live[@"methodPointer"]=@(target);
     self.liveCandidate=[live copy];
-    self.liveTemplate=@"StructFieldTransform V1 · SecureLong Accessor";
+    self.liveTemplate=whole?@"ComplexStructTransform V1 · Whole SecureLong Accessor":@"StructFieldTransform V1 · SecureLong Accessor";
     self.liveLifecycle=@"installed";
     self.liveError=@"";
-    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[struct-field-hook] installed target=0x%llX reg=x%u offset=0x%llX multiplier=%ld getter=0x%llX setter=0x%llX",
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:whole?@"[complex-struct-hook] installed target=0x%llX reg=x%u offset=0x%llX multiplier=%ld getter=0x%llX setter=0x%llX":@"[struct-field-hook] installed target=0x%llX reg=x%u offset=0x%llX multiplier=%ld getter=0x%llX setter=0x%llX",
                                        (unsigned long long)target,reg,(unsigned long long)fieldOffset,(long)multiplier,
                                        (unsigned long long)[codec[@"getter"] unsignedLongLongValue],
                                        (unsigned long long)[codec[@"setter"] unsignedLongLongValue]]];
@@ -1960,7 +1990,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit)
         return [self zn_installPreparedManagedCallbackAction:action target:target value:value error:error];
 
-    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform)
+    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform ||
+       action.templateKind==ZNNativeHookTemplateComplexStructTransform)
         return [self zn_installPreparedStructFieldAction:action base:base target:target value:value error:error];
 
     if(action.templateKind==ZNNativeHookTemplateArgScaleInt32)
