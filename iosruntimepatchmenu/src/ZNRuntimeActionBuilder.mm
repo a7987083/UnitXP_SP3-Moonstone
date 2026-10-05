@@ -75,12 +75,12 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
                               [hook.fieldCodec isEqualToString:@"secure-long-accessor"]&&
                               hook.fieldOffset<=0x100000ULL&&hook.codecClassName.length&&
                               hook.codecGetterMethod.length&&hook.codecSetterMethod.length;
+        NSString *expectedComplexCodec=ZNComplexStructCodecKeyForManagedType(hook.codecClassName);
         BOOL complexStructValid=hook.templateKind==ZNNativeHookTemplateComplexStructTransform&&
                                 hook.fieldArgumentIndex<hook.argumentCount&&
                                 [hook.fieldArgumentMode isEqualToString:@"indirect-pointer"]&&
-                                [hook.fieldCodec isEqualToString:@"secure-long-whole-accessor"]&&
-                                hook.fieldOffset==0&&hook.codecClassName.length&&
-                                hook.codecGetterMethod.length&&hook.codecSetterMethod.length;
+                                hook.fieldCodec.length&&[expectedComplexCodec isEqualToString:hook.fieldCodec]&&
+                                hook.fieldOffset==0&&hook.codecClassName.length;
         if(!argScaleValid&&!callbackValid&&!returnBoolValid&&!structFieldValid&&!complexStructValid){
             if(error)*error=[NSString stringWithFormat:@"%@：Native Hook 配置无效",hook.canonicalIdentity?:hook.methodName];
             return nil;
@@ -152,7 +152,7 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
             config[@"fieldArgumentIndex"]=@(hook.fieldArgumentIndex);
             config[@"fieldArgumentMode"]=hook.fieldArgumentMode?:@"indirect-pointer";
             config[@"fieldOffset"]=@(hook.fieldOffset);
-            config[@"fieldCodec"]=hook.fieldCodec?:((hook.templateKind==ZNNativeHookTemplateComplexStructTransform)?@"secure-long-whole-accessor":@"secure-long-accessor");
+            config[@"fieldCodec"]=hook.fieldCodec?:@"secure-long-accessor";
             config[@"codecAssembly"]=hook.codecAssembly?:@"";
             config[@"codecNamespace"]=hook.codecNamespaceName?:@"";
             config[@"codecClass"]=hook.codecClassName?:@"";
