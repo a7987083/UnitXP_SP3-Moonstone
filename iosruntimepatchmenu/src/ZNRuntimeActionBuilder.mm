@@ -46,9 +46,18 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
         if(action.argumentControlConfigs.count&&action.argumentControlConfigs.count!=action.argumentCount){if(error)*error=@"Runtime 参数控件数量必须等于 argc";return nil;}
         if(action.signatureAvailable&&action.parameterTypeNames.count!=action.argumentCount){if(error)*error=@"Full Signature 参数数量不匹配";return nil;}
         uint32_t titleOffset=0,groupOffset=0,assemblyOffset=0,namespaceOffset=0,classOffset=0,methodOffset=0;
-        uint32_t argument0Offset=0,signatureOffset=0,argumentVectorOffset=0,controlsOffset=0,chainOffset=0,descriptionOffset=0; NSString *stringError=nil;
+        uint32_t preparedOffset=0,signatureOffset=0,argumentVectorOffset=0,controlsOffset=0,chainOffset=0,descriptionOffset=0; NSString *stringError=nil;
         if(!ZNRABAppendString(data,action.title,&titleOffset,&stringError)||!ZNRABAppendString(data,action.group,&groupOffset,&stringError)||!ZNRABAppendString(data,action.assembly,&assemblyOffset,&stringError)||!ZNRABAppendString(data,action.namespaceName,&namespaceOffset,&stringError)||!ZNRABAppendString(data,action.className,&classOffset,&stringError)||!ZNRABAppendString(data,action.methodName,&methodOffset,&stringError)){if(error)*error=stringError?:@"Runtime Action string pool 写入失败";return nil;}
-        if(action.argumentCount==1&&!ZNRABAppendString(data,action.argumentValues.firstObject?:@"",&argument0Offset,&stringError)){if(error)*error=stringError;return nil;}
+        if(!action.preparedDescriptor || !action.preparedRVA || !action.preparedUUID.length || !action.preparedStaticKnown){
+            if(error)*error=[NSString stringWithFormat:@"%@：缺少 M6.14 Prepared Runtime Descriptor，请重新生成",action.canonicalIdentity?:action.methodName];
+            return nil;
+        }
+        NSDictionary *prepared=@{@"version":@1,@"prepared":@YES,@"preparedRVA":@(action.preparedRVA),
+                                 @"preparedUUID":action.preparedUUID?:@"",
+                                 @"preparedStaticKnown":@(action.preparedStaticKnown),
+                                 @"preparedIsStatic":@(action.preparedIsStatic)};
+        NSString *preparedJSON=ZNRABEncodeJSON(prepared,&stringError);
+        if(!preparedJSON||!ZNRABAppendString(data,preparedJSON,&preparedOffset,&stringError)){if(error)*error=stringError?:@"Prepared Runtime descriptor 编码失败";return nil;}
         if(action.signatureAvailable){NSString *encoded=ZNIL2CPPEncodeParameterTypeNames(action.parameterTypeNames?:@[]);if(!ZNRABAppendString(data,encoded,&signatureOffset,&stringError)){if(error)*error=stringError;return nil;}}
         if(action.argumentCount>0){NSString *json=ZNRABEncodeArgumentVector(action.argumentValues,&stringError);if(!json||!ZNRABAppendString(data,json,&argumentVectorOffset,&stringError)){if(error)*error=stringError;return nil;}}
         if(action.argumentControlConfigs.count){NSString *json=ZNRABEncodeJSON(action.argumentControlConfigs,&stringError);if(!json||!ZNRABAppendString(data,json,&controlsOffset,&stringError)){if(error)*error=stringError;return nil;}}
@@ -56,7 +65,7 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
         if(action.featureDescription.length&&!ZNRABAppendString(data,action.featureDescription,&descriptionOffset,&stringError)){if(error)*error=stringError;return nil;}
         ZNRuntimeMethodCallEntry *entries=(ZNRuntimeMethodCallEntry *)((uint8_t *)data.mutableBytes+sizeof(ZNRuntimeActionHeader)); ZNRuntimeMethodCallEntry *entry=&entries[i];
         entry->actionID=action.actionID;entry->kind=(action.executionKind==ZNRuntimeExecutionKindDirectNativeCall)?ZNRuntimeActionKindDirectNativeCall:ZNRuntimeActionKindIL2CPPMethodCall;entry->argumentCount=(uint32_t)action.argumentCount;entry->titleOffset=titleOffset;entry->groupOffset=groupOffset;entry->assemblyOffset=assemblyOffset;entry->namespaceOffset=namespaceOffset;entry->classOffset=classOffset;entry->methodOffset=methodOffset;
-        if(action.argumentCount==1){entry->flags|=ZNRuntimeActionFlagArgument0Text;entry->reserved[0]=argument0Offset;}
+        entry->flags|=ZNRuntimeActionFlagPreparedDescriptor;entry->reserved[0]=preparedOffset;
         if(action.signatureAvailable){entry->flags|=ZNRuntimeActionFlagParameterSignature;entry->reserved[1]=signatureOffset;}
         if(action.argumentCount>0){entry->flags|=ZNRuntimeActionFlagArgumentVectorText;entry->reserved[2]=argumentVectorOffset;}
         if(action.argumentControlConfigs.count){entry->flags|=ZNRuntimeActionFlagArgumentControls;entry->reserved[3]=controlsOffset;}
@@ -198,7 +207,7 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
     NSString *reportPath=nil;for(NSString *path in builderOutputs)if([path.lastPathComponent isEqualToString:@"build_report.json"]){reportPath=path;break;}if(!reportPath.length)return;
     NSData *json=[NSData dataWithContentsOfFile:reportPath];if(!json.length)return;NSMutableDictionary *object=[[NSJSONSerialization JSONObjectWithData:json options:NSJSONReadingMutableContainers error:nil] mutableCopy];if(![object isKindOfClass:NSMutableDictionary.class])return;
     NSMutableArray *items=[NSMutableArray arrayWithCapacity:actions.count];for(ZNRuntimeMethodAction *action in actions)[items addObject:@{@"actionID":@(action.actionID),@"executionKind":@(action.executionKind),@"title":action.title?:@"",@"description":action.featureDescription?:@"",@"identity":action.canonicalIdentity?:@"",@"argumentCount":@(action.argumentCount),@"argumentValues":action.argumentValues?:@[],@"argumentControls":action.argumentControlConfigs?:@[],@"immediateChain":action.immediateChain?:@{}}];
-    object[@"runtimeMethodCall"]=@{@"format":@"com.zonoe.runtime-action/v1",@"version":@1,@"storage":@"__ZNDATA/__zndata after Static Dispatch table",@"staticEntryABIPreserved":@YES,@"runtimeEntrySize":@(sizeof(ZNRuntimeMethodCallEntry)),@"typedArgumentMaxCount":@(ZN_RUNTIME_ACTION_MAX_ARGUMENTS),@"supportedArgumentRange":@"0-8",@"signatureEncoding":@"U+001F parameter types via reserved[1]",@"argumentVectorEncoding":@"UTF-8 JSON array via reserved[2]",@"argumentControlsEncoding":@"UTF-8 JSON via reserved[3]",@"immediateChainEncoding":@"UTF-8 JSON via reserved[4]",@"featureDescriptionEncoding":@"UTF-8 via reserved[5]",@"count":@(actions.count),@"bytes":@(tableBytes),@"actions":items};
+    object[@"runtimeMethodCall"]=@{@"format":@"com.zonoe.runtime-action/v1",@"version":@1,@"storage":@"__ZNDATA/__zndata after Static Dispatch table",@"staticEntryABIPreserved":@YES,@"runtimeEntrySize":@(sizeof(ZNRuntimeMethodCallEntry)),@"typedArgumentMaxCount":@(ZN_RUNTIME_ACTION_MAX_ARGUMENTS),@"supportedArgumentRange":@"0-8",@"signatureEncoding":@"U+001F parameter types via reserved[1]",@"argumentVectorEncoding":@"UTF-8 JSON array via reserved[2]",@"argumentControlsEncoding":@"UTF-8 JSON via reserved[3]",@"immediateChainEncoding":@"UTF-8 JSON via reserved[4]",@"featureDescriptionEncoding":@"UTF-8 via reserved[5]",@"preparedDescriptorEncoding":@"UTF-8 JSON via reserved[0]",@"preparedOnlyClient":@YES,@"count":@(actions.count),@"bytes":@(tableBytes),@"actions":items};
     NSMutableArray *hookItems=[NSMutableArray arrayWithCapacity:hooks.count];
     for(ZNNativeHookAction *hook in hooks){
         [hookItems addObject:@{@"actionID":@(hook.actionID),@"title":hook.title?:@"",@"identity":hook.canonicalIdentity?:@"",
