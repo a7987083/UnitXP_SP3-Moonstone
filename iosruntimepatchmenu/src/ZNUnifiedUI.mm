@@ -17153,14 +17153,12 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
 
     NSString *error = nil;
     BOOL ok=NO;
-    if(record.executionKind==ZNRuntimeActionKindDirectNativeCall){
-        id<ZNRuntimeCapabilityAdapter> adapter=[[ZNCapabilityRegistry sharedRegistry] adapterForIdentifier:ZNCapabilityDirectNativeCallIdentifier];
-        ok=[adapter respondsToSelector:@selector(activateItem:value:error:)] &&
-           [adapter activateItem:record value:values error:&error];
-    }else{
-        NSDictionary *result=[[ZNIL2CPPInvokeEngine sharedEngine] executeAction:action error:&error];
-        ok=result!=nil;
-    }
+    NSString *capability=(record.executionKind==ZNRuntimeActionKindDirectNativeCall)
+        ? ZNCapabilityDirectNativeCallIdentifier
+        : ZNCapabilityRuntimeMethodIdentifier;
+    id<ZNRuntimeCapabilityAdapter> adapter=[[ZNCapabilityRegistry sharedRegistry] adapterForIdentifier:capability];
+    ok=[adapter respondsToSelector:@selector(activateItem:value:error:)] &&
+       [adapter activateItem:record value:values error:&error];
     if (ok) {
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.13-unified-control] kind=%ld %@ SUCCESS persisted=%@",
                                              (long)record.executionKind,action.canonicalIdentity ?: @"?", values ?: @[]]];
