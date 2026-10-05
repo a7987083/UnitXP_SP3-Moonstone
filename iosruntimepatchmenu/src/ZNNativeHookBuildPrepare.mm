@@ -110,7 +110,8 @@ static NSDictionary<NSString *,id> *ZNM69ResolvePreparedDescriptor(
     BOOL isStatic=(flags&kZNM69MethodAttributeStatic)!=0;
 
     uint64_t codecGetterRVA=0,codecSetterRVA=0;
-    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform){
+    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform ||
+       action.templateKind==ZNNativeHookTemplateComplexStructTransform){
         NSDictionary *getter=[resolver resolveMethodAssembly:action.codecAssembly
                                                    namespace:action.codecNamespaceName ?: @""
                                                    className:action.codecClassName
@@ -204,12 +205,13 @@ BOOL ZNBuildPrepareNativeHookDescriptorsV1(NSString **report, NSString **error) 
         }
     }
 
-    NSUInteger structFieldCount=0;
+    NSUInteger structCodecCount=0;
     for(ZNNativeHookAction *action in actions)
-        if(action.templateKind==ZNNativeHookTemplateStructFieldTransform)structFieldCount++;
+        if(action.templateKind==ZNNativeHookTemplateStructFieldTransform ||
+           action.templateKind==ZNNativeHookTemplateComplexStructTransform)structCodecCount++;
     if(report)*report=[NSString stringWithFormat:
         @"Prepared Native Hook：%lu actions · RVA/UUID/static%@",
         (unsigned long)prepared.count,
-        structFieldCount ? @" + codec RVA" : @""];
+        structCodecCount ? @" + codec RVA" : @""];
     return YES;
 }
