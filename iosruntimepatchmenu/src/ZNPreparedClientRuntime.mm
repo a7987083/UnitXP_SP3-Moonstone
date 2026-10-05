@@ -5,6 +5,7 @@
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <uuid/uuid.h>
+#include <string.h>
 
 #import "ZNComplexStructCodec.h"
 #import "ZNComplexStructCodecResolver.h"
