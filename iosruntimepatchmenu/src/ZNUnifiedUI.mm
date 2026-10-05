@@ -487,10 +487,16 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
 }
 
 - (void)layoutSidebar {
-    CGFloat y=6,w=CGRectGetWidth(self.sidebarView.bounds); for (UIButton *b in self.sidebarButtons) { b.frame=CGRectMake(6,y,w-12,31); y+=34; }
-    if([self.sidebarView isKindOfClass:UIScrollView.class]){
-        UIScrollView *scroll=(UIScrollView *)self.sidebarView;
+    CGFloat y=6,w=CGRectGetWidth(self.sidebarView.bounds);
+    UIScrollView *scroll=[self.sidebarView isKindOfClass:UIScrollView.class]?(UIScrollView *)self.sidebarView:nil;
+    CGPoint preserved=scroll?scroll.contentOffset:CGPointZero;
+    for (UIButton *b in self.sidebarButtons) { b.frame=CGRectMake(6,y,w-12,31); y+=34; }
+    if(scroll){
         scroll.contentSize=CGSizeMake(MAX(1.0,w),MAX(CGRectGetHeight(scroll.bounds)+1.0,y+6.0));
+        CGFloat maxY=MAX(0.0,scroll.contentSize.height-CGRectGetHeight(scroll.bounds));
+        preserved.x=0.0;
+        preserved.y=MIN(MAX(0.0,preserved.y),maxY);
+        scroll.contentOffset=preserved;
     }
 }
 
@@ -529,7 +535,7 @@ static UIImage *ZNSymbol(NSString *name, CGFloat size, UIImageSymbolWeight weigh
     self.titleLabel=[UILabel new]; [self.headerView addSubview:self.titleLabel]; self.subtitleLabel=[UILabel new]; [self.headerView addSubview:self.subtitleLabel]; self.readyDot=[UIView new]; self.readyDot.layer.cornerRadius=4; [self.headerView addSubview:self.readyDot]; self.readyLabel=[self label:@"Ready" size:10.5 weight:UIFontWeightMedium color:self.theme.primaryTextColor]; [self.headerView addSubview:self.readyLabel];
     self.themeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.themeButton setImage:ZNSymbol(@"paintpalette.fill",14,UIImageSymbolWeightSemibold) forState:UIControlStateNormal]; [self.themeButton addTarget:self action:@selector(themeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.themeButton];
     self.modeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.modeButton addTarget:self action:@selector(modeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.modeButton]; self.closeButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.closeButton setTitle:@"×" forState:UIControlStateNormal]; self.closeButton.titleLabel.font=[UIFont systemFontOfSize:22 weight:UIFontWeightLight]; [self.closeButton addTarget:self action:@selector(closeTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.headerView addSubview:self.closeButton];
-    self.sidebarView=(UIView *)[UIScrollView new]; UIScrollView *sidebarScroll=(UIScrollView *)self.sidebarView; sidebarScroll.showsVerticalScrollIndicator=YES; sidebarScroll.alwaysBounceVertical=YES; sidebarScroll.directionalLockEnabled=YES; [self.panel addSubview:self.sidebarView]; for (NSInteger i=0;i<self.categories.count;i++) { UIButton *b=[UIButton buttonWithType:UIButtonTypeCustom]; b.tag=3000+i; b.layer.cornerRadius=7; b.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft; b.contentEdgeInsets=UIEdgeInsetsMake(0,8,0,3); [b setImage:ZNSymbol(self.categorySymbols[i],12.5,UIImageSymbolWeightSemibold) forState:UIControlStateNormal]; [b setTitle:[NSString stringWithFormat:@"  %@",self.categories[i]] forState:UIControlStateNormal]; [b addTarget:self action:@selector(categoryTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.sidebarView addSubview:b]; [self.sidebarButtons addObject:b]; }
+    self.sidebarView=(UIView *)[UIScrollView new]; UIScrollView *sidebarScroll=(UIScrollView *)self.sidebarView; sidebarScroll.showsVerticalScrollIndicator=YES; sidebarScroll.alwaysBounceVertical=YES; sidebarScroll.directionalLockEnabled=YES; sidebarScroll.scrollsToTop=NO; [self.panel addSubview:self.sidebarView]; for (NSInteger i=0;i<self.categories.count;i++) { UIButton *b=[UIButton buttonWithType:UIButtonTypeCustom]; b.tag=3000+i; b.layer.cornerRadius=7; b.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft; b.contentEdgeInsets=UIEdgeInsetsMake(0,8,0,3); [b setImage:ZNSymbol(self.categorySymbols[i],12.5,UIImageSymbolWeightSemibold) forState:UIControlStateNormal]; [b setTitle:[NSString stringWithFormat:@"  %@",self.categories[i]] forState:UIControlStateNormal]; [b addTarget:self action:@selector(categoryTapped:) forControlEvents:UIControlEventTouchUpInside]; [self.sidebarView addSubview:b]; [self.sidebarButtons addObject:b]; }
     self.contentScroll=[UIScrollView new]; self.contentScroll.showsVerticalScrollIndicator=YES; [self.panel addSubview:self.contentScroll]; self.contentView=[UIView new]; [self.contentScroll addSubview:self.contentView]; self.footerView=[UIView new]; [self.panel addSubview:self.footerView]; self.footerLabel=[self label:@"" size:8.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor]; [self.footerView addSubview:self.footerLabel];
     self.panel.hidden=YES; [window addSubview:self.floatButton]; [window addSubview:self.panel]; self.uiReady=YES; [self layoutForWindow:window initial:YES]; [self applyTheme]; self.footerLabel.text=[NSString stringWithFormat:@"UnityFramework    Runtime 0.2.4    iOS %@",UIDevice.currentDevice.systemVersion]; NSLog(@"[ZonoePatch v0.2.4] UI ready compact=%d theme=%@ category=%ld",self.compactMode,[ZNTheme nameForMode:self.themeMode],(long)self.selectedCategory);
 }
@@ -11579,7 +11585,9 @@ static UITextField *ZNM47FindTitleField(UIView *root, NSUInteger index) {
 
         CGFloat oldBottom = CGRectGetMaxY(card.frame);
         CGFloat oldHeight = CGRectGetHeight(card.frame);
-        CGFloat rowY = 68.0;
+        // Base builder owns title + canonical identity + feature-description through y=94.
+        // Multi-arg rows must start below that owner region; y=68 caused the rows to overlap description/signature UI.
+        CGFloat rowY = 102.0;
         CGFloat rowStep = 34.0;
 
         for (NSUInteger arg = 0; arg < action.argumentCount; arg++) {
