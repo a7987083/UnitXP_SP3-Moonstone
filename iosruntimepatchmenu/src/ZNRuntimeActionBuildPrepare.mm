@@ -54,6 +54,24 @@ static NSDictionary *ZNM614ResolveAction(ZNRuntimeMethodAction *action, NSString
     return resolved;
 }
 
+static ZNRuntimeMethodAction *ZNM614ActionForChainNode(NSDictionary *node) {
+    ZNRuntimeMethodAction *action=[ZNRuntimeMethodAction new];
+    action.title=[node[@"title"] isKindOfClass:NSString.class]?node[@"title"]:@"Chain Node";
+    action.group=@"Immediate Chain";
+    action.assembly=[node[@"assembly"] isKindOfClass:NSString.class]?node[@"assembly"]:@"Assembly-CSharp.dll";
+    action.namespaceName=[node[@"namespace"] isKindOfClass:NSString.class]?node[@"namespace"]:@"";
+    action.className=[node[@"class"] isKindOfClass:NSString.class]?node[@"class"]:@"";
+    action.methodName=[node[@"method"] isKindOfClass:NSString.class]?node[@"method"]:@"";
+    action.argumentValues=[node[@"argumentValues"] isKindOfClass:NSArray.class]?node[@"argumentValues"]:@[];
+    action.parameterTypeNames=[node[@"parameterTypeNames"] isKindOfClass:NSArray.class]?node[@"parameterTypeNames"]:@[];
+    action.argumentCount=action.argumentValues.count;
+    action.signatureAvailable=action.parameterTypeNames.count==action.argumentCount;
+    action.argumentControlConfigs=@[];
+    action.immediateChain=@{};
+    action.executionKind=ZNRuntimeExecutionKindMethodCall;
+    return action;
+}
+
 static NSDictionary *ZNM614DescriptorForAction(ZNRuntimeMethodAction *action,
                                                 ZNM614MethodGetFlagsFn getFlags,
                                                 NSString **error) {
@@ -153,6 +171,8 @@ BOOL ZNBuildPrepareRuntimeActionDescriptorsV1(NSString **report, NSString **erro
     }
 
     NSMutableArray<NSDictionary *> *prepared=[NSMutableArray arrayWithCapacity:actions.count];
+    NSMutableArray *preparedChains=[NSMutableArray arrayWithCapacity:actions.count];
+    NSUInteger preparedChainNodes=0;
     for(ZNRuntimeMethodAction *action in actions){
         NSString *local=nil;
         NSDictionary *descriptor=ZNM614DescriptorForAction(action,getFlags,&local);
@@ -162,6 +182,42 @@ BOOL ZNBuildPrepareRuntimeActionDescriptorsV1(NSString **report, NSString **erro
             return NO;
         }
         [prepared addObject:descriptor];
+
+        NSDictionary *chain=[action.immediateChain isKindOfClass:NSDictionary.class]?action.immediateChain:nil;
+        NSArray *nodes=([chain[@"version"] integerValue]==2&&[chain[@"nodes"] isKindOfClass:NSArray.class])?chain[@"nodes"]:nil;
+        if(!nodes.count){[preparedChains addObject:NSNull.null];continue;}
+
+        NSMutableArray *nextNodes=[NSMutableArray arrayWithCapacity:nodes.count];
+        for(NSUInteger nodeIndex=0;nodeIndex<nodes.count;nodeIndex++){
+            NSDictionary *node=[nodes[nodeIndex] isKindOfClass:NSDictionary.class]?nodes[nodeIndex]:nil;
+            ZNRuntimeMethodAction *nodeAction=ZNM614ActionForChainNode(node?:@{});
+            if(!nodeAction.className.length||!nodeAction.methodName.length||!nodeAction.signatureAvailable){
+                if(handle)dlclose(handle);
+                if(error)*error=[NSString stringWithFormat:@"%@ Chain Level %lu：完整签名无效",
+                                 action.canonicalIdentity,(unsigned long)nodeIndex+1];
+                return NO;
+            }
+            NSString *nodeError=nil;
+            NSDictionary *nodeDescriptor=ZNM614DescriptorForAction(nodeAction,getFlags,&nodeError);
+            if(!nodeDescriptor){
+                if(handle)dlclose(handle);
+                if(error)*error=[NSString stringWithFormat:@"%@ Chain Level %lu：%@",
+                                 action.canonicalIdentity,(unsigned long)nodeIndex+1,nodeError?:@"Prepared descriptor 失败"];
+                return NO;
+            }
+            NSMutableDictionary *enriched=[node mutableCopy]?:[NSMutableDictionary dictionary];
+            enriched[@"prepared"]=@YES;
+            enriched[@"preparedRVA"]=nodeDescriptor[@"rva"]?:@0;
+            enriched[@"preparedUUID"]=nodeDescriptor[@"uuid"]?:@"";
+            enriched[@"preparedStaticKnown"]=nodeDescriptor[@"staticKnown"]?:@NO;
+            enriched[@"preparedIsStatic"]=nodeDescriptor[@"isStatic"]?:@NO;
+            [nextNodes addObject:[enriched copy]];
+            preparedChainNodes++;
+        }
+        NSMutableDictionary *preparedChain=[chain mutableCopy];
+        preparedChain[@"nodes"]=[nextNodes copy];
+        preparedChain[@"preparedOnly"]=@YES;
+        [preparedChains addObject:[preparedChain copy]];
     }
     if(handle)dlclose(handle);
 
@@ -171,11 +227,17 @@ BOOL ZNBuildPrepareRuntimeActionDescriptorsV1(NSString **report, NSString **erro
             if(error)*error=local?:@"Prepared Runtime descriptor 持久化失败";
             return NO;
         }
+        id preparedChain=preparedChains[i];
+        if([preparedChain isKindOfClass:NSDictionary.class] &&
+           ![store updateImmediateChain:preparedChain atIndex:i error:&local]){
+            if(error)*error=local?:@"Prepared Immediate Chain descriptor 持久化失败";
+            return NO;
+        }
     }
 
     NSUInteger direct=0;
     for(ZNRuntimeMethodAction *a in actions)if(a.executionKind==ZNRuntimeExecutionKindDirectNativeCall)direct++;
-    if(report)*report=[NSString stringWithFormat:@"Prepared Runtime：%lu actions · Direct=%lu · RVA/UUID/static",
-                       (unsigned long)actions.count,(unsigned long)direct];
+    if(report)*report=[NSString stringWithFormat:@"Prepared Runtime：%lu actions · Direct=%lu · ChainNodes=%lu · RVA/UUID/static",
+                       (unsigned long)actions.count,(unsigned long)direct,(unsigned long)preparedChainNodes];
     return YES;
 }
