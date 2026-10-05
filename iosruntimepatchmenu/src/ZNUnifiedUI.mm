@@ -11115,7 +11115,7 @@ static BOOL ZNM47CandidateIsInstance(NSDictionary *candidate) {
         uintptr_t methodPointer = [candidate[@"methodPointer"] unsignedLongLongValue];
         if (!methodPointer || (methodPointer & 3ULL)) continue;
 
-        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(znm47_captureLongPress:)];
+        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(znm613_captureLongPress:)];
         longPress.minimumPressDuration = 0.65;
         longPress.cancelsTouchesInView = YES;
         objc_setAssociatedObject(longPress, kZNM47CaptureCandidateKey, candidate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -13329,6 +13329,7 @@ static const void *kZNM613AnalysisKey = &kZNM613AnalysisKey;
 - (void)znm613_createCurrentMode:(UIButton *)sender;
 - (void)znm613_testRuntime:(UIButton *)sender;
 - (void)znm613_chainTapped:(UIButton *)sender;
+- (void)znm613_captureLongPress:(UILongPressGestureRecognizer *)gesture;
 - (void)znm613_applyOrRestoreHook:(UIButton *)sender;
 - (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
@@ -14112,6 +14113,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
             [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
             [top presentViewController:alert animated:YES completion:nil];
         }
+        [self renderPage];
         return;
     }
     NSString *type = ZNM52XString(result[@"returnType"]);
@@ -14126,6 +14128,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
         [top presentViewController:alert animated:YES completion:nil];
     }
+    [self renderPage];
 }
 
 - (void)znm613_argumentChanged:(UITextField *)field {
@@ -14181,11 +14184,160 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         [self renderPage];
         return;
     }
-    // Reuse the proven chain authoring backend, but the M6.13.1 result card owns
-    // the button, candidate binding and feedback path.
-    [self zn51_chainTapped:sender];
+
+    NSDictionary *analysis=ZNM613AnalyzeCandidate(candidate);
+    NSDictionary *abi=[analysis[@"abi"] isKindOfClass:NSDictionary.class]?analysis[@"abi"]:@{};
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
+    NSString *returnType=[ret[@"name"] isKindOfClass:NSString.class]?ret[@"name"]:@"";
+    if((ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue]!=ZNIL2CPPABIValueKindObjectReference){
+        [self zn60v3_setStatus:[NSString stringWithFormat:@"链式调用需要 managed-reference 返回值；当前=%@",returnType.length?returnType:@"?"]];
+        [self renderPage];
+        return;
+    }
+
+    NSString *targetNS=@"";
+    NSString *targetClass=returnType;
+    NSRange dot=[returnType rangeOfString:@"." options:NSBackwardsSearch];
+    if(dot.location!=NSNotFound){
+        targetNS=[returnType substringToIndex:dot.location];
+        targetClass=[returnType substringFromIndex:dot.location+1];
+    }
+
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(!top){
+        [self zn60v3_setStatus:@"链式调用：找不到可展示配置页的 UIViewController"];
+        [self renderPage];
+        return;
+    }
+
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"返回对象 → 立即调用方法"
+        message:[NSString stringWithFormat:@"%@::%@/%@\n返回类型：%@\n链式目标 V1 使用 argc=0。",
+                 candidate[@"class"]?:@"?",candidate[@"method"]?:@"?",candidate[@"argumentCount"]?:@0,
+                 returnType.length?returnType:@"?"]
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){field.placeholder=@"Namespace（可空）";field.text=targetNS;}];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){field.placeholder=@"Class";field.text=targetClass;}];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){field.placeholder=@"Method";field.text=@"ToString";}];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"创建链式方法" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){
+        __strong typeof(weakSelf) selfRef=weakSelf;
+        if(!selfRef)return;
+        NSString *ns=alert.textFields.count>0?alert.textFields[0].text:@"";
+        NSString *cls=alert.textFields.count>1?alert.textFields[1].text:@"";
+        NSString *method=alert.textFields.count>2?alert.textFields[2].text:@"";
+        if(!cls.length||!method.length){
+            [selfRef zn60v3_setStatus:@"链式 Class/Method 不能为空"];
+            [selfRef renderPage];
+            return;
+        }
+
+        NSArray<NSString *> *values=ZNM613ArgumentValues(selfRef,candidate);
+        NSString *error=nil;
+        ZNRuntimeMethodAction *created=[[ZNRuntimeActionStore sharedStore] addMethodCandidate:candidate
+                                                                                       title:candidate[@"method"]
+                                                                              argumentValues:values
+                                                                                       error:&error];
+        if(!created){
+            [selfRef zn60v3_setStatus:error?:@"创建主 Runtime Method 失败"];
+            [selfRef renderPage];
+            return;
+        }
+
+        NSArray<ZNRuntimeMethodAction *> *actions=[[ZNRuntimeActionStore sharedStore] actionsSnapshot];
+        NSUInteger index=NSNotFound;
+        for(NSUInteger i=0;i<actions.count;i++){
+            if(actions[i].actionID==created.actionID){index=i;break;}
+        }
+        NSDictionary *chain=@{@"assembly":candidate[@"assembly"]?:@"Assembly-CSharp.dll",
+                              @"namespace":ns?:@"",
+                              @"class":cls,
+                              @"method":method,
+                              @"argumentCount":@0,
+                              @"argumentValues":@[]};
+        if(index==NSNotFound||![[ZNRuntimeActionStore sharedStore] updateImmediateChain:chain atIndex:index error:&error]){
+            [selfRef zn60v3_setStatus:error?:@"保存 Immediate Chain 失败"];
+            [selfRef renderPage];
+            return;
+        }
+        [selfRef zn60v3_setStatus:[NSString stringWithFormat:@"已创建链式方法：%@ → %@::%@/0",created.canonicalIdentity,cls,method]];
+        [selfRef renderPage];
+    }]];
+
+    [top presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)znm613_captureLongPress:(UILongPressGestureRecognizer *)gesture {
+    if(gesture.state!=UIGestureRecognizerStateBegan)return;
+    NSDictionary *candidate=objc_getAssociatedObject(gesture,kZNM47CaptureCandidateKey);
+    if(!candidate)return;
+
+    NSDictionary *analysis=ZNM613AnalyzeCandidate(candidate);
+    if(![analysis[@"canCapture"] boolValue]){
+        [self zn60v3_setStatus:@"Receiver Capture：当前方法不是可捕获的实例方法"];
+        [self renderPage];
+        return;
+    }
+    if(ZNM47ReceiverCaptureBusy()){
+        [self zn60v3_setStatus:@"Receiver Capture：已有捕获任务运行中"];
+        [self renderPage];
+        return;
+    }
+
+    NSString *assembly=[candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"Assembly-CSharp.dll";
+    NSString *namespaceName=[candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"";
+    NSString *className=[candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"";
+    NSString *methodName=[candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"Method";
+
+    __weak typeof(self) weakSelf=self;
+    NSString *startError=nil;
+    BOOL started=ZNM47StartReceiverCapture(candidate,5.0,^(uintptr_t receiver,NSString *captureError){
+        __strong typeof(weakSelf) strong=weakSelf;
+        if(!strong)return;
+        if(!receiver){
+            [strong zn60v3_setStatus:captureError?:@"Receiver Capture：未捕获到实例"];
+            [strong renderPage];
+            return;
+        }
+
+        ZNIL2CPPInstanceResolver *resolver=[ZNIL2CPPInstanceResolver sharedResolver];
+        NSString *validationError=nil;
+        if(![resolver znm44_validateInstanceAddress:receiver
+                                           assembly:assembly
+                                          namespace:namespaceName
+                                          className:className
+                                              error:&validationError]){
+            [strong zn60v3_setStatus:[NSString stringWithFormat:@"捕获到 x0=0x%llX，但类型验证失败：%@",
+                                      (unsigned long long)receiver,validationError?:@"unknown"]];
+            [strong renderPage];
+            return;
+        }
+
+        NSString *selectionError=nil;
+        if(![resolver znm44_selectInstanceAddress:receiver
+                                         assembly:assembly
+                                        namespace:namespaceName
+                                        className:className
+                                            error:&selectionError]){
+            [strong zn60v3_setStatus:selectionError?:@"Receiver Capture：保存 receiver 失败"];
+            [strong renderPage];
+            return;
+        }
+
+        [strong zn60v3_setStatus:[NSString stringWithFormat:@"Receiver Capture 成功：%@.%@ receiver=0x%llX",
+                                  className.length?className:@"?",methodName,(unsigned long long)receiver]];
+        [strong renderPage];
+    },&startError);
+
+    if(!started){
+        [self zn60v3_setStatus:startError?:@"Receiver Capture 启动失败"];
+        [self renderPage];
+        return;
+    }
+    [self zn60v3_setStatus:[NSString stringWithFormat:@"Receiver Capture 中（5 秒）：请在游戏里触发 %@.%@",className.length?className:@"?",methodName]];
+    [self renderPage];
+}
 - (void)znm613_createCurrentMode:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
