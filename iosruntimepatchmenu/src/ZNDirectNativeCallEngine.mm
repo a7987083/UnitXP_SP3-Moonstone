@@ -2,6 +2,7 @@
 #import "ZNIL2CPPABIMetadata.h"
 #import "ZNIL2CPPInstanceResolver.h"
 #import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPResolver.h"
 #import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNComplexStructCodec.h"
 #import "ZNComplexStructCodecResolver.h"
