@@ -224,10 +224,12 @@ static BOOL ZNM462VerifyPath(NSString *path,
         const ZNRuntimeMethodCallEntry *entries = (const ZNRuntimeMethodCallEntry *)(table + sizeof(*header));
         for (uint32_t i = 0; i < header->count; i++) {
             const ZNRuntimeMethodCallEntry *entry = &entries[i];
-            if (entry->argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS ||
-                (entry->kind != ZNRuntimeActionKindIL2CPPMethodCall &&
-                 entry->kind != ZNRuntimeActionKindIL2CPPNativeHook)) {
-                localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u kind/argc 无效", i];
+            BOOL methodLike=(entry->kind==ZNRuntimeActionKindIL2CPPMethodCall ||
+                             entry->kind==ZNRuntimeActionKindDirectNativeCall);
+            BOOL nativeHook=(entry->kind==ZNRuntimeActionKindIL2CPPNativeHook);
+            if (entry->argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS || (!methodLike && !nativeHook)) {
+                localError = [NSString stringWithFormat:@"M6.13 verifier：entry %u kind/argc 无效 kind=%u argc=%u",
+                              i,entry->kind,entry->argumentCount];
                 break;
             }
             uint32_t required[] = {entry->titleOffset, entry->groupOffset, entry->assemblyOffset,
@@ -246,7 +248,7 @@ static BOOL ZNM462VerifyPath(NSString *path,
                 break;
             }
 
-            if (entry->kind == ZNRuntimeActionKindIL2CPPMethodCall) {
+            if (methodLike) {
                 if (entry->argumentCount == 1 && (entry->flags & ZNRuntimeActionFlagArgument0Text) != 0 &&
                     !ZNM462StringOffsetValid(table, header, entry->reserved[0])) {
                     localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u argument0 string 无效", i];
