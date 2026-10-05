@@ -2,10 +2,14 @@
 #import "ZNIL2CPPABIMetadata.h"
 #import "ZNIL2CPPInstanceResolver.h"
 #import "ZNIL2CPPInstanceSelectionV2.h"
+#import "ZNIL2CPPRuntimeCommon.h"
+#import "ZNComplexStructCodec.h"
+#import "ZNComplexStructCodecResolver.h"
 #import "ZNPatchCore.h"
 
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 
 @interface ZNDirectNativeCallEngine ()
 @property(nonatomic,copy,readwrite) NSDictionary<NSString *,id> *lastResult;
@@ -42,6 +46,100 @@ static BOOL ZNDNCParseSigned(NSString *text, int64_t *out) {
     long long v=strtoll(raw,&end,0);
     if(errno||end==raw||*end!='\0')return NO;
     if(out)*out=(int64_t)v;
+    return YES;
+}
+
+static BOOL ZNDNCIsObscuredIntParam(NSDictionary *param) {
+    if([param[@"byRef"] boolValue])return NO;
+    ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    if(kind!=ZNIL2CPPABIValueKindComplexValueType)return NO;
+    NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"";
+    return [ZNComplexStructNormalizedManagedType(type) isEqualToString:@"CodeStage.AntiCheat.ObscuredTypes.ObscuredInt"];
+}
+
+typedef void *(*ZNDNCDomainGetFn)(void);
+typedef const void **(*ZNDNCDomainGetAssembliesFn)(const void *,size_t *);
+typedef const void *(*ZNDNCAssemblyGetImageFn)(const void *);
+typedef void *(*ZNDNCClassFromNameFn)(const void *,const char *,const char *);
+typedef int32_t (*ZNDNCClassValueSizeFn)(void *,uint32_t *);
+
+static int32_t ZNDNCObscuredIntValueSize(NSString *imagePath, NSString **error) {
+    ZNDNCDomainGetFn domainGet=(ZNDNCDomainGetFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_domain_get");
+    ZNDNCDomainGetAssembliesFn assembliesFn=(ZNDNCDomainGetAssembliesFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_domain_get_assemblies");
+    ZNDNCAssemblyGetImageFn imageFn=(ZNDNCAssemblyGetImageFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_assembly_get_image");
+    ZNDNCClassFromNameFn classFn=(ZNDNCClassFromNameFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_class_from_name");
+    ZNDNCClassValueSizeFn sizeFn=(ZNDNCClassValueSizeFn)ZNIL2CPPResolveSymbol(imagePath,"il2cpp_class_value_size");
+    if(!domainGet||!assembliesFn||!imageFn||!classFn||!sizeFn){
+        if(error)*error=@"ObscuredInt bridge 缺少 class/value-size Runtime API";
+        return 0;
+    }
+    void *domain=domainGet(); if(!domain){if(error)*error=@"ObscuredInt bridge：IL2CPP domain 不可用";return 0;}
+    size_t count=0; const void **assemblies=assembliesFn(domain,&count);
+    if(!assemblies||!count){if(error)*error=@"ObscuredInt bridge：程序集列表为空";return 0;}
+    void *klass=NULL;
+    for(size_t i=0;i<count&&!klass;i++){
+        const void *image=imageFn(assemblies[i]);
+        if(image)klass=classFn(image,"CodeStage.AntiCheat.ObscuredTypes","ObscuredInt");
+    }
+    if(!klass){if(error)*error=@"ObscuredInt bridge：找不到目标 ValueType";return 0;}
+    uint32_t align=0; int32_t size=sizeFn(klass,&align);
+    if(size<=16||size>256){
+        if(error)*error=[NSString stringWithFormat:@"ObscuredInt bridge：value-size=%d，不符合 ARM64 indirect struct 条件",size];
+        return 0;
+    }
+    return size;
+}
+
+static BOOL ZNDNCPrepareObscuredIntIndirect(NSString *text, void **outBuffer, NSString **error) {
+    if(outBuffer)*outBuffer=NULL;
+    int64_t parsed=0;
+    if(!ZNDNCParseSigned(text,&parsed)||parsed<INT32_MIN||parsed>INT32_MAX){
+        if(error)*error=@"ObscuredInt 参数必须是 int32";
+        return NO;
+    }
+
+    ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+    [resolver refresh];
+    if(!resolver.isAvailable){if(error)*error=resolver.lastError?:@"IL2CPP Resolver 不可用";return NO;}
+
+    NSString *inner=nil;
+    NSDictionary *codec=[[ZNComplexStructCodecResolver sharedResolver]
+        resolveManagedType:@"CodeStage.AntiCheat.ObscuredTypes.ObscuredInt" error:&inner];
+    if(!codec){
+        if(error)*error=inner?:@"ObscuredInt Codec resolve 失败";
+        return NO;
+    }
+
+    int32_t valueSize=ZNDNCObscuredIntValueSize(resolver.unityPath,&inner);
+    if(valueSize<=0){if(error)*error=inner?:@"ObscuredInt value-size 不可用";return NO;}
+
+    typedef int32_t (*EncryptFn)(int32_t,int32_t,uintptr_t);
+    typedef void (*SetEncryptedFn)(uintptr_t,int32_t,int32_t,uintptr_t);
+    typedef int32_t (*GetDecryptedFn)(uintptr_t,uintptr_t);
+    EncryptFn encrypt=(EncryptFn)[codec[@"function2"] unsignedLongLongValue];
+    SetEncryptedFn setEncrypted=(SetEncryptedFn)[codec[@"function3"] unsignedLongLongValue];
+    GetDecryptedFn getDecrypted=(GetDecryptedFn)[codec[@"function0"] unsignedLongLongValue];
+    uintptr_t encryptMI=[codec[@"methodInfo2"] unsignedLongLongValue];
+    uintptr_t setMI=[codec[@"methodInfo3"] unsignedLongLongValue];
+    uintptr_t getMI=[codec[@"methodInfo0"] unsignedLongLongValue];
+    if(!encrypt||!setEncrypted||!getDecrypted||!encryptMI||!setMI||!getMI){
+        if(error)*error=@"ObscuredInt Codec 缺少 Encrypt/SetEncrypted/GetDecrypted";
+        return NO;
+    }
+
+    void *buffer=calloc(1,(size_t)valueSize);
+    if(!buffer){if(error)*error=@"ObscuredInt bridge 分配失败";return NO;}
+
+    const int32_t key=(int32_t)0x6A09E667u;
+    int32_t encrypted=encrypt((int32_t)parsed,key,encryptMI);
+    setEncrypted((uintptr_t)buffer,encrypted,key,setMI);
+    int32_t roundTrip=getDecrypted((uintptr_t)buffer,getMI);
+    if(roundTrip!=(int32_t)parsed){
+        free(buffer);
+        if(error)*error=[NSString stringWithFormat:@"ObscuredInt Codec round-trip 失败：%d != %d",roundTrip,(int32_t)parsed];
+        return NO;
+    }
+    if(outBuffer)*outBuffer=buffer;
     return YES;
 }
 
@@ -115,10 +213,15 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
     if(!target||!methodInfo){if(reason)*reason=@"Direct Native Call 缺少 methodPointer/MethodInfo";return NO;}
     NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
     for(NSDictionary *p in params){
-        if([p[@"byRef"] boolValue]||!ZNDNCGPRKind((ZNIL2CPPABIValueKind)[p[@"kind"] integerValue])){
-            if(reason)*reason=[NSString stringWithFormat:@"参数 %@ 不是 GPR-safe；V1 fail-closed",p[@"name"]?:@"?"];
+        if([p[@"byRef"] boolValue]){
+            if(reason)*reason=[NSString stringWithFormat:@"参数 %@ 是 by-ref；Direct Native Call fail-closed",p[@"name"]?:@"?"];
             return NO;
         }
+        ZNIL2CPPABIValueKind pk=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
+        if(ZNDNCGPRKind(pk))continue;
+        if(ZNDNCIsObscuredIntParam(p))continue; // exact codec-backed ARM64 indirect struct bridge
+        if(reason)*reason=[NSString stringWithFormat:@"参数 %@ 不是 GPR-safe，且没有已验证的 indirect struct codec",p[@"name"]?:@"?"];
+        return NO;
     }
     NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
     ZNIL2CPPABIValueKind rk=(ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue];
@@ -144,7 +247,7 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
         return nil;
     }
 
-    uintptr_t argv[8]={0}; NSUInteger n=0;
+    uintptr_t argv[8]={0}; void *ownedStructs[8]={0}; NSUInteger ownedCount=0; NSUInteger n=0;
     BOOL instance=[abi[@"instance"] boolValue];
     uintptr_t receiver=0;
     if(instance){
@@ -161,8 +264,21 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
         argv[n++]=receiver;
     }
     for(NSUInteger i=0;i<params.count;i++){
+        NSDictionary *param=params[i];
+        if(ZNDNCIsObscuredIntParam(param)){
+            void *buffer=NULL;NSString *inner=nil;
+            if(!ZNDNCPrepareObscuredIntIndirect(argumentValues[i],&buffer,&inner)){
+                for(NSUInteger j=0;j<ownedCount;j++)free(ownedStructs[j]);
+                if(error)*error=[NSString stringWithFormat:@"参数%lu：%@",(unsigned long)i+1,inner?:@"ObscuredInt 编码失败"];
+                return nil;
+            }
+            ownedStructs[ownedCount++]=buffer;
+            argv[n++]=(uintptr_t)buffer;
+            continue;
+        }
         uintptr_t raw=0;NSString *inner=nil;
-        if(!ZNDNCEncodeArgument(argumentValues[i],params[i],&raw,&inner)){
+        if(!ZNDNCEncodeArgument(argumentValues[i],param,&raw,&inner)){
+            for(NSUInteger j=0;j<ownedCount;j++)free(ownedStructs[j]);
             if(error)*error=[NSString stringWithFormat:@"参数%lu：%@",(unsigned long)i+1,inner?:@"编码失败"];
             return nil;
         }
@@ -172,6 +288,7 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
     argv[n++]=methodInfo;
     uintptr_t target=[abi[@"methodPointer"] unsignedLongLongValue];
     uintptr_t rawReturn=ZNDNCCall(target,argv,n);
+    for(NSUInteger j=0;j<ownedCount;j++)free(ownedStructs[j]);
 
     NSDictionary *ret=abi[@"return"]?:@{};
     ZNIL2CPPABIValueKind rk=(ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue];
