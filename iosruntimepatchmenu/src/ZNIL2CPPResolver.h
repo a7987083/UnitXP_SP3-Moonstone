@@ -2,6 +2,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// M6.14 generated-client execution context. Debug/authoring does not use it.
+// While active, exact prepared method resolution is served from the startup
+// binding cache and Resolver::refresh takes an O(1) fast path.
+FOUNDATION_EXPORT void ZNIL2CPPPreparedExecutionPush(NSDictionary<NSString *,id> *context);
+FOUNDATION_EXPORT void ZNIL2CPPPreparedExecutionPop(void);
+FOUNDATION_EXPORT BOOL ZNIL2CPPPreparedExecutionActive(void);
+
 @interface ZNIL2CPPResolver : NSObject
 + (instancetype)sharedResolver;
 
