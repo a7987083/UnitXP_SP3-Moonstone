@@ -219,6 +219,18 @@ grep -q 'ZNNativeHookTemplateComplexStructTransform' "$SRC/ZNRuntimeActionBuilde
 grep -q 'complex-struct-transform' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
 grep -q 'Field Offset：不需要' "$UI"
 
+# M6.13.3 regression contracts:
+# - Direct Native Call is a first-class method-like runtime payload in verifier.
+# - sidebar relayout preserves its own scroll position.
+# - multi-arg builder rows start below the description owner region.
+# - restored Hook must release live-status ownership so test/capture status can replace it.
+grep -q 'entry->kind==ZNRuntimeActionKindDirectNativeCall' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+grep -q 'if (methodLike)' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+grep -q 'CGPoint preserved=scroll?scroll.contentOffset:CGPointZero' "$UI"
+grep -q 'CGFloat rowY = 102.0;' "$UI"
+grep -q 'return \[life isEqualToString:@"installed"\]||\[life isEqualToString:@"failed"\];' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'if(\[life isEqualToString:@"restored"\])return @"";' "$SRC/ZNNativeHookRuntime.mm"
+
 # M6.11 Instant Menu Open + Lazy Capability Init contract.
 grep -q 'instant-menu prewarm ready; first tap is show-only' "$UI"
 grep -q 'The user.*first' "$UI" || true
