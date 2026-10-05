@@ -703,6 +703,128 @@ static BOOL ZNNativePreparedTargetForAction(ZNNativeHookAction *action,
     return NO;
 }
 
+static BOOL ZNNativeRuntimeAddressHasProtection(uintptr_t imageBase,
+                                                  uintptr_t address,
+                                                  vm_prot_t required) {
+    if(!imageBase||!address)return NO;
+    const struct mach_header_64 *mh=(const struct mach_header_64 *)imageBase;
+    if(mh->magic!=MH_MAGIC_64)return NO;
+    const uint8_t *cursor=(const uint8_t *)(mh+1),*limit=cursor+mh->sizeofcmds;
+    uint64_t textVM=UINT64_MAX;
+    for(uint32_t i=0;i<mh->ncmds;i++){
+        if(cursor+sizeof(struct load_command)>limit)return NO;
+        const struct load_command *lc=(const struct load_command *)cursor;
+        if(lc->cmdsize<sizeof(*lc)||cursor+lc->cmdsize>limit)return NO;
+        if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(struct segment_command_64)){
+            const struct segment_command_64 *seg=(const struct segment_command_64 *)cursor;
+            if(strncmp(seg->segname,SEG_TEXT,16)==0){textVM=seg->vmaddr;break;}
+        }
+        cursor+=lc->cmdsize;
+    }
+    if(textVM==UINT64_MAX)return NO;
+
+    cursor=(const uint8_t *)(mh+1);
+    for(uint32_t i=0;i<mh->ncmds;i++){
+        const struct load_command *lc=(const struct load_command *)cursor;
+        if(lc->cmd==LC_SEGMENT_64&&lc->cmdsize>=sizeof(struct segment_command_64)){
+            const struct segment_command_64 *seg=(const struct segment_command_64 *)cursor;
+            if(seg->vmaddr>=textVM){
+                uintptr_t start=imageBase+(uintptr_t)(seg->vmaddr-textVM);
+                uintptr_t finish=start+(uintptr_t)seg->vmsize;
+                if(address>=start&&address<finish)
+                    return (seg->initprot&required)==required;
+            }
+        }
+        cursor+=lc->cmdsize;
+    }
+    return NO;
+}
+
+static BOOL ZNNativeStaticPrepatchBind(ZNNativeHookAction *action,
+                                       uintptr_t target,
+                                       void *replacement,
+                                       uintptr_t *outOriginal,
+                                       NSString **error) {
+    if(!action.staticPrepatch||!action.staticHookSlotRVA||
+       !action.staticTrampolineRVA||!action.staticCodeCaveRVA){
+        if(error)*error=@"Native Hook 缺少 M6.10 Static Prepared Descriptor";
+        return NO;
+    }
+    if(!target||!replacement||!action.preparedRVA||target<action.preparedRVA){
+        if(error)*error=@"Static Prepared Native Hook target/replacement 无效";
+        return NO;
+    }
+    uintptr_t imageBase=target-(uintptr_t)action.preparedRVA;
+    if(action.staticHookSlotRVA>UINTPTR_MAX-imageBase||
+       action.staticTrampolineRVA>UINTPTR_MAX-imageBase||
+       action.staticCodeCaveRVA>UINTPTR_MAX-imageBase){
+        if(error)*error=@"Static Prepared Native Hook RVA 地址溢出";
+        return NO;
+    }
+    uintptr_t slot=imageBase+(uintptr_t)action.staticHookSlotRVA;
+    uintptr_t trampoline=imageBase+(uintptr_t)action.staticTrampolineRVA;
+    uintptr_t cave=imageBase+(uintptr_t)action.staticCodeCaveRVA;
+    if(!ZNNativeRuntimeAddressHasProtection(imageBase,slot,VM_PROT_WRITE)){
+        if(error)*error=@"Static Prepared hook slot 不是 writable memory";
+        return NO;
+    }
+    if(!ZNNativeRuntimeAddressHasProtection(imageBase,trampoline,VM_PROT_EXECUTE)||
+       !ZNNativeRuntimeAddressHasProtection(imageBase,cave,VM_PROT_EXECUTE)){
+        if(error)*error=@"Static Prepared cave/trampoline 不是 executable memory";
+        return NO;
+    }
+
+    // Verify that the signed UnityFramework still contains the build-time
+    // instrumentation before activating the writable slot.
+    uint32_t targetInsn=0,trampolineInsn=0;
+    memcpy(&targetInsn,(const void *)target,sizeof(targetInsn));
+    memcpy(&trampolineInsn,(const void *)trampoline,sizeof(trampolineInsn));
+    if((targetInsn&UINT32_C(0xFC000000))!=UINT32_C(0x14000000)){
+        if(error)*error=@"Static Prepared target 未检测到预埋 B 指令";
+        return NO;
+    }
+    int32_t imm26=(int32_t)(targetInsn&UINT32_C(0x03FFFFFF));
+    if(imm26&INT32_C(0x02000000))imm26|=(int32_t)UINT32_C(0xFC000000);
+    uintptr_t decoded=(uintptr_t)((int64_t)target+((int64_t)imm26<<2));
+    if(decoded!=cave){
+        if(error)*error=@"Static Prepared target branch 与 descriptor 不一致";
+        return NO;
+    }
+    if(trampolineInsn!=action.staticDisplacedInstruction){
+        if(error)*error=@"Static Prepared trampoline 原指令校验失败";
+        return NO;
+    }
+
+    __atomic_store_n((uintptr_t *)slot,(uintptr_t)replacement,__ATOMIC_RELEASE);
+    if(outOriginal)*outOriginal=trampoline;
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:
+        @"[static-prepatch-hook] bind action=%u target=0x%llX slot=0x%llX replacement=0x%llX trampoline=0x%llX",
+        action.actionID,(unsigned long long)target,(unsigned long long)slot,
+        (unsigned long long)(uintptr_t)replacement,(unsigned long long)trampoline]];
+    return YES;
+}
+
+static BOOL ZNNativeStaticPrepatchClear(ZNNativeHookAction *action,
+                                        uintptr_t target,
+                                        NSString **error) {
+    if(!action.staticPrepatch||!target||!action.preparedRVA||target<action.preparedRVA){
+        if(error)*error=@"Static Prepared Native Hook clear descriptor 无效";
+        return NO;
+    }
+    uintptr_t imageBase=target-(uintptr_t)action.preparedRVA;
+    if(action.staticHookSlotRVA>UINTPTR_MAX-imageBase){
+        if(error)*error=@"Static Prepared hook slot RVA 地址溢出";
+        return NO;
+    }
+    uintptr_t slot=imageBase+(uintptr_t)action.staticHookSlotRVA;
+    if(!ZNNativeRuntimeAddressHasProtection(imageBase,slot,VM_PROT_WRITE)){
+        if(error)*error=@"Static Prepared hook slot 不可写";
+        return NO;
+    }
+    __atomic_store_n((uintptr_t *)slot,(uintptr_t)0,__ATOMIC_RELEASE);
+    return YES;
+}
+
 static uint64_t ZNNativeAlign8(uint64_t value){return (value+7ULL)&~7ULL;}
 
 static uint64_t ZNNativeImageFingerprint(uint32_t count){
