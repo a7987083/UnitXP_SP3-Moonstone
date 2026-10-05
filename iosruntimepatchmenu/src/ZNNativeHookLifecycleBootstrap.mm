@@ -3,8 +3,8 @@
 #import <mach-o/dyld.h>
 #import <UIKit/UIKit.h>
 
-#import "ZNNativeHookRuntime.h"
-#import "ZNNativeHookScheduler.h"
+#import "ZNCapabilityRegistry.h"
+#import "ZNBuiltInCapabilityAdapters.h"
 #import "ZNPatchCore.h"
 
 @interface ZNNativeHookLifecycleBootstrap ()
@@ -35,6 +35,7 @@ static void ZNNativeHookLifecycleImageAdded(const struct mach_header *mh, intptr
     self=[super init];
     if(!self)return nil;
     _queue=dispatch_queue_create("com.zonoe.native-hook.lifecycle-bootstrap",DISPATCH_QUEUE_SERIAL);
+    ZNRegisterBuiltInCapabilityAdapters();
     return self;
 }
 
@@ -75,10 +76,13 @@ static void ZNNativeHookLifecycleImageAdded(const struct mach_header *mh, intptr
         if(!self)return;
 
         uint32_t before=_dyld_image_count();
-        ZNNativeHookRuntime *runtime=[ZNNativeHookRuntime sharedRuntime];
-        [runtime refreshGeneratedActions];
-        NSArray *actions=[runtime.generatedActions copy]?:@[];
-        [[ZNNativeHookScheduler sharedScheduler] reconcileActions:actions];
+        NSString *prepareError=nil;
+        ZNCapabilityRegistry *registry=[ZNCapabilityRegistry sharedRegistry];
+        BOOL prepared=[registry prepareCapability:ZNCapabilityNativeHookIdentifier
+                                       imageCount:before
+                                            error:&prepareError];
+        id<ZNRuntimeCapabilityAdapter> adapter=[registry adapterForIdentifier:ZNCapabilityNativeHookIdentifier];
+        NSArray *actions=[adapter snapshotItems]?:@[];
 
         @synchronized(self) {
             self.lastImageCount=_dyld_image_count();
@@ -86,8 +90,8 @@ static void ZNNativeHookLifecycleImageAdded(const struct mach_header *mh, intptr
         }
 
         [[ZNRuntimeLogger sharedLogger] log:
-         [NSString stringWithFormat:@"[native-hook-lifecycle] reconcile images=%u->%u actions=%lu",
-          before,self.lastImageCount,(unsigned long)actions.count]];
+         [NSString stringWithFormat:@"[native-hook-lifecycle] reconcile images=%u->%u actions=%lu prepared=%@ error=%@",
+          before,self.lastImageCount,(unsigned long)actions.count,prepared?@"YES":@"NO",prepareError?:@""]];
 
         // If another image arrived while the pass was running, schedule exactly
         // one additional pass; the runtime's unchanged-image path is O(1).
