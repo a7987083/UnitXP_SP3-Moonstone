@@ -1,4 +1,4 @@
-name: Verify M6.13 Direct Call + Complex Struct Codec V1
+name: Verify M6.13.1 Single Result Card + Direct/Hook
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
       - feature/m6.11-instant-menu-lazy-init-v1
       - feature/m6.12-capability-prewarm-activation-v1
       - feature/m6.13-direct-call-struct-codec-v1
+      - feature/m6.13.1-single-result-card-v1
   workflow_dispatch:
 
 jobs:
