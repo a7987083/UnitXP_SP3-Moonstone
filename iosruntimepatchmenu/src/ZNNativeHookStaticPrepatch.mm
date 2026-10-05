@@ -9,6 +9,8 @@
 #import <sys/stat.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <uuid/uuid.h>
+#import <mach/vm_prot.h>
 
 #include <algorithm>
 #include <vector>
@@ -163,7 +165,10 @@ static BOOL ZNM610CollectLayout(const uint8_t *base,
                 for(uint32_t j=0;j<seg->nsects;j++){
                     const struct section_64 &sec=sections[j];
                     uint32_t type=sec.flags&SECTION_TYPE;
-                    BOOL zeroFill=(type==S_ZEROFILL||type==S_GB_ZEROFILL||type==S_THREAD_LOCAL_ZEROFILL);
+                    BOOL zeroFill=(type==S_ZEROFILL||type==S_GB_ZEROFILL);
+#ifdef S_THREAD_LOCAL_ZEROFILL
+                    zeroFill=zeroFill||(type==S_THREAD_LOCAL_ZEROFILL);
+#endif
                     if(zeroFill||!sec.size||!sec.offset)continue;
                     uint64_t ss=sec.offset,se=ss+sec.size;
                     uint64_t segEnd=seg->fileoff+seg->filesize;
