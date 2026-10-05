@@ -231,6 +231,20 @@ grep -q 'CGFloat rowY = 102.0;' "$UI"
 grep -q 'return \[life isEqualToString:@"installed"\]||\[life isEqualToString:@"failed"\];' "$SRC/ZNNativeHookRuntime.mm"
 grep -q 'if(\[life isEqualToString:@"restored"\])return @"";' "$SRC/ZNNativeHookRuntime.mm"
 
+# M6.14 Prepared Client Runtime contract.
+grep -q 'ZNRuntimeActionFlagPreparedDescriptor' "$SRC/ZNRuntimeActionFormat.h"
+grep -q '缺少 M6.14 Prepared Runtime Descriptor' "$SRC/ZNRuntimeActionBuilder.mm"
+grep -q 'ZNBuildPrepareRuntimeActionDescriptorsV1' "$SRC/ZNBuildManifest.mm"
+grep -q 'constructor(202)' "$SRC/ZNPreparedClientRuntime.mm"
+grep -q 'FAILED_PREPARED_NOT_READY' "$SRC/ZNPreparedClientRuntime.mm"
+grep -q 'ZNCapabilityRuntimeMethodIdentifier' "$UI"
+grep -q 'ZNPreparedClientRuntime' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+! grep -q 'ZNIL2CPPHybridFinder' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+grep -q 'Generated Direct Call 禁止点击时动态解析 receiver' "$SRC/ZNDirectNativeCallEngine.mm"
+grep -q 'Generated Client 不允许点击时动态解析 receiver' "$SRC/ZNM47MultiArgInvoke.mm"
+grep -q 'Debug/authoring Direct Test remains dynamic by design' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+grep -q 'Prepared Runtime Descriptor' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
+
 # M6.11 Instant Menu Open + Lazy Capability Init contract.
 grep -q 'instant-menu prewarm ready; first tap is show-only' "$UI"
 grep -q 'The user.*first' "$UI" || true
