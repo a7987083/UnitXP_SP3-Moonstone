@@ -120,7 +120,8 @@ test -f "$SRC/ZNNativeHookLifecycleBootstrap.mm"
 grep -q 'src/ZNNativeHookLifecycleBootstrap.mm' "$MAKEFILE"
 grep -q 'ZNNativeHookEarlyLifecycleBootstrap' "$SRC/ZNNativeHookLifecycleBootstrap.mm"
 grep -q '_dyld_register_func_for_add_image(ZNNativeHookLifecycleImageAdded)' "$SRC/ZNNativeHookLifecycleBootstrap.mm"
-grep -q 'reconcileActions:actions' "$SRC/ZNNativeHookLifecycleBootstrap.mm"
+grep -q 'ZNCapabilityNativeHookIdentifier' "$SRC/ZNNativeHookLifecycleBootstrap.mm"
+grep -q 'prepareCapability:ZNCapabilityNativeHookIdentifier' "$SRC/ZNNativeHookLifecycleBootstrap.mm"
 ! grep -q 'ZNNativeHookScheduler' "$SRC/ZNRuntimeCapabilityCoordinator.mm"
 ! grep -q 'restorePersistedNativeHooks' "$SRC/ZNRuntimeCapabilityCoordinator.mm"
 grep -q 'ZNNativeHookScheduler sharedScheduler.*setDesiredValue' "$UI"
@@ -189,6 +190,19 @@ PY
 grep -q 'if(action.staticPrepatch)' "$SRC/ZNNativeHookRuntime.mm"
 grep -q 'ZNNativeStaticPrepatchClear' "$SRC/ZNNativeHookRuntime.mm"
 
+# M6.12 Generic Capability Prewarm + Activation substrate.
+test -f "$SRC/ZNCapabilityRegistry.h"
+test -f "$SRC/ZNCapabilityRegistry.mm"
+test -f "$SRC/ZNBuiltInCapabilityAdapters.h"
+test -f "$SRC/ZNBuiltInCapabilityAdapters.mm"
+grep -q 'src/ZNCapabilityRegistry.mm' "$MAKEFILE"
+grep -q 'src/ZNBuiltInCapabilityAdapters.mm' "$MAKEFILE"
+grep -q 'ZNRuntimeCapabilityAdapter' "$SRC/ZNCapabilityRegistry.h"
+grep -q 'prepareAllForImageCount' "$SRC/ZNRuntimeCapabilityCoordinator.mm"
+grep -q 'ZNCapabilityStaticPatchIdentifier' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+grep -q 'ZNCapabilityRuntimeMethodIdentifier' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+grep -q 'ZNCapabilityNativeHookIdentifier' "$SRC/ZNBuiltInCapabilityAdapters.mm"
+
 # M6.11 Instant Menu Open + Lazy Capability Init contract.
 grep -q 'instant-menu prewarm ready; first tap is show-only' "$UI"
 grep -q 'The user.*first' "$UI" || true
@@ -228,4 +242,4 @@ assert "ZonoePatchShow" in tap
 assert "dispatch_after" not in tap
 PY
 
-echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared + M6.10 Static Prepatch + M6.11 Instant Menu contract: OK"
+echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared + M6.10 Static Prepatch + M6.11 Instant Menu + M6.12 Capability substrate contract: OK"
