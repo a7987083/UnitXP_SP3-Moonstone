@@ -55,6 +55,11 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     _preparedIsStatic=NO;
     _preparedCodecGetterRVA=0;
     _preparedCodecSetterRVA=0;
+    _staticPrepatch=NO;
+    _staticHookSlotRVA=0;
+    _staticTrampolineRVA=0;
+    _staticCodeCaveRVA=0;
+    _staticDisplacedInstruction=0;
     _fallbackUUID=@"";
     return self;
 }
@@ -79,6 +84,9 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     c.preparedDescriptor=self.preparedDescriptor;c.preparedRVA=self.preparedRVA;c.preparedUUID=self.preparedUUID;
     c.preparedStaticKnown=self.preparedStaticKnown;c.preparedIsStatic=self.preparedIsStatic;
     c.preparedCodecGetterRVA=self.preparedCodecGetterRVA;c.preparedCodecSetterRVA=self.preparedCodecSetterRVA;
+    c.staticPrepatch=self.staticPrepatch;c.staticHookSlotRVA=self.staticHookSlotRVA;
+    c.staticTrampolineRVA=self.staticTrampolineRVA;c.staticCodeCaveRVA=self.staticCodeCaveRVA;
+    c.staticDisplacedInstruction=self.staticDisplacedInstruction;
     c.fallbackRVA=self.fallbackRVA;c.fallbackUUID=self.fallbackUUID;
     return c;
 }
@@ -132,6 +140,11 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         @"preparedIsStatic":@(a.preparedIsStatic),
         @"preparedCodecGetterRVA":@(a.preparedCodecGetterRVA),
         @"preparedCodecSetterRVA":@(a.preparedCodecSetterRVA),
+        @"staticPrepatch":@(a.staticPrepatch),
+        @"staticHookSlotRVA":@(a.staticHookSlotRVA),
+        @"staticTrampolineRVA":@(a.staticTrampolineRVA),
+        @"staticCodeCaveRVA":@(a.staticCodeCaveRVA),
+        @"staticDisplacedInstruction":@(a.staticDisplacedInstruction),
         @"fallbackRVA":@(a.fallbackRVA),@"fallbackUUID":a.fallbackUUID?:@""
     };
 }
@@ -177,6 +190,11 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.preparedIsStatic=[d[@"preparedIsStatic"] boolValue];
     a.preparedCodecGetterRVA=[d[@"preparedCodecGetterRVA"] unsignedLongLongValue];
     a.preparedCodecSetterRVA=[d[@"preparedCodecSetterRVA"] unsignedLongLongValue];
+    a.staticPrepatch=[d[@"staticPrepatch"] boolValue];
+    a.staticHookSlotRVA=[d[@"staticHookSlotRVA"] unsignedLongLongValue];
+    a.staticTrampolineRVA=[d[@"staticTrampolineRVA"] unsignedLongLongValue];
+    a.staticCodeCaveRVA=[d[@"staticCodeCaveRVA"] unsignedLongLongValue];
+    a.staticDisplacedInstruction=[d[@"staticDisplacedInstruction"] unsignedIntValue];
     a.fallbackRVA=[d[@"fallbackRVA"] unsignedLongLongValue];
     a.fallbackUUID=[d[@"fallbackUUID"] isKindOfClass:NSString.class]?d[@"fallbackUUID"]:@"";
     if(!a.actionID||!a.className.length||!a.methodName.length)return nil;
@@ -485,6 +503,37 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
 - (NSArray<ZNNativeHookAction *> *)actionsSnapshot {
     @synchronized(self){NSMutableArray *out=[NSMutableArray arrayWithCapacity:self.mutableActions.count];for(ZNNativeHookAction *a in self.mutableActions)[out addObject:[a copy]];return [out copy];}
 }
+- (BOOL)updateStaticPrepatchDescriptor:(NSDictionary<NSString *,id> *)descriptor
+                               atIndex:(NSUInteger)index
+                                 error:(NSString **)error {
+    if(![descriptor isKindOfClass:NSDictionary.class]){
+        if(error)*error=@"Static Prepared descriptor 无效";
+        return NO;
+    }
+    @synchronized(self){
+        if(index>=self.mutableActions.count){
+            if(error)*error=@"Static Prepared Native Hook index 越界";
+            return NO;
+        }
+        uint64_t slot=[descriptor[@"hookSlotRVA"] unsignedLongLongValue];
+        uint64_t trampoline=[descriptor[@"trampolineRVA"] unsignedLongLongValue];
+        uint64_t cave=[descriptor[@"codeCaveRVA"] unsignedLongLongValue];
+        uint32_t displaced=[descriptor[@"displacedInstruction"] unsignedIntValue];
+        if(!slot||!trampoline||!cave||!displaced){
+            if(error)*error=@"Static Prepared descriptor 缺少 slot/trampoline/cave/instruction";
+            return NO;
+        }
+        ZNNativeHookAction *a=self.mutableActions[index];
+        a.staticPrepatch=YES;
+        a.staticHookSlotRVA=slot;
+        a.staticTrampolineRVA=trampoline;
+        a.staticCodeCaveRVA=cave;
+        a.staticDisplacedInstruction=displaced;
+        [self persist];
+    }
+    return YES;
+}
+
 - (BOOL)updateTitle:(NSString *)title atIndex:(NSUInteger)index {
     @synchronized(self){if(index>=self.mutableActions.count)return NO;ZNNativeHookAction *a=self.mutableActions[index];NSString *v=ZNNHTrim(title);a.title=v.length?v:a.methodName;[self persist];return YES;}
 }
