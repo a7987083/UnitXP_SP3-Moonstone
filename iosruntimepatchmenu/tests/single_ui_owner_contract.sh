@@ -258,4 +258,24 @@ assert "ZonoePatchShow" in tap
 assert "dispatch_after" not in tap
 PY
 
-echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared + M6.10 Static Prepatch + M6.11 Instant Menu + M6.12 Capability substrate + M6.13 Plugin/Struct Codec contract: OK"
+
+# M6.13.1 Result Card single-renderer contract.
+# The final Method Finder result owner must build the card directly; it must not
+# invoke the pre-swizzle renderer and then append/reposition legacy subviews.
+python3 - "$UI" <<'PY'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+start=s.index("- (void)zn52x_renderResultsAtWidth:(CGFloat)width {")
+end=s.index("- (void)zn52x_executeChainTapped:", start)
+block=s[start:end]
+assert "[self zn52x_renderResultsAtWidth:width]" not in block
+assert "M6.13.1: this method is the sole Result Card renderer" in block
+assert "ZNM52XCollectChainButtons(self.contentView" not in block
+assert 'zn40_button:@"Native Call"' in block
+assert 'zn40_button:@"Native Hook"' in block
+assert 'zn40_button:@"创建方法"' in block
+assert "ZNM613ApplyModeVisual" in block
+PY
+
+echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared + M6.10 Static Prepatch + M6.11 Instant Menu + M6.12 Capability substrate + M6.13 Plugin/Struct Codec + M6.13.1 Result Card single-owner contract: OK"
