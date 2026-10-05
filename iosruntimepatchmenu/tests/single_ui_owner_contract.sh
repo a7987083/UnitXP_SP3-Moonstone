@@ -290,8 +290,12 @@ python3 - "$UI" <<'PY'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
-chain=s[s.index("- (void)znm613_chainTapped:"):s.index("- (void)znm613_createCurrentMode:")]
-capture=s[s.index("- (void)znm613_captureLongPress:"):s.index("- (void)znm613_createCurrentMode:")]
+impl=s.index("@implementation ZNRuntimeMenuControllerV040 (ZNM52ChainExecuteButton)")
+chain_start=s.index("- (void)znm613_chainTapped:(UIButton *)sender {", impl)
+capture_start=s.index("- (void)znm613_captureLongPress:(UILongPressGestureRecognizer *)gesture {", impl)
+create_start=s.index("- (void)znm613_createCurrentMode:(UIButton *)sender {", impl)
+chain=s[chain_start:capture_start]
+capture=s[capture_start:create_start]
 assert "[self zn51_chainTapped:" not in chain
 assert "[self znm47_captureLongPress:" not in capture
 assert "ZNM47StartReceiverCapture" in capture
