@@ -221,12 +221,18 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
                 [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14-prepared-client] direct ABI rejected %@ %@",record.canonicalIdentity,why?:@""]];
                 continue;
             }
+            BOOL codecReady=YES;
             for(NSString *type in record.parameterTypeNames?:@[]){
                 if(ZNComplexStructCodecKeyForManagedType(type).length){
                     NSString *codecError=nil;
-                    (void)[[ZNComplexStructCodecResolver sharedResolver] resolveManagedType:type error:&codecError];
+                    if(![[ZNDirectNativeCallEngine sharedEngine] prepareManagedType:type error:&codecError]){
+                        codecReady=NO;
+                        [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[m6.14-prepared-client] codec prewarm rejected %@ %@",record.canonicalIdentity,codecError?:@""]];
+                        break;
+                    }
                 }
             }
+            if(!codecReady)continue;
         }
 
         uintptr_t receiver=0;
