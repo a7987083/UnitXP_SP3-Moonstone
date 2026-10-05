@@ -16921,7 +16921,6 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
 }
 
 - (void)znm58_renderRuntime:(BOOL)compact {
-    ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
     [self znm58_removeCards];
 
     // Runtime capability snapshot is immutable for this render pass.
@@ -18234,8 +18233,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 @implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
 
 - (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact {
-    ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
-    ZNRuntimeCapabilitySnapshot *snapshot=coordinator.currentSnapshot;
+    ZNRuntimeCapabilitySnapshot *snapshot=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot;
     NSMutableArray<ZNRuntimeMethodActionRecord *> *allRecords=[NSMutableArray array];
     [allRecords addObjectsFromArray:snapshot.runtimeMethods?:@[]];
     [allRecords addObjectsFromArray:snapshot.directNativeCalls?:@[]];
