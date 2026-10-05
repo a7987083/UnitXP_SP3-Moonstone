@@ -13311,6 +13311,10 @@ __attribute__((constructor)) static void ZN51SInstallSilentCustomerExecution(voi
 static const void *kZNM52XActionKey = &kZNM52XActionKey;
 static const void *kZNM52XIndexKey = &kZNM52XIndexKey;
 static const void *kZNM52XCandidateKey = &kZNM52XCandidateKey;
+static const void *kZNM613CreateModeKey = &kZNM613CreateModeKey;
+static const void *kZNM613ArgCandidateKey = &kZNM613ArgCandidateKey;
+static const void *kZNM613ArgIndexKey = &kZNM613ArgIndexKey;
+static const void *kZNM613ArgumentStoreKey = &kZNM613ArgumentStoreKey;
 static const uint32_t kZNM52XMethodAttributeStatic = 0x0010u;
 
 typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
@@ -13322,6 +13326,9 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)zn52x_reselectInstance:(UIButton *)sender;
 - (void)zn52x_batchTestInstances:(UIButton *)sender;
 - (void)zn52x_directUnavailable:(UIButton *)sender;
+- (void)znm613_argumentChanged:(UITextField *)field;
+- (void)znm613_selectRuntimeMode:(UIButton *)sender;
+- (void)znm613_createCurrentMode:(UIButton *)sender;
 - (void)znm613_applyOrRestoreHook:(UIButton *)sender;
 - (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
@@ -13438,6 +13445,124 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         [lines addObject:[NSString stringWithFormat:@"L%@ %@ → %@", level[@"level"] ?: @"?", identity.length ? identity : @"?", level[@"returnValue"] ?: @"?"]];
     }
     return [lines componentsJoinedByString:@"\n"];
+}
+
+
+static NSString *ZNM613CandidateIdentity(NSDictionary *candidate) {
+    NSString *canonical=ZNM52XString(candidate[@"canonical"]);
+    if(canonical.length)return canonical;
+    return [NSString stringWithFormat:@"%@!%@.%@::%@/%@",
+            ZNM52XString(candidate[@"assembly"]),ZNM52XString(candidate[@"namespace"]),
+            ZNM52XString(candidate[@"class"]),ZNM52XString(candidate[@"method"]),
+            candidate[@"argumentCount"]?:@0];
+}
+
+static NSMutableDictionary *ZNM613ArgumentStore(ZNRuntimeMenuControllerV040 *self) {
+    NSMutableDictionary *store=objc_getAssociatedObject(self,kZNM613ArgumentStoreKey);
+    if(!store){store=[NSMutableDictionary dictionary];objc_setAssociatedObject(self,kZNM613ArgumentStoreKey,store,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
+    return store;
+}
+
+static NSString *ZNM613ArgumentStoreKey(NSDictionary *candidate,NSUInteger index) {
+    return [NSString stringWithFormat:@"%@#%lu",ZNM613CandidateIdentity(candidate),(unsigned long)index];
+}
+
+static NSArray<NSString *> *ZNM613ArgumentValues(ZNRuntimeMenuControllerV040 *self,NSDictionary *candidate) {
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    NSMutableArray *values=[NSMutableArray arrayWithCapacity:argc];
+    NSMutableDictionary *store=ZNM613ArgumentStore(self);
+    for(NSUInteger i=0;i<argc;i++){
+        NSString *key=ZNM613ArgumentStoreKey(candidate,i);
+        NSString *value=[store[key] isKindOfClass:NSString.class]?store[key]:@"";
+        [values addObject:value];
+    }
+    (void)params;
+    return values;
+}
+
+static NSString *ZNM613ParamAutoLabel(NSDictionary *param) {
+    NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"?";
+    NSString *codec=ZNComplexStructCodecKeyForManagedType(type);
+    if([codec isEqualToString:ZNComplexStructCodecObscuredInt])return @"Complex Struct · ObscuredInt Codec";
+    if([codec isEqualToString:ZNComplexStructCodecSecureLongWholeAccessor])return @"Complex Struct · SecureLong Codec";
+    ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    switch(kind){
+        case ZNIL2CPPABIValueKindBool:return @"Bool";
+        case ZNIL2CPPABIValueKindSigned32:return @"Int32";
+        case ZNIL2CPPABIValueKindUnsigned32:return @"UInt32";
+        case ZNIL2CPPABIValueKindSigned64:return @"Int64";
+        case ZNIL2CPPABIValueKindUnsigned64:return @"UInt64";
+        case ZNIL2CPPABIValueKindPointer:return @"Pointer";
+        case ZNIL2CPPABIValueKindObjectReference:return @"Object Reference";
+        case ZNIL2CPPABIValueKindComplexValueType:return @"Complex Struct · Unsupported Codec";
+        default:return type.length?type:@"Unknown";
+    }
+}
+
+static NSDictionary *ZNM613HookPlan(NSDictionary *candidate,NSString **error) {
+    ZNNativeHookRuntime *runtime=[ZNNativeHookRuntime sharedRuntime];
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+
+    NSString *argReason=nil,*cbReason=nil,*retReason=nil,*structReason=nil;
+    NSArray<NSNumber *> *intArgs=[runtime supportedInt32ArgumentIndicesForCandidate:candidate reason:&argReason];
+    NSArray<NSNumber *> *cbArgs=[runtime supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&cbReason];
+    BOOL retBool=[runtime supportsReturnBoolOverrideForCandidate:candidate reason:&retReason];
+    NSArray<NSNumber *> *structArgs=[runtime supportedStructFieldArgumentIndicesForCandidate:candidate reason:&structReason];
+
+    NSMutableArray<NSNumber *> *exactStruct=[NSMutableArray array];
+    for(NSNumber *n in structArgs){
+        NSUInteger idx=n.unsignedIntegerValue;
+        if(idx<params.count){
+            NSString *type=[params[idx][@"name"] isKindOfClass:NSString.class]?params[idx][@"name"]:@"";
+            if(ZNComplexStructCodecKeyForManagedType(type).length)[exactStruct addObject:n];
+        }
+    }
+
+    NSUInteger alternatives=(intArgs.count?1:0)+(cbArgs.count?1:0)+(retBool?1:0)+(exactStruct.count?1:0);
+    if(alternatives==0){
+        if(error)*error=structReason.length?structReason:(retReason.length?retReason:(cbReason.length?cbReason:(argReason.length?argReason:@"没有可用 Native Hook 方案")));
+        return nil;
+    }
+    if(alternatives>1){
+        if(error)*error=@"检测到多个 Native Hook 方案；当前自动模式拒绝猜测，请缩小到唯一语义";
+        return nil;
+    }
+    if(exactStruct.count){
+        if(exactStruct.count!=1){if(error)*error=@"存在多个可识别 Complex Struct 参数；自动模式拒绝猜测";return nil;}
+        NSUInteger idx=exactStruct.firstObject.unsignedIntegerValue;
+        NSString *type=[params[idx][@"name"] isKindOfClass:NSString.class]?params[idx][@"name"]:@"";
+        return @{@"kind":@"complex",@"index":@(idx),@"type":type,
+                 @"codec":ZNComplexStructCodecKeyForManagedType(type)?:@""};
+    }
+    if(intArgs.count){
+        if(intArgs.count!=1){if(error)*error=@"存在多个 Int32 参数；自动模式拒绝猜测";return nil;}
+        return @{@"kind":@"int32",@"index":intArgs.firstObject};
+    }
+    if(cbArgs.count){
+        if(cbArgs.count!=1){if(error)*error=@"存在多个 Bool Callback 参数；自动模式拒绝猜测";return nil;}
+        return @{@"kind":@"callback",@"index":cbArgs.firstObject};
+    }
+    if(retBool)return @{@"kind":@"return-bool"};
+    return nil;
+}
+
+static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
+    UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
+        if(create){
+            objc_setAssociatedObject(create,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            if(!objc_getAssociatedObject(create,kZNM613CreateModeKey))
+                objc_setAssociatedObject(create,kZNM613CreateModeKey,@"runtime",OBJC_ASSOCIATION_COPY_NONATOMIC);
+            [create removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
+            [create addTarget:self action:@selector(znm613_createCurrentMode:) forControlEvents:UIControlEventTouchUpInside];
+        }
+        if(test){
+            objc_setAssociatedObject(test,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [test addTarget:self action:@selector(znm613_selectRuntimeMode:) forControlEvents:UIControlEventTouchDown];
+        }
+    if(create)objc_setAssociatedObject(create,kZNM613CreateModeKey,mode,OBJC_ASSOCIATION_COPY_NONATOMIC);
 }
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM52ChainExecuteButton)
@@ -13580,7 +13705,11 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 
         // M6.13 UI V2: reserve a fixed 2-column, 4-row action rail on the right.
         // Left side remains method identity + argument controls.
-        CGFloat requiredH=145.0;
+        NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+        NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+        NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+        CGFloat paramsHeight=argc?((CGFloat)argc*60.0+28.0):0.0;
+        CGFloat requiredH=145.0+paramsHeight+48.0;
         if(CGRectGetHeight(card.frame)<requiredH){
             CGFloat oldBottom=CGRectGetMaxY(card.frame);
             CGFloat delta=requiredH-CGRectGetHeight(card.frame);
@@ -13663,6 +13792,49 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         ZNM52XStyleGridButton(batch,x1,71,colW,27);
         ZNM52XStyleGridButton(direct,x0,103,colW,27);
         ZNM52XStyleGridButton(hook,x1,103,colW,27);
+
+        // Parameters are always visible below the top action rail.
+        CGFloat py=143.0;
+        if(argc){
+            UILabel *paramHeader=[self label:@"参数" size:8.9 weight:UIFontWeightSemibold color:self.theme.secondaryTextColor];
+            paramHeader.frame=CGRectMake(13,py,90,18);[card addSubview:paramHeader];py+=22.0;
+        }
+        NSMutableDictionary *argStore=ZNM613ArgumentStore(self);
+        for(NSUInteger arg=0;arg<argc;arg++){
+            NSDictionary *p=arg<params.count?params[arg]:@{};
+            NSString *type=[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?";
+            UILabel *pl=[self label:[NSString stringWithFormat:@"参数 %lu  %@",(unsigned long)arg+1,type]
+                                size:7.9 weight:UIFontWeightRegular color:self.theme.primaryTextColor];
+            pl.frame=CGRectMake(13,py,CGRectGetWidth(card.bounds)-26,16);
+            pl.lineBreakMode=NSLineBreakByTruncatingMiddle;[card addSubview:pl];py+=17.0;
+
+            UITextField *field=[[UITextField alloc]initWithFrame:CGRectMake(13,py,MAX(80.0,CGRectGetWidth(card.bounds)-26),25)];
+            NSString *storeKey=ZNM613ArgumentStoreKey(candidate,arg);
+            field.text=[argStore[storeKey] isKindOfClass:NSString.class]?argStore[storeKey]:@"";
+            field.placeholder=type;
+            field.textColor=self.theme.primaryTextColor;field.backgroundColor=self.theme.controlColor;
+            field.font=[UIFont monospacedDigitSystemFontOfSize:8.7 weight:UIFontWeightMedium];
+            field.layer.cornerRadius=6.0;field.layer.borderWidth=1.0;field.layer.borderColor=self.theme.borderColor.CGColor;
+            field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;field.returnKeyType=UIReturnKeyDone;
+            objc_setAssociatedObject(field,kZNM613ArgCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(field,kZNM613ArgIndexKey,@(arg),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [field addTarget:self action:@selector(znm613_argumentChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
+            [card addSubview:field];py+=27.0;
+
+            UILabel *autoLabel=[self label:[@"自动识别：" stringByAppendingString:ZNM613ParamAutoLabel(p)]
+                                      size:7.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+            autoLabel.frame=CGRectMake(13,py,CGRectGetWidth(card.bounds)-26,14);[card addSubview:autoLabel];py+=16.0;
+        }
+
+        NSString *directReason=nil;
+        BOOL directOK=[[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&directReason];
+        NSString *hookError=nil;NSDictionary *plan=ZNM613HookPlan(candidate,&hookError);
+        NSString *status=[NSString stringWithFormat:@"状态\nNative Hook：%@\nDirect Call：%@",
+                          plan?@"ready":(hookError?:@"unsupported"),
+                          directOK?@"ABI supported":(directReason?:@"unsupported")];
+        UILabel *statusLabel=[self label:status size:7.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        statusLabel.frame=CGRectMake(13,py+4,CGRectGetWidth(card.bounds)-26,42);statusLabel.numberOfLines=3;
+        [card addSubview:statusLabel];
     }
     [self zn40_updateContentHeight:ZN51MaxY(self.contentView)+8.0];
 }
@@ -13697,6 +13869,73 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
     }
 }
 
+- (void)znm613_argumentChanged:(UITextField *)field {
+    NSDictionary *candidate=objc_getAssociatedObject(field,kZNM613ArgCandidateKey);
+    NSNumber *index=objc_getAssociatedObject(field,kZNM613ArgIndexKey);
+    if(!candidate||!index)return;
+    ZNM613ArgumentStore(self)[ZNM613ArgumentStoreKey(candidate,index.unsignedIntegerValue)]=field.text?:@"";
+    if(field.editing==NO)[field resignFirstResponder];
+}
+
+- (void)znm613_selectRuntimeMode:(UIButton *)sender {
+    ZNM613SetModeForCard(sender.superview,@"runtime");
+}
+
+- (void)znm613_createCurrentMode:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
+    if(!candidate)return;
+    NSString *mode=objc_getAssociatedObject(sender,kZNM613CreateModeKey)?:@"runtime";
+    NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
+    NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+    while(values.count<argc){
+        NSMutableArray *m=[values mutableCopy];[m addObject:@""];values=[m copy];
+    }
+    NSString *error=nil;
+    if([mode isEqualToString:@"direct"]){
+        NSString *why=nil;
+        if(![[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&why]){
+            [self zn60v3_setStatus:why?:@"Direct Native Call ABI 不支持"];return;
+        }
+        ZNRuntimeMethodAction *created=[[ZNRuntimeActionStore sharedStore] addDirectNativeCallCandidate:candidate
+                                                                                                  title:candidate[@"method"]
+                                                                                         argumentValues:values
+                                                                                                  error:&error];
+        [self zn60v3_setStatus:created?[NSString stringWithFormat:@"已创建 Direct Native Call：%@",created.canonicalIdentity]:(error?:@"创建 Direct Native Call 失败")];
+        return;
+    }
+    if([mode isEqualToString:@"hook"]){
+        NSDictionary *plan=ZNM613HookPlan(candidate,&error);
+        if(!plan){[self zn60v3_setStatus:error?:@"Native Hook 自动方案不可用"];return;}
+        NSString *kind=plan[@"kind"];
+        ZNNativeHookAction *created=nil;
+        NSString *title=[NSString stringWithFormat:@"%@ Hook",ZNM52XString(candidate[@"method"])];
+        if([kind isEqualToString:@"complex"]){
+            NSUInteger idx=[plan[@"index"] unsignedIntegerValue];
+            NSInteger v=(idx<values.count)?MAX(1,[values[idx] integerValue]):5;
+            NSInteger max=MIN(MAX(v,20),1000);
+            created=[[ZNNativeHookStore sharedStore] addComplexStructTransformCandidate:candidate title:title argumentIndex:idx
+                                                                          codecAssembly:@"" codecNamespace:@"" codecClass:@""
+                                                                           getterMethod:@"" setterMethod:@"" min:1 max:max defaultValue:1 error:&error];
+        }else if([kind isEqualToString:@"int32"]){
+            NSUInteger idx=[plan[@"index"] unsignedIntegerValue];
+            NSInteger v=(idx<values.count)?MAX(1,[values[idx] integerValue]):5;
+            created=[[ZNNativeHookStore sharedStore] addArgScaleInt32Candidate:candidate title:title argumentIndex:idx min:1 max:MIN(MAX(v,20),1000) defaultValue:1 error:&error];
+        }else if([kind isEqualToString:@"callback"]){
+            created=[[ZNNativeHookStore sharedStore] addManagedCallbackShortCircuitCandidate:candidate title:title callbackArgumentIndex:[plan[@"index"] unsignedIntegerValue] callbackValue:YES skipOriginal:YES error:&error];
+        }else if([kind isEqualToString:@"return-bool"]){
+            created=[[ZNNativeHookStore sharedStore] addReturnBoolOverrideCandidate:candidate title:title value:YES error:&error];
+        }
+        [self zn60v3_setStatus:created?[NSString stringWithFormat:@"已创建 Native Hook：%@",created.canonicalIdentity]:(error?:@"创建 Native Hook 失败")];
+        return;
+    }
+
+    ZNRuntimeMethodAction *created=[[ZNRuntimeActionStore sharedStore] addMethodCandidate:candidate
+                                                                                    title:candidate[@"method"]
+                                                                           argumentValues:values
+                                                                                    error:&error];
+    [self zn60v3_setStatus:created?[NSString stringWithFormat:@"已创建 Runtime Method：%@",created.canonicalIdentity]:(error?:@"创建 Runtime Method 失败")];
+}
+
 - (void)znm613_applyOrRestoreHook:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
@@ -13708,16 +13947,44 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
         [self renderPage];
         return;
     }
-    // Apply uses the Native Hook resolver/config path. M6.13 resolver fix will
-    // make this fully automatic for recognized complex-struct codecs.
-    [self zn64_hookTestTapped:sender];
+
+    NSString *error=nil;NSDictionary *plan=ZNM613HookPlan(candidate,&error);
+    if(!plan){[self zn60v3_setStatus:error?:@"Native Hook 自动方案不可用"];return;}
+    NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
+    NSString *kind=plan[@"kind"];
+    BOOL ok=NO;
+    if([kind isEqualToString:@"complex"]){
+        NSUInteger idx=[plan[@"index"] unsignedIntegerValue];
+        NSInteger multiplier=(idx<values.count)?MAX(1,[values[idx] integerValue]):5;
+        ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryComplexStructTransformForCandidate:candidate
+                                                                                     argumentIndex:idx
+                                                                                      codecAssembly:@""
+                                                                                     codecNamespace:@""
+                                                                                         codecClass:@""
+                                                                                      getterMethod:@""
+                                                                                      setterMethod:@""
+                                                                                        multiplier:MIN(multiplier,1000)
+                                                                                             error:&error];
+    }else if([kind isEqualToString:@"int32"]){
+        NSUInteger idx=[plan[@"index"] unsignedIntegerValue];
+        NSInteger multiplier=(idx<values.count)?MAX(1,[values[idx] integerValue]):5;
+        ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryArgScaleInt32ForCandidate:candidate argumentIndex:idx multiplier:MIN(multiplier,1000) error:&error];
+    }else if([kind isEqualToString:@"callback"]){
+        ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryManagedCallbackShortCircuitForCandidate:candidate argumentIndex:[plan[@"index"] unsignedIntegerValue] callbackValue:YES error:&error];
+    }else if([kind isEqualToString:@"return-bool"]){
+        ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:YES error:&error];
+    }
+    [self zn60v3_setStatus:ok?[NSString stringWithFormat:@"Native Hook 已应用 · %@",kind]:(error?:@"应用 Hook 失败")];
+    [self renderPage];
 }
+
 
 - (void)zn52x_directUnavailable:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
+    ZNM613SetModeForCard(sender.superview,@"direct");
     if(!candidate){[self zn60v3_setStatus:@"Direct Native Call：candidate 为空"];return;}
     NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
-    NSArray<NSString *> *values=argc<=1?[self znm43_argumentValues:candidate]:@[];
+    NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
     NSString *reason=nil;
     if(![[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&reason]){
         [self zn60v3_setStatus:reason?:@"Direct Native Call：当前 ABI 不受支持"];
@@ -13775,82 +14042,18 @@ static NSString *ZNM52XTrace(NSDictionary *result) {
 - (void)zn64_hookTestTapped:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
-
-    NSString *argReason=nil,*callbackReason=nil,*returnReason=nil;
-    NSArray<NSNumber *> *indices=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&argReason];
-    NSArray<NSNumber *> *callbackIndices=[[ZNNativeHookRuntime sharedRuntime] supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:&callbackReason];
-    BOOL returnBool=[[ZNNativeHookRuntime sharedRuntime] supportsReturnBoolOverrideForCandidate:candidate reason:&returnReason];
-    NSString *structReason=nil;
-    NSArray<NSNumber *> *structIndices=[[ZNNativeHookRuntime sharedRuntime] supportedStructFieldArgumentIndicesForCandidate:candidate reason:&structReason];
-
-    NSUInteger templateCount=(indices.count?1:0)+(callbackIndices.count?1:0)+(returnBool?1:0)+(structIndices.count?1:0);
-    if(templateCount>1){
-        UIAlertController *templates=[UIAlertController alertControllerWithTitle:@"选择 Native Hook 模板"
-                                                                         message:@"M6.13 · Plugin + Complex Struct Codec"
-                                                                  preferredStyle:UIAlertControllerStyleActionSheet];
-        __weak typeof(self) weakSelf=self;
-        if(indices.count){
-            [templates addAction:[UIAlertAction actionWithTitle:@"ArgScaleInt32" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-                [weakSelf zn64_presentHookConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:sender];
-            }]];
-        }
-        if(callbackIndices.count){
-            [templates addAction:[UIAlertAction actionWithTitle:@"Managed Callback Short Circuit" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-                [weakSelf zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];
-            }]];
-        }
-        if(returnBool){
-            [templates addAction:[UIAlertAction actionWithTitle:@"Return Bool Override" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-                [weakSelf zn66_presentReturnBoolConfigForCandidate:candidate source:sender];
-            }]];
-        }
-        if(structIndices.count){
-            [templates addAction:[UIAlertAction actionWithTitle:@"Complex Struct Transform" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-                [weakSelf zn68_presentStructFieldPickerForCandidate:candidate indices:structIndices source:sender];
-            }]];
-        }
-        [templates addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-        UIViewController *top=ZNM52XTop(self.hostWindow);
-        if(top)[top presentViewController:templates animated:YES completion:nil];
+    ZNM613SetModeForCard(sender.superview,@"hook");
+    NSString *error=nil;
+    NSDictionary *plan=ZNM613HookPlan(candidate,&error);
+    if(!plan){
+        [self zn60v3_setStatus:error?:@"Native Hook：unsupported"];
         return;
     }
-
-    if(returnBool){[self zn66_presentReturnBoolConfigForCandidate:candidate source:sender];return;}
-    if(callbackIndices.count){[self zn65_presentManagedCallbackConfigForCandidate:candidate argumentIndex:callbackIndices.firstObject.unsignedIntegerValue source:sender];return;}
-    if(structIndices.count&&!indices.count){[self zn68_presentStructFieldPickerForCandidate:candidate indices:structIndices source:sender];return;}
-    if(!indices.count){
-        NSString *why=structReason.length?structReason:(returnReason.length?returnReason:(callbackReason.length?callbackReason:argReason));
-        [self zn60v3_setStatus:why.length?why:@"当前方法没有可用的 Native Hook 模板"];
-        return;
-    }
-    if(indices.count==1){
-        [self zn64_presentHookConfigForCandidate:candidate argumentIndex:indices.firstObject.unsignedIntegerValue source:sender];
-        return;
-    }
-
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
-    UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"选择 Hook 参数"
-                                                                   message:@"Native Hook · ArgScaleInt32"
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    __weak typeof(self) weakSelf=self;
-    for(NSNumber *n in indices){
-        NSUInteger idx=n.unsignedIntegerValue;
-        NSDictionary *param=idx<params.count?params[idx]:@{};
-        NSString *name=[param[@"paramName"] isKindOfClass:NSString.class]?param[@"paramName"]:@"";
-        NSString *type=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"int32";
-        NSString *title=name.length?[NSString stringWithFormat:@"参数%lu · %@ · %@",(unsigned long)idx+1,name,type]:
-                                    [NSString stringWithFormat:@"参数%lu · %@",(unsigned long)idx+1,type];
-        [picker addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-            [weakSelf zn64_presentHookConfigForCandidate:candidate argumentIndex:idx source:sender];
-        }]];
-    }
-    [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    UIViewController *top=ZNM52XTop(self.hostWindow);
-    if(!top)return;
-    UIPopoverPresentationController *popover=picker.popoverPresentationController;
-    if(popover){popover.sourceView=sender;popover.sourceRect=sender.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
-    [top presentViewController:picker animated:YES completion:nil];
+    NSString *kind=plan[@"kind"]?:@"?";
+    NSString *extra=[kind isEqualToString:@"complex"]
+        ? [NSString stringWithFormat:@" · %@ · %@",plan[@"type"]?:@"?",plan[@"codec"]?:@"?"]
+        : (plan[@"index"]?[NSString stringWithFormat:@" · arg%lu",(unsigned long)[plan[@"index"] unsignedIntegerValue]+1]:@"");
+    [self zn60v3_setStatus:[NSString stringWithFormat:@"Native Hook READY · %@%@",kind,extra]];
 }
 
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
