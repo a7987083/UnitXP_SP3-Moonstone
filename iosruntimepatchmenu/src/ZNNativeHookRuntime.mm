@@ -1749,7 +1749,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
 
 - (BOOL)hasLiveTestStatus {
-    return self.liveLifecycle.length>0;
+    NSString *life=self.liveLifecycle?:@"";
+    return [life isEqualToString:@"installed"]||[life isEqualToString:@"failed"];
 }
 
 - (void)clearLiveTestStatus {
@@ -1774,10 +1775,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                 target?[NSString stringWithFormat:@"0x%llX",(unsigned long long)target]:@"—",
                 self.liveError.length?self.liveError:@"未知错误"];
     }
-    if([life isEqualToString:@"restored"]){
-        return [NSString stringWithFormat:@"Hook：已恢复 ✅ · %@\nTarget：%@",
-                identity,target?[NSString stringWithFormat:@"0x%llX",(unsigned long long)target]:@"—"];
-    }
+    if([life isEqualToString:@"restored"])return @""; // page status owns restored state; later test/capture may replace it
     if([life isEqualToString:@"installed"]){
         NSString *diag=[self diagnosticsForCandidate:candidate];
         return [NSString stringWithFormat:@"%@\n模板：%@\n%@",
