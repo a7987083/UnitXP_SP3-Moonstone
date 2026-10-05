@@ -1,4 +1,4 @@
-name: Verify M6.13.1 Single Result Card + Direct/Hook
+name: Verify M6.14 Prepared Client Runtime + Direct/Hook
 
 on:
   push:
@@ -11,6 +11,7 @@ on:
       - feature/m6.12-capability-prewarm-activation-v1
       - feature/m6.13-direct-call-struct-codec-v1
       - feature/m6.13.1-single-result-card-v1
+      - feature/m6.14-prepared-client-runtime-v1
   workflow_dispatch:
 
 jobs:
@@ -106,14 +107,14 @@ jobs:
           grep -Fq 'ZNCapabilityNativeHookIdentifier' iosruntimepatchmenu/src/ZNNativeHookLifecycleBootstrap.mm
           grep -Fq 'src/ZNCapabilityRegistry.mm' iosruntimepatchmenu/Makefile
 
-      - name: Build M6.13 Direct Call + Complex Struct Codec V1
+      - name: Build M6.14 Prepared Client Runtime V1
         run: |
           set -euxo pipefail
           cd iosruntimepatchmenu
           make clean
           make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/unified-build.log
           SHORT_SHA="$(git rev-parse --short=7 HEAD)"
-          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.13_${SHORT_SHA}.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.14_${SHORT_SHA}.dylib"
           cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_single_ui_owner.dylib
 
       - name: Compare binary interface and UI contracts
@@ -143,7 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m6.13-direct-call-struct-codec-verification
+          name: m6.14-prepared-client-runtime-verification
           path: |
             /tmp/baseline-build.log
             /tmp/unified-build.log
@@ -152,5 +153,5 @@ jobs:
             /tmp/baseline-exports.txt
             /tmp/unified-exports.txt
             /tmp/ZonoePatch_single_ui_owner.dylib
-            /tmp/ZonoePatch_M6.13_*.dylib
+            /tmp/ZonoePatch_M6.14_*.dylib
           if-no-files-found: warn
