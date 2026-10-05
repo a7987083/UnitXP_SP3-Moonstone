@@ -11,6 +11,7 @@ FOUNDATION_EXPORT NSNotificationName const ZNRuntimeCapabilitySnapshotDidChangeN
 @interface ZNRuntimeCapabilitySnapshot : NSObject
 @property(nonatomic,copy,readonly) NSArray<ZNStaticPatchRecord *> *staticRecords;
 @property(nonatomic,copy,readonly) NSArray<ZNRuntimeMethodActionRecord *> *runtimeMethods;
+@property(nonatomic,copy,readonly) NSArray<ZNRuntimeMethodActionRecord *> *directNativeCalls;
 @property(nonatomic,copy,readonly) NSArray<ZNNativeHookAction *> *nativeHooks;
 @property(nonatomic,assign,readonly) uint64_t generation;
 @property(nonatomic,assign,readonly) uint32_t imageCount;
