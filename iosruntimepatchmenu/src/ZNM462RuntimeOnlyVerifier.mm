@@ -57,6 +57,21 @@ static BOOL ZNM462ArgumentVectorValid(const uint8_t *table,
     return YES;
 }
 
+static BOOL ZNM614PreparedDescriptorValid(const uint8_t *table,
+                                           const ZNRuntimeActionHeader *header,
+                                           const ZNRuntimeMethodCallEntry *entry) {
+    if(!entry || (entry->flags & ZNRuntimeActionFlagPreparedDescriptor)==0)return NO;
+    NSString *json=ZNM462ReadString(table,header,entry->reserved[0]);
+    NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *cfg=data.length?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    if(![cfg isKindOfClass:NSDictionary.class])return NO;
+    NSString *uuid=[cfg[@"preparedUUID"] isKindOfClass:NSString.class]?cfg[@"preparedUUID"]:@"";
+    return [cfg[@"prepared"] boolValue] &&
+           [cfg[@"preparedRVA"] unsignedLongLongValue]>0 &&
+           uuid.length>0 &&
+           [cfg[@"preparedStaticKnown"] boolValue];
+}
+
 static BOOL ZNM462NativeHookConfigValid(const uint8_t *table,
                                         const ZNRuntimeActionHeader *header,
                                         const ZNRuntimeMethodCallEntry *entry) {
@@ -249,13 +264,12 @@ static BOOL ZNM462VerifyPath(NSString *path,
             }
 
             if (methodLike) {
-                if (entry->argumentCount == 1 && (entry->flags & ZNRuntimeActionFlagArgument0Text) != 0 &&
-                    !ZNM462StringOffsetValid(table, header, entry->reserved[0])) {
-                    localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u argument0 string 无效", i];
+                if (!ZNM614PreparedDescriptorValid(table, header, entry)) {
+                    localError = [NSString stringWithFormat:@"M6.14 verifier：entry %u 缺少/损坏 Prepared Runtime Descriptor", i];
                     break;
                 }
                 if (!ZNM462ArgumentVectorValid(table, header, entry)) {
-                    localError = [NSString stringWithFormat:@"M6.4 verifier：entry %u 参数向量缺失/损坏", i];
+                    localError = [NSString stringWithFormat:@"M6.14 verifier：entry %u 参数向量缺失/损坏", i];
                     break;
                 }
             } else {
@@ -307,7 +321,7 @@ BOOL ZNM462VerifyRuntimeOnlyOutputs(NSArray<NSString *> *outputs,
         return NO;
     }
     if (report) {
-        *report = [NSString stringWithFormat:@"M6.4 Runtime-only Verify：%lu 个 suffixless Mach-O · %lu Runtime/Hook Actions · Static count=0 · Full Signature + action config + section bounds/RW protection 全部通过",
+        *report = [NSString stringWithFormat:@"M6.14 Runtime-only Verify：%lu 个 suffixless Mach-O · %lu Runtime/Hook Actions · Static count=0 · Full Signature + action config + section bounds/RW protection 全部通过",
                    (unsigned long)verified, (unsigned long)expectedActionCount];
     }
     [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[m6.4-runtime-only-verify] targets=%lu actions=%lu suffixless=YES PASS",
