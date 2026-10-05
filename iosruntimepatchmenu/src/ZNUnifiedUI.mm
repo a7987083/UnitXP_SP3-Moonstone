@@ -13551,17 +13551,6 @@ static NSDictionary *ZNM613HookPlan(NSDictionary *candidate,NSString **error) {
 
 static void ZNM613SetModeForCard(UIView *card,NSString *mode) {
     UIButton *create=ZNM52XButtonWithTitles(card,@[@"创建方法"]);
-        if(create){
-            objc_setAssociatedObject(create,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            if(!objc_getAssociatedObject(create,kZNM613CreateModeKey))
-                objc_setAssociatedObject(create,kZNM613CreateModeKey,@"runtime",OBJC_ASSOCIATION_COPY_NONATOMIC);
-            [create removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
-            [create addTarget:self action:@selector(znm613_createCurrentMode:) forControlEvents:UIControlEventTouchUpInside];
-        }
-        if(test){
-            objc_setAssociatedObject(test,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            [test addTarget:self action:@selector(znm613_selectRuntimeMode:) forControlEvents:UIControlEventTouchDown];
-        }
     if(create)objc_setAssociatedObject(create,kZNM613CreateModeKey,mode,OBJC_ASSOCIATION_COPY_NONATOMIC);
 }
 
@@ -16609,7 +16598,6 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     if (slot < 0) return;
     NSUInteger recordIndex = (NSUInteger)slot / ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
     NSUInteger arg = (NSUInteger)slot % ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
     NSArray<ZNRuntimeMethodActionRecord *> *records=ZNM613UnifiedRuntimeRecords();
     if (recordIndex >= records.count) return;
     ZNRuntimeMethodActionRecord *record = records[recordIndex];
@@ -16653,7 +16641,6 @@ static void ZNM582StoreValues(ZNRuntimeMethodActionRecord *record, NSArray<NSStr
     NSInteger index = sender.tag - kZNM58ExecTag;
     if (index < 0) return;
 
-    ZNRuntimeActionRuntime *runtime = [ZNRuntimeActionRuntime sharedRuntime];
     NSArray<ZNRuntimeMethodActionRecord *> *records=ZNM613UnifiedRuntimeRecords();
     if ((NSUInteger)index >= records.count) return;
     ZNRuntimeMethodActionRecord *record = records[(NSUInteger)index];
