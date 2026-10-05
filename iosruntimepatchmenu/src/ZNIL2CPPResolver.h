@@ -8,6 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 FOUNDATION_EXPORT void ZNIL2CPPPreparedExecutionPush(NSDictionary<NSString *,id> *context);
 FOUNDATION_EXPORT void ZNIL2CPPPreparedExecutionPop(void);
 FOUNDATION_EXPORT BOOL ZNIL2CPPPreparedExecutionActive(void);
+FOUNDATION_EXPORT uintptr_t ZNIL2CPPPreparedExecutionReceiver(void);
 
 @interface ZNIL2CPPResolver : NSObject
 + (instancetype)sharedResolver;
