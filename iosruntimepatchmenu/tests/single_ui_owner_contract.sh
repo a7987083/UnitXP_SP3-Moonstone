@@ -136,59 +136,26 @@ grep -q 'ZNNativeHookRegistryFind(action.actionID)' "$SRC/ZNNativeHookRuntime.mm
 grep -q 'ZNNativeHookRegistryUnbind(action.actionID)' "$SRC/ZNNativeHookRuntime.mm"
 ! grep -q 'ZNNativeResolveDescriptor(action.assembly.*removeAction' "$SRC/ZNNativeHookRuntime.mm"
 
-# M6.9 Prepared Native Hook Descriptor contract.
+# M6.14.1 Native Hook build/runtime boundary contract.
+# Build is serialization-only; startup lifecycle may resolve/bind dynamically.
 test -f "$SRC/ZNNativeHookBuildPrepare.h"
 test -f "$SRC/ZNNativeHookBuildPrepare.mm"
-grep -q 'src/ZNNativeHookBuildPrepare.mm' "$MAKEFILE"
-grep -q 'ZNBuildPrepareNativeHookDescriptorsV1' "$SRC/ZNBuildManifest.mm"
-grep -Eq 'resolutionMode":@"(prepared-rva|static-prepatch-v1)"' "$SRC/ZNRuntimeActionBuilder.mm"
-grep -q 'preparedRVA' "$SRC/ZNNativeHookAction.h"
-grep -q 'ZNNativePreparedTargetForAction' "$SRC/ZNNativeHookRuntime.mm"
-grep -q '缺少 M6.9 Prepared Descriptor' "$SRC/ZNNativeHookRuntime.mm"
-python3 - "$SRC/ZNNativeHookRuntime.mm" <<'PY'
-from pathlib import Path
-import sys
-s=Path(sys.argv[1]).read_text()
-start=s.index("- (BOOL)installAction:(ZNNativeHookAction *)action value:")
-end=s.find("// Permanent lifecycle:", start)
-if end < 0:
-    end=s.find("// M6.8.6 permanent lifecycle", start)
-assert end > start
-formal=s[start:end]
-assert "ZNNativePreparedTargetForAction" in formal
-assert "ZNNativeResolveDescriptor" not in formal
-assert "installTemporaryReturnBoolOverrideForCandidate" not in formal
-assert "installTemporaryManagedCallbackShortCircuitForCandidate" not in formal
-assert "installTemporaryStructFieldTransformForCandidate" not in formal
-PY
-
-# M6.10 Static Prepared Native Hook Backend contract.
 test -f "$SRC/ZNNativeHookStaticPrepatch.h"
 test -f "$SRC/ZNNativeHookStaticPrepatch.mm"
+grep -q 'src/ZNNativeHookBuildPrepare.mm' "$MAKEFILE"
 grep -q 'src/ZNNativeHookStaticPrepatch.mm' "$MAKEFILE"
-grep -q 'ZNBuildInstallStaticPreparedNativeHooksV1' "$SRC/ZNBuildManifest.mm"
-grep -q 'resolutionMode":@"static-prepatch-v1"' "$SRC/ZNRuntimeActionBuilder.mm"
-grep -q 'staticHookSlotRVA' "$SRC/ZNNativeHookAction.h"
-grep -q 'ZNNativeStaticPrepatchBind' "$SRC/ZNNativeHookRuntime.mm"
-grep -q '__atomic_store_n' "$SRC/ZNNativeHookRuntime.mm"
-grep -q 'ZNM610RelocationSafeFirstInstruction' "$SRC/ZNNativeHookStaticPrepatch.mm"
-grep -q 'ZNM610BranchImm26' "$SRC/ZNNativeHookStaticPrepatch.mm"
-grep -q 'ZNAdhocResignMachOAtPath' "$SRC/ZNNativeHookStaticPrepatch.mm"
-python3 - "$SRC/ZNNativeHookRuntime.mm" <<'PY'
-from pathlib import Path
-import sys
-s=Path(sys.argv[1]).read_text()
-start=s.index("- (BOOL)installAction:(ZNNativeHookAction *)action value:")
-end=s.index("// Permanent lifecycle:", start)
-formal=s[start:end]
-assert "ZNNativeStaticPrepatchBind" not in formal or "zn_installPrepared" in formal
-assert "installResolvedTarget" not in formal
-assert "ZNNativeHookBackend sharedBackend" not in formal
-assert "DobbyHook" not in formal
-assert "ZNNativeResolveDescriptor" not in formal
-PY
+! grep -q 'ZNBuildPrepareNativeHookDescriptorsV1(&hookPrepareReport' "$SRC/ZNBuildManifest.mm"
+! grep -q 'ZNBuildInstallStaticPreparedNativeHooksV1(builderOutputs' "$SRC/ZNBuildManifest.mm"
+grep -q 'resolutionMode":@"startup-resolve-v1"' "$SRC/ZNRuntimeActionBuilder.mm"
+! grep -q 'Native Hook 缺少 M6.9 Prepared Descriptor，请重新生成' "$SRC/ZNRuntimeActionBuilder.mm"
+! grep -q 'Native Hook 缺少 M6.10 Static Prepared Descriptor' "$SRC/ZNRuntimeActionBuilder.mm"
+grep -q 'ZNNativePreparedTargetForAction' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'fallback to startup resolve' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNNativePermanentBridgeBind' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'installReplacementAtAddress:target' "$SRC/ZNNativeHookRuntime.mm"
 grep -q 'if(action.staticPrepatch)' "$SRC/ZNNativeHookRuntime.mm"
 grep -q 'ZNNativeStaticPrepatchClear' "$SRC/ZNNativeHookRuntime.mm"
+grep -q 'ZNNativeResolveSecureLongCodec' "$SRC/ZNNativeHookRuntime.mm"
 
 # M6.12 Generic Capability Prewarm + Activation substrate.
 test -f "$SRC/ZNCapabilityRegistry.h"
