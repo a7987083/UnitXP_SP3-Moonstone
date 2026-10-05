@@ -109,36 +109,23 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
             if(error)*error=stringError?:@"Native Hook string pool 写入失败";return nil;
         }
 
-        if(!hook.preparedDescriptor || !hook.preparedRVA ||
-           !hook.preparedUUID.length || !hook.preparedStaticKnown){
-            if(error)*error=[NSString stringWithFormat:@"%@：Native Hook 缺少 M6.9 Prepared Descriptor，请重新生成",
-                             hook.canonicalIdentity ?: hook.methodName];
-            return nil;
-        }
-        if(!hook.staticPrepatch || !hook.staticHookSlotRVA ||
-           !hook.staticTrampolineRVA || !hook.staticCodeCaveRVA ||
-           !hook.staticDisplacedInstruction){
-            if(error)*error=[NSString stringWithFormat:@"%@：Native Hook 缺少 M6.10 Static Prepared Descriptor",
-                             hook.canonicalIdentity ?: hook.methodName];
-            return nil;
-        }
         NSMutableDictionary *config=[@{
-            @"version":@3,
+            @"version":@4,
             @"template":ZNNativeHookTemplateKey(hook.templateKind),
-            @"resolutionMode":@"static-prepatch-v1",
-            @"prepared":@YES,
-            @"preparedRVA":@(hook.preparedRVA),
-            @"preparedUUID":hook.preparedUUID?:@"",
-            @"preparedStaticKnown":@(hook.preparedStaticKnown),
-            @"preparedIsStatic":@(hook.preparedIsStatic),
-            @"preparedCodecGetterRVA":@(hook.preparedCodecGetterRVA),
-            @"preparedCodecSetterRVA":@(hook.preparedCodecSetterRVA),
-            @"staticPrepatch":@YES,
-            @"staticHookSlotRVA":@(hook.staticHookSlotRVA),
-            @"staticTrampolineRVA":@(hook.staticTrampolineRVA),
-            @"staticCodeCaveRVA":@(hook.staticCodeCaveRVA),
-            @"staticDisplacedInstruction":@(hook.staticDisplacedInstruction),
-            // Kept only for diagnostics/authoring compatibility.
+            @"resolutionMode":@"startup-resolve-v1",
+            @"prepared":@NO,
+            @"preparedRVA":@0,
+            @"preparedUUID":@"",
+            @"preparedStaticKnown":@NO,
+            @"preparedIsStatic":@NO,
+            @"preparedCodecGetterRVA":@0,
+            @"preparedCodecSetterRVA":@0,
+            @"staticPrepatch":@NO,
+            @"staticHookSlotRVA":@0,
+            @"staticTrampolineRVA":@0,
+            @"staticCodeCaveRVA":@0,
+            @"staticDisplacedInstruction":@0,
+            // Authoring hints remain diagnostics only; Build never validates them.
             @"fallbackRVA":@(hook.fallbackRVA),
             @"fallbackUUID":hook.fallbackUUID?:@""
         } mutableCopy];
