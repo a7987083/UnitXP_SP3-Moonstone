@@ -1970,9 +1970,9 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     return NO;
 }
 
-// M6.8.6 permanent lifecycle: normal feature changes mutate slot state only.
-// The fallback install is for scheduler-first startup races; UI no longer calls
-// this method directly.
+// Permanent lifecycle: normal feature changes mutate local slot state only.
+// If the scheduler has not bound the action yet, installAction performs the
+// one-time M6.10 writable-slot bind. It never patches executable memory.
 - (BOOL)setValue:(NSInteger)value forAction:(ZNNativeHookAction *)action error:(NSString **)error {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
     value=MIN(MAX(value,action.minValue),action.maxValue);
@@ -2029,7 +2029,13 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         return YES;
     }
 
-    if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:error])return NO;
+    if(action.staticPrepatch){
+        if(!ZNNativeStaticPrepatchClear(action,target,error))return NO;
+    }else{
+        // Legacy/temporary runtime hooks still use Dobby teardown. Newly
+        // generated M6.10 formal hooks never enter this branch.
+        if(![[ZNNativeHookBackend sharedBackend] destroyHookAtAddress:target error:error])return NO;
+    }
 
     switch(kind){
         case ZNNativeHookSlotKindArgScale: {
