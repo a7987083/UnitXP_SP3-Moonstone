@@ -81,12 +81,9 @@ static BOOL ZNM684RuntimeSignatureBridge(NSArray<NSString *> *builderOutputs,
 }
 
 static BOOL ZNM69PrepareRuntimeMethodProvider(NSString **error) {
-    NSString *preparedReport=nil,*preparedError=nil;
-    if(!ZNBuildPrepareRuntimeActionDescriptorsV1(&preparedReport,&preparedError)){
-        if(error)*error=preparedError?:@"Prepared Runtime descriptor 生成失败";
-        return NO;
-    }
-    (void)preparedReport;
+    // M6.14.1 boundary: Build serializes authored Runtime/Direct actions only.
+    // Runtime resolution / ABI / receiver / codec readiness belongs to client startup
+    // and must never gate binary generation.
     ZNRuntimeActionStore *store=[ZNRuntimeActionStore sharedStore];
     NSArray<ZNRuntimeMethodAction *> *actions=[store actionsSnapshot];
     for(NSUInteger actionIndex=0;actionIndex<actions.count;actionIndex++) {
