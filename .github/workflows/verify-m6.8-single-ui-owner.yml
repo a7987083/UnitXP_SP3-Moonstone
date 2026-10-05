@@ -12,6 +12,7 @@ on:
       - feature/m6.13-direct-call-struct-codec-v1
       - feature/m6.13.1-single-result-card-v1
       - feature/m6.14-prepared-client-runtime-v1
+      - fix/m6.14-build-boundary-recovery-v1
   workflow_dispatch:
 
 jobs:
