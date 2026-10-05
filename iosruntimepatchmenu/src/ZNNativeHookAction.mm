@@ -209,6 +209,12 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
            ![a.fieldArgumentMode isEqualToString:@"indirect-pointer"]||
            ![a.fieldCodec isEqualToString:@"secure-long-accessor"]||
            !a.codecClassName.length||!a.codecGetterMethod.length||!a.codecSetterMethod.length)return nil;
+    }else if(a.templateKind==ZNNativeHookTemplateComplexStructTransform){
+        if(a.fieldArgumentIndex==NSNotFound||a.fieldArgumentIndex>=a.argumentCount||
+           ![a.fieldArgumentMode isEqualToString:@"indirect-pointer"]||
+           ![a.fieldCodec isEqualToString:@"secure-long-whole-accessor"]||
+           a.fieldOffset!=0||
+           !a.codecClassName.length||!a.codecGetterMethod.length||!a.codecSetterMethod.length)return nil;
     }else{
         return nil;
     }
@@ -389,6 +395,95 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     return [a copy];
 }
 
+
+- (ZNNativeHookAction *)addComplexStructTransformCandidate:(NSDictionary<NSString *,id> *)candidate
+                                                     title:(NSString *)title
+                                             argumentIndex:(NSUInteger)argumentIndex
+                                              codecAssembly:(NSString *)codecAssembly
+                                             codecNamespace:(NSString *)codecNamespace
+                                                 codecClass:(NSString *)codecClass
+                                              getterMethod:(NSString *)getterMethod
+                                              setterMethod:(NSString *)setterMethod
+                                                        min:(NSInteger)minValue
+                                                        max:(NSInteger)maxValue
+                                               defaultValue:(NSInteger)defaultValue
+                                                      error:(NSString **)error {
+    NSString *assembly=ZNNHTrim([candidate[@"assembly"] isKindOfClass:NSString.class]?candidate[@"assembly"]:@"");
+    if(!assembly.length)assembly=@"Assembly-CSharp.dll";
+    NSString *ns=ZNNHTrim([candidate[@"namespace"] isKindOfClass:NSString.class]?candidate[@"namespace"]:@"");
+    NSString *cls=ZNNHTrim([candidate[@"class"] isKindOfClass:NSString.class]?candidate[@"class"]:@"");
+    NSString *methodName=ZNNHTrim([candidate[@"method"] isKindOfClass:NSString.class]?candidate[@"method"]:@"");
+    NSInteger argc=[candidate[@"argumentCount"] respondsToSelector:@selector(integerValue)]?[candidate[@"argumentCount"] integerValue]:-1;
+    if(!cls.length||!methodName.length||argc<=0||argumentIndex>=(NSUInteger)argc){
+        if(error)*error=@"ComplexStructTransform 方法身份/参数索引无效";
+        return nil;
+    }
+    if(minValue<1||maxValue<minValue||maxValue>1000||defaultValue<minValue||defaultValue>maxValue){
+        if(error)*error=@"倍率范围无效";
+        return nil;
+    }
+
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(![abi[@"available"] boolValue]||params.count!=(NSUInteger)argc){
+        if(error)*error=@"ComplexStructTransform 需要完整 IL2CPP 参数 ABI";
+        return nil;
+    }
+    if([abi[@"generic"] boolValue]||[abi[@"inflated"] boolValue]){
+        if(error)*error=@"ComplexStructTransform V1 不支持 generic/inflated 方法";
+        return nil;
+    }
+    NSDictionary *param=params[argumentIndex];
+    ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    BOOL eligible=(kind==ZNIL2CPPABIValueKindComplexValueType)||[param[@"byRef"] boolValue]||
+                  kind==ZNIL2CPPABIValueKindPointer||kind==ZNIL2CPPABIValueKindObjectReference;
+    if(!eligible){
+        if(error)*error=@"ComplexStructTransform 参数必须是 complex/by-ref/pointer/object";
+        return nil;
+    }
+
+    NSString *ca=ZNNHTrim(codecAssembly);if(!ca.length)ca=@"Percent.Scripting.Stdlib.dll";
+    NSString *cn=ZNNHTrim(codecNamespace),*cc=ZNNHTrim(codecClass),*cg=ZNNHTrim(getterMethod),*cs=ZNNHTrim(setterMethod);
+    if(!cc.length||!cg.length||!cs.length){
+        if(error)*error=@"Whole Struct codec 的类/getter/setter 不能为空";
+        return nil;
+    }
+
+    NSMutableArray *types=[NSMutableArray arrayWithCapacity:params.count];
+    for(NSDictionary *p in params)[types addObject:[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"?"];
+
+    ZNNativeHookAction *a=[ZNNativeHookAction new];
+    a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=methodName;a.argumentCount=(NSUInteger)argc;
+    a.parameterTypeNames=[types copy];a.signatureAvailable=YES;
+    a.templateKind=ZNNativeHookTemplateComplexStructTransform;
+    a.fieldArgumentIndex=argumentIndex;
+    a.fieldArgumentMode=@"indirect-pointer";
+    a.fieldOffset=0;
+    a.fieldCodec=@"secure-long-whole-accessor";
+    a.codecAssembly=ca;a.codecNamespaceName=cn;a.codecClassName=cc;
+    a.codecGetterMethod=cg;a.codecSetterMethod=cs;a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=1;
+    a.minValue=minValue;a.maxValue=maxValue;a.defaultValue=defaultValue;
+    a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Struct Multiplier",methodName];
+    a.featureDescription=[NSString stringWithFormat:@"Complex Struct Transform · arg%lu · decode/transform/encode · %@",
+                          (unsigned long)argumentIndex+1,a.fieldCodec];
+    a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
+
+    @synchronized(self){
+        uint32_t serial=0;BOOL collision=NO;
+        do{
+            NSString *seed=[NSString stringWithFormat:@"%@|%@|complex-struct:%lu:%@|%u",
+                            a.canonicalIdentity,a.title,(unsigned long)a.fieldArgumentIndex,a.fieldCodec,serial++];
+            a.actionID=ZNNHFNV1a32(seed);collision=NO;
+            for(ZNNativeHookAction *e in self.mutableActions)if(e.actionID==a.actionID){collision=YES;break;}
+        }while(collision);
+        [self.mutableActions addObject:a];
+        [self persist];
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook-authoring] add id=%u %@ template=%@ arg=%lu codec=%@",
+                                       a.actionID,a.canonicalIdentity,ZNNativeHookTemplateKey(a.templateKind),
+                                       (unsigned long)a.fieldArgumentIndex,a.fieldCodec]];
+    return [a copy];
+}
 
 - (ZNNativeHookAction *)addStructFieldTransformCandidate:(NSDictionary<NSString *,id> *)candidate
                                                    title:(NSString *)title
