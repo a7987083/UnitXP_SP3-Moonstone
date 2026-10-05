@@ -59,6 +59,53 @@ static BOOL ZNIL2CPPParseMagnitude(NSString *text, uint64_t *value) {
     return YES;
 }
 
+static NSString * const kZNPreparedExecutionStackKey = @"com.zonoe.m614.prepared-execution-stack";
+
+static NSMutableArray<NSDictionary<NSString *,id> *> *ZNPreparedExecutionStack(void) {
+    NSMutableDictionary *td=NSThread.currentThread.threadDictionary;
+    NSMutableArray *stack=td[kZNPreparedExecutionStackKey];
+    if(![stack isKindOfClass:NSMutableArray.class]){
+        stack=[NSMutableArray array];
+        td[kZNPreparedExecutionStackKey]=stack;
+    }
+    return stack;
+}
+
+void ZNIL2CPPPreparedExecutionPush(NSDictionary<NSString *,id> *context) {
+    if(context)[ZNPreparedExecutionStack() addObject:[context copy]];
+}
+
+void ZNIL2CPPPreparedExecutionPop(void) {
+    NSMutableArray *stack=ZNPreparedExecutionStack();
+    if(stack.count)[stack removeLastObject];
+}
+
+BOOL ZNIL2CPPPreparedExecutionActive(void) {
+    return ZNPreparedExecutionStack().count>0;
+}
+
+static NSDictionary<NSString *,id> *ZNPreparedExecutionCurrent(void) {
+    return ZNPreparedExecutionStack().lastObject;
+}
+
+static BOOL ZNPreparedExecutionMatches(NSDictionary *ctx,
+                                       NSString *assembly,
+                                       NSString *namespaceName,
+                                       NSString *className,
+                                       NSString *methodName,
+                                       NSInteger argumentCount) {
+    if(![ctx isKindOfClass:NSDictionary.class])return NO;
+    NSString *a=[ctx[@"assembly"] isKindOfClass:NSString.class]?ctx[@"assembly"]:@"";
+    NSString *n=[ctx[@"namespace"] isKindOfClass:NSString.class]?ctx[@"namespace"]:@"";
+    NSString *c=[ctx[@"class"] isKindOfClass:NSString.class]?ctx[@"class"]:@"";
+    NSString *m=[ctx[@"method"] isKindOfClass:NSString.class]?ctx[@"method"]:@"";
+    return ZNIL2CPPAssemblyMatches(a,assembly?:@"") &&
+           [n isEqualToString:namespaceName?:@""] &&
+           [c isEqualToString:className?:@""] &&
+           [m isEqualToString:methodName?:@""] &&
+           [ctx[@"argumentCount"] integerValue]==argumentCount;
+}
+
 @interface ZNIL2CPPResolver ()
 @property(nonatomic,assign,readwrite,getter=isAvailable) BOOL available;
 @property(nonatomic,copy,readwrite) NSString *unityPath;
@@ -202,6 +249,7 @@ static BOOL ZNIL2CPPParseMagnitude(NSString *text, uint64_t *value) {
 }
 
 - (void)refresh {
+    if(ZNIL2CPPPreparedExecutionActive() && self.available && self.unityPath.length)return;
     self.available = NO;
     self.lastError = @"";
     [self clearFunctions];
@@ -681,6 +729,11 @@ static BOOL ZNIL2CPPParseMagnitude(NSString *text, uint64_t *value) {
                                               className:(NSString *)className
                                                  method:(NSString *)methodName
                                           argumentCount:(NSInteger)argumentCount {
+    NSDictionary *prepared=ZNPreparedExecutionCurrent();
+    if(ZNPreparedExecutionMatches(prepared,assembly,namespaceName,className,methodName,argumentCount)){
+        NSDictionary *resolved=[prepared[@"resolved"] isKindOfClass:NSDictionary.class]?prepared[@"resolved"]:nil;
+        if(resolved.count)return resolved;
+    }
     [self refresh];
     if (!self.available) return nil;
     const void *image = [self imageForAssembly:assembly];
