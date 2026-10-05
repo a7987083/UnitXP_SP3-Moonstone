@@ -13331,6 +13331,7 @@ typedef uint32_t (*ZNM52XMethodGetFlagsFn)(const void *, uint32_t *);
 - (void)znm613_selectRuntimeMode:(UIButton *)sender;
 - (void)znm613_createCurrentMode:(UIButton *)sender;
 - (void)znm613_testRuntime:(UIButton *)sender;
+- (void)znm613_chainTapped:(UIButton *)sender;
 - (void)znm613_applyOrRestoreHook:(UIButton *)sender;
 - (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
@@ -13898,7 +13899,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         ZNRuntimeMethodAction *chainAction=nil;
         NSInteger chainIndex=ZNM52XFindChain(candidate,&chainAction);
         UIButton *chain=[self zn40_button:(chainAction?@"执行链":@"链式调用")
-                                 selector:(chainAction?@selector(zn52x_executeChainTapped:):@selector(zn51_chainTapped:))
+                                 selector:(chainAction?@selector(zn52x_executeChainTapped:):@selector(znm613_chainTapped:))
                                     frame:CGRectMake(x1,39,colW,27)];
         if(chainAction){
             objc_setAssociatedObject(chain,kZNM52XActionKey,chainAction,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -14051,6 +14052,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     BOOL runtimeOK=[ZNM54AnalyzeCandidate(candidate)[@"callable"] boolValue];
     if(!runtimeOK){
         [self zn60v3_setStatus:@"Runtime Method：当前 ABI 不支持直接执行；实例方法可长按“测试/捕获”捕获 receiver"];
+        [self renderPage];
         return;
     }
 
@@ -14058,6 +14060,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
     if(values.count!=argc){
         [self zn60v3_setStatus:@"Runtime Method：参数数量不匹配"];
+        [self renderPage];
         return;
     }
     NSString *error=nil;
@@ -14072,6 +14075,19 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     [self zn60v3_setStatus:result
         ? [NSString stringWithFormat:@"Runtime Invoke SUCCESS：%@ args=%@",ZNM52XString(candidate[@"method"]),values]
         : (error?:@"Runtime Invoke FAILED")];
+    [self renderPage];
+}
+
+- (void)znm613_chainTapped:(UIButton *)sender {
+    NSDictionary *candidate=objc_getAssociatedObject(sender,kZN51CandidateKey);
+    if(!candidate){
+        [self zn60v3_setStatus:@"链式调用：candidate 绑定丢失"];
+        [self renderPage];
+        return;
+    }
+    // Reuse the proven chain authoring backend, but the M6.13.1 result card owns
+    // the button, candidate binding and feedback path.
+    [self zn51_chainTapped:sender];
 }
 
 - (void)znm613_createCurrentMode:(UIButton *)sender {
