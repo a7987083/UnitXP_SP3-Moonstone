@@ -89,6 +89,10 @@ uintptr_t ZNIL2CPPPreparedExecutionReceiver(void) {
     return [ctx[@"receiver"] unsignedLongLongValue];
 }
 
+NSDictionary<NSString *,id> *ZNIL2CPPPreparedExecutionCurrentContext(void) {
+    return ZNPreparedExecutionStack().lastObject;
+}
+
 static NSDictionary<NSString *,id> *ZNPreparedExecutionCurrent(void) {
     return ZNPreparedExecutionStack().lastObject;
 }
