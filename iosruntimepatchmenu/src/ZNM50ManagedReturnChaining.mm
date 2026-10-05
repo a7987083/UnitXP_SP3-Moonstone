@@ -111,7 +111,7 @@ static void ZNM50CaptureManagedReturn(uintptr_t object, NSString *typeName) {
     ZNM50GCHandleFreeFn freeFn = NULL;
     BOOL injected = NO;
 
-    if (chain && action.className.length) {
+    if (chain && action.className.length && !ZNIL2CPPPreparedExecutionActive()) {
         NSString *validation = nil;
         if ([resolver znm44_validateInstanceAddress:chain
                                           assembly:action.assembly ?: @""
