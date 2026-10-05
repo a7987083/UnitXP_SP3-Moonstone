@@ -13500,6 +13500,7 @@ static BOOL ZNM613GPRKind(ZNIL2CPPABIValueKind kind) {
 
 static NSDictionary *ZNM613HookPlanFromABI(NSDictionary *candidate,NSDictionary *abi,NSString **error) {
     NSArray<NSDictionary *> *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
     NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
 
     if(![abi[@"available"] boolValue]||params.count!=argc){
@@ -13594,7 +13595,6 @@ static NSDictionary *ZNM613AnalyzeCandidate(NSDictionary *candidate) {
 
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate)?:@{};
     NSArray<NSDictionary *> *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
-    NSDictionary *ret=[abi[@"return"] isKindOfClass:NSDictionary.class]?abi[@"return"]:@{};
     NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
 
     BOOL metadataOK=[abi[@"available"] boolValue]&&params.count==argc&&argc<=ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
