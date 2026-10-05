@@ -13970,7 +13970,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         test.alpha=test.enabled?1.0:.48;
         [card addSubview:test];
         if(canCapture){
-            UILongPressGestureRecognizer *capture=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(znm47_captureLongPress:)];
+            UILongPressGestureRecognizer *capture=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(znm613_captureLongPress:)];
             capture.minimumPressDuration=.65;
             capture.cancelsTouchesInView=YES;
             objc_setAssociatedObject(capture,kZNM47CaptureCandidateKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
