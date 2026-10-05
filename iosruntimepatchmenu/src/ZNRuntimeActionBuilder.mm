@@ -101,10 +101,17 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
                              hook.canonicalIdentity ?: hook.methodName];
             return nil;
         }
+        if(!hook.staticPrepatch || !hook.staticHookSlotRVA ||
+           !hook.staticTrampolineRVA || !hook.staticCodeCaveRVA ||
+           !hook.staticDisplacedInstruction){
+            if(error)*error=[NSString stringWithFormat:@"%@：Native Hook 缺少 M6.10 Static Prepared Descriptor",
+                             hook.canonicalIdentity ?: hook.methodName];
+            return nil;
+        }
         NSMutableDictionary *config=[@{
-            @"version":@2,
+            @"version":@3,
             @"template":ZNNativeHookTemplateKey(hook.templateKind),
-            @"resolutionMode":@"prepared-rva",
+            @"resolutionMode":@"static-prepatch-v1",
             @"prepared":@YES,
             @"preparedRVA":@(hook.preparedRVA),
             @"preparedUUID":hook.preparedUUID?:@"",
@@ -112,6 +119,11 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
             @"preparedIsStatic":@(hook.preparedIsStatic),
             @"preparedCodecGetterRVA":@(hook.preparedCodecGetterRVA),
             @"preparedCodecSetterRVA":@(hook.preparedCodecSetterRVA),
+            @"staticPrepatch":@YES,
+            @"staticHookSlotRVA":@(hook.staticHookSlotRVA),
+            @"staticTrampolineRVA":@(hook.staticTrampolineRVA),
+            @"staticCodeCaveRVA":@(hook.staticCodeCaveRVA),
+            @"staticDisplacedInstruction":@(hook.staticDisplacedInstruction),
             // Kept only for diagnostics/authoring compatibility.
             @"fallbackRVA":@(hook.fallbackRVA),
             @"fallbackUUID":hook.fallbackUUID?:@""
@@ -199,6 +211,11 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
                                @"preparedIsStatic":@(hook.preparedIsStatic),
                                @"preparedCodecGetterRVA":@(hook.preparedCodecGetterRVA),
                                @"preparedCodecSetterRVA":@(hook.preparedCodecSetterRVA),
+                               @"staticPrepatch":@(hook.staticPrepatch),
+                               @"staticHookSlotRVA":@(hook.staticHookSlotRVA),
+                               @"staticTrampolineRVA":@(hook.staticTrampolineRVA),
+                               @"staticCodeCaveRVA":@(hook.staticCodeCaveRVA),
+                               @"staticDisplacedInstruction":@(hook.staticDisplacedInstruction),
                                @"fallbackRVA":@(hook.fallbackRVA),@"fallbackUUID":hook.fallbackUUID?:@""}];
     }
     object[@"nativeHook"]=@{@"format":@"com.zonoe.native-hook/v1",@"engine":@"Dobby",@"count":@(hooks.count),@"actions":hookItems};
