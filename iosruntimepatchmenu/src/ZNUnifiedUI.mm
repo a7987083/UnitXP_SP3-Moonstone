@@ -11711,6 +11711,8 @@ extern "C" void ZNInstallM47VersionUIDeferred(void) {
 #import "ZNRuntimeActionRuntime.h"
 #import "ZNRuntimeActionModel.h"
 #import "ZNIL2CPPInvokeEngine.h"
+#import "ZNCapabilityRegistry.h"
+#import "ZNBuiltInCapabilityAdapters.h"
 #import "ZNTheme.h"
 #import "ZNPatchCore.h"
 
