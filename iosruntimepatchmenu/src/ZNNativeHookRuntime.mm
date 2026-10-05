@@ -973,10 +973,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                           ![fieldCodec isEqualToString:@"secure-long-accessor"]||fieldOffset>0x100000ULL||
                           !codecClass.length||!codecGetter.length||!codecSetter.length||
                           min<1||max<min||def<min||def>max))continue;
-        if(isComplexStruct&&(fieldArg>=entry->argumentCount||![fieldMode isEqualToString:@"indirect-pointer"]||
-                            ![fieldCodec isEqualToString:@"secure-long-whole-accessor"]||fieldOffset!=0||
-                            !codecClass.length||!codecGetter.length||!codecSetter.length||
-                            min<1||max<min||def<min||def>max))continue;
+        if(isComplexStruct){
+            NSString *expectedCodec=ZNComplexStructCodecKeyForManagedType(codecClass);
+            if(fieldArg>=entry->argumentCount||![fieldMode isEqualToString:@"indirect-pointer"]||
+               !fieldCodec.length||![expectedCodec isEqualToString:fieldCodec]||fieldOffset!=0||
+               !codecClass.length||min<1||max<min||def<min||def>max)continue;
+        }
 
         NSArray *types=@[];BOOL sig=NO;
         if(entry->flags&ZNRuntimeActionFlagParameterSignature){
@@ -1006,7 +1008,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             a.fieldArgumentIndex=fieldArg;a.fieldArgumentMode=fieldMode;a.fieldOffset=fieldOffset;
             a.fieldCodec=fieldCodec;a.codecAssembly=codecAssembly;a.codecNamespaceName=codecNamespace;
             a.codecClassName=codecClass;a.codecGetterMethod=codecGetter;a.codecSetterMethod=codecSetter;
-            a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=1;
+            a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=isComplexStruct?0:1;
             a.minValue=min;a.maxValue=max;a.defaultValue=def;
         }
         NSString *resolutionMode=[cfg[@"resolutionMode"] isKindOfClass:NSString.class]?cfg[@"resolutionMode"]:@"";
@@ -1967,17 +1969,45 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                       target:(uintptr_t)target
                                        value:(NSInteger)value
                                        error:(NSString **)error {
-    if(!action.preparedCodecGetterRVA||!action.preparedCodecSetterRVA){
-        if(error)*error=@"StructField Prepared Descriptor 缺少 codec RVA";
-        return NO;
+    BOOL whole=action.templateKind==ZNNativeHookTemplateComplexStructTransform;
+    uintptr_t fn0=0,fn1=0,fn2=0,fn3=0;
+    uintptr_t mi0=0,mi1=0,mi2=0,mi3=0;
+    uint32_t codecVariant=0;
+    uintptr_t transform=0;
+
+    if(whole){
+        NSDictionary *codec=[[ZNComplexStructCodecResolver sharedResolver] resolveManagedType:action.codecClassName error:error];
+        if(!codec)return NO;
+        if(![codec[@"codecKey"] isEqualToString:action.fieldCodec]){
+            if(error)*error=[NSString stringWithFormat:@"Prepared Complex Struct Codec 类型不匹配：%@ / %@",
+                             action.codecClassName?:@"?",action.fieldCodec?:@"?"];
+            return NO;
+        }
+        fn0=[codec[@"function0"] unsignedLongLongValue];
+        fn1=[codec[@"function1"] unsignedLongLongValue];
+        fn2=[codec[@"function2"] unsignedLongLongValue];
+        fn3=[codec[@"function3"] unsignedLongLongValue];
+        mi0=[codec[@"methodInfo0"] unsignedLongLongValue];
+        mi1=[codec[@"methodInfo1"] unsignedLongLongValue];
+        mi2=[codec[@"methodInfo2"] unsignedLongLongValue];
+        mi3=[codec[@"methodInfo3"] unsignedLongLongValue];
+        codecVariant=[codec[@"variant"] unsignedIntValue];
+        NSValue *tv=[[ZNComplexStructCodecRegistry sharedRegistry] transformValueForCodecKey:action.fieldCodec];
+        transform=(uintptr_t)tv.pointerValue;
+        if(!transform){if(error)*error=@"Prepared Complex Struct codec 未注册";return NO;}
+    }else{
+        if(!action.preparedCodecGetterRVA||!action.preparedCodecSetterRVA){
+            if(error)*error=@"StructField Prepared Descriptor 缺少 codec RVA";
+            return NO;
+        }
+        if(action.preparedCodecGetterRVA>UINTPTR_MAX-base||
+           action.preparedCodecSetterRVA>UINTPTR_MAX-base){
+            if(error)*error=@"StructField codec RVA 地址溢出";
+            return NO;
+        }
+        fn0=base+(uintptr_t)action.preparedCodecGetterRVA;
+        fn1=base+(uintptr_t)action.preparedCodecSetterRVA;
     }
-    if(action.preparedCodecGetterRVA>UINTPTR_MAX-base||
-       action.preparedCodecSetterRVA>UINTPTR_MAX-base){
-        if(error)*error=@"StructField codec RVA 地址溢出";
-        return NO;
-    }
-    uintptr_t getter=base+(uintptr_t)action.preparedCodecGetterRVA;
-    uintptr_t setter=base+(uintptr_t)action.preparedCodecSetterRVA;
 
     uint32_t reg=0;
     if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
@@ -1999,8 +2029,16 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
            existing->fieldOffset.load(std::memory_order_relaxed)!=action.fieldOffset){
             if(error)*error=@"Prepared StructField 配置与已安装 Hook 不一致";return NO;
         }
-        existing->getter.store(getter,std::memory_order_release);
-        existing->setter.store(setter,std::memory_order_release);
+        existing->getter.store(fn0,std::memory_order_release);
+        existing->setter.store(fn1,std::memory_order_release);
+        existing->function2.store(fn2,std::memory_order_release);
+        existing->function3.store(fn3,std::memory_order_release);
+        existing->methodInfo0.store(mi0,std::memory_order_release);
+        existing->methodInfo1.store(mi1,std::memory_order_release);
+        existing->methodInfo2.store(mi2,std::memory_order_release);
+        existing->methodInfo3.store(mi3,std::memory_order_release);
+        existing->codecVariant.store(codecVariant,std::memory_order_release);
+        existing->codecTransform.store(transform,std::memory_order_release);
         existing->multiplier.store((int32_t)value,std::memory_order_release);
         existing->enabled.store(value!=1?1u:0u,std::memory_order_release);
         existing->actionID.store(action.actionID,std::memory_order_release);
@@ -2014,8 +2052,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     ZNStructFieldSlot *slot=ZNStructFieldFreeSlot();
     if(!slot){if(error)*error=@"StructFieldTransform Hook slot 已满";return NO;}
     NSUInteger slotIndex=(NSUInteger)(slot-gZNStructFieldSlots);
-    slot->getter.store(getter,std::memory_order_relaxed);
-    slot->setter.store(setter,std::memory_order_relaxed);
+    slot->getter.store(fn0,std::memory_order_relaxed);
+    slot->setter.store(fn1,std::memory_order_relaxed);
+    slot->function2.store(fn2,std::memory_order_relaxed);
+    slot->function3.store(fn3,std::memory_order_relaxed);
+    slot->methodInfo0.store(mi0,std::memory_order_relaxed);
+    slot->methodInfo1.store(mi1,std::memory_order_relaxed);
+    slot->methodInfo2.store(mi2,std::memory_order_relaxed);
+    slot->methodInfo3.store(mi3,std::memory_order_relaxed);
+    slot->codecVariant.store(codecVariant,std::memory_order_relaxed);
     slot->multiplier.store((int32_t)value,std::memory_order_relaxed);
     slot->enabled.store(value!=1?1u:0u,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
@@ -2026,12 +2071,6 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     slot->lastField.store(0,std::memory_order_relaxed);
     slot->argumentRegister.store(reg,std::memory_order_relaxed);
     slot->fieldOffset.store(action.fieldOffset,std::memory_order_relaxed);
-    uintptr_t transform=0;
-    if(action.templateKind==ZNNativeHookTemplateComplexStructTransform){
-        NSValue *tv=[[ZNComplexStructCodecRegistry sharedRegistry] transformValueForCodecKey:action.fieldCodec];
-        transform=(uintptr_t)tv.pointerValue;
-        if(!transform){slot->target.store(0,std::memory_order_release);if(error)*error=@"Prepared Complex Struct codec 未注册";return NO;}
-    }
     slot->codecTransform.store(transform,std::memory_order_relaxed);
     slot->actionID.store(action.actionID,std::memory_order_relaxed);
     slot->original.store(0,std::memory_order_relaxed);
