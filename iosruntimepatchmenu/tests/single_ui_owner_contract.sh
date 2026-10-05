@@ -276,6 +276,26 @@ assert 'zn40_button:@"Native Call"' in block
 assert 'zn40_button:@"Native Hook"' in block
 assert 'zn40_button:@"创建方法"' in block
 assert "ZNM613ApplyModeVisual" in block
+assert "ZNM613AnalyzeCandidate(candidate)" in block
+assert "sharedResolver] refresh" not in block
+assert "ZNM52XMethodIsInstance" not in block
+assert "@selector(znm47_captureLongPress:)" not in block
+assert "@selector(zn51_chainTapped:)" not in block
+assert "@selector(znm613_captureLongPress:)" in block
+assert "@selector(znm613_chainTapped:)" in block
+assert "liveHookText.length?" not in block
+PY
+
+python3 - "$UI" <<'PY'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+chain=s[s.index("- (void)znm613_chainTapped:"):s.index("- (void)znm613_createCurrentMode:")]
+capture=s[s.index("- (void)znm613_captureLongPress:"):s.index("- (void)znm613_createCurrentMode:")]
+assert "[self zn51_chainTapped:" not in chain
+assert "[self znm47_captureLongPress:" not in capture
+assert "ZNM47StartReceiverCapture" in capture
+assert "ZNRuntimeActionStore sharedStore" in chain
 PY
 
 echo "single UI owner + M6.8.6 Lifecycle + M6.9 Prepared + M6.10 Static Prepatch + M6.11 Instant Menu + M6.12 Capability substrate + M6.13 Plugin/Struct Codec + M6.13.1 Result Card single-owner contract: OK"
