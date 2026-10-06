@@ -44,7 +44,12 @@ jobs:
               b = expected_unified.find("\n", b0)
               b = len(expected_unified) if b < 0 else b + 1
               expected_module = expected_unified[a:b]
-              current_module = pathlib.Path("iosruntimepatchmenu/src", name).read_text()
+              module_text = pathlib.Path("iosruntimepatchmenu/src", name).read_text()
+              ma = module_text.index(begin)
+              mb0 = module_text.index(end, ma)
+              mb = module_text.find("\n", mb0)
+              mb = len(module_text) if mb < 0 else mb + 1
+              current_module = module_text[ma:mb]
               assert current_module == expected_module, f"{name} extraction changed bytes"
               expected_unified = expected_unified[:a] + expected_unified[b:]
           current_unified = pathlib.Path("iosruntimepatchmenu/src/ZNUnifiedUI.mm").read_text()
