@@ -3,7 +3,10 @@ import argparse, collections, hashlib, json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "iosruntimepatchmenu/src/ZNUnifiedUI.mm"
-SPLIT_MODULES = [ROOT / "iosruntimepatchmenu/src/ZNRangeControl.mm"]
+SPLIT_MODULES = [
+    ROOT / "iosruntimepatchmenu/src/ZNRangeControl.mm",
+    ROOT / "iosruntimepatchmenu/src/ZNM55StaticTypedBinding.mm",
+]
 BASELINE = ROOT / "iosruntimepatchmenu/tests/znunifiedui_topology_baseline.json"
 
 def collect(text: str):
