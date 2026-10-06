@@ -12,6 +12,7 @@ on:
       - feature/m6.13-direct-call-struct-codec-v1
       - feature/m6.13.1-single-result-card-v1
       - refactor/m6.13.3-znunifiedui-audit-v1
+      - fix/m6.13.4-arm64-relocation-widening-v1
       - feature/m6.13.3-runtime-argument-marshalling-v1
   workflow_dispatch:
 
