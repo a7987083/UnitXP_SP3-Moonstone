@@ -29,6 +29,9 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 @property(nonatomic,copy) NSString *namespaceName;
 @property(nonatomic,copy) NSString *className;
 @property(nonatomic,copy) NSString *methodName;
+// Authored UnityFramework RVA. Direct Native Call uses this as its primary
+// execution identity; name/signature are metadata/ABI validation only.
+@property(nonatomic,assign) uint64_t methodRVA;
 @property(nonatomic,assign) NSUInteger argumentCount;
 @property(nonatomic,copy) NSArray<NSString *> *argumentValues;
 // M4.6: full managed parameter-type identity. Empty + signatureAvailable=YES
