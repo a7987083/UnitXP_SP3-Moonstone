@@ -34,6 +34,7 @@ jobs:
               "ZNRangeControl.mm",
               "ZNM55StaticTypedBinding.mm",
               "ZNM56StaticValueCellBinding.mm",
+              "ZNDeferredBootstrap.mm",
           ]
           expected_unified = baseline
           for name in modules:
