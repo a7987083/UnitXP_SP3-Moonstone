@@ -1,0 +1,37 @@
+name: Verify M6.13.3 ZNUnifiedUI topology baseline
+
+on:
+  push:
+    branches:
+      - refactor/m6.13.3-znunifiedui-audit-v1
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify frozen UI/swizzle topology
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/znui-audit
+          python3 iosruntimepatchmenu/tests/znunifiedui_topology_audit.py \
+            --report /tmp/znui-audit/ZNUnifiedUI_topology_report.json
+      - name: Verify stable Runtime/Native source files are untouched by stage-1 audit
+        run: |
+          set -euo pipefail
+          git diff --exit-code ceabd64e74898a50d329c3dec168f07c87d6c96e -- \
+            iosruntimepatchmenu/src/ZNUnifiedUI.mm \
+            iosruntimepatchmenu/src/ZNNativeHookRuntime.mm \
+            iosruntimepatchmenu/src/ZNNativeHookScheduler.mm \
+            iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm \
+            iosruntimepatchmenu/src/ZNM47MultiArgInvoke.mm
+      - name: Upload topology report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m6.13.3-znunifiedui-topology-baseline
+          path: /tmp/znui-audit/ZNUnifiedUI_topology_report.json
+          if-no-files-found: warn
