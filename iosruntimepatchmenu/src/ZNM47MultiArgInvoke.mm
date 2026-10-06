@@ -6,6 +6,7 @@
 #import <ctype.h>
 
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNRuntimeArgumentMarshaller.h"
 #import "ZNIL2CPPInstanceResolver.h"
 #import "ZNIL2CPPInstanceSelectionV2.h"
 #import "ZNIL2CPPInvokeEngine.h"
@@ -213,6 +214,7 @@ static void *ZNM47InstanceForAction(ZNRuntimeMethodAction *action, NSString **di
     double f64[ZN_RUNTIME_ACTION_MAX_ARGUMENTS] = {};
     float structValues[ZN_RUNTIME_ACTION_MAX_ARGUMENTS][4] = {};
     void *managedStrings[ZN_RUNTIME_ACTION_MAX_ARGUMENTS] = {};
+    NSMutableArray<NSMutableData *> *encodedValueTypes = [NSMutableArray array];
     NSMutableArray<NSString *> *types = [NSMutableArray arrayWithCapacity:n];
 
     for (NSUInteger i = 0; i < n; i++) {
@@ -259,11 +261,26 @@ static void *ZNM47InstanceForAction(ZNRuntimeMethodAction *action, NSString **di
                 params[i] = &f64[i]; break;
             case ZNIL2CPPABIValueKindComplexValueType: {
                 NSUInteger components = ZNM47StructComponents(type);
-                if (!components || !ZNM47ParseComponents(text, components, structValues[i])) {
-                    if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT_TYPE：参数%lu %@ 暂不支持或分量格式无效", (unsigned long)i + 1, type];
+                if (components && ZNM47ParseComponents(text, components, structValues[i])) {
+                    params[i] = structValues[i];
+                    break;
+                }
+                // Unknown value types are delegated to the shared marshaller.
+                // No guessing: payload size is verified against IL2CPP class metadata.
+                NSString *codecError = nil;
+                NSMutableData *payload = [ZNRuntimeArgumentMarshaller encodeValueTypeParameterForMethod:methodInfo
+                                                                                                 index:i
+                                                                                                  type:type
+                                                                                                 input:text
+                                                                                                 error:&codecError];
+                if (!payload) {
+                    if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT_TYPE：参数%lu %@：%@",
+                                        (unsigned long)i + 1, type, codecError ?: @"没有匹配的 Codec"];
                     return nil;
                 }
-                params[i] = structValues[i]; break;
+                [encodedValueTypes addObject:payload]; // retain through runtime_invoke
+                params[i] = payload.mutableBytes;
+                break;
             }
             case ZNIL2CPPABIValueKindObjectReference:
                 if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT_TYPE：参数%lu 对象类型 %@ 暂不支持（String 除外）", (unsigned long)i + 1, type];
