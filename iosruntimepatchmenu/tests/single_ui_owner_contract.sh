@@ -33,6 +33,7 @@ grep -q '@implementation ZNM55StaticTypedBinder' "$SRC/ZNM55StaticTypedBinding.m
 test -f "$SRC/ZNM56StaticValueCellBinding.mm"
 grep -q 'src/ZNM56StaticValueCellBinding.mm' "$MAKEFILE"
 ! grep -q 'BEGIN ZNM56StaticValueCellBinding.mm' "$UI"
+grep -q '@interface ZNM56StaticValueCellBinder : NSObject' "$SRC/ZNM56StaticValueCellBinding.mm"
 grep -q '@implementation ZNM56StaticValueCellBinder' "$SRC/ZNM56StaticValueCellBinding.mm"
 ! grep -q '@implementation ZNM56StaticValueCellBinder' "$UI"
 
