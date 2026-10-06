@@ -91,6 +91,10 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
     if ([param[@"pointer"] boolValue]) return @"pointer 参数暂不支持";
     NSString *typeName = param[@"name"] ?: @"?";
     if (ZNInvokeIsStringType(typeName)) return nil;
+    // ObscuredInt is a managed value-type struct, never an ABI-equivalent int32.
+    // Its registered codec belongs to Native Hook ComplexStructTransform, not Runtime Call.
+    if ([typeName isEqualToString:@"CodeStage.AntiCheat.ObscuredTypes.ObscuredInt"])
+        return @"ObscuredInt 不能通过普通 Runtime Call 传入 int32；请选择 IL2CPP Native Hook / ComplexStructTransform (ObscuredInt Codec)";
     ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
     switch (kind) {
         case ZNIL2CPPABIValueKindBool:
