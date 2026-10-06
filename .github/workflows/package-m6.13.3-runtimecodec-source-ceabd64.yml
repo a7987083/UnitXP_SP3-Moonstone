@@ -1,0 +1,29 @@
+name: Package M6.13.3 RuntimeCodec source ceabd64
+on:
+  push:
+    branches:
+      - ci/package-m6.13.3-runtimecodec-source-ceabd64
+  workflow_dispatch:
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive exact verified baseline source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e ceabd64e74898a50d329c3dec168f07c87d6c96e^{commit}
+          mkdir -p dist
+          git archive --format=zip --prefix=UnitXP_SP3-Moonstone_M6.13.3_RuntimeCodec_ceabd64/             -o dist/M6.13.3_RuntimeCodec_ceabd64_Source.zip             ceabd64e74898a50d329c3dec168f07c87d6c96e
+          unzip -t dist/M6.13.3_RuntimeCodec_ceabd64_Source.zip | tail -n 1
+          sha256sum dist/M6.13.3_RuntimeCodec_ceabd64_Source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: M6.13.3_RuntimeCodec_ceabd64_Source
+          path: dist/M6.13.3_RuntimeCodec_ceabd64_Source.zip
+          if-no-files-found: error
