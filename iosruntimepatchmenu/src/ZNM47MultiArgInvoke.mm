@@ -158,6 +158,9 @@ static void *ZNM47InstanceForAction(ZNRuntimeMethodAction *action, NSString **di
 @implementation ZNIL2CPPInvokeEngine (ZNM47MultiArgInvoke)
 
 - (NSDictionary<NSString *,id> *)znm47_executeAction:(ZNRuntimeMethodAction *)action error:(NSString **)error {
+    // Generated-client calls already carry a startup-prepared resolved/ABI/receiver
+    // context. Bypass the historical M4.7 live resolver path entirely.
+    if (ZNIL2CPPPreparedExecutionActive()) return [self znm47_executeAction:action error:error];
     if (!action || action.argumentCount < 2) return [self znm47_executeAction:action error:error];
     if (action.argumentCount > ZN_RUNTIME_ACTION_MAX_ARGUMENTS) {
         if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT：M4.7 最多 %u 个参数", ZN_RUNTIME_ACTION_MAX_ARGUMENTS];
