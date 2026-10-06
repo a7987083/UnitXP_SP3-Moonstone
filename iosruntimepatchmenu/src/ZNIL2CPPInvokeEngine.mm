@@ -204,80 +204,110 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
         return nil;
     }
 
-    ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
-    [resolver refresh];
-    if (!resolver.isAvailable) {
-        if (error) *error = [NSString stringWithFormat:@"FAILED_RESOLVE：%@", resolver.lastError ?: @"IL2CPP Resolver unavailable"];
+    BOOL preparedExecution=ZNIL2CPPPreparedExecutionActive();
+    NSDictionary *preparedContext=preparedExecution?ZNIL2CPPPreparedExecutionCurrentContext():nil;
+    ZNIL2CPPResolver *resolver=nil;
+    NSDictionary *resolved=nil;
+    NSDictionary *preparedABI=nil;
+    ZNRuntimeInvokeFn runtimeInvoke=NULL;
+    uint32_t implFlags=0;
+    uint32_t methodFlags=0;
+    BOOL isStatic=NO;
+    void *targetObject=NULL;
+    NSString *instanceDiagnostics=@"";
+
+    if(preparedExecution){
+        if(![preparedContext isKindOfClass:NSDictionary.class]){
+            if(error)*error=@"FAILED_PREPARED_CONTEXT：Prepared Call context 缺失";
+            return nil;
+        }
+        BOOL identityOK=
+            [(preparedContext[@"assembly"]?:@"") isEqualToString:assembly?:@""] &&
+            [(preparedContext[@"namespace"]?:@"") isEqualToString:namespaceName?:@""] &&
+            [(preparedContext[@"class"]?:@"") isEqualToString:className?:@""] &&
+            [(preparedContext[@"method"]?:@"") isEqualToString:methodName?:@""] &&
+            [preparedContext[@"argumentCount"] unsignedIntegerValue]==argumentCount;
+        if(!identityOK){
+            if(error)*error=@"FAILED_PREPARED_CONTEXT：Prepared Call identity 不匹配";
+            return nil;
+        }
+        resolved=[preparedContext[@"resolved"] isKindOfClass:NSDictionary.class]?preparedContext[@"resolved"]:nil;
+        preparedABI=[preparedContext[@"abi"] isKindOfClass:NSDictionary.class]?preparedContext[@"abi"]:nil;
+        runtimeInvoke=(ZNRuntimeInvokeFn)[preparedContext[@"runtimeInvoke"] unsignedLongLongValue];
+        methodFlags=[preparedContext[@"methodFlags"] unsignedIntValue];
+        implFlags=[preparedContext[@"implFlags"] unsignedIntValue];
+        isStatic=[preparedContext[@"static"] boolValue];
+
+        uintptr_t preparedReceiver=[preparedContext[@"receiver"] unsignedLongLongValue];
+        if(!isStatic&&!preparedReceiver){
+            if(error)*error=@"FAILED_PREPARED_RECEIVER：receiver 尚未由启动期后台绑定";
+            return nil;
+        }
+        targetObject=isStatic?NULL:(void *)preparedReceiver;
+        instanceDiagnostics=isStatic?@"prepared-static":@"prepared-receiver";
+    }else{
+        resolver=[ZNIL2CPPResolver sharedResolver];
+        [resolver refresh];
+        if(!resolver.isAvailable){
+            if(error)*error=[NSString stringWithFormat:@"FAILED_RESOLVE：%@",resolver.lastError?:@"IL2CPP Resolver unavailable"];
+            return nil;
+        }
+        resolved=[resolver resolveMethodAssembly:assembly
+                                       namespace:namespaceName?:@""
+                                       className:className
+                                          method:methodName
+                                   argumentCount:(NSInteger)argumentCount];
+        runtimeInvoke=(ZNRuntimeInvokeFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_runtime_invoke");
+        if(!runtimeInvoke){
+            if(error)*error=@"FAILED_INVOKE_UNAVAILABLE：il2cpp_runtime_invoke 未导出";
+            return nil;
+        }
+    }
+
+    uintptr_t methodInfo=[resolved[@"methodInfo"] unsignedLongLongValue];
+    if(!resolved||!methodInfo){
+        if(error)*error=preparedExecution
+            ? @"FAILED_PREPARED_CONTEXT：Prepared Call methodInfo 缺失"
+            : [NSString stringWithFormat:@"FAILED_RESOLVE：%@!%@.%@::%@/%lu",
+               assembly?:@"",namespaceName?:@"",className?:@"",methodName?:@"",(unsigned long)argumentCount];
         return nil;
     }
 
-    NSDictionary *resolved = [resolver resolveMethodAssembly:assembly
-                                                   namespace:namespaceName ?: @""
-                                                   className:className
-                                                      method:methodName
-                                               argumentCount:(NSInteger)argumentCount];
-    uintptr_t methodInfo = [resolved[@"methodInfo"] unsignedLongLongValue];
-    if (!resolved || !methodInfo) {
-        if (error) *error = [NSString stringWithFormat:@"FAILED_RESOLVE：%@!%@.%@::%@/%lu",
-                             assembly ?: @"",
-                             namespaceName ?: @"",
-                             className ?: @"",
-                             methodName ?: @"",
-                             (unsigned long)argumentCount];
-        return nil;
-    }
-
-    ZNRuntimeInvokeFn runtimeInvoke = (ZNRuntimeInvokeFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_runtime_invoke");
-    if (!runtimeInvoke) {
-        if (error) *error = @"FAILED_INVOKE_UNAVAILABLE：il2cpp_runtime_invoke 未导出";
-        return nil;
-    }
-
-    ZNMethodGetFlagsFn methodGetFlags = (ZNMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_method_get_flags");
-    if (!methodGetFlags) {
-        if (error) *error = @"FAILED_STATIC_STATE_UNAVAILABLE：无法确认方法 static/instance 属性";
-        return nil;
-    }
-
-    uint32_t implFlags = 0;
-    uint32_t methodFlags = methodGetFlags((const void *)methodInfo, &implFlags);
-    BOOL isStatic = (methodFlags & kZNMethodAttributeStatic) != 0;
-    void *targetObject = NULL;
-    NSString *instanceDiagnostics = @"";
-    if (!isStatic) {
-        if (ZNIL2CPPPreparedExecutionActive()) {
-            uintptr_t preparedReceiver=ZNIL2CPPPreparedExecutionReceiver();
-            if(!preparedReceiver){
-                if(error)*error=@"FAILED_PREPARED_RECEIVER：Generated Client 禁止点击时动态解析 receiver";
-                return nil;
-            }
-            targetObject=(void *)preparedReceiver;
-            instanceDiagnostics=@"prepared-receiver";
-        } else if (gZNExplicitReceiverOverride) {
-            NSString *validationError = nil;
-            BOOL valid = [[ZNIL2CPPInstanceResolver sharedResolver]
-                znm44_validateInstanceAddress:gZNExplicitReceiverOverride
-                                     assembly:assembly
-                                    namespace:namespaceName ?: @""
-                                    className:className
-                                        error:&validationError];
-            if (!valid) {
-                if (error) *error = validationError ?: @"FAILED_EXPLICIT_RECEIVER：receiver 验证失败";
-                return nil;
-            }
-            targetObject = (void *)gZNExplicitReceiverOverride;
-            instanceDiagnostics = [NSString stringWithFormat:@"explicit-receiver 0x%llX",
-                                   (unsigned long long)gZNExplicitReceiverOverride];
-        } else {
-            NSString *instanceError = nil;
-            targetObject = [[ZNIL2CPPInstanceResolver sharedResolver] resolveUniqueInstanceForAssembly:assembly
-                                                                                            namespace:namespaceName ?: @""
-                                                                                            className:className
-                                                                                          diagnostics:&instanceDiagnostics
-                                                                                                error:&instanceError];
-            if (!targetObject) {
-                if (error) *error = instanceError ?: @"FAILED_INSTANCE_REQUIRED：无法解析对象实例";
-                return nil;
+    if(!preparedExecution){
+        ZNMethodGetFlagsFn methodGetFlags=(ZNMethodGetFlagsFn)ZNIL2CPPResolveSymbol(resolver.unityPath,"il2cpp_method_get_flags");
+        if(!methodGetFlags){
+            if(error)*error=@"FAILED_STATIC_STATE_UNAVAILABLE：无法确认方法 static/instance 属性";
+            return nil;
+        }
+        methodFlags=methodGetFlags((const void *)methodInfo,&implFlags);
+        isStatic=(methodFlags&kZNMethodAttributeStatic)!=0;
+        if(!isStatic){
+            if(gZNExplicitReceiverOverride){
+                NSString *validationError=nil;
+                BOOL valid=[[ZNIL2CPPInstanceResolver sharedResolver]
+                    znm44_validateInstanceAddress:gZNExplicitReceiverOverride
+                                         assembly:assembly
+                                        namespace:namespaceName?:@""
+                                        className:className
+                                            error:&validationError];
+                if(!valid){
+                    if(error)*error=validationError?:@"FAILED_EXPLICIT_RECEIVER：receiver 验证失败";
+                    return nil;
+                }
+                targetObject=(void *)gZNExplicitReceiverOverride;
+                instanceDiagnostics=[NSString stringWithFormat:@"explicit-receiver 0x%llX",
+                                     (unsigned long long)gZNExplicitReceiverOverride];
+            }else{
+                NSString *instanceError=nil;
+                targetObject=[[ZNIL2CPPInstanceResolver sharedResolver] resolveUniqueInstanceForAssembly:assembly
+                                                                                              namespace:namespaceName?:@""
+                                                                                              className:className
+                                                                                            diagnostics:&instanceDiagnostics
+                                                                                                  error:&instanceError];
+                if(!targetObject){
+                    if(error)*error=instanceError?:@"FAILED_INSTANCE_REQUIRED：无法解析对象实例";
+                    return nil;
+                }
             }
         }
     }
@@ -302,7 +332,7 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
                                     methodName ?: @"",
                                     (unsigned long)argumentCount];
 
-        NSDictionary *abi = ZNIL2CPPDescribeMethodABI(candidate);
+        NSDictionary *abi = preparedExecution ? (preparedABI ?: @{}) : ZNIL2CPPDescribeMethodABI(candidate);
         if (![abi[@"available"] boolValue] || [abi[@"parameterCount"] unsignedIntegerValue] != argumentCount) {
             if (error) *error = [NSString stringWithFormat:@"FAILED_ARGUMENT_ABI：%@",
                                  abi[@"reason"] ?: @"参数 ABI 数量不匹配"];
@@ -345,7 +375,11 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
             ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
 
             if (ZNInvokeIsStringType(parameterType)) {
-                if (!stringNew) stringNew = (ZNStringNewFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_string_new");
+                if (!stringNew) {
+                    stringNew = preparedExecution
+                        ? (ZNStringNewFn)[preparedContext[@"stringNew"] unsignedLongLongValue]
+                        : (ZNStringNewFn)ZNIL2CPPResolveSymbol(resolver.unityPath, "il2cpp_string_new");
+                }
                 if (!stringNew) {
                     free(params);
                     free(scalarStorage);
