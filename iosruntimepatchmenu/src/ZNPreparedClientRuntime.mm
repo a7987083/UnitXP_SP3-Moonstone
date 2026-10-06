@@ -24,6 +24,9 @@
 
 static const uint32_t kZNM614MethodAttributeStatic=0x0010u;
 typedef uint32_t (*ZNM614MethodGetFlagsFn)(const void *,uint32_t *);
+typedef void *(*ZNM614RuntimeInvokeFn)(const void *,void *,void **,void **);
+typedef void *(*ZNM614StringNewFn)(const char *);
+typedef void *(*ZNM614ObjectUnboxFn)(void *);
 
 static NSString *ZNM614RuntimeUUIDForHeader(const struct mach_header_64 *mh) {
     if(!mh||mh->magic!=MH_MAGIC_64)return @"";
@@ -181,7 +184,13 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
 #endif
     ZNM614MethodGetFlagsFn getFlags=(ZNM614MethodGetFlagsFn)(handle?dlsym(handle,"il2cpp_method_get_flags"):NULL);
     if(!getFlags)getFlags=(ZNM614MethodGetFlagsFn)dlsym(RTLD_DEFAULT,"il2cpp_method_get_flags");
-    if(!getFlags){if(handle)dlclose(handle);return YES;}
+    ZNM614RuntimeInvokeFn runtimeInvoke=(ZNM614RuntimeInvokeFn)(handle?dlsym(handle,"il2cpp_runtime_invoke"):NULL);
+    if(!runtimeInvoke)runtimeInvoke=(ZNM614RuntimeInvokeFn)dlsym(RTLD_DEFAULT,"il2cpp_runtime_invoke");
+    ZNM614StringNewFn stringNew=(ZNM614StringNewFn)(handle?dlsym(handle,"il2cpp_string_new"):NULL);
+    if(!stringNew)stringNew=(ZNM614StringNewFn)dlsym(RTLD_DEFAULT,"il2cpp_string_new");
+    ZNM614ObjectUnboxFn objectUnbox=(ZNM614ObjectUnboxFn)(handle?dlsym(handle,"il2cpp_object_unbox"):NULL);
+    if(!objectUnbox)objectUnbox=(ZNM614ObjectUnboxFn)dlsym(RTLD_DEFAULT,"il2cpp_object_unbox");
+    if(!getFlags||!runtimeInvoke){if(handle)dlclose(handle);return YES;}
 
     for(ZNRuntimeMethodActionRecord *record in all){
         NSString *inner=nil;
@@ -213,7 +222,8 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
         }
 
         uint32_t implFlags=0;
-        BOOL isStatic=(getFlags((const void *)methodInfo,&implFlags)&kZNM614MethodAttributeStatic)!=0;
+        uint32_t methodFlags=getFlags((const void *)methodInfo,&implFlags);
+        BOOL isStatic=(methodFlags&kZNM614MethodAttributeStatic)!=0;
         if(record.preparedDescriptor && record.preparedStaticKnown && isStatic!=record.preparedIsStatic){
             [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:
                 @"[m6.14.1-prepared-client] stale static hint ignored %@",record.canonicalIdentity]];
@@ -312,7 +322,8 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
                     record.canonicalIdentity,nodeAction.canonicalIdentity]];
             }
             uint32_t nodeImpl=0;
-            BOOL nodeStatic=(getFlags((const void *)nodeMI,&nodeImpl)&kZNM614MethodAttributeStatic)!=0;
+            uint32_t nodeFlags=getFlags((const void *)nodeMI,&nodeImpl);
+            BOOL nodeStatic=(nodeFlags&kZNM614MethodAttributeStatic)!=0;
             NSMutableDictionary *nodeCandidate=[nodeResolved mutableCopy]?:[NSMutableDictionary dictionary];
             nodeCandidate[@"assembly"]=nodeAction.assembly?:@"";
             nodeCandidate[@"namespace"]=nodeAction.namespaceName?:@"";
@@ -323,13 +334,23 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
             NSDictionary *nodeABI=ZNIL2CPPDescribeMethodABI(nodeCandidate)?:@{};
             chainBindings[nodeAction.canonicalIdentity?:@""]=@{@"resolved":[nodeCandidate copy],
                                                                 @"static":@(nodeStatic),
-                                                                @"abi":nodeABI};
+                                                                @"abi":nodeABI,
+                                                                @"methodFlags":@(nodeFlags),
+                                                                @"implFlags":@(nodeImpl),
+                                                                @"runtimeInvoke":@((uintptr_t)runtimeInvoke),
+                                                                @"stringNew":@((uintptr_t)stringNew),
+                                                                @"objectUnbox":@((uintptr_t)objectUnbox)};
         }
 
         NSDictionary *binding=@{@"resolved":[candidate copy],
                                 @"receiver":@(receiver),
                                 @"static":@(isStatic),
                                 @"abi":preparedABI,
+                                @"methodFlags":@(methodFlags),
+                                @"implFlags":@(implFlags),
+                                @"runtimeInvoke":@((uintptr_t)runtimeInvoke),
+                                @"stringNew":@((uintptr_t)stringNew),
+                                @"objectUnbox":@((uintptr_t)objectUnbox),
                                 @"identity":record.canonicalIdentity?:@"",
                                 @"chainBindings":[chainBindings copy]};
         @synchronized(self){self.bindings[@(record.actionID)]=binding;}
@@ -364,7 +385,13 @@ static void ZNM614PreparedImageAdded(const struct mach_header *mh,intptr_t slide
              @"argumentCount":@(record.argumentCount),
              @"resolved":binding[@"resolved"]?:@{},
              @"receiver":binding[@"receiver"]?:@0,
+             @"static":binding[@"static"]?:@NO,
              @"abi":binding[@"abi"]?:@{},
+             @"methodFlags":binding[@"methodFlags"]?:@0,
+             @"implFlags":binding[@"implFlags"]?:@0,
+             @"runtimeInvoke":binding[@"runtimeInvoke"]?:@0,
+             @"stringNew":binding[@"stringNew"]?:@0,
+             @"objectUnbox":binding[@"objectUnbox"]?:@0,
              @"chainBindings":binding[@"chainBindings"]?:@{}};
 }
 
