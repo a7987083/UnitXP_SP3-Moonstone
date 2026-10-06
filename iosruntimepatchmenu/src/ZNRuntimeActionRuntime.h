@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy,readonly) NSString *namespaceName;
 @property(nonatomic,copy,readonly) NSString *className;
 @property(nonatomic,copy,readonly) NSString *methodName;
+@property(nonatomic,assign,readonly) uint64_t methodRVA;
 @property(nonatomic,assign,readonly) NSUInteger argumentCount;
 @property(nonatomic,copy,readonly) NSArray<NSString *> *argumentValues;
 @property(nonatomic,copy,readonly) NSArray<NSString *> *parameterTypeNames;
