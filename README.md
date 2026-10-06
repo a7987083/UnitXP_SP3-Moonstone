@@ -1,3 +1,6 @@
+> [!CAUTION]
+> **此 M6.14 分支已作废（OBSOLETE），禁止继续开发、发布或合并。** 真机验证稳定的唯一基线是 `feature/m6.13.1-single-result-card-v1` @ `b63329732043f650c6f0fdbacada09e0f7313629`（M6.13.3）。详情参见 [OBSOLETE_M6_14.md](./OBSOLETE_M6_14.md)。
+
 # UnitXP_SP3 Moonstone
 
 基于 UnitXP_SP3 v89 源码增加“长者的月亮石”风格七色团队光柱。
