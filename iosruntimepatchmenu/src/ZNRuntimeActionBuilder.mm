@@ -36,15 +36,21 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
     NSUInteger totalCount=actions.count+hooks.count;
     if(!totalCount)return [NSData data];
     if(totalCount>ZN_RUNTIME_ACTION_MAX_ENTRIES){if(error)*error=[NSString stringWithFormat:@"Runtime Action 数量超过上限 %u",ZN_RUNTIME_ACTION_MAX_ENTRIES];return nil;}
-    uint64_t fixed=sizeof(ZNRuntimeActionHeader)+totalCount*sizeof(ZNRuntimeMethodCallEntry); if(fixed>UINT32_MAX){if(error)*error=@"Runtime Action 固定表过大";return nil;}
+    uint64_t entriesEnd=sizeof(ZNRuntimeActionHeader)+totalCount*sizeof(ZNRuntimeMethodCallEntry);
+    uint64_t rvaTableOffset=entriesEnd;
+    uint64_t fixed=rvaTableOffset+totalCount*sizeof(uint64_t);
+    if(fixed>UINT32_MAX){if(error)*error=@"Runtime Action 固定表过大";return nil;}
     NSMutableData *data=[NSMutableData dataWithLength:(NSUInteger)fixed]; ZNRuntimeActionHeader *header=(ZNRuntimeActionHeader *)data.mutableBytes;
     header->magic=ZN_RUNTIME_ACTION_MAGIC;header->version=ZN_RUNTIME_ACTION_VERSION;header->count=(uint32_t)totalCount;header->entrySize=sizeof(ZNRuntimeMethodCallEntry);header->stringPoolOffset=(uint32_t)fixed;
+    header->flags|=ZNRuntimeActionHeaderFlagMethodRVATable;
+    header->reserved[0]=rvaTableOffset;
     for(NSUInteger i=0;i<actions.count;i++){
         ZNRuntimeMethodAction *action=actions[i];
         if(action.argumentCount>ZN_RUNTIME_ACTION_MAX_ARGUMENTS){if(error)*error=[NSString stringWithFormat:@"%@：参数数量超过上限 %u",action.canonicalIdentity,ZN_RUNTIME_ACTION_MAX_ARGUMENTS];return nil;}
         if(action.argumentCount>0&&action.argumentValues.count!=action.argumentCount){if(error)*error=@"Runtime Action 参数数量不匹配";return nil;}
         if(action.argumentControlConfigs.count&&action.argumentControlConfigs.count!=action.argumentCount){if(error)*error=@"Runtime 参数控件数量必须等于 argc";return nil;}
         if(action.signatureAvailable&&action.parameterTypeNames.count!=action.argumentCount){if(error)*error=@"Full Signature 参数数量不匹配";return nil;}
+        if(action.executionKind==ZNRuntimeExecutionKindDirectNativeCall&&!action.methodRVA){if(error)*error=[NSString stringWithFormat:@"%@：Direct Native Call 缺少 authored RVA，请重新创建方法",action.canonicalIdentity];return nil;}
         uint32_t titleOffset=0,groupOffset=0,assemblyOffset=0,namespaceOffset=0,classOffset=0,methodOffset=0;
         uint32_t argument0Offset=0,signatureOffset=0,argumentVectorOffset=0,controlsOffset=0,chainOffset=0,descriptionOffset=0; NSString *stringError=nil;
         if(!ZNRABAppendString(data,action.title,&titleOffset,&stringError)||!ZNRABAppendString(data,action.group,&groupOffset,&stringError)||!ZNRABAppendString(data,action.assembly,&assemblyOffset,&stringError)||!ZNRABAppendString(data,action.namespaceName,&namespaceOffset,&stringError)||!ZNRABAppendString(data,action.className,&classOffset,&stringError)||!ZNRABAppendString(data,action.methodName,&methodOffset,&stringError)){if(error)*error=stringError?:@"Runtime Action string pool 写入失败";return nil;}
@@ -62,6 +68,8 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
         if(action.argumentControlConfigs.count){entry->flags|=ZNRuntimeActionFlagArgumentControls;entry->reserved[3]=controlsOffset;}
         if(action.immediateChain.count){entry->flags|=ZNRuntimeActionFlagImmediateChain;entry->reserved[4]=chainOffset;}
         if(action.featureDescription.length){entry->flags|=ZNRuntimeActionFlagFeatureDescription;entry->reserved[5]=descriptionOffset;}
+        uint64_t *methodRVAs=(uint64_t *)((uint8_t *)data.mutableBytes+rvaTableOffset);
+        methodRVAs[i]=action.methodRVA;
     }
 
     for(NSUInteger i=0;i<hooks.count;i++){
@@ -197,8 +205,8 @@ static void ZNRABUpdateBuildReport(NSArray<NSString *> *builderOutputs,
                                   NSUInteger tableBytes){
     NSString *reportPath=nil;for(NSString *path in builderOutputs)if([path.lastPathComponent isEqualToString:@"build_report.json"]){reportPath=path;break;}if(!reportPath.length)return;
     NSData *json=[NSData dataWithContentsOfFile:reportPath];if(!json.length)return;NSMutableDictionary *object=[[NSJSONSerialization JSONObjectWithData:json options:NSJSONReadingMutableContainers error:nil] mutableCopy];if(![object isKindOfClass:NSMutableDictionary.class])return;
-    NSMutableArray *items=[NSMutableArray arrayWithCapacity:actions.count];for(ZNRuntimeMethodAction *action in actions)[items addObject:@{@"actionID":@(action.actionID),@"executionKind":@(action.executionKind),@"title":action.title?:@"",@"description":action.featureDescription?:@"",@"identity":action.canonicalIdentity?:@"",@"argumentCount":@(action.argumentCount),@"argumentValues":action.argumentValues?:@[],@"argumentControls":action.argumentControlConfigs?:@[],@"immediateChain":action.immediateChain?:@{}}];
-    object[@"runtimeMethodCall"]=@{@"format":@"com.zonoe.runtime-action/v1",@"version":@1,@"storage":@"__ZNDATA/__zndata after Static Dispatch table",@"staticEntryABIPreserved":@YES,@"runtimeEntrySize":@(sizeof(ZNRuntimeMethodCallEntry)),@"typedArgumentMaxCount":@(ZN_RUNTIME_ACTION_MAX_ARGUMENTS),@"supportedArgumentRange":@"0-8",@"signatureEncoding":@"U+001F parameter types via reserved[1]",@"argumentVectorEncoding":@"UTF-8 JSON array via reserved[2]",@"argumentControlsEncoding":@"UTF-8 JSON via reserved[3]",@"immediateChainEncoding":@"UTF-8 JSON via reserved[4]",@"featureDescriptionEncoding":@"UTF-8 via reserved[5]",@"count":@(actions.count),@"bytes":@(tableBytes),@"actions":items};
+    NSMutableArray *items=[NSMutableArray arrayWithCapacity:actions.count];for(ZNRuntimeMethodAction *action in actions)[items addObject:@{@"actionID":@(action.actionID),@"executionKind":@(action.executionKind),@"title":action.title?:@"",@"description":action.featureDescription?:@"",@"identity":action.canonicalIdentity?:@"",@"methodRVA":[NSString stringWithFormat:@"0x%llX",(unsigned long long)action.methodRVA],@"argumentCount":@(action.argumentCount),@"argumentValues":action.argumentValues?:@[],@"argumentControls":action.argumentControlConfigs?:@[],@"immediateChain":action.immediateChain?:@{}}];
+    object[@"runtimeMethodCall"]=@{@"format":@"com.zonoe.runtime-action/v1",@"version":@1,@"storage":@"__ZNDATA/__zndata after Static Dispatch table",@"staticEntryABIPreserved":@YES,@"runtimeEntrySize":@(sizeof(ZNRuntimeMethodCallEntry)),@"methodRVAEncoding":@"uint64[count] side-table via header.reserved[0]",@"typedArgumentMaxCount":@(ZN_RUNTIME_ACTION_MAX_ARGUMENTS),@"supportedArgumentRange":@"0-8",@"signatureEncoding":@"U+001F parameter types via reserved[1]",@"argumentVectorEncoding":@"UTF-8 JSON array via reserved[2]",@"argumentControlsEncoding":@"UTF-8 JSON via reserved[3]",@"immediateChainEncoding":@"UTF-8 JSON via reserved[4]",@"featureDescriptionEncoding":@"UTF-8 via reserved[5]",@"count":@(actions.count),@"bytes":@(tableBytes),@"actions":items};
     NSMutableArray *hookItems=[NSMutableArray arrayWithCapacity:hooks.count];
     for(ZNNativeHookAction *hook in hooks){
         [hookItems addObject:@{@"actionID":@(hook.actionID),@"title":hook.title?:@"",@"identity":hook.canonicalIdentity?:@"",
