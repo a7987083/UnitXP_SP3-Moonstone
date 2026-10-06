@@ -35,5 +35,6 @@ jobs:
             -Ivendor/Dobby/include
           )
           "$CXX" "${FLAGS[@]}" iosruntimepatchmenu/src/ZNRuntimeArgumentMarshaller.mm
+          "$CXX" "${FLAGS[@]}" iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm
           "$CXX" "${FLAGS[@]}" iosruntimepatchmenu/src/ZNM47MultiArgInvoke.mm
           echo "PASS: marshaller and M4.7 Runtime Call sources parse for iOS arm64"
