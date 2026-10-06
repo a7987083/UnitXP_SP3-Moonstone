@@ -1,10 +1,22 @@
 #import "ZNRuntimeArgumentMarshaller.h"
 #import <dlfcn.h>
 #import <limits.h>
+#import <mach-o/dyld.h>
 
 typedef const void *(*ZNMARMethodParamFn)(const void *, uint32_t);
 typedef void *(*ZNMARClassFromTypeFn)(const void *);
 typedef int32_t (*ZNMARClassValueSizeFn)(void *, uint32_t *);
+
+static void *ZNMARSymbol(NSString *imagePath, const char *name) {
+    void *symbol = dlsym(RTLD_DEFAULT, name);
+    if (symbol || !imagePath.length) return symbol;
+#ifdef RTLD_NOLOAD
+    void *handle = dlopen(imagePath.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+#else
+    void *handle = dlopen(imagePath.fileSystemRepresentation, RTLD_LAZY);
+#endif
+    return handle ? dlsym(handle, name) : NULL;
+}
 
 @implementation ZNRuntimeArgumentMarshaller
 
@@ -58,15 +70,16 @@ typedef int32_t (*ZNMARClassValueSizeFn)(void *, uint32_t *);
                                                         index:(NSUInteger)index
                                                          type:(NSString *)managedType
                                                         input:(NSString *)text
+                                                    imagePath:(NSString *)imagePath
                                                         error:(NSString **)error {
     if (!methodInfo || index > UINT32_MAX) {
         if (error) *error = @"FAILED_STRUCT_ABI：缺少 MethodInfo 或参数序号无效";
         return nil;
     }
-    ZNMARMethodParamFn getParam = (ZNMARMethodParamFn)dlsym(RTLD_DEFAULT, "il2cpp_method_get_param");
-    ZNMARClassFromTypeFn fromType = (ZNMARClassFromTypeFn)dlsym(RTLD_DEFAULT, "il2cpp_class_from_type");
-    if (!fromType) fromType = (ZNMARClassFromTypeFn)dlsym(RTLD_DEFAULT, "il2cpp_class_from_il2cpp_type");
-    ZNMARClassValueSizeFn valueSize = (ZNMARClassValueSizeFn)dlsym(RTLD_DEFAULT, "il2cpp_class_value_size");
+    ZNMARMethodParamFn getParam = (ZNMARMethodParamFn)ZNMARSymbol(imagePath, "il2cpp_method_get_param");
+    ZNMARClassFromTypeFn fromType = (ZNMARClassFromTypeFn)ZNMARSymbol(imagePath, "il2cpp_class_from_type");
+    if (!fromType) fromType = (ZNMARClassFromTypeFn)ZNMARSymbol(imagePath, "il2cpp_class_from_il2cpp_type");
+    ZNMARClassValueSizeFn valueSize = (ZNMARClassValueSizeFn)ZNMARSymbol(imagePath, "il2cpp_class_value_size");
     if (!getParam || !fromType || !valueSize) {
         if (error) *error = @"FAILED_STRUCT_ABI：IL2CPP value-type metadata API 未导出";
         return nil;
@@ -80,7 +93,7 @@ typedef int32_t (*ZNMARClassValueSizeFn)(void *, uint32_t *);
     uint32_t alignment = 0;
     int32_t byteSize = valueSize(klass, &alignment);
     // Bounded allocation and conservative alignment guard.
-    if (byteSize <= 0 || byteSize > 4096 || alignment == 0 || alignment > 256) {
+    if (byteSize <= 0 || byteSize > 4096 || alignment == 0 || alignment > 16) {
         if (error) *error = [NSString stringWithFormat:@"FAILED_STRUCT_LAYOUT：无效 size=%d align=%u", byteSize, alignment];
         return nil;
     }
