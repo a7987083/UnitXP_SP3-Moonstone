@@ -12104,6 +12104,9 @@ static NSString *ZNM54UnsupportedReason(NSDictionary *param) {
     if ([param[@"pointer"] boolValue]) return @"pointer 暂不支持";
     NSString *type = [param[@"name"] isKindOfClass:NSString.class] ? param[@"name"] : @"?";
     if (ZNM54IsString(type)) return nil;
+    // Keep Runtime Call unsupported; direct users to the existing ObscuredInt Hook codec.
+    if ([ZNComplexStructCodecKeyForManagedType(type) isEqualToString:ZNComplexStructCodecObscuredInt])
+        return @"Runtime Call 不支持 ObscuredInt；请选 Native Hook · ComplexStructTransform";
     ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
     switch (kind) {
         case ZNIL2CPPABIValueKindBool:
