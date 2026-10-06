@@ -33,6 +33,7 @@ jobs:
           modules = [
               "ZNRangeControl.mm",
               "ZNM55StaticTypedBinding.mm",
+              "ZNM56StaticValueCellBinding.mm",
           ]
           expected_unified = baseline
           for name in modules:
