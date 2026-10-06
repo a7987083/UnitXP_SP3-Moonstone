@@ -29,7 +29,8 @@ static NSString *ZNM48PointerString(uintptr_t value) {
 
 static NSDictionary<NSString *, id> *ZNM48DecodeReturn(NSDictionary<NSString *, id> *abi,
                                                          uintptr_t rawObject,
-                                                         NSString *unityPath) {
+                                                         NSString *unityPath,
+                                                         uintptr_t cachedUnbox) {
     NSDictionary *ret = [abi[@"return"] isKindOfClass:NSDictionary.class] ? abi[@"return"] : @{};
     NSString *typeName = [ret[@"name"] isKindOfClass:NSString.class] ? ret[@"name"] : @"?";
     ZNIL2CPPABIValueKind kind = (ZNIL2CPPABIValueKind)[ret[@"kind"] integerValue];
@@ -60,7 +61,9 @@ static NSDictionary<NSString *, id> *ZNM48DecodeReturn(NSDictionary<NSString *, 
         return out;
     }
 
-    ZNM48ObjectUnboxFn objectUnbox = (ZNM48ObjectUnboxFn)ZNM48Symbol(unityPath, "il2cpp_object_unbox");
+    ZNM48ObjectUnboxFn objectUnbox = cachedUnbox
+        ? (ZNM48ObjectUnboxFn)cachedUnbox
+        : (ZNM48ObjectUnboxFn)ZNM48Symbol(unityPath, "il2cpp_object_unbox");
     if (!objectUnbox) {
         out[@"returnValue"] = [NSString stringWithFormat:@"boxed %@ (il2cpp_object_unbox unavailable)", ZNM48PointerString(rawObject)];
         return out;
@@ -136,6 +139,28 @@ static NSDictionary<NSString *, id> *ZNM48ReturnMetadataForAction(ZNRuntimeMetho
     uintptr_t methodInfo = [result[@"methodInfo"] unsignedLongLongValue];
     if (!methodInfo || !action) return @{};
 
+    uintptr_t raw = 0;
+    if ([result[@"returnObject"] respondsToSelector:@selector(unsignedLongLongValue)]) {
+        raw = [result[@"returnObject"] unsignedLongLongValue];
+    } else if ([result[@"result"] respondsToSelector:@selector(unsignedLongLongValue)]) {
+        raw = [result[@"result"] unsignedLongLongValue];
+    }
+
+    if (ZNIL2CPPPreparedExecutionActive()) {
+        NSDictionary *ctx = ZNIL2CPPPreparedExecutionCurrentContext();
+        NSDictionary *abi = [ctx[@"abi"] isKindOfClass:NSDictionary.class] ? ctx[@"abi"] : @{};
+        if (![abi[@"available"] boolValue]) {
+            return @{
+                @"returnType": @"?",
+                @"returnKind": @"unknown",
+                @"returnDecoded": @NO,
+                @"returnValue": abi[@"reason"] ?: @"Prepared ABI unavailable",
+                @"returnRawObject": @(raw),
+            };
+        }
+        return ZNM48DecodeReturn(abi, raw, @"", [ctx[@"objectUnbox"] unsignedLongLongValue]);
+    }
+
     NSDictionary *candidate = @{
         @"methodInfo": @(methodInfo),
         @"methodPointer": result[@"methodPointer"] ?: @0,
@@ -157,16 +182,9 @@ static NSDictionary<NSString *, id> *ZNM48ReturnMetadataForAction(ZNRuntimeMetho
         };
     }
 
-    uintptr_t raw = 0;
-    if ([result[@"returnObject"] respondsToSelector:@selector(unsignedLongLongValue)]) {
-        raw = [result[@"returnObject"] unsignedLongLongValue];
-    } else if ([result[@"result"] respondsToSelector:@selector(unsignedLongLongValue)]) {
-        raw = [result[@"result"] unsignedLongLongValue];
-    }
-
     ZNIL2CPPResolver *resolver = [ZNIL2CPPResolver sharedResolver];
     [resolver refresh];
-    return ZNM48DecodeReturn(abi, raw, resolver.unityPath ?: @"");
+    return ZNM48DecodeReturn(abi, raw, resolver.unityPath ?: @"", 0);
 }
 
 @interface ZNIL2CPPInvokeEngine (ZNM48ReturnCapture)
