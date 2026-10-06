@@ -301,39 +301,151 @@ static BOOL ZNV3Relocate(uint32_t instruction,
                          uint64_t destinationRVA,
                          uint64_t windowStart,
                          uint64_t windowEnd,
-                         uint32_t *outInstruction,
+                         std::vector<uint32_t> &outInstructions,
                          BOOL *terminal,
                          NSString **error) {
+    outInstructions.clear();
     *terminal = NO;
+
+    // B / BL keep the original single-instruction form when the destination is
+    // still reachable by imm26. These are terminal only for B, never for BL.
     if ((instruction & 0x7C000000u) == 0x14000000u) {
         BOOL link = (instruction & 0x80000000u) != 0;
         int64_t delta = ZNV3SX(instruction & 0x03FFFFFFu, 26) << 2;
         uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
-        if (target >= windowStart && target < windowEnd) { if(error)*error=@"PC-relative B/BL 指向覆盖窗口内部"; return NO; }
-        if (!ZNV3EncodeB(destinationRVA, target, link, outInstruction)) { if(error)*error=@"重定位 B/BL 超出 ±128MB"; return NO; }
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"PC-relative B/BL 指向覆盖窗口内部";
+            return NO;
+        }
+        uint32_t relocated = 0;
+        if (!ZNV3EncodeB(destinationRVA, target, link, &relocated)) {
+            if (error) *error = @"重定位 B/BL 超出 ±128MB";
+            return NO;
+        }
+        outInstructions.push_back(relocated);
         *terminal = !link;
         return YES;
     }
-    if ((instruction & 0xFF000010u) == 0x54000000u ||
-        (instruction & 0x7E000000u) == 0x34000000u ||
-        (instruction & 0x3B000000u) == 0x18000000u) {
+
+    // B.cond: first try direct imm19 relocation. If the relocated fragment is
+    // outside ±1MB, widen it to:
+    //   B.!cond +8
+    //   B target
+    // The fragment chain's existing trailing B is placed at +8, so the
+    // not-taken path preserves fallthrough without touching executable pages
+    // at runtime.
+    if ((instruction & 0xFF000010u) == 0x54000000u) {
         int64_t delta = ZNV3SX((instruction >> 5) & 0x7FFFFu, 19) << 2;
         uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
-        if (target >= windowStart && target < windowEnd) { if(error)*error=@"PC-relative imm19 指向覆盖窗口内部"; return NO; }
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"B.cond 指向覆盖窗口内部";
+            return NO;
+        }
         int64_t newDelta = (int64_t)target - (int64_t)destinationRVA;
-        if ((newDelta & 3) || newDelta < -(1LL << 20) || newDelta >= (1LL << 20)) { if(error)*error=@"重定位 imm19 超出 ±1MB"; return NO; }
-        *outInstruction = (instruction & ~0x00FFFFE0u) | (((uint32_t)(newDelta >> 2) & 0x7FFFFu) << 5);
+        if (!(newDelta & 3) && newDelta >= -(1LL << 20) && newDelta < (1LL << 20)) {
+            uint32_t relocated = (instruction & ~0x00FFFFE0u) |
+                                 (((uint32_t)(newDelta >> 2) & 0x7FFFFu) << 5);
+            outInstructions.push_back(relocated);
+            return YES;
+        }
+
+        uint32_t cond = instruction & 0xFu;
+        if (cond >= 0xEu) {
+            if (error) *error = @"B.cond 条件码不可安全反转";
+            return NO;
+        }
+        uint32_t longBranch = 0;
+        if (!ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch)) {
+            if (error) *error = @"B.cond widened long branch 超出 ±128MB";
+            return NO;
+        }
+        uint32_t inverted = instruction & ~0x00FFFFE0u;
+        inverted = (inverted & ~0xFu) | ((cond ^ 1u) & 0xFu);
+        inverted |= (2u << 5); // +8 -> fragment chain trailing branch
+        outInstructions.push_back(inverted);
+        outInstructions.push_back(longBranch);
         return YES;
     }
+
+    // CBZ / CBNZ use the same widening strategy as B.cond. The op bit (24)
+    // is inverted so the short branch skips over the long B when the original
+    // condition is false.
+    if ((instruction & 0x7E000000u) == 0x34000000u) {
+        int64_t delta = ZNV3SX((instruction >> 5) & 0x7FFFFu, 19) << 2;
+        uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"CBZ/CBNZ 指向覆盖窗口内部";
+            return NO;
+        }
+        int64_t newDelta = (int64_t)target - (int64_t)destinationRVA;
+        if (!(newDelta & 3) && newDelta >= -(1LL << 20) && newDelta < (1LL << 20)) {
+            uint32_t relocated = (instruction & ~0x00FFFFE0u) |
+                                 (((uint32_t)(newDelta >> 2) & 0x7FFFFu) << 5);
+            outInstructions.push_back(relocated);
+            return YES;
+        }
+
+        uint32_t longBranch = 0;
+        if (!ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch)) {
+            if (error) *error = @"CBZ/CBNZ widened long branch 超出 ±128MB";
+            return NO;
+        }
+        uint32_t inverted = (instruction ^ (1u << 24)) & ~0x00FFFFE0u;
+        inverted |= (2u << 5); // +8 -> fragment chain trailing branch
+        outInstructions.push_back(inverted);
+        outInstructions.push_back(longBranch);
+        return YES;
+    }
+
+    // LDR literal remains a direct imm19 relocation for now. Keep this case
+    // separate from conditional branches so failures are precise and never
+    // masquerade as CBZ/B.cond range failures.
+    if ((instruction & 0x3B000000u) == 0x18000000u) {
+        int64_t delta = ZNV3SX((instruction >> 5) & 0x7FFFFu, 19) << 2;
+        uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"LDR literal 指向覆盖窗口内部";
+            return NO;
+        }
+        int64_t newDelta = (int64_t)target - (int64_t)destinationRVA;
+        if ((newDelta & 3) || newDelta < -(1LL << 20) || newDelta >= (1LL << 20)) {
+            if (error) *error = @"重定位 LDR literal 超出 ±1MB";
+            return NO;
+        }
+        uint32_t relocated = (instruction & ~0x00FFFFE0u) |
+                             (((uint32_t)(newDelta >> 2) & 0x7FFFFu) << 5);
+        outInstructions.push_back(relocated);
+        return YES;
+    }
+
+    // TBZ / TBNZ: widen out-of-range imm14 exactly like compare branches.
     if ((instruction & 0x7E000000u) == 0x36000000u) {
         int64_t delta = ZNV3SX((instruction >> 5) & 0x3FFFu, 14) << 2;
         uint64_t target = (uint64_t)((int64_t)sourceRVA + delta);
-        if (target >= windowStart && target < windowEnd) { if(error)*error=@"TBZ/TBNZ 指向覆盖窗口内部"; return NO; }
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"TBZ/TBNZ 指向覆盖窗口内部";
+            return NO;
+        }
         int64_t newDelta = (int64_t)target - (int64_t)destinationRVA;
-        if ((newDelta & 3) || newDelta < -(1LL << 15) || newDelta >= (1LL << 15)) { if(error)*error=@"重定位 TBZ/TBNZ 超出 ±32KB"; return NO; }
-        *outInstruction = (instruction & ~0x0007FFE0u) | (((uint32_t)(newDelta >> 2) & 0x3FFFu) << 5);
+        if (!(newDelta & 3) && newDelta >= -(1LL << 15) && newDelta < (1LL << 15)) {
+            uint32_t relocated = (instruction & ~0x0007FFE0u) |
+                                 (((uint32_t)(newDelta >> 2) & 0x3FFFu) << 5);
+            outInstructions.push_back(relocated);
+            return YES;
+        }
+
+        uint32_t longBranch = 0;
+        if (!ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch)) {
+            if (error) *error = @"TBZ/TBNZ widened long branch 超出 ±128MB";
+            return NO;
+        }
+        uint32_t inverted = (instruction ^ (1u << 24)) & ~0x0007FFE0u;
+        inverted |= (2u << 5); // +8 -> fragment chain trailing branch
+        outInstructions.push_back(inverted);
+        outInstructions.push_back(longBranch);
         return YES;
     }
+
     uint32_t adrMask = instruction & 0x9F000000u;
     if (adrMask == 0x10000000u || adrMask == 0x90000000u) {
         uint64_t imm = ((uint64_t)((instruction >> 5) & 0x7FFFFu) << 2) | ((instruction >> 29) & 3u);
@@ -341,18 +453,26 @@ static BOOL ZNV3Relocate(uint32_t instruction,
         uint64_t target = adrMask == 0x90000000u
             ? (uint64_t)((int64_t)(sourceRVA & ~0xFFFULL) + (signedImm << 12))
             : (uint64_t)((int64_t)sourceRVA + signedImm);
-        if (target >= windowStart && target < windowEnd) { if(error)*error=@"ADR/ADRP 指向覆盖窗口内部"; return NO; }
+        if (target >= windowStart && target < windowEnd) {
+            if (error) *error = @"ADR/ADRP 指向覆盖窗口内部";
+            return NO;
+        }
         int64_t newImm = adrMask == 0x90000000u
             ? (((int64_t)(target & ~0xFFFULL) - (int64_t)(destinationRVA & ~0xFFFULL)) >> 12)
             : ((int64_t)target - (int64_t)destinationRVA);
-        if (newImm < -(1LL << 20) || newImm >= (1LL << 20)) { if(error)*error=@"重定位 ADR/ADRP 超范围"; return NO; }
+        if (newImm < -(1LL << 20) || newImm >= (1LL << 20)) {
+            if (error) *error = @"重定位 ADR/ADRP 超范围";
+            return NO;
+        }
         uint64_t u = (uint64_t)newImm & 0x1FFFFFu;
-        *outInstruction = (instruction & ~((3u << 29) | (0x7FFFFu << 5))) |
-                          ((uint32_t)(u & 3u) << 29) |
-                          ((uint32_t)((u >> 2) & 0x7FFFFu) << 5);
+        uint32_t relocated = (instruction & ~((3u << 29) | (0x7FFFFu << 5))) |
+                             ((uint32_t)(u & 3u) << 29) |
+                             ((uint32_t)((u >> 2) & 0x7FFFFu) << 5);
+        outInstructions.push_back(relocated);
         return YES;
     }
-    *outInstruction = instruction;
+
+    outInstructions.push_back(instruction);
     if (ZNV3IsRET(instruction) || ZNV3IsBR(instruction)) *terminal = YES;
     return YES;
 }
@@ -445,7 +565,7 @@ static BOOL ZNV3WriteVariantV2(uint8_t *base,
             instructionRVA += 4;
         }
 
-        uint32_t relocated = 0;
+        std::vector<uint32_t> relocated;
         BOOL terminal = NO;
         uint64_t originalInstructionRVA = sourceRVA + (uint64_t)logicalIndex * 4u;
         if (!ZNV3Relocate(ZNV3Read32(sourceBytes + (size_t)logicalIndex * 4u),
@@ -453,10 +573,20 @@ static BOOL ZNV3WriteVariantV2(uint8_t *base,
                           instructionRVA,
                           windowStart,
                           windowEnd,
-                          &relocated,
+                          relocated,
                           &terminal,
                           error)) return NO;
-        ZNV3Write32(base + instructionFileOffset, relocated);
+
+        uint64_t slotEndFileOffset = fileOffset + slotOffset + ZN60_PAYLOAD_SLOT_SIZE;
+        uint64_t requiredBytes = (uint64_t)relocated.size() * 4u + (terminal ? 0u : 4u);
+        if (relocated.empty() || instructionFileOffset + requiredBytes > slotEndFileOffset) {
+            if (error) *error = @"Protection V2 relocation expansion 超出 fragment slot";
+            return NO;
+        }
+        for (size_t emittedIndex = 0; emittedIndex < relocated.size(); ++emittedIndex) {
+            ZNV3Write32(base + instructionFileOffset + (uint64_t)emittedIndex * 4u,
+                        relocated[emittedIndex]);
+        }
         emitted++;
 
         if (terminal) {
@@ -464,7 +594,7 @@ static BOOL ZNV3WriteVariantV2(uint8_t *base,
             continue;
         }
 
-        uint64_t branchInstructionRVA = instructionRVA + 4u;
+        uint64_t branchInstructionRVA = instructionRVA + (uint64_t)relocated.size() * 4u;
         uint64_t nextRVA = resumeRVA;
         if (logicalIndex + 1u < (uint32_t)slotCount64) {
             nextRVA = variantRVA + (uint64_t)slots[logicalIndex + 1u] * ZN60_PAYLOAD_SLOT_SIZE;
@@ -474,7 +604,7 @@ static BOOL ZNV3WriteVariantV2(uint8_t *base,
             if (error) *error = @"Protection V2 fragment 链超出 ARM64 B ±128MB";
             return NO;
         }
-        ZNV3Write32(base + instructionFileOffset + 4u, nextBranch);
+        ZNV3Write32(base + instructionFileOffset + (uint64_t)relocated.size() * 4u, nextBranch);
     }
 
     if (fragmentCountOut) *fragmentCountOut = emitted;
@@ -1102,7 +1232,7 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         @"bootSafeOffFallback":@YES,
                         @"payloadProtectionV2":@YES,
                         @"payloadLayout":@"fragmented-16-byte-slot-chain-v1",
-                        @"maxContiguousSourceInstructions":@1,
+                        @"maxContiguousSourceInstructions":@1,\n                        @"maxRelocatedInstructionsPerSource":@2,
                         @"variantEntryPermutation":@YES,
                         @"thunkTemplateDiversification":@YES,
                         @"runtimeExecutableWrites":@NO,
@@ -1168,7 +1298,7 @@ BOOL ZNStaticBinaryBuilderV3BuildWorkspace(ZNBinaryPatchWorkspace *workspace,
         @"notes":@[
             @"Target Mach-O original storage is never used as persistent ZonoPatch storage",
             @"Dispatch code and all variants live in the newly owned __ZNTEXT/__zncode segment",
-            @"Protection V2 stores each relocated source instruction in an independently shuffled 16-byte fragment slot",
+            @"Protection V2 stores each source instruction in an independently shuffled 16-byte fragment slot; conditional/test branches may widen to two relocated instructions",
             @"Protection V2 varies thunk live length and entry placement per generated output; it is a static-analysis cost layer, not cryptographic secrecy",
             @"Static Dispatch metadata and selectedTarget live in the newly owned __ZNDATA/__zndata segment",
             @"No executable/data gap fallback is allowed",
