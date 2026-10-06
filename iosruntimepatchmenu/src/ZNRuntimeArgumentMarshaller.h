@@ -22,6 +22,7 @@ typedef NSData * _Nullable (^ZNRuntimeValueTypeEncoder)(NSString *text,
                                                         index:(NSUInteger)index
                                                          type:(NSString *)managedType
                                                         input:(NSString *)text
+                                                    imagePath:(NSString *)imagePath
                                                         error:(NSString * _Nullable * _Nullable)error;
 
 @end
