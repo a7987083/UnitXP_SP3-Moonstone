@@ -31,7 +31,16 @@ def main():
     ap.add_argument("--report", help="write complete observed topology JSON")
     args = ap.parse_args()
     source_paths = [SOURCE] + [p for p in SPLIT_MODULES if p.exists()]
-    texts = [p.read_text(encoding="utf-8") for p in source_paths]
+    texts = [SOURCE.read_text(encoding="utf-8")]
+    for p in source_paths[1:]:
+        module_text = p.read_text(encoding="utf-8")
+        begin = f"#pragma mark - BEGIN {p.name}"
+        end = f"#pragma mark - END {p.name}"
+        a = module_text.index(begin)
+        b0 = module_text.index(end, a)
+        b = module_text.find("\n", b0)
+        b = len(module_text) if b < 0 else b + 1
+        texts.append(module_text[a:b])
     text = "".join(texts)
     observed = collect(text)
     observed["source_files"] = [str(p.relative_to(ROOT)) for p in source_paths]
