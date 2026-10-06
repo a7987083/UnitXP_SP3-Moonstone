@@ -12,7 +12,8 @@
 4. Delegate other `ComplexValueType` parameters to `ZNRuntimeArgumentMarshaller`, keyed by the **fully-qualified managed type name**.
 5. Derive the value-type byte length from the actual `MethodInfo` parameter's IL2CPP `Class` using `il2cpp_method_get_param`, `il2cpp_class_from_type`, `il2cpp_class_value_size`. Reject absent metadata, invalid length or unsafe alignment.
 6. Registered encoders return an **unboxed, exact-size** NSData blob. Retain its NSMutableData storage through the entire `il2cpp_runtime_invoke` call.
-7. Unknown types do **not** fall back to a guessed int/float layout. An explicit `hex:` exact-size blob is supported for diagnostic/research usage only; no promise of correct semantics follows from a byte-length match.
+7. For a non-registered custom value type and numeric input, inspect the actual IL2CPP class for a **static `op_Implicit` from int32/int64/float/double returning the same value type**, invoke the game's own conversion method with `il2cpp_runtime_invoke`, unbox, and copy the exact verified size. Prefer int32 for in-range integer input. This is an opt-in-by-API semantic path, not hard-coded field guessing.
+8. Unknown types do **not** fall back to a guessed int/float layout. An explicit `hex:` exact-size blob is supported for diagnostic/research usage only; no promise of correct semantics follows from a byte-length match.
 
 ## Example: a version-specific custom encoder
 
@@ -28,7 +29,7 @@
 
 ## Intentionally unsupported without verified target semantics
 
-- `ObscuredInt` / `SecureLong`: existing transform codecs are for mutation of *existing values* and **cannot** automatically construct correct encrypted input structs. Supply a version-verified constructor/conversion encoder and check the resulting size and fields; don't synthesize fake hiddenValue/cryptoKey.
+- `ObscuredInt` / `SecureLong`: existing transform codecs are for mutation of *existing values* and **cannot** automatically construct correct encrypted input structs. The generic `op_Implicit` strategy may work if the **actual game version** exposes an appropriate conversion operator; otherwise supply a version-verified encoder. Don't synthesize fake hiddenValue/cryptoKey. This has not been tested on the user's target game.
 - Managed object references, arrays/lists, `ref/out`, pointer types and complex generic combinations require a managed object creation / GC lifetime / by-ref output design. They cannot be made universal merely by expanding a C++ switch statement.
 - Return-value decoding remains unchanged; this module only covers arguments.
 - `/0–/1` follow the existing M6.13.3 executor and are not modified in this first integration. Common marshalling for all arities needs separate regression checks before rerouting them.
