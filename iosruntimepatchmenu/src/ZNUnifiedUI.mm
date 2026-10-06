@@ -2542,6 +2542,13 @@ static BOOL ZNModalContainsFirstResponder(UIView *view) {
 
 - (void)znmodal_tick:(NSTimer *)timer {
     (void)timer;
+
+    // System text input owns the main thread while an editor is active. Do not
+    // compete with keyboard cold-start/animation by polling windows, updating
+    // menu chrome or rebuilding geometry. The next 0.5s tick after editing ends
+    // reconciles any genuine window/inset change.
+    if (self.uiReady && ZNModalContainsFirstResponder(self.panel)) return;
+
     // While the menu is presented, keep its presentation/window relationship
     // stable. System text services may temporarily change key-window state.
     BOOL menuPresented = ZNModalIsPresented(self);
@@ -2560,13 +2567,7 @@ static BOOL ZNModalContainsFirstResponder(UIView *view) {
     UIWindow *layoutWindow = self.hostWindow ?: window;
     BOOL boundsChanged = layoutWindow && !CGRectEqualToRect(self.lastBounds, layoutWindow.bounds);
     BOOL insetsChanged = layoutWindow && !UIEdgeInsetsEqualToEdgeInsets(self.lastInsets, layoutWindow.safeAreaInsets);
-    BOOL editing = ZNModalContainsFirstResponder(self.panel);
-
-    // Do not let the system keyboard's transient safe-area changes cause
-    // layoutForWindow -> layoutPanel -> renderPage while editing. That rebuild
-    // destroys/recreates many controls on the main thread and causes the visible
-    // keyboard hitch. Rotation/resizing remains authoritative via boundsChanged.
-    if (layoutWindow && (boundsChanged || (insetsChanged && !editing))) {
+    if (layoutWindow && (boundsChanged || insetsChanged)) {
         [self layoutForWindow:layoutWindow initial:NO];
     }
     if (self.themeMode == ZNThemeModeSystem && [self interfaceStyle] != self.lastStyle) [self applyTheme];
