@@ -1,0 +1,44 @@
+# M6.13.3 Runtime Call — parameter marshalling contract (experimental)
+
+**Baseline:** `feature/m6.13.1-single-result-card-v1` @ `b63329732043f650c6f0fdbacada09e0f7313629`
+
+**Scope:** Only the `/2–/8` Runtime Call value-type parameter encoder in `ZNM47MultiArgInvoke.mm`. Native Hook, UI, startup hooks, trampoline, and static-prepatch paths are untouched.
+
+## Design
+
+1. Continue using `il2cpp_runtime_invoke` (not a handwritten arm64 direct-call ABI).
+2. Keep scalar, enum and `System.String` parameter encoding in the existing stable path.
+3. Keep Vector2 / Vector3 / Quaternion / Color textual encoders unchanged.
+4. Delegate other `ComplexValueType` parameters to `ZNRuntimeArgumentMarshaller`, keyed by the **fully-qualified managed type name**.
+5. Derive the value-type byte length from the actual `MethodInfo` parameter's IL2CPP `Class` using `il2cpp_method_get_param`, `il2cpp_class_from_type`, `il2cpp_class_value_size`. Reject absent metadata, invalid length or unsafe alignment.
+6. Registered encoders return an **unboxed, exact-size** NSData blob. Retain its NSMutableData storage through the entire `il2cpp_runtime_invoke` call.
+7. Unknown types do **not** fall back to a guessed int/float layout. An explicit `hex:` exact-size blob is supported for diagnostic/research usage only; no promise of correct semantics follows from a byte-length match.
+
+## Example: a version-specific custom encoder
+
+```objective-c
+[ZNRuntimeArgumentMarshaller registerValueType:@"Vendor.MyStruct"
+    encoder:^NSData *(NSString *input, NSUInteger expectedSize, NSString **error) {
+        // Decode input into an exact, version-validated *unboxed* IL2CPP struct.
+        // If the target's actual layout is unknown, return nil.
+        if (error) *error = @"FAILED_CODEC_LAYOUT_UNKNOWN";
+        return nil;
+    }];
+```
+
+## Intentionally unsupported without verified target semantics
+
+- `ObscuredInt` / `SecureLong`: existing transform codecs are for mutation of *existing values* and **cannot** automatically construct correct encrypted input structs. Supply a version-verified constructor/conversion encoder and check the resulting size and fields; don't synthesize fake hiddenValue/cryptoKey.
+- Managed object references, arrays/lists, `ref/out`, pointer types and complex generic combinations require a managed object creation / GC lifetime / by-ref output design. They cannot be made universal merely by expanding a C++ switch statement.
+- Return-value decoding remains unchanged; this module only covers arguments.
+- `/0–/1` follow the existing M6.13.3 executor and are not modified in this first integration. Common marshalling for all arities needs separate regression checks before rerouting them.
+
+## Gate before promotion
+
+- Compile iOS arm64 sources with the correct SDK.
+- Test existing primitive, string, Vector, quaternion, Color and enum Runtime Calls for no regression.
+- Test exact-size custom value-type payload and reject wrong-size payload.
+- Test `Player::AddGold(ObscuredInt, bool)` only after confirming ACTk struct layout and an actual constructor/conversion method in the target binary.
+- Verify stable Native Hook on hardware, and only then consider promotion from this separate branch.
+
+**Status:** experimental feature branch; NOT a new stable release, NOT verified on device.
