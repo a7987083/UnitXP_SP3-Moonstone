@@ -8,6 +8,15 @@
 #define ZN_RUNTIME_ACTION_MAX_ENTRIES 128u
 #define ZN_RUNTIME_ACTION_MAX_ARGUMENTS 8u
 
+typedef uint32_t ZNRuntimeActionHeaderFlags;
+enum {
+    ZNRuntimeActionHeaderFlagNone = 0,
+    // reserved[0] -> uint64_t[count] side-table. Entry i stores the authored
+    // UnityFramework method RVA for Direct Native Call; zero means unavailable.
+    // Keeps the 64-byte action entry ABI unchanged for Native Hook/legacy readers.
+    ZNRuntimeActionHeaderFlagMethodRVATable = 1u << 0,
+};
+
 typedef uint32_t ZNRuntimeActionKind;
 enum {
     ZNRuntimeActionKindInvalid = 0,
@@ -42,6 +51,8 @@ typedef struct {
     uint32_t stringPoolSize;
     uint32_t flags;
     uint32_t reserved32;
+    // reserved[0] is the byte offset of the optional uint64_t[count]
+    // method-RVA side-table when ZNRuntimeActionHeaderFlagMethodRVATable is set.
     uint64_t reserved[3];
 } ZNRuntimeActionHeader;
 
