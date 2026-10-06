@@ -2,12 +2,12 @@
 
 **Baseline:** `feature/m6.13.1-single-result-card-v1` @ `b63329732043f650c6f0fdbacada09e0f7313629`
 
-**Scope:** Only the `/2–/8` Runtime Call value-type parameter encoder in `ZNM47MultiArgInvoke.mm`. Native Hook, UI, startup hooks, trampoline, and static-prepatch paths are untouched.
+**Scope:** Shared custom value-type parameter marshalling for `/1` Runtime Calls in `ZNIL2CPPInvokeEngine.mm` and `/2–/8` calls in `ZNM47MultiArgInvoke.mm`. Native Hook, UI, startup hooks, trampoline, and static-prepatch paths are untouched.
 
 ## Design
 
 1. Continue using `il2cpp_runtime_invoke` (not a handwritten arm64 direct-call ABI).
-2. Keep scalar, enum and `System.String` parameter encoding in the existing stable path.
+2. Keep scalar, enum and `System.String` parameter encoding in the existing stable paths for both `/1` and `/2–/8`.
 3. Keep Vector2 / Vector3 / Quaternion / Color textual encoders unchanged.
 4. Delegate other `ComplexValueType` parameters to `ZNRuntimeArgumentMarshaller`, keyed by the **fully-qualified managed type name**.
 5. Derive the value-type byte length from the actual `MethodInfo` parameter's IL2CPP `Class` using `il2cpp_method_get_param`, `il2cpp_class_from_type`, `il2cpp_class_value_size`. Reject absent metadata, invalid length or unsafe alignment.
@@ -32,7 +32,7 @@
 - `ObscuredInt` / `SecureLong`: existing transform codecs are for mutation of *existing values* and **cannot** automatically construct correct encrypted input structs. The generic `op_Implicit` strategy may work if the **actual game version** exposes an appropriate conversion operator; otherwise supply a version-verified encoder. Don't synthesize fake hiddenValue/cryptoKey. This has not been tested on the user's target game.
 - Managed object references, arrays/lists, `ref/out`, pointer types and complex generic combinations require a managed object creation / GC lifetime / by-ref output design. They cannot be made universal merely by expanding a C++ switch statement.
 - Return-value decoding remains unchanged; this module only covers arguments.
-- `/0–/1` follow the existing M6.13.3 executor and are not modified in this first integration. Common marshalling for all arities needs separate regression checks before rerouting them.
+- `/0` follows the existing M6.13.3 executor unchanged. `/1` now delegates custom value types to the same common marshaller; scalar and string conversion paths are unchanged.
 
 ## Gate before promotion
 
