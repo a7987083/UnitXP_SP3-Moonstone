@@ -9,6 +9,7 @@
 #import "ZNIL2CPPHybridFinder.h"
 #import "ZNIL2CPPOwningMethodResolver.h"
 #import "ZNIL2CPPMethodSignature.h"
+#import "ZNPatchCore.h"
 
 NSString * const ZNCapabilityStaticPatchIdentifier=@"static-patch";
 NSString * const ZNCapabilityRuntimeMethodIdentifier=@"runtime-method";
