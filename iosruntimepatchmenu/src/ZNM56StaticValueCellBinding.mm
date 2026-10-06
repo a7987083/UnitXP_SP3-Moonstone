@@ -1,3 +1,14 @@
+#import <Foundation/Foundation.h>
+
+@interface ZNM56StaticValueCellBinder : NSObject
+@property(nonatomic,strong) NSMutableDictionary<NSString *,NSNumber *> *sliderGenerations;
++ (instancetype)shared;
+- (void)numberChanged:(NSNotification *)note;
+- (void)sliderChanged:(NSNotification *)note;
+- (void)actionRequested:(NSNotification *)note;
+- (BOOL)applyText:(NSString *)text info:(NSDictionary *)info error:(NSString **)error;
+@end
+
 #pragma mark - BEGIN ZNM56StaticValueCellBinding.mm
 #line 1 "ZNM56StaticValueCellBinding.mm"
 #import <Foundation/Foundation.h>
