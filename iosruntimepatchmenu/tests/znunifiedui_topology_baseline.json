@@ -48,6 +48,7 @@
     "SharedSiteExecutionProbeV3",
     "PublicCompactLayout",
     "RuntimeExecutorV041",
-    "RuntimeDiagnosticsV042"
+    "RuntimeDiagnosticsV042",
+    "StaticDispatchPrepare"
   ]
 }
