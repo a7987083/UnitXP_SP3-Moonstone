@@ -2494,6 +2494,19 @@ static BOOL ZNModalIsPresented(id owner) {
     return modal.presentingViewController != nil || modal.isBeingPresented || [objc_getAssociatedObject(owner, kZNModalPresentingKey) boolValue];
 }
 
+// Keyboard policy: UIKit owns keyboard presentation. While a text control inside
+// the menu is first responder, keyboard-driven safe-area changes must not rebuild
+// the complete menu tree. Real window-bounds changes (rotation/resizing) still
+// trigger layout through znmodal_tick.
+static BOOL ZNModalContainsFirstResponder(UIView *view) {
+    if (!view) return NO;
+    if (view.isFirstResponder) return YES;
+    for (UIView *subview in view.subviews) {
+        if (ZNModalContainsFirstResponder(subview)) return YES;
+    }
+    return NO;
+}
+
 @interface ZNRuntimeMenuControllerV040 (ZNRuntimeMenuModalShell)
 - (void)znmodal_makeUI:(UIWindow *)window;
 - (void)znmodal_attach:(UIWindow *)window;
@@ -2545,8 +2558,15 @@ static BOOL ZNModalIsPresented(id owner) {
     }
 
     UIWindow *layoutWindow = self.hostWindow ?: window;
-    if (layoutWindow && (!CGRectEqualToRect(self.lastBounds, layoutWindow.bounds) ||
-                         !UIEdgeInsetsEqualToEdgeInsets(self.lastInsets, layoutWindow.safeAreaInsets))) {
+    BOOL boundsChanged = layoutWindow && !CGRectEqualToRect(self.lastBounds, layoutWindow.bounds);
+    BOOL insetsChanged = layoutWindow && !UIEdgeInsetsEqualToEdgeInsets(self.lastInsets, layoutWindow.safeAreaInsets);
+    BOOL editing = ZNModalContainsFirstResponder(self.panel);
+
+    // Do not let the system keyboard's transient safe-area changes cause
+    // layoutForWindow -> layoutPanel -> renderPage while editing. That rebuild
+    // destroys/recreates many controls on the main thread and causes the visible
+    // keyboard hitch. Rotation/resizing remains authoritative via boundsChanged.
+    if (layoutWindow && (boundsChanged || (insetsChanged && !editing))) {
         [self layoutForWindow:layoutWindow initial:NO];
     }
     if (self.themeMode == ZNThemeModeSystem && [self interfaceStyle] != self.lastStyle) [self applyTheme];
