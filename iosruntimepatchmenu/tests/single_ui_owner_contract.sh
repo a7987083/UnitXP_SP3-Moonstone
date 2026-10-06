@@ -9,7 +9,7 @@ UI="$SRC/ZNUnifiedUI.mm"
 test -f "$UI"
 grep -q 'src/ZNUnifiedUI.mm' "$MAKEFILE"
 
-MIGRATED='ZonoeRuntimeMenu.mm ZNDeferredBootstrap.mm ZNRuntimeMenuModalShell.mm ZNFeatureGroupUI.mm ZNFeatureRuntimeControlsV2.mm ZNPublicCompactUI.mm ZNFeatureBuilderUI.mm ZNFeatureBuilderControlsV2.mm ZNIL2CPPMethodFinderUI.mm ZNIL2CPPMethodFinderMenuBinding.mm ZNIL2CPPMethodFinderUXV2.mm ZNIL2CPPMethodFinderUIV3.mm ZNIL2CPPMethodFinderM2.mm ZNIL2CPPMethodFinderM21CancelUX.mm ZNIL2CPPMethodFinderM22StableCancelUX.mm ZNIL2CPPABIDetailUI.mm ZNRuntimeMethodCallFinderUI.mm ZNRuntimeMethodCallBuilderUI.mm ZNRuntimeMethodCallFeatureUI.mm ZNUXFixesV2.mm ZNMethodFinderM42UI.mm ZNMethodFinderM43UI.mm ZNMethodFinderM43Polish.mm ZNInstanceSelectionV2UI.mm ZNM441Hotfix.mm ZNM442SearchRestore.mm ZNM45AddressOwningMethodUI.mm ZNM46FullSignatureUI.mm ZNM461Polish.mm ZNM462CandidateBindingUI.mm ZNM47ReceiverCaptureUI.mm ZNM47MultiArgUI.mm ZNM47BuilderArgsUI.mm ZNM47VersionUI.mm ZNM49GenericInvokeEditableArgs.mm ZNMethodFinderUnifiedUI.mm ZNM51RuntimeArgControlsImmediateChain.mm ZNM51SilentCustomerExecution.mm ZNM52ChainExecuteButton.mm ZNM52MethodSearchHistory.mm ZNM53ControlBinding.mm ZNM55TypedControlBinding.mm ZNM551RuntimeSliderStability.mm ZNM562SliderIsolation.mm ZNM57RuntimeOnlyBuilderGate.mm ZNM57UnifiedRuntimeControls.mm ZNM584SchemeALayout.mm ZNM585UnifiedControlSemantics.mm ZNM585StaticRuntimeRange.mm ZNM58UnifiedControlRuntime.mm ZNM590UnifiedActionModel.mm ZNM591OffsetHookControls.mm ZNM600UnifiedFeatureSurface.mm ZNM630HardCutUI.mm'
+MIGRATED='ZonoeRuntimeMenu.mm ZNRuntimeMenuModalShell.mm ZNFeatureGroupUI.mm ZNFeatureRuntimeControlsV2.mm ZNPublicCompactUI.mm ZNFeatureBuilderUI.mm ZNFeatureBuilderControlsV2.mm ZNIL2CPPMethodFinderUI.mm ZNIL2CPPMethodFinderMenuBinding.mm ZNIL2CPPMethodFinderUXV2.mm ZNIL2CPPMethodFinderUIV3.mm ZNIL2CPPMethodFinderM2.mm ZNIL2CPPMethodFinderM21CancelUX.mm ZNIL2CPPMethodFinderM22StableCancelUX.mm ZNIL2CPPABIDetailUI.mm ZNRuntimeMethodCallFinderUI.mm ZNRuntimeMethodCallBuilderUI.mm ZNRuntimeMethodCallFeatureUI.mm ZNUXFixesV2.mm ZNMethodFinderM42UI.mm ZNMethodFinderM43UI.mm ZNMethodFinderM43Polish.mm ZNInstanceSelectionV2UI.mm ZNM441Hotfix.mm ZNM442SearchRestore.mm ZNM45AddressOwningMethodUI.mm ZNM46FullSignatureUI.mm ZNM461Polish.mm ZNM462CandidateBindingUI.mm ZNM47ReceiverCaptureUI.mm ZNM47MultiArgUI.mm ZNM47BuilderArgsUI.mm ZNM47VersionUI.mm ZNM49GenericInvokeEditableArgs.mm ZNMethodFinderUnifiedUI.mm ZNM51RuntimeArgControlsImmediateChain.mm ZNM51SilentCustomerExecution.mm ZNM52ChainExecuteButton.mm ZNM52MethodSearchHistory.mm ZNM53ControlBinding.mm ZNM55TypedControlBinding.mm ZNM551RuntimeSliderStability.mm ZNM562SliderIsolation.mm ZNM57RuntimeOnlyBuilderGate.mm ZNM57UnifiedRuntimeControls.mm ZNM584SchemeALayout.mm ZNM585UnifiedControlSemantics.mm ZNM585StaticRuntimeRange.mm ZNM58UnifiedControlRuntime.mm ZNM590UnifiedActionModel.mm ZNM591OffsetHookControls.mm ZNM600UnifiedFeatureSurface.mm ZNM630HardCutUI.mm'
 for f in $MIGRATED; do
   test ! -e "$SRC/$f"
   ! grep -q "src/$f" "$MAKEFILE"
@@ -36,6 +36,15 @@ grep -q 'src/ZNM56StaticValueCellBinding.mm' "$MAKEFILE"
 grep -q '@interface ZNM56StaticValueCellBinder : NSObject' "$SRC/ZNM56StaticValueCellBinding.mm"
 grep -q '@implementation ZNM56StaticValueCellBinder' "$SRC/ZNM56StaticValueCellBinding.mm"
 ! grep -q '@implementation ZNM56StaticValueCellBinder' "$UI"
+
+test -f "$SRC/ZNDeferredBootstrap.mm"
+grep -q 'src/ZNDeferredBootstrap.mm' "$MAKEFILE"
+! grep -q 'BEGIN ZNDeferredBootstrap.mm' "$UI"
+grep -q '@implementation ZNDeferredLauncher' "$SRC/ZNDeferredBootstrap.mm"
+! grep -q '@implementation ZNDeferredLauncher' "$UI"
+! grep -q 'method_exchangeImplementations' "$SRC/ZNDeferredBootstrap.mm"
+! grep -q 'method_setImplementation' "$SRC/ZNDeferredBootstrap.mm"
+! grep -q '__attribute__((constructor))' "$SRC/ZNDeferredBootstrap.mm"
 
 # UI ownership/behavior contracts that must remain present after flattening.
 grep -q 'ZNRuntimeMenuControllerV040' "$UI"
