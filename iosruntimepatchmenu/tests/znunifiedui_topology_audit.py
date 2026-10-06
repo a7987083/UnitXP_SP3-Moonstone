@@ -3,6 +3,7 @@ import argparse, collections, hashlib, json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "iosruntimepatchmenu/src/ZNUnifiedUI.mm"
+SPLIT_MODULES = [ROOT / "iosruntimepatchmenu/src/ZNRangeControl.mm"]
 BASELINE = ROOT / "iosruntimepatchmenu/tests/znunifiedui_topology_baseline.json"
 
 def collect(text: str):
@@ -25,8 +26,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", help="write complete observed topology JSON")
     args = ap.parse_args()
-    text = SOURCE.read_text(encoding="utf-8")
+    source_paths = [SOURCE] + [p for p in SPLIT_MODULES if p.exists()]
+    texts = [p.read_text(encoding="utf-8") for p in source_paths]
+    text = "".join(texts)
     observed = collect(text)
+    observed["source_files"] = [str(p.relative_to(ROOT)) for p in source_paths]
     expected = json.loads(BASELINE.read_text(encoding="utf-8"))
 
     failures = []
@@ -57,6 +61,7 @@ def main():
     report = {
         "baseline_commit": expected["baseline_commit"],
         "source": str(SOURCE.relative_to(ROOT)),
+        "source_files": observed["source_files"],
         "observed": observed,
         "status": "FAIL" if failures else "PASS",
         "failures": failures,
