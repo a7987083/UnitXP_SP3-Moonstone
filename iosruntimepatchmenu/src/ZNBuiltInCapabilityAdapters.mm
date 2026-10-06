@@ -7,6 +7,8 @@
 #import "ZNNativeHookAction.h"
 #import "ZNDirectNativeCallEngine.h"
 #import "ZNIL2CPPHybridFinder.h"
+#import "ZNIL2CPPOwningMethodResolver.h"
+#import "ZNIL2CPPMethodSignature.h"
 
 NSString * const ZNCapabilityStaticPatchIdentifier=@"static-patch";
 NSString * const ZNCapabilityRuntimeMethodIdentifier=@"runtime-method";
@@ -67,7 +69,49 @@ NSString * const ZNCapabilityDirectNativeCallIdentifier=@"direct-native-call";
 }
 - (NSArray *)snapshotItems{return [ZNRuntimeActionRuntime sharedRuntime].directRecords?:@[];}
 
+static NSString *ZNDNCNormalizeAssembly(NSString *value){
+    NSString *s=[[value?:@"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] lowercaseString];
+    return [s hasSuffix:@".dll"]?[s substringToIndex:s.length-4]:s;
+}
+static BOOL ZNDNCStringEqual(NSString *a,NSString *b){
+    return [[a?:@"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+            caseInsensitiveCompare:[b?:@"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]]==NSOrderedSame;
+}
 - (NSDictionary *)zn_candidateForRecord:(ZNRuntimeMethodActionRecord *)record error:(NSString **)error {
+    if(record.methodRVA){
+        NSString *inner=nil;
+        NSArray<NSDictionary<NSString *,id> *> *resolved=[[ZNIL2CPPOwningMethodResolver sharedResolver]
+            resolveRVA:record.methodRVA limit:32 error:&inner];
+        if(!resolved.count){if(error)*error=inner?:[NSString stringWithFormat:@"Direct Native Call RVA 0x%llX 无法解析",(unsigned long long)record.methodRVA];return nil;}
+
+        NSMutableArray<NSDictionary<NSString *,id> *> *matches=[NSMutableArray array];
+        for(NSDictionary<NSString *,id> *candidate in resolved){
+            uint64_t methodRVA=[candidate[@"methodRVA"] unsignedLongLongValue];
+            if(methodRVA!=record.methodRVA)continue;
+            if(![ZNDNCNormalizeAssembly(candidate[@"assembly"]) isEqualToString:ZNDNCNormalizeAssembly(record.assembly)])continue;
+            if(!ZNDNCStringEqual(candidate[@"namespace"],record.namespaceName))continue;
+            if(!ZNDNCStringEqual(candidate[@"class"],record.className))continue;
+            if(!ZNDNCStringEqual(candidate[@"method"],record.methodName))continue;
+            if([candidate[@"argumentCount"] unsignedIntegerValue]!=record.argumentCount)continue;
+            if(record.signatureAvailable){
+                NSString *signatureError=nil;
+                NSArray<NSString *> *types=ZNIL2CPPParameterTypeNamesForCandidate(candidate,&signatureError);
+                if(!types||![types isEqualToArray:record.parameterTypeNames])continue;
+            }
+            [matches addObject:candidate];
+        }
+        if(matches.count==1){
+            [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:@"[direct-native-call] resolved by authored RVA 0x%llX -> %@",
+              (unsigned long long)record.methodRVA,matches.firstObject[@"canonical"]?:record.canonicalIdentity]];
+            return matches.firstObject;
+        }
+        if(error)*error=matches.count
+            ? [NSString stringWithFormat:@"Direct Native Call RVA 0x%llX 仍有 %lu 个同入口候选；拒绝猜测",(unsigned long long)record.methodRVA,(unsigned long)matches.count]
+            : [NSString stringWithFormat:@"Direct Native Call RVA 0x%llX 与生成时方法身份不一致；请重新制作菜单",(unsigned long long)record.methodRVA];
+        return nil;
+    }
+
+    // Legacy generated records created before the authored-RVA side-table.
     NSString *owner=record.namespaceName.length
         ? [NSString stringWithFormat:@"%@.%@",record.namespaceName,record.className]
         : record.className;
@@ -76,7 +120,7 @@ NSString * const ZNCapabilityDirectNativeCallIdentifier=@"direct-native-call";
                           owner?:@"",record.methodName?:@"",(unsigned long)record.argumentCount];
     NSString *inner=nil;
     NSDictionary *candidate=[[ZNIL2CPPHybridFinder sharedFinder] resolveExpression:expression error:&inner];
-    if(!candidate){if(error)*error=inner?:@"Direct Native Call 无法解析生成记录";return nil;}
+    if(!candidate){if(error)*error=inner?:@"Direct Native Call legacy 记录无法解析";return nil;}
     return candidate;
 }
 
