@@ -21,11 +21,34 @@ jobs:
           mkdir -p /tmp/znui-audit
           python3 iosruntimepatchmenu/tests/znunifiedui_topology_audit.py \
             --report /tmp/znui-audit/ZNUnifiedUI_topology_report.json
-      - name: Verify stable Runtime/Native source files are untouched by stage-1 audit
+      - name: Verify RangeControl extraction is byte-identical to baseline
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, subprocess
+          root = pathlib.Path(".")
+          baseline = subprocess.check_output([
+              "git","show",
+              "ceabd64e74898a50d329c3dec168f07c87d6c96e:iosruntimepatchmenu/src/ZNUnifiedUI.mm"
+          ]).decode("utf-8")
+          begin = "#pragma mark - BEGIN ZNRangeControl.mm"
+          end = "#pragma mark - END ZNRangeControl.mm"
+          a = baseline.index(begin)
+          b0 = baseline.index(end, a)
+          b = baseline.find("\n", b0)
+          b = len(baseline) if b < 0 else b + 1
+          expected_module = baseline[a:b]
+          expected_unified = baseline[:a] + baseline[b:]
+          current_module = pathlib.Path("iosruntimepatchmenu/src/ZNRangeControl.mm").read_text()
+          current_unified = pathlib.Path("iosruntimepatchmenu/src/ZNUnifiedUI.mm").read_text()
+          assert current_module == expected_module, "ZNRangeControl extraction changed bytes"
+          assert current_unified == expected_unified, "ZNUnifiedUI contains changes beyond exact RangeControl extraction"
+          print("PASS: exact source extraction equivalence")
+          PY
+      - name: Verify stable Runtime/Native engines are untouched
         run: |
           set -euo pipefail
           git diff --exit-code ceabd64e74898a50d329c3dec168f07c87d6c96e -- \
-            iosruntimepatchmenu/src/ZNUnifiedUI.mm \
             iosruntimepatchmenu/src/ZNNativeHookRuntime.mm \
             iosruntimepatchmenu/src/ZNNativeHookScheduler.mm \
             iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm \
