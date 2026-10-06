@@ -5,6 +5,7 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 SRC="$ROOT/src"
 MAKEFILE="$ROOT/Makefile"
 UI="$SRC/ZNUnifiedUI.mm"
+BOOT="$SRC/ZNDeferredBootstrap.mm"
 
 test -f "$UI"
 grep -q 'src/ZNUnifiedUI.mm' "$MAKEFILE"
@@ -262,40 +263,41 @@ grep -q 'return \[life isEqualToString:@"installed"\]||\[life isEqualToString:@"
 grep -q 'if(\[life isEqualToString:@"restored"\])return @"";' "$SRC/ZNNativeHookRuntime.mm"
 
 # M6.11 Instant Menu Open + Lazy Capability Init contract.
-grep -q 'instant-menu prewarm ready; first tap is show-only' "$UI"
+grep -q 'instant-menu prewarm ready; first tap is show-only' "$BOOT"
 grep -q 'The user.*first' "$UI" || true
-grep -q 'self.hostWindow=window;' "$UI"
-grep -q '\[self zn_beginActivation\];' "$UI"
-! grep -q '0.45 \* NSEC_PER_SEC' "$UI"
-! grep -q '0.12 \* NSEC_PER_SEC' "$UI"
-python3 - "$UI" <<'PY'
+grep -q 'self.hostWindow=window;' "$BOOT"
+grep -q '\[self zn_beginActivation\];' "$BOOT"
+! grep -q '0.45 \* NSEC_PER_SEC' "$BOOT"
+! grep -q '0.12 \* NSEC_PER_SEC' "$BOOT"
+python3 - "$UI" "$BOOT" <<'PY'
 from pathlib import Path
 import sys
-s=Path(sys.argv[1]).read_text()
+ui=Path(sys.argv[1]).read_text()
+boot=Path(sys.argv[2]).read_text()
 
 # The three former eager Resolver calls must be gone from the bootstrap/start/menu
 # installation paths. Resolver use is allowed elsewhere for actual lazy features.
-for marker in (
-    "static void ZNRuntimeCoreBootstrapV040(void)",
-    'extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void)',
-    'extern "C" void ZNInstallRuntimeMenuV055Deferred(void)',
+for text, marker in (
+    (ui, "static void ZNRuntimeCoreBootstrapV040(void)"),
+    (ui, 'extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void)'),
+    (ui, 'extern "C" void ZNInstallRuntimeMenuV055Deferred(void)'),
 ):
-    start=s.index(marker)
-    end=s.find("\n}", start)+2
-    block=s[start:end]
+    start=text.index(marker)
+    end=text.find("\n}", start)+2
+    block=text[start:end]
     assert "sharedResolver] refresh" not in block, marker
 
 # Prewarm starts the menu but must never show it.
-start=s.index("- (void)zn_finishActivation")
-end=s.index("- (void)zn_beginActivation",start)
-finish=s[start:end]
+start=boot.index("- (void)zn_finishActivation")
+end=boot.index("- (void)zn_beginActivation",start)
+finish=boot[start:end]
 assert "ZonoePatchStart" in finish
 assert "ZonoePatchShow" not in finish
 
 # Legacy launcher tap is show-only when ready.
-start=s.index("- (void)zn_activate:(id)sender")
-end=s.index("\n}\n\n@end",start)
-tap=s[start:end]
+start=boot.index("- (void)zn_activate:(id)sender")
+end=boot.index("\n}\n\n@end",start)
+tap=boot[start:end]
 assert "ZonoePatchShow" in tap
 assert "dispatch_after" not in tap
 PY
