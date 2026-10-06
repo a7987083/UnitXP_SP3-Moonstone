@@ -272,6 +272,7 @@ static void *ZNM47InstanceForAction(ZNRuntimeMethodAction *action, NSString **di
                                                                                                  index:i
                                                                                                   type:type
                                                                                                  input:text
+                                                                                             imagePath:resolver.unityPath
                                                                                                  error:&codecError];
                 if (!payload) {
                     if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT_TYPE：参数%lu %@：%@",
