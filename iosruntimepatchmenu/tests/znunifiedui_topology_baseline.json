@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "baseline_commit": "ceabd64e74898a50d329c3dec168f07c87d6c96e",
+  "source": "iosruntimepatchmenu/src/ZNUnifiedUI.mm",
+  "source_blob_sha": "030392a54a79daf639e1a636898113f292491703",
+  "newline_count": 19149,
+  "implementation_count": 84,
+  "implementation_frequency": {
+    "ZNRuntimeMenuControllerV040": 62,
+    "ZNBinaryPatchWorkspace": 3,
+    "ZNM56StaticValueCellBinder": 3,
+    "ZNIL2CPPInvokeEngine": 2,
+    "ZNStaticBinaryBuilder": 2,
+    "ZNRuntimeMenuControllerV024": 1,
+    "ZNDeferredLauncher": 1,
+    "ZNModalPassthroughView": 1,
+    "ZNRuntimeMenuModalViewController": 1,
+    "ZN50FeatureToggleControl": 1,
+    "ZNMethodFinderM2Engine": 1,
+    "ZNUXPassthroughRootView": 1,
+    "ZNUXOverlayController": 1,
+    "ZNM53StaticControlBinder": 1,
+    "ZNM591SyntheticValidator": 1,
+    "ZNRangeControl": 1,
+    "ZNM55StaticTypedBinder": 1
+  },
+  "method_exchange_implementations_count": 63,
+  "method_set_implementation_count": 8,
+  "dispatch_once_count": 63,
+  "critical_selector_counts": {
+    "makeUI:": 10,
+    "tick:": 9,
+    "renderPage": 5,
+    "renderFullPage": 6,
+    "renderCompactPage": 2,
+    "fullSizeForWindow:": 5,
+    "togglePanel:": 4
+  },
+  "activation_stage_order": [
+    "RuntimeMenu",
+    "FeatureGroupUI",
+    "PublicCompactDefaults",
+    "IL2CPPNamedOffsetWorkspace",
+    "FeatureBuilderUI",
+    "RuntimeMethodBuilderUI",
+    "MethodFinderUnifiedUI",
+    "M630HardCutUI",
+    "SharedSiteExecutionProbeV3",
+    "PublicCompactLayout",
+    "RuntimeExecutorV041",
+    "RuntimeDiagnosticsV042"
+  ]
+}
