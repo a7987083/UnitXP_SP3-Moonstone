@@ -1,0 +1,39 @@
+name: M6.13.3 Runtime Call marshaller compile check
+
+on:
+  push:
+    branches:
+      - feature/m6.13.3-runtime-argument-marshalling-v1
+  workflow_dispatch:
+
+jobs:
+  syntax-arm64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Objective-C++ arm64 iOS compile check
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+          FLAGS=(
+            -target arm64-apple-ios14.0
+            -isysroot "$SDK"
+            -std=c++17
+            -fobjc-arc
+            -fblocks
+            -x objective-c++
+            -fsyntax-only
+            -Werror
+            -Wno-deprecated-declarations
+            -Wno-unguarded-availability-new
+            -Wno-objc-method-access
+            -Wno-unused-function
+            -Wno-incomplete-implementation
+            -Iiosruntimepatchmenu/src
+            -Ivendor/Dobby/include
+          )
+          "$CXX" "${FLAGS[@]}" iosruntimepatchmenu/src/ZNRuntimeArgumentMarshaller.mm
+          "$CXX" "${FLAGS[@]}" iosruntimepatchmenu/src/ZNM47MultiArgInvoke.mm
+          echo "PASS: marshaller and M4.7 Runtime Call sources parse for iOS arm64"
