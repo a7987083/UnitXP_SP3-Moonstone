@@ -2,6 +2,7 @@
 #import "ZNRuntimeActionModel.h"
 #import "ZNIL2CPPResolver.h"
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNRuntimeArgumentMarshaller.h"
 #import "ZNIL2CPPInstanceResolver.h"
 #import "ZNIL2CPPInstanceSelectionV2.h"
 #import "ZNIL2CPPRuntimeCommon.h"
@@ -104,7 +105,7 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
         case ZNIL2CPPABIValueKindObjectReference:
             return [NSString stringWithFormat:@"对象参数 %@ 暂不支持（System.String 除外）", typeName];
         case ZNIL2CPPABIValueKindComplexValueType:
-            return [NSString stringWithFormat:@"复杂值类型 %@ 暂不支持", typeName];
+            return nil; // validated by the shared value-type marshaller below
         default:
             return [NSString stringWithFormat:@"参数类型 %@ 尚未识别", typeName];
     }
@@ -280,6 +281,7 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
     float float32Value = 0;
     double float64Value = 0;
     void *managedString = NULL;
+    NSMutableData *encodedValueType = nil; // holds unboxed value until runtime_invoke returns
 
     if (argumentCount == 1) {
         NSMutableDictionary *candidate = [NSMutableDictionary dictionaryWithDictionary:resolved ?: @{}];
@@ -392,6 +394,22 @@ static NSString *ZNInvokeParameterReason(NSDictionary *param) {
                         return nil;
                     }
                     params[0] = &float64Value;
+                    break;
+                }
+                case ZNIL2CPPABIValueKindComplexValueType: {
+                    NSString *codecError = nil;
+                    encodedValueType = [ZNRuntimeArgumentMarshaller encodeValueTypeParameterForMethod:methodInfo
+                                                                                               index:0
+                                                                                                type:parameterType
+                                                                                               input:text
+                                                                                           imagePath:resolver.unityPath
+                                                                                               error:&codecError];
+                    if (!encodedValueType) {
+                        if (error) *error = [NSString stringWithFormat:@"FAILED_UNSUPPORTED_ARGUMENT_TYPE：参数1 %@：%@",
+                                            parameterType ?: @"?", codecError ?: @"无匹配 Codec"];
+                        return nil;
+                    }
+                    params[0] = encodedValueType.mutableBytes;
                     break;
                 }
                 default:
