@@ -17,7 +17,6 @@
 @property(nonatomic,strong) UISegmentedControl *controlType;
 @property(nonatomic,strong) UILabel *statusLabel;
 @property(nonatomic,strong) UILabel *bytesLabel;
-@property(nonatomic,strong) ZNNativeRedirectAction *temporaryAction;
 @end
 
 @implementation ZNNativeRedirectViewController
@@ -27,6 +26,8 @@
     if(self){_candidate=[candidate copy]?:@{};self.title=@"Native Redirect";}
     return self;
 }
+
+static NSString * const kZNRDVCDraftDefaults=@"zonoe.native-redirect.drafts.v1";
 
 static uint64_t ZNRDVCParseRVA(NSString *text) {
     NSString *s=[text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -58,7 +59,11 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
 - (UITextField *)field:(NSString *)placeholder {
     UITextField *f=[UITextField new];f.borderStyle=UITextBorderStyleRoundedRect;f.placeholder=placeholder;
     f.font=[UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];f.autocorrectionType=UITextAutocorrectionTypeNo;
-    f.autocapitalizationType=UITextAutocapitalizationTypeNone;return f;
+    f.autocapitalizationType=UITextAutocapitalizationTypeNone;
+    f.returnKeyType=UIReturnKeyDone;
+    [f addTarget:self action:@selector(fieldChanged:) forControlEvents:UIControlEventEditingChanged|UIControlEventEditingDidEnd];
+    [f addTarget:self action:@selector(fieldDone:) forControlEvents:UIControlEventEditingDidEndOnExit];
+    return f;
 }
 - (UIButton *)button:(NSString *)title action:(SEL)action {
     UIButton *b=[UIButton buttonWithType:UIButtonTypeSystem];[b setTitle:title forState:UIControlStateNormal];
@@ -87,7 +92,9 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
     self.targetRVAField=[self field:@"Target RVA，例如 0x3099CF8"];self.targetRVAField.keyboardType=UIKeyboardTypeNumbersAndPunctuation;self.targetRVAField.frame=CGRectMake(x,y,w,36);[self.scroll addSubview:self.targetRVAField];y+=44;
 
     self.kindControl=[[UISegmentedControl alloc]initWithItems:@[@"Function Redirect",@"B",@"BL"]];
-    self.kindControl.selectedSegmentIndex=0;self.kindControl.frame=CGRectMake(x,y,w,32);[self.scroll addSubview:self.kindControl];y+=42;
+    self.kindControl.selectedSegmentIndex=0;self.kindControl.frame=CGRectMake(x,y,w,32);
+    [self.kindControl addTarget:self action:@selector(draftControlChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.scroll addSubview:self.kindControl];y+=42;
 
     self.bytesLabel=[self label:@"Original：尚未读取\nStrategy：Function Redirect 使用 Dobby；B/BL 需 ±128MB" font:10];
     self.bytesLabel.frame=CGRectMake(x,y,w,42);self.bytesLabel.lineBreakMode=NSLineBreakByCharWrapping;[self.scroll addSubview:self.bytesLabel];y+=50;
@@ -100,13 +107,17 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
     UILabel *createTitle=[self label:@"Create Method" font:15];createTitle.font=[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];createTitle.frame=CGRectMake(x,y,w,22);[self.scroll addSubview:createTitle];y+=28;
     self.titleField=[self field:@"名称"];self.titleField.text=method.length?[NSString stringWithFormat:@"%@ Redirect",method]:@"Native Redirect";self.titleField.frame=CGRectMake(x,y,w,36);[self.scroll addSubview:self.titleField];y+=44;
     self.descriptionField=[self field:@"说明"];self.descriptionField.frame=CGRectMake(x,y,w,36);[self.scroll addSubview:self.descriptionField];y+=44;
-    self.controlType=[[UISegmentedControl alloc]initWithItems:@[@"Switch",@"Button"]];self.controlType.selectedSegmentIndex=0;self.controlType.frame=CGRectMake(x,y,w,32);[self.scroll addSubview:self.controlType];y+=42;
-    UIButton *create=[self button:@"创建方法" action:@selector(createRedirect:)];create.frame=CGRectMake(x,y,w,38);[self.scroll addSubview:create];y+=52;
+    self.controlType=[[UISegmentedControl alloc]initWithItems:@[@"Switch",@"Button"]];self.controlType.selectedSegmentIndex=0;self.controlType.frame=CGRectMake(x,y,w,32);
+    [self.controlType addTarget:self action:@selector(draftControlChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.scroll addSubview:self.controlType];y+=42;
+    UIButton *create=[self button:@"Create Redirect Method" action:@selector(createRedirect:)];create.frame=CGRectMake(x,y,w,38);[self.scroll addSubview:create];y+=52;
 
     UILabel *statusTitle=[self label:@"Status" font:15];statusTitle.font=[UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];statusTitle.frame=CGRectMake(x,y,w,22);[self.scroll addSubview:statusTitle];y+=28;
     self.statusLabel=[self label:@"Source：READY\nTarget：等待输入\nRuntime Test：IDLE\nBuild：等待创建" font:10.5];
     self.statusLabel.lineBreakMode=NSLineBreakByCharWrapping;self.statusLabel.frame=CGRectMake(x,y,w,120);[self.scroll addSubview:self.statusLabel];y+=132;
     self.scroll.contentSize=CGSizeMake(CGRectGetWidth(self.view.bounds),y);
+    [self restoreDraft];
+    [self refreshRuntimeStatus];
     [self reloadBytes:nil];
 }
 
@@ -124,24 +135,75 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
     a.controlType=self.controlType.selectedSegmentIndex==1?@"button":@"switch";
     return a;
 }
+- (NSString *)draftKey {
+    return [NSString stringWithFormat:@"%@+0x%llX",self.sourceImage,(unsigned long long)self.sourceRVA];
+}
+- (NSDictionary *)draftDictionary {
+    return @{
+        @"targetImage":self.targetImageField.text?:@"",
+        @"targetRVA":self.targetRVAField.text?:@"",
+        @"kind":@(MAX(0,self.kindControl.selectedSegmentIndex)),
+        @"title":self.titleField.text?:@"",
+        @"description":self.descriptionField.text?:@"",
+        @"controlType":@(MAX(0,self.controlType.selectedSegmentIndex)),
+    };
+}
+- (void)saveDraft {
+    NSString *key=self.draftKey;if(!key.length)return;
+    NSDictionary *all=[NSUserDefaults.standardUserDefaults dictionaryForKey:kZNRDVCDraftDefaults]?:@{};
+    NSMutableDictionary *next=[all mutableCopy];
+    next[key]=self.draftDictionary;
+    [NSUserDefaults.standardUserDefaults setObject:next forKey:kZNRDVCDraftDefaults];
+}
+- (void)restoreDraft {
+    NSDictionary *all=[NSUserDefaults.standardUserDefaults dictionaryForKey:kZNRDVCDraftDefaults];
+    NSDictionary *draft=[all[self.draftKey] isKindOfClass:NSDictionary.class]?all[self.draftKey]:nil;
+    if(!draft)return;
+    NSString *targetImage=[draft[@"targetImage"] isKindOfClass:NSString.class]?draft[@"targetImage"]:@"";
+    NSString *targetRVA=[draft[@"targetRVA"] isKindOfClass:NSString.class]?draft[@"targetRVA"]:@"";
+    NSString *title=[draft[@"title"] isKindOfClass:NSString.class]?draft[@"title"]:@"";
+    NSString *desc=[draft[@"description"] isKindOfClass:NSString.class]?draft[@"description"]:@"";
+    if(targetImage.length)self.targetImageField.text=targetImage;
+    self.targetRVAField.text=targetRVA;
+    if(title.length)self.titleField.text=title;
+    self.descriptionField.text=desc;
+    NSInteger kind=[draft[@"kind"] integerValue];
+    self.kindControl.selectedSegmentIndex=(kind>=0&&kind<3)?kind:0;
+    NSInteger control=[draft[@"controlType"] integerValue];
+    self.controlType.selectedSegmentIndex=(control>=0&&control<2)?control:0;
+}
+- (void)refreshRuntimeStatus {
+    ZNNativeRedirectAction *installed=[[ZNNativeRedirectRuntime sharedRuntime]
+        installedActionForSourceImage:self.sourceImage sourceRVA:self.sourceRVA];
+    if(installed){
+        [self setStatus:[NSString stringWithFormat:
+            @"Source：READY\nTarget：READY\nRuntime Test：INSTALLED · %@\nBuild：%@",installed.canonicalIdentity,
+            [ZNNativeRedirectStore sharedStore].actionsSnapshot.count?@"已有方法":@"可创建"]];
+    }else{
+        [self setStatus:@"Source：READY\nTarget：等待输入\nRuntime Test：IDLE\nBuild：等待创建"];
+    }
+}
 - (void)setStatus:(NSString *)status {self.statusLabel.text=status?:@"";}
-- (void)closePage:(id)sender {(void)sender;[self dismissViewControllerAnimated:YES completion:nil];}
+- (void)fieldChanged:(UITextField *)field {(void)field;[self saveDraft];}
+- (void)fieldDone:(UITextField *)field {[field resignFirstResponder];[self saveDraft];}
+- (void)draftControlChanged:(UISegmentedControl *)sender {(void)sender;[self saveDraft];}
+- (void)closePage:(id)sender {(void)sender;[self.view endEditing:YES];[self saveDraft];[self dismissViewControllerAnimated:YES completion:nil];}
 
 - (void)testRedirect:(id)sender {
-    (void)sender;NSString *error=nil;ZNNativeRedirectAction *a=[self draftAction:&error];
+    (void)sender;[self.view endEditing:YES];[self saveDraft];
+    NSString *error=nil;ZNNativeRedirectAction *a=[self draftAction:&error];
     if(!a){[self setStatus:error];return;}
-    if(self.temporaryAction)[[ZNNativeRedirectRuntime sharedRuntime] restoreAction:self.temporaryAction error:nil];
     if([[ZNNativeRedirectRuntime sharedRuntime] installAction:a error:&error]){
-        self.temporaryAction=a;
-        [self setStatus:[NSString stringWithFormat:@"Source：READY\nTarget：READY\nRuntime Test：%@\nBuild：可创建", [ZNNativeRedirectRuntime sharedRuntime].lastStatus]];
+        [self setStatus:[NSString stringWithFormat:@"Source：READY\nTarget：READY\nRuntime Test：%@\nBuild：可创建",
+                         [ZNNativeRedirectRuntime sharedRuntime].lastStatus]];
     }else [self setStatus:error?:@"Native Redirect 测试失败"];
     [self reloadBytes:nil];
 }
 - (void)restoreRedirect:(id)sender {
-    (void)sender;if(!self.temporaryAction){[self setStatus:@"Runtime Test：当前没有临时 Redirect"];return;}
+    (void)sender;[self.view endEditing:YES];[self saveDraft];
     NSString *error=nil;
-    BOOL ok=[[ZNNativeRedirectRuntime sharedRuntime] restoreAction:self.temporaryAction error:&error];
-    if(ok)self.temporaryAction=nil;
+    BOOL ok=[[ZNNativeRedirectRuntime sharedRuntime]
+        restoreInstalledForSourceImage:self.sourceImage sourceRVA:self.sourceRVA error:&error];
     [self setStatus:ok?@"Runtime Test：RESTORED\nBuild：未改变":(error?:@"恢复失败")];
     [self reloadBytes:nil];
 }
@@ -155,7 +217,8 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
     self.bytesLabel.text=[NSString stringWithFormat:@"Current：%@\nStrategy：Function Redirect=Dobby；B/BL=direct branch",hex];
 }
 - (void)createRedirect:(id)sender {
-    (void)sender;NSString *error=nil;ZNNativeRedirectAction *a=[self draftAction:&error];
+    (void)sender;[self.view endEditing:YES];[self saveDraft];
+    NSString *error=nil;ZNNativeRedirectAction *a=[self draftAction:&error];
     if(!a){[self setStatus:error];return;}
     ZNNativeRedirectAction *created=[[ZNNativeRedirectStore sharedStore]
         addSourceImage:a.sourceImage sourceRVA:a.sourceRVA targetImage:a.targetImage targetRVA:a.targetRVA
@@ -163,7 +226,4 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
     [self setStatus:created?[NSString stringWithFormat:@"CREATED\n%@\nBuild：READY",created.canonicalIdentity]:(error?:@"创建 Native Redirect 失败")];
 }
 
-- (void)dealloc {
-    if(_temporaryAction)[[ZNNativeRedirectRuntime sharedRuntime] restoreAction:_temporaryAction error:nil];
-}
 @end
