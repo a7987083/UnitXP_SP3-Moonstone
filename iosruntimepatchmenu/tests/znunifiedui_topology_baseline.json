@@ -3,7 +3,7 @@
   "baseline_commit": "635cf8fcb4758a6cfc867a9ec665af72591ecf8d",
   "source": "iosruntimepatchmenu/src/ZNUnifiedUI.mm",
   "source_blob_sha": "3fd734229cc5af8081d341028b344a3c07e33217",
-  "newline_count": 19243,
+  "newline_count": 19248,
   "implementation_count": 84,
   "implementation_frequency": {
     "ZNRuntimeMenuControllerV040": 62,
