@@ -293,6 +293,11 @@ static uint32_t ZNV3LdrX17FromX17(uint64_t targetRVA) {
     return 0xF9400000u | (imm12 << 10) | (17u << 5) | 17u;
 }
 
+static uint32_t ZNV3AddX17PageOffset(uint64_t targetRVA) {
+    uint32_t imm12 = (uint32_t)(targetRVA & 0xFFFULL);
+    return 0x91000000u | (imm12 << 10) | (17u << 5) | 17u;
+}
+
 static BOOL ZNV3IsRET(uint32_t instruction) { return (instruction & 0xFFFFFC1Fu) == 0xD65F0000u; }
 static BOOL ZNV3IsBR(uint32_t instruction) { return (instruction & 0xFFFFFC1Fu) == 0xD61F0000u; }
 
@@ -318,12 +323,32 @@ static BOOL ZNV3Relocate(uint32_t instruction,
             return NO;
         }
         uint32_t relocated = 0;
-        if (!ZNV3EncodeB(destinationRVA, target, link, &relocated)) {
-            if (error) *error = @"重定位 B/BL 超出 ±128MB";
+        if (ZNV3EncodeB(destinationRVA, target, link, &relocated)) {
+            outInstructions.push_back(relocated);
+            *terminal = !link;
+            return YES;
+        }
+
+        // AAPCS64 reserves X16/X17 for veneers. Widen an unconditional B
+        // without absolute addresses or runtime fixups:
+        //   ADRP X17, target@PAGE
+        //   ADD  X17, X17, target@PAGEOFF
+        //   BR   X17
+        // BL stays direct-only for now because the first protected fragment
+        // has a fixed 16-byte slot including its register restore.
+        if (link) {
+            if (error) *error = @"重定位 BL 超出 ±128MB";
             return NO;
         }
-        outInstructions.push_back(relocated);
-        *terminal = !link;
+        uint32_t adrp = 0;
+        if (!ZNV3EncodeADRPX17(destinationRVA, target, &adrp)) {
+            if (error) *error = @"重定位 B 超出 ADRP ±4GB";
+            return NO;
+        }
+        outInstructions.push_back(adrp);
+        outInstructions.push_back(ZNV3AddX17PageOffset(target));
+        outInstructions.push_back(0xD61F0220u);
+        *terminal = YES;
         return YES;
     }
 
@@ -1006,6 +1031,13 @@ static BOOL ZNV3BuildTarget(NSString *target,
             logicalToPhysical[i]=pIndex;
         }
 
+        const uint64_t projectedCodeRVA=layout.linkeditVMAddr-layout.imageVMBase;
+        for(ZNV3Physical &physical:physicals){
+            uint32_t probe=0;
+            if(!ZNV3EncodeB(physical.rva,projectedCodeRVA,NO,&probe))
+                physical.window=std::max<uint64_t>(physical.window,16u);
+        }
+
         for(size_t p=0;p<physicals.size();p++) {
             ZNV3Physical &physical=physicals[p];
             uint64_t mapped=0; size_t segIndex=0;
@@ -1053,15 +1085,6 @@ static BOOL ZNV3BuildTarget(NSString *target,
         dataNeeded=ZNV3Align(staticTableBytes+descriptionBytes,8);
         codeSegmentSize=ZNV3Align(codeNeeded,kZNV3Page);
         dataSegmentSize=ZNV3Align(dataNeeded,kZNV3Page);
-
-        uint64_t codeRVA=layout.linkeditVMAddr-layout.imageVMBase;
-        for(const ZNV3Physical &physical:physicals){
-            int64_t delta=(int64_t)codeRVA-(int64_t)physical.rva;
-            if(delta<=-(1LL<<27)||delta>=(1LL<<27)){
-                localError=[NSString stringWithFormat:@"%@+0x%llX → 新 __ZNTEXT 超出 ARM64 B ±128MB；V3 不回退到 code cave",target,physical.rva];break;
-            }
-        }
-        if(localError)break;
 
         const uint64_t extraCommands=2ULL*sizeof(ZNV3OwnedSegmentCommand);
         if(layout.oldCommandEnd+extraCommands>layout.firstFileSectionOffset){
@@ -1161,9 +1184,22 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         if(!ZNV3WriteThunkV2(base,thunkFileOffset,thunkRVA,32u,entryRVA,offRVA,thunkState,&localError))break;
 
                         uint32_t siteBranch=0;
-                        if(!ZNV3EncodeB(physical.rva,thunkRVA,NO,&siteBranch)){localError=@"Site → Protection V2 thunk 超出 ±128MB";break;}
-                        ZNV3Write32(base+physical.fileoff,siteBranch);
-                        for(uint64_t q=4;q<physical.window;q+=4)ZNV3Write32(base+physical.fileoff+q,NOP);
+                        if(ZNV3EncodeB(physical.rva,thunkRVA,NO,&siteBranch)){
+                            ZNV3Write32(base+physical.fileoff,siteBranch);
+                            for(uint64_t q=4;q<physical.window;q+=4)ZNV3Write32(base+physical.fileoff+q,NOP);
+                        }else{
+                            if(physical.window<16u){localError=@"Site → Protection V2 thunk 需要 16-byte far veneer 窗口";break;}
+                            uint32_t adrp=0;
+                            uint64_t veneerTarget=thunkRVA+4u;
+                            if(!ZNV3EncodeADRPX17(physical.rva+4u,veneerTarget,&adrp)){
+                                localError=@"Site → Protection V2 thunk 超出 ADRP ±4GB";break;
+                            }
+                            ZNV3Write32(base+physical.fileoff+0u,0xA9BF47F0u);
+                            ZNV3Write32(base+physical.fileoff+4u,adrp);
+                            ZNV3Write32(base+physical.fileoff+8u,ZNV3AddX17PageOffset(veneerTarget));
+                            ZNV3Write32(base+physical.fileoff+12u,0xD61F0220u);
+                            for(uint64_t q=16u;q<physical.window;q+=4u)ZNV3Write32(base+physical.fileoff+q,NOP);
+                        }
                     }
                     if(localError)break;
                     if(codeCursor-codeFileOffset>codeNeeded){localError=@"Protection V2 __ZNTEXT 预算计算错误";break;}
