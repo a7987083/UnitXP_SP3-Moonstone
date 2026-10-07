@@ -240,6 +240,15 @@ grep -q 'ZNNativeHookTemplateComplexStructTransform' "$SRC/ZNRuntimeActionBuilde
 grep -q 'complex-struct-transform' "$SRC/ZNM462RuntimeOnlyVerifier.mm"
 grep -q 'Field Offset：不需要' "$UI"
 
+# M6.13.8 dead legacy path cleanup contract.
+! grep -q 'zn40_replaceHomeVersionText' "$UI"
+! grep -q 'zn66_presentReturnBoolConfigForCandidate' "$UI"
+! grep -q 'zn65_presentManagedCallbackConfigForCandidate' "$UI"
+! grep -q 'znm630_hardCutRenderFullPage' "$UI"
+! grep -q 'kZNDeferredFloatPositionKey' "$UI"
+! grep -q 'zn_activate:' "$UI"
+! grep -q 'zn_pan:' "$UI"
+
 # M6.13.3 regression contracts:
 # - Direct Native Call is a first-class method-like runtime payload in verifier.
 # - sidebar relayout preserves its own scroll position.
