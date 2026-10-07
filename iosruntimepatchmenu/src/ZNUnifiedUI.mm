@@ -13719,7 +13719,18 @@ static void ZNM613ApplyModeVisual(ZNRuntimeMenuControllerV040 *self,UIView *card
     ZNM613StyleModeButton(hook,[mode isEqualToString:@"hook"],self.theme);
 
     if(create){
-        BOOL canCreate=[mode isEqualToString:@"direct"]?directOK:([mode isEqualToString:@"hook"]?hookOK:runtimeOK);
+        NSString *cls=ZNM52XString(candidate[@"class"]);
+        NSString *method=ZNM52XString(candidate[@"method"]);
+        NSUInteger argc=[candidate[@"argumentCount"] unsignedIntegerValue];
+        BOOL identityOK=cls.length&&method.length&&argc<=ZN_RUNTIME_ACTION_MAX_ARGUMENTS;
+        uint64_t rva=[candidate[@"methodRVA"] unsignedLongLongValue];
+        if(!rva)rva=[candidate[@"rva"] unsignedLongLongValue];
+
+        // Authoring is intentionally independent from immediate execution
+        // readiness. A descriptor may be created now and executed later when
+        // instance/ABI/runtime state becomes available.
+        BOOL canCreate=identityOK;
+        if([mode isEqualToString:@"direct"])canCreate=identityOK&&rva!=0;
         create.enabled=canCreate;
         create.alpha=canCreate?1.0:.48;
         objc_setAssociatedObject(create,kZNM613CreateModeKey,mode,OBJC_ASSOCIATION_COPY_NONATOMIC);
@@ -13947,12 +13958,26 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         BOOL instance=[analysis[@"instance"] boolValue];
         BOOL canCapture=[analysis[@"canCapture"] boolValue];
 
+        NSString *hookSummary=hookOK
+            ? [NSString stringWithFormat:@"ready · %@",hookPlan[@"kind"]?:@"plan"]
+            : (hookError?:@"unsupported");
+        NSString *directSummary=directOK?@"ABI supported":(directReason?:@"unsupported");
+        NSString *statusText=[NSString stringWithFormat:@"Native Hook\n%@\nDirect Call\n%@",hookSummary,directSummary];
+
         const CGFloat railW=190.0;
         const CGFloat railGap=6.0;
         const CGFloat rightInset=10.0;
         const CGFloat topAreaH=140.0;
         CGFloat paramH=argc?22.0+(CGFloat)argc*62.0:0.0;
-        CGFloat statusBlockH=52.0;
+        UIFont *statusFont=[UIFont systemFontOfSize:7.5 weight:UIFontWeightRegular];
+        NSMutableParagraphStyle *statusParagraph=[NSMutableParagraphStyle new];
+        statusParagraph.lineBreakMode=NSLineBreakByCharWrapping;
+        CGRect statusRect=[statusText boundingRectWithSize:CGSizeMake(MAX(80.0,width-26.0),CGFLOAT_MAX)
+                                                   options:NSStringDrawingUsesLineFragmentOrigin|NSStringDrawingUsesFontLeading
+                                                attributes:@{NSFontAttributeName:statusFont,
+                                                             NSParagraphStyleAttributeName:statusParagraph}
+                                                   context:nil];
+        CGFloat statusBlockH=MAX(52.0,ceil(CGRectGetHeight(statusRect))+14.0);
         CGFloat cardH=topAreaH+paramH+statusBlockH+8.0;
         UIView *card=[self cardAtY:y height:cardH width:width compact:NO];
         objc_setAssociatedObject(card,kZNM613AnalysisKey,analysis,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -14120,14 +14145,11 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
             py+=18.0;
         }
 
-        NSString *hookSummary=hookOK
-            ? [NSString stringWithFormat:@"ready · %@",hookPlan[@"kind"]?:@"plan"]
-            : (hookError?:@"unsupported");
-        NSString *directSummary=directOK?@"ABI supported":(directReason?:@"unsupported");
-        UILabel *statusLabel=[self label:[NSString stringWithFormat:@"状态  Native Hook：%@\nDirect Call：%@",hookSummary,directSummary]
+        UILabel *statusLabel=[self label:statusText
                                     size:7.5 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
-        statusLabel.frame=CGRectMake(13,py+3,width-26,40);
-        statusLabel.numberOfLines=2;
+        statusLabel.frame=CGRectMake(13,py+3,width-26,statusBlockH-8.0);
+        statusLabel.numberOfLines=0;
+        statusLabel.lineBreakMode=NSLineBreakByCharWrapping;
         [card addSubview:statusLabel];
 
         [self.contentView addSubview:card];
@@ -14392,10 +14414,8 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     }
     NSString *error=nil;
     if([mode isEqualToString:@"direct"]){
-        NSString *why=nil;
-        if(![[ZNDirectNativeCallEngine sharedEngine] supportsCandidate:candidate reason:&why]){
-            [self zn60v3_setStatus:why?:@"Direct Native Call ABI 不支持"];return;
-        }
+        // Creation persists the descriptor; execution capability is validated
+        // by Direct Native Call at test/runtime time.
         ZNRuntimeMethodAction *created=[[ZNRuntimeActionStore sharedStore] addDirectNativeCallCandidate:candidate
                                                                                                   title:candidate[@"method"]
                                                                                          argumentValues:values
@@ -14486,12 +14506,12 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     NSArray<NSString *> *values=ZNM613ArgumentValues(self,candidate);
     NSDictionary *analysis=ZNM613AnalyzeCandidate(candidate);
     NSString *reason=[analysis[@"directReason"] isKindOfClass:NSString.class]?analysis[@"directReason"]:@"";
+    ZNM613SetModeForCard(self,sender.superview,candidate,@"direct");
     if(![analysis[@"directOK"] boolValue]){
-        [self zn60v3_setStatus:reason.length?reason:@"Direct Native Call：当前 ABI 不受支持"];
+        [self zn60v3_setStatus:reason.length?reason:@"Direct Native Call：当前 ABI 不受支持；仍可创建 descriptor"];
         [self renderPage];
         return;
     }
-    ZNM613SetModeForCard(self,sender.superview,candidate,@"direct");
     if(values.count!=argc){
         [self zn60v3_setStatus:[NSString stringWithFormat:@"Direct Native Call V1：当前结果卡仅支持 /0 或 /1 参数输入；方法需要 /%lu",(unsigned long)argc]];
         return;
@@ -14545,14 +14565,14 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
 - (void)zn64_hookTestTapped:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
+    ZNM613SetModeForCard(self,sender.superview,candidate,@"hook");
     NSString *error=nil;
     NSDictionary *plan=ZNM613HookPlan(candidate,&error);
     if(!plan){
-        [self zn60v3_setStatus:error?:@"Native Hook：unsupported"];
+        [self zn60v3_setStatus:error?:@"Native Hook：unsupported；仍可进入该模式查看/配置"];
         [self renderPage];
         return;
     }
-    ZNM613SetModeForCard(self,sender.superview,candidate,@"hook");
     NSString *kind=plan[@"kind"]?:@"?";
     NSString *extra=[kind isEqualToString:@"complex"]
         ? [NSString stringWithFormat:@" · %@ · %@",plan[@"type"]?:@"?",plan[@"codec"]?:@"?"]
