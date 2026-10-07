@@ -1,3 +1,4 @@
+#import "ZNPatchCore.h"
 #pragma mark - BEGIN ZNDeferredBootstrap.mm
 #line 1 "ZNDeferredBootstrap.mm"
 #import "ZNDeferredBootstrap.h"
