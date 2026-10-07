@@ -14,6 +14,7 @@ on:
       - refactor/m6.13.3-znunifiedui-audit-v1
       - fix/m6.13.4-arm64-relocation-widening-v1
       - fix/m6.13.5-direct-call-rva-identity-v1
+      - fix/m6.13.6-full-json-export-import-v1
       - feature/m6.13.3-runtime-argument-marshalling-v1
   workflow_dispatch:
 
