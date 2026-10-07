@@ -292,12 +292,9 @@ finish=s[start:end]
 assert "ZonoePatchStart" in finish
 assert "ZonoePatchShow" not in finish
 
-# Legacy launcher tap is show-only when ready.
-start=s.index("- (void)zn_activate:(id)sender")
-end=s.index("\n}\n\n@end",start)
-tap=s[start:end]
-assert "ZonoePatchShow" in tap
-assert "dispatch_after" not in tap
+# M6.13.8 removed the no-longer-visible cold launcher tap path.
+assert "- (void)zn_activate:(id)sender" not in s
+assert "- (void)zn_pan:(UIPanGestureRecognizer *)gesture" not in s
 PY
 
 
