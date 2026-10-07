@@ -38,8 +38,7 @@ static void ZNInstallV040Swizzles(void);
 static void ZNRuntimeCoreBootstrapV040(void) {
     @autoreleasepool {
         [ZNPatchManager sharedManager];
-        [[ZNDeveloperGate sharedGate] refresh];
-        // M6.11: never resolve IL2CPP on menu/bootstrap path. Resolver-heavy
+            // M6.11: never resolve IL2CPP on menu/bootstrap path. Resolver-heavy
         // work is lazy and owned by the feature that actually needs it.
         [[ZNRuntimeCapabilityCoordinator sharedCoordinator] start];
         ZNInstallV040Swizzles();
@@ -614,7 +613,6 @@ static void ZNRuntimeMenuBootstrapV024(void){@autoreleasepool{NSLog(@"[ZonoPatch
     id obj = [self zn40_init];
     if (!obj) return nil;
     [ZNPatchManager sharedManager];
-    [[ZNDeveloperGate sharedGate] refresh];
     [self zn40_refreshDeveloperCategories:NO];
     return obj;
 }
@@ -707,14 +705,12 @@ static void ZNRuntimeMenuBootstrapV024(void){@autoreleasepool{NSLog(@"[ZonoPatch
 
 - (void)zn40_tick:(NSTimer *)timer {
     [self zn40_tick:timer];
-    [[ZNDeveloperGate sharedGate] refresh];
     [self zn40_refreshDeveloperCategories:NO];
     [self zn40_updateSubtitle];
     if (self.uiReady) self.footerLabel.text = [NSString stringWithFormat:@"PatchCore 0.5.6    No JIT    iOS %@", UIDevice.currentDevice.systemVersion];
 }
 
 - (void)zn40_togglePanel:(id)sender {
-    [[ZNDeveloperGate sharedGate] refresh];
     [self zn40_refreshDeveloperCategories:NO];
     [self zn40_togglePanel:sender];
     [self zn40_updateSubtitle];
@@ -952,7 +948,6 @@ extern "C" __attribute__((visibility("default"))) uint32_t ZonoePatchGetAPIVersi
 extern "C" __attribute__((visibility("default"))) const char *ZonoePatchGetVersion(void) { return "0.5.6-ui-consolidated"; }
 extern "C" __attribute__((visibility("default"))) void ZonoePatchStart(void) {
     if (!ZNDeferredBootstrapIsActivated()) return;
-    [[ZNDeveloperGate sharedGate] refresh];
     [ZNPatchManager sharedManager];
     ZonoePatchStartBaselineV024();
 }
@@ -1962,7 +1957,6 @@ static void ZNInstallV049SharedSiteProbeUI(void) {
     id obj = [self zn53_init];
     if (!obj) return nil;
     [ZNPatchManager sharedManager];
-    [[ZNDeveloperGate sharedGate] refresh];
     [self zn40_refreshDeveloperCategories:NO];
     return obj;
 }
@@ -1983,6 +1977,14 @@ static void ZNInstallV049SharedSiteProbeUI(void) {
 
 - (void)zn53_makeUI:(UIWindow *)window {
     [self zn53_makeUI:window];
+
+    // Evaluate file 1 only after the real floating icon is fully created and
+    // attached to the host UIWindow. ZNDeveloperGate caches this snapshot for
+    // the lifetime of the process, so ticks/toggles never touch the filesystem.
+    if (self.uiReady && self.floatButton && self.floatButton.superview == window) {
+        [[ZNDeveloperGate sharedGate] refresh];
+    }
+
     [self zn40_refreshDeveloperCategories:YES];
     [self zn40_updateSubtitle];
     [self zn53_applyTouchPolicy];
@@ -2164,8 +2166,7 @@ static void ZNInstallV053CurrentUI(void) {
 extern "C" void ZNInstallRuntimeMenuV055Deferred(void) {
     @autoreleasepool {
         [ZNPatchManager sharedManager];
-        [[ZNDeveloperGate sharedGate] refresh];
-        ZNInstallV053CurrentUI();
+            ZNInstallV053CurrentUI();
         [[ZNRuntimeLogger sharedLogger] log:@"[bootstrap][deferred] v0.5.6 current UI installed after first launcher tap"];
     }
 }
