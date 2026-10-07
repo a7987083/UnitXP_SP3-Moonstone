@@ -40,7 +40,8 @@
     _markerHasG = NO;
     _markerHasQ = NO;
     _activationEvaluated = NO;
-    [self refresh];
+    // Developer marker evaluation is intentionally deferred until the real
+    // floating menu icon has been created and attached to a host UIWindow.
     return self;
 }
 
@@ -72,14 +73,14 @@
     _markerHasQ = NO;
 
     if (!path) {
-        _lastError = @"首次点击激活时未找到开发者标记文件 1";
+        _lastError = @"图标加载完成后未找到开发者标记文件 1";
         return NO;
     }
 
     NSError *error = nil;
     NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];
     if (!text) {
-        _lastError = [NSString stringWithFormat:@"首次点击激活时读取标记文件失败：%@", error.localizedDescription ?: @"未知错误"];
+        _lastError = [NSString stringWithFormat:@"图标加载完成后读取标记文件失败：%@", error.localizedDescription ?: @"未知错误"];
         return NO;
     }
 
@@ -112,9 +113,9 @@
 }
 
 - (void)refresh {
-    // v0.5.5 policy: developer permission is a first-menu-activation snapshot.
-    // Legacy callers may still invoke refresh from menu/timer paths, but those
-    // calls must never touch the filesystem after the first evaluation.
+    // Developer permission is a one-shot snapshot taken only after the real
+    // floating menu icon has been created and attached to a host UIWindow.
+    // Later refresh calls are harmless because the result is cached.
     @synchronized (self) {
         if (_activationEvaluated) return;
         _activationEvaluated = YES;
@@ -127,7 +128,7 @@
         _awaitingZonoe = NO;
 
         if (![self loadMarkerOnce]) {
-            [[ZNRuntimeLogger sharedLogger] log:@"[dev-gate] first-activation snapshot: public mode"];
+            [[ZNRuntimeLogger sharedLogger] log:@"[dev-gate] post-icon snapshot: public mode"];
             return;
         }
 
@@ -139,7 +140,7 @@
         }
 
         [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
-            @"[dev-gate] first-activation snapshot cached: g=%@ q=%@ marker=%@",
+            @"[dev-gate] post-icon snapshot cached: g=%@ q=%@ marker=%@",
             _authorized ? @"ON" : @"OFF",
             _otherAuthorized ? @"ON" : @"OFF",
             _markerPath.length ? _markerPath : @"none"]];
@@ -160,7 +161,7 @@
 
 - (NSString *)sourceDescription {
     switch (_identitySource) {
-        case ZNIdentitySourceMarkerFile: return @"首次点击标记文件";
+        case ZNIdentitySourceMarkerFile: return @"图标加载后标记文件";
         case ZNIdentitySourceHostDylib: return @"Host Dylib（已禁用）";
         case ZNIdentitySourceZonoeLocalTicket: return @"Local Ticket（已禁用）";
         case ZNIdentitySourceSubmittedHost: return @"Host Submitted（已禁用）";
@@ -175,7 +176,7 @@
 }
 
 - (NSString *)diagnosticReport {
-    return [NSString stringWithFormat:@"开发者标记: %@\n首次点击检查: 已缓存，本进程不重新读取\n诊断/Debug(g): %@\n其他(q): %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n运行时重检: 已禁用（重启游戏生效）\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
+    return [NSString stringWithFormat:@"开发者标记: %@\n图标加载后检查: 已缓存，本进程不重新读取\n诊断/Debug(g): %@\n其他(q): %@\n标记文件: %@\n标记附加值: %@\n来源: %@\n运行时重检: 已禁用（重启游戏生效）\nHost Bridge: 已禁用\nLocal Ticket: 已禁用\n错误: %@\n",
             self.markerPresent ? @"已找到" : @"未找到",
             self.authorized ? @"显示" : @"隐藏",
             self.otherAuthorized ? @"显示" : @"隐藏",
