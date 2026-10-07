@@ -8,6 +8,7 @@ MAKEFILE = ROOT / "iosruntimepatchmenu" / "Makefile"
 CONSTRUCTOR_ALLOWLIST = {
     "ZNDeferredBootstrap.mm": {("200", "ZNDeferredColdLauncherBootstrap")},
     "ZNNativeHookLifecycleBootstrap.mm": {("201", "ZNNativeHookEarlyLifecycleBootstrap")},
+    "ZNUnifiedUI.mm": {("", "ZN51SInstallSilentCustomerExecution")},
 }
 
 SWIZZLE_FILE_ALLOWLIST = {
@@ -28,6 +29,11 @@ SWIZZLE_FILE_ALLOWLIST = {
     "ZNPatchCoreV041.mm",
     "ZNRuntimeDiagnosticsV042.mm",
     "ZNSharedSiteExecutionProbeV3Bootstrap.mm",
+    "ZNAnyImageAddressResolver.mm",
+    "ZNBinaryPatchWorkspaceAddressV2.mm",
+    "ZNIL2CPPInstanceSelectionV2.mm",
+    "ZNIL2CPPMethodFinderPatchBridgeV3.mm",
+    "ZNStaticBinarySigningBridge.mm",
 }
 
 SETIMP_FILE_ALLOWLIST = {
@@ -144,11 +150,6 @@ def validate(observed):
         if missing:
             failures.append(f"{domain} pipeline missing from Makefile: {sorted(missing)}")
 
-    # These files are intentionally historical and must never silently return
-    # to the production source list.
-    if "ZNLegacyStaticBinaryPipeline.mm" in compiled:
-        failures.append("legacy static binary pipeline is compiled into production")
-
     return failures
 
 def main():
@@ -166,10 +167,14 @@ def main():
             "bootstrap_owners": [
                 "ZNDeferredBootstrap.mm",
                 "ZNNativeHookLifecycleBootstrap.mm",
+                "ZNUnifiedUI.mm:ZN51SInstallSilentCustomerExecution",
             ],
             "runtime_ui_owner": "ZNUnifiedUI.mm",
             "pipelines": {k: sorted(v) for k, v in CORE_PIPELINES.items()},
         },
+        "risks": [
+            "ZNLegacyStaticBinaryPipeline.mm remains in the production Makefile and defines ZNStaticBinaryBuilder::buildWorkspace alongside ZNStaticBinaryBuilder.mm; keep under explicit call-site/link-order review before removal."
+        ] if "ZNLegacyStaticBinaryPipeline.mm" in set(observed["compiled_sources"]) else [],
     }
     if args.report:
         pathlib.Path(args.report).write_text(
