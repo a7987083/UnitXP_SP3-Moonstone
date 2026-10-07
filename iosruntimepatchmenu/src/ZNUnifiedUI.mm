@@ -786,14 +786,6 @@ static void ZNRuntimeMenuBootstrapV024(void){@autoreleasepool{NSLog(@"[ZonoPatch
     *y += 62.0;
 }
 
-- (void)zn40_replaceHomeVersionText {
-    for (UIView *view in self.contentView.subviews) {
-        if (![view isKindOfClass:UILabel.class]) continue;
-        UILabel *label = (UILabel *)view;
-        if ([label.text hasPrefix:@"V0.2.4 UI"]) label.text = @"V0.4.0 Runtime Foundation · No JIT";
-    }
-}
-
 - (NSArray<NSString *> *)zn40_nonEmptyLines:(NSString *)text {
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     for (NSString *line in [text componentsSeparatedByString:@"\n"]) if (line.length) [out addObject:line];
@@ -2212,9 +2204,6 @@ typedef NS_ENUM(int, ZNDeferredState) {
 };
 
 static std::atomic<int> gZNDeferredState{ZNDeferredStateCold};
-static NSString * const kZNDeferredFloatPositionKey = @"ZonoePatch.FloatCenter";
-static const CGFloat kZNDeferredFloatSize = 52.0;
-static const CGFloat kZNDeferredMargin = 10.0;
 
 static void ZNRunActivationStage(NSString *name, void (^block)(void)) {
     (void)name;
@@ -2254,7 +2243,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
 }
 
 @interface ZNDeferredLauncher : NSObject
-@property(nonatomic,strong) UIButton *button;
 @property(nonatomic,weak) UIWindow *hostWindow;
 - (void)installIfPossible;
 - (void)zn_beginActivation;
@@ -2289,18 +2277,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     [self installIfPossible];
 }
 
-- (CGPoint)zn_clamp:(CGPoint)center window:(UIWindow *)window {
-    UIEdgeInsets safe = window.safeAreaInsets;
-    CGFloat half = kZNDeferredFloatSize * 0.5;
-    CGFloat left = safe.left + kZNDeferredMargin + half;
-    CGFloat right = CGRectGetWidth(window.bounds) - safe.right - kZNDeferredMargin - half;
-    CGFloat top = safe.top + kZNDeferredMargin + half;
-    CGFloat bottom = CGRectGetHeight(window.bounds) - safe.bottom - kZNDeferredMargin - half;
-    center.x = MIN(MAX(center.x, left), MAX(left, right));
-    center.y = MIN(MAX(center.y, top), MAX(top, bottom));
-    return center;
-}
-
 - (void)installIfPossible {
     int state=gZNDeferredState.load(std::memory_order_acquire);
     if(state==ZNDeferredStateReady||state==ZNDeferredStateLoading)return;
@@ -2321,26 +2297,8 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     [self zn_beginActivation];
 }
 
-- (void)zn_pan:(UIPanGestureRecognizer *)gesture {
-    if (gZNDeferredState.load(std::memory_order_acquire) != ZNDeferredStateCold) return;
-    UIWindow *window = self.hostWindow;
-    if (!window) return;
-    CGPoint translation = [gesture translationInView:window];
-    CGPoint center = self.button.center;
-    center.x += translation.x;
-    center.y += translation.y;
-    self.button.center = [self zn_clamp:center window:window];
-    [gesture setTranslation:CGPointZero inView:window];
-    if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
-        [NSUserDefaults.standardUserDefaults setObject:NSStringFromCGPoint(self.button.center) forKey:kZNDeferredFloatPositionKey];
-    }
-}
-
 - (void)zn_markFailed:(NSException *)exception {
     gZNDeferredState.store(ZNDeferredStateFailed, std::memory_order_release);
-    self.button.enabled = NO;
-    self.button.alpha = 1.0;
-    [self.button setTitle:@"!" forState:UIControlStateNormal];
     NSLog(@"[ZonoPatch] v0.5.7 deferred activation failed: %@", exception.reason ?: @"unknown exception");
 }
 
@@ -2363,11 +2321,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
         // the panel. Therefore the first user tap is only a show/toggle action.
         ZNRunActivationStage(@"ZonoePatchStart", ^{ ZonoePatchStart(); });
 
-        if (self.button) {
-            [self.button removeFromSuperview];
-            self.button = nil;
-            self.hostWindow = nil;
-        }
         [[ZNRuntimeLogger sharedLogger] log:
             @"[bootstrap][m6.11] instant-menu prewarm ready; first tap is show-only"];
     } @catch (NSException *exception) {
@@ -2388,15 +2341,6 @@ static UIWindow *ZNDeferredCurrentWindow(void) {
     } @catch (NSException *exception) {
         [self zn_markFailed:exception];
     }
-}
-
-- (void)zn_activate:(id)sender {
-    (void)sender;
-    if(gZNDeferredState.load(std::memory_order_acquire)==ZNDeferredStateReady){
-        ZonoePatchShow();
-        return;
-    }
-    [self installIfPossible];
 }
 
 @end
@@ -14692,122 +14636,6 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
 }
 
 
-- (void)zn66_presentReturnBoolConfigForCandidate:(NSDictionary *)candidate
-                                           source:(UIButton *)source {
-    (void)source;
-    NSString *method=ZNM52XString(candidate[@"method"]);
-    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
-    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\n模板：ReturnBoolOverride\n测试值：true\nOriginal：执行后覆盖返回值\n\n%@",
-                       ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,diag?:@""];
-
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Return Bool Override 测试"
-                                                                  message:message
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    __weak typeof(self) weakSelf=self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:YES error:&error];
-        [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → true；实时状态见筛选栏下方",method]
-            : (error?:@"ReturnBoolOverride 安装失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · false" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryReturnBoolOverrideForCandidate:candidate value:NO error:&error];
-        [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"ReturnBoolOverride 已安装 · %@ → false；实时状态见筛选栏下方",method]
-            : (error?:@"ReturnBoolOverride 安装失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
-        [weakSelf zn60v3_setStatus:ok?@"ReturnBoolOverride 已移除，目标已恢复":(error?:@"恢复原方法失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法 · force true" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        NSString *title=[NSString stringWithFormat:@"%@ Override",method.length?method:@"Return Bool"];
-        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addReturnBoolOverrideCandidate:candidate
-                                                                                             title:title
-                                                                                             value:YES
-                                                                                             error:&error];
-        [weakSelf zn60v3_setStatus:created
-            ? [NSString stringWithFormat:@"已创建 ReturnBoolOverride：%@ · Switch",created.title]
-            : (error?:@"创建 ReturnBoolOverride 失败")];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    UIViewController *top=ZNM52XTop(self.hostWindow);
-    if(top)[top presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)zn65_presentManagedCallbackConfigForCandidate:(NSDictionary *)candidate
-                                         argumentIndex:(NSUInteger)argumentIndex
-                                                source:(UIButton *)source {
-    NSString *method=ZNM52XString(candidate[@"method"]);
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
-    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
-    NSDictionary *param=argumentIndex<params.count?params[argumentIndex]:@{};
-    NSString *paramName=[param[@"paramName"] isKindOfClass:NSString.class]?param[@"paramName"]:@"";
-    NSString *paramType=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"System.Action<bool>";
-    NSString *diag=[[ZNNativeHookRuntime sharedRuntime] diagnosticsForCandidate:candidate];
-    NSString *message=[NSString stringWithFormat:@"目标：%@::%@/%@\nCallback：参数%lu%@\n类型：%@\n模板：ManagedCallbackShortCircuit\nSkip Original：YES\n\n%@",
-                       ZNM52XString(candidate[@"class"]),method,candidate[@"argumentCount"]?:@0,
-                       (unsigned long)argumentIndex+1,
-                       paramName.length?[NSString stringWithFormat:@" · %@",paramName]:@"",
-                       paramType,diag?:@""];
-
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Managed Callback Hook 测试"
-                                                                  message:message
-                                                           preferredStyle:UIAlertControllerStyleAlert];
-    __weak typeof(self) weakSelf=self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · Callback(true)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryManagedCallbackShortCircuitForCandidate:candidate
-                                                                                               argumentIndex:argumentIndex
-                                                                                               callbackValue:YES
-                                                                                                       error:&error];
-        [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · callback(true)；实时状态见筛选栏下方",method]
-            : (error?:@"Managed Callback Hook 安装失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"安装测试 Hook · Callback(false)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] installTemporaryManagedCallbackShortCircuitForCandidate:candidate
-                                                                                               argumentIndex:argumentIndex
-                                                                                               callbackValue:NO
-                                                                                                       error:&error];
-        [weakSelf zn60v3_setStatus:ok
-            ? [NSString stringWithFormat:@"Managed Callback Hook 已安装 · %@ · callback(false)；实时状态见筛选栏下方",method]
-            : (error?:@"Managed Callback Hook 安装失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"恢复原方法" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        BOOL ok=[[ZNNativeHookRuntime sharedRuntime] removeTemporaryHookForCandidate:candidate error:&error];
-        [weakSelf zn60v3_setStatus:ok?@"Managed Callback Hook 已移除，目标已恢复":(error?:@"恢复原方法失败")];
-        [weakSelf renderPage];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"创建 Hook 方法 · callback(true)" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *error=nil;
-        NSString *title=[NSString stringWithFormat:@"%@ Short Circuit",method.length?method:@"Managed Callback"];
-        ZNNativeHookAction *created=[[ZNNativeHookStore sharedStore] addManagedCallbackShortCircuitCandidate:candidate
-                                                                                                       title:title
-                                                                                       callbackArgumentIndex:argumentIndex
-                                                                                               callbackValue:YES
-                                                                                                skipOriginal:YES
-                                                                                                       error:&error];
-        [weakSelf zn60v3_setStatus:created
-            ? [NSString stringWithFormat:@"已创建 Managed Callback Hook：%@",created.title]
-            : (error?:@"创建 Managed Callback Hook 失败")];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    UIViewController *top=ZNM52XTop(self.hostWindow);
-    if(top)[top presentViewController:alert animated:YES completion:nil];
-}
-
 - (void)zn52x_reselectInstance:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,kZNM52XCandidateKey);
     if(!candidate)return;
@@ -18340,7 +18168,6 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 }
 
 @interface ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
-- (void)znm630_hardCutRenderFullPage;
 - (void)znm630_hardCutRenderCompactPage;
 - (void)znm630_hardCutRenderFeatures:(BOOL)compact;
 - (void)znm630_hardCutSwitchChanged:(UISwitch *)sender;
@@ -18714,21 +18541,6 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     [self zn40_updateContentHeight:y+4.0];
     self.contentScroll.delaysContentTouches=NO;
     self.contentScroll.canCancelContentTouches=YES;
-}
-
-- (void)znm630_hardCutRenderFullPage {
-    NSString *category=(self.selectedCategory>=0&&self.selectedCategory<(NSInteger)self.categories.count)
-        ? self.categories[(NSUInteger)self.selectedCategory] : @"";
-    if ([category isEqualToString:@"功能"]) {
-        [self znm630_hardCutRenderFeatures:NO];
-        return;
-    }
-
-    // Hard-Cut is intentionally scoped to the public Feature surface first.
-    // Other authoring/debug pages continue through the preserved legacy chain.
-    Method m=class_getInstanceMethod([self class],@selector(znm630_hardCutRenderFullPage));
-    IMP current=m?method_getImplementation(m):NULL;
-    (void)current;
 }
 
 - (void)znm630_hardCutRenderCompactPage {
