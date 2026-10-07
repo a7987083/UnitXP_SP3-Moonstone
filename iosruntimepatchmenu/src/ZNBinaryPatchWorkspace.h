@@ -38,6 +38,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)refreshJSONFiles;
 - (BOOL)importJSONAtPath:(NSString *)path error:(NSString * _Nullable * _Nullable)error;
+// M6.13.6 full authoring project JSON. This round-trips Static Patch,
+// Runtime/Direct Native Call and every Native Hook template plus UI metadata.
+- (NSDictionary<NSString *, id> *)projectExportDictionary;
+- (BOOL)importProjectDictionary:(NSDictionary<NSString *, id> *)root
+                          error:(NSString * _Nullable * _Nullable)error;
 
 - (NSUInteger)filledCount;
 - (NSUInteger)validatedCount;
