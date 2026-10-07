@@ -4,12 +4,15 @@
 #import "ZNFeatureControlModel.h"
 #import "ZNValueTypeModel.h"
 #import "ZNPatchCore.h"
+#import "ZNRuntimeActionModel.h"
+#import "ZNNativeHookAction.h"
 #import <errno.h>
 #import <stdlib.h>
 #include <math.h>
 
 
 extern "C" double ZNM585SliderMaximumForFeatureName(NSString *featureName);
+extern "C" void ZNM585SetSliderMaximumForFeatureName(NSString *featureName, double value);
 extern "C" BOOL ZNM620TemporaryApplyOffsetValue(NSString *target,
                                                  uint64_t rva,
                                                  ZNValueType type,
@@ -138,6 +141,18 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
 - (BOOL)importJSONAtPath:(NSString *)path error:(NSString **)error {
     if(self.hasAnyApplied){if(error)*error=@"请先恢复当前临时 Patch";return NO;}
     [self.temporarySharedSessions removeAllObjects];
+
+    // M6.13.6 native project format gets first refusal. Legacy/community patch
+    // JSON continues through ZNPatchJSONImporter unchanged.
+    NSData *projectData=[NSData dataWithContentsOfFile:path options:0 error:nil];
+    if(projectData.length){
+        id root=[NSJSONSerialization JSONObjectWithData:projectData options:0 error:nil];
+        if([root isKindOfClass:NSDictionary.class]&&[root[@"format"] isEqual:@"zonoe-feature-config"]){
+            BOOL ok=[self importProjectDictionary:(NSDictionary *)root error:error];
+            if(ok){self.showJSONFiles=NO;self.lastStatus=[NSString stringWithFormat:@"已导入工程 JSON · Static %lu · Runtime %lu · Native Hook %lu",(unsigned long)self.filledCount,(unsigned long)[[ZNRuntimeActionStore sharedStore] actionsSnapshot].count,(unsigned long)[[ZNNativeHookStore sharedStore] actionsSnapshot].count];}
+            return ok;
+        }
+    }
     NSArray<NSDictionary *> *items=[ZNPatchJSONImporter importFile:path error:error]; if(!items)return NO;
     NSMutableArray *rows=[NSMutableArray array]; NSMutableDictionary<NSString *,NSMutableArray<ZNBinaryPatchRow *> *> *sites=[NSMutableDictionary dictionary];
     NSMutableSet *targets=[NSMutableSet set]; NSUInteger low=0; __block NSUInteger shared=0;
@@ -396,5 +411,87 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
     self.lastStatus=errs.count?[NSString stringWithFormat:@"恢复：%lu 成功 · %lu 失败",(unsigned long)n,(unsigned long)errs.count]:[NSString stringWithFormat:@"恢复完成：%lu 个 Patch",(unsigned long)n];
     if(errs.count){if(error)*error=[errs componentsJoinedByString:@" | "];return NO;}return YES;
 }
+- (NSDictionary<NSString *,id> *)projectExportDictionary {
+    NSMutableArray<NSDictionary *> *patches=[NSMutableArray array];
+    for(ZNBinaryPatchRow *r in self.rows ?: @[]){
+        NSString *group=[r.group ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        BOOL meaningfulGroup=group.length&&[group caseInsensitiveCompare:@"Imported"]!=NSOrderedSame;
+        if(!r.offsetText.length&&!r.enabledText.length&&!r.title.length&&!r.featureDescription.length&&!meaningfulGroup)continue;
+        NSString *feature=ZNW62FeatureName(r);
+        double sliderMax=ZNM585SliderMaximumForFeatureName(feature);
+        [patches addObject:@{
+            @"target":r.target?:@"", @"explicitTarget":@(r.explicitTarget),
+            @"offset":r.offsetText?:@"", @"enabled":r.enabledText?:@"", @"original":r.originalHex?:@"",
+            @"title":r.title?:@"", @"group":r.group?:@"Imported", @"description":r.featureDescription?:@"",
+            @"controlType":@((NSInteger)r.featureControlType), @"valueType":@((NSInteger)r.featureValueType),
+            @"sliderMax":@(isfinite(sliderMax)&&sliderMax>0.0?sliderMax:0.0)
+        }];
+    }
+    return @{
+        @"format":@"zonoe-feature-config", @"version":@2,
+        @"defaultTarget":self.defaultTarget?:@"自动",
+        @"staticPatches":patches,
+        @"runtimeActions":[[ZNRuntimeActionStore sharedStore] exportDictionaries]?:@[],
+        @"nativeHooks":[[ZNNativeHookStore sharedStore] exportDictionaries]?:@[]
+    };
+}
+
+- (BOOL)importProjectDictionary:(NSDictionary<NSString *,id> *)root error:(NSString **)error {
+    if(self.hasAnyApplied||self.isBuilding){if(error)*error=@"当前状态不可导入工程 JSON，请先恢复 Patch 或等待生成结束";return NO;}
+    if(![root isKindOfClass:NSDictionary.class]||![root[@"format"] isEqual:@"zonoe-feature-config"]){if(error)*error=@"不是 Zonoe 工程 JSON";return NO;}
+    NSInteger version=[root[@"version"] integerValue];
+    if(version!=2){if(error)*error=[NSString stringWithFormat:@"不支持的 Zonoe JSON 版本：%ld",(long)version];return NO;}
+    NSArray *patchItems=[root[@"staticPatches"] isKindOfClass:NSArray.class]?root[@"staticPatches"]:@[];
+    NSArray *runtimeItems=[root[@"runtimeActions"] isKindOfClass:NSArray.class]?root[@"runtimeActions"]:@[];
+    NSArray *nativeItems=[root[@"nativeHooks"] isKindOfClass:NSArray.class]?root[@"nativeHooks"]:@[];
+    NSMutableArray<ZNBinaryPatchRow *> *parsedRows=[NSMutableArray arrayWithCapacity:patchItems.count];
+    NSMutableDictionary<NSString *,NSNumber *> *sliderMaxByFeature=[NSMutableDictionary dictionary];
+    for(NSUInteger i=0;i<patchItems.count;i++){
+        NSDictionary *d=[patchItems[i] isKindOfClass:NSDictionary.class]?patchItems[i]:nil;
+        if(!d){if(error)*error=[NSString stringWithFormat:@"Static Patch #%lu 格式无效",(unsigned long)i+1];return NO;}
+        NSInteger ct=[d[@"controlType"] integerValue];
+        if(ct!=ZNFeatureControlTypeSwitch&&ct!=ZNFeatureControlTypeSlider&&ct!=ZNFeatureControlTypeButton&&ct!=ZNFeatureControlTypeNumber){if(error)*error=[NSString stringWithFormat:@"Static Patch #%lu controlType 无效",(unsigned long)i+1];return NO;}
+        NSInteger vt=[d[@"valueType"] integerValue];
+        if(vt<ZNValueTypeAuto||vt>ZNValueTypeF64){if(error)*error=[NSString stringWithFormat:@"Static Patch #%lu valueType 无效",(unsigned long)i+1];return NO;}
+        ZNBinaryPatchRow *r=[ZNBinaryPatchRow new];
+        r.target=[d[@"target"] isKindOfClass:NSString.class]?d[@"target"]:@"";
+        r.explicitTarget=d[@"explicitTarget"]?[d[@"explicitTarget"] boolValue]:r.target.length>0;
+        r.offsetText=[d[@"offset"] isKindOfClass:NSString.class]?d[@"offset"]:@"";
+        r.enabledText=[d[@"enabled"] isKindOfClass:NSString.class]?d[@"enabled"]:@"";
+        r.title=[d[@"title"] isKindOfClass:NSString.class]?d[@"title"]:@"";
+        r.group=[d[@"group"] isKindOfClass:NSString.class]?d[@"group"]:@"Imported";
+        r.featureDescription=[d[@"description"] isKindOfClass:NSString.class]?d[@"description"]:@"";
+        r.sourcePath=[NSString stringWithFormat:@"$.staticPatches[%lu]",(unsigned long)i];
+        r.featureControlType=(ZNFeatureControlType)ct;r.featureValueType=(ZNValueType)vt;
+        r.originalHex=@"";r.validated=NO;r.validator=nil;r.lowConfidence=NO;r.conflict=NO;r.statusText=@"待验证";
+        [parsedRows addObject:r];
+        NSString *feature=ZNW62FeatureName(r);
+        double max=[d[@"sliderMax"] doubleValue]; if(isfinite(max)&&max>0.0)sliderMaxByFeature[feature.lowercaseString]=@(max);
+    }
+
+    NSArray *oldRuntime=[[ZNRuntimeActionStore sharedStore] exportDictionaries];
+    NSArray *oldNative=[[ZNNativeHookStore sharedStore] exportDictionaries];
+    NSString *local=nil;
+    if(![[ZNRuntimeActionStore sharedStore] replaceWithImportedDictionaries:runtimeItems error:&local]){if(error)*error=local?:@"Runtime Actions 导入失败";return NO;}
+    if(![[ZNNativeHookStore sharedStore] replaceWithImportedDictionaries:nativeItems error:&local]){
+        [[ZNRuntimeActionStore sharedStore] replaceWithImportedDictionaries:oldRuntime error:nil];
+        if(error)*error=local?:@"Native Hooks 导入失败";return NO;
+    }
+
+    self.rows=parsedRows;[self ensureDefaultRows];
+    NSString *target=[root[@"defaultTarget"] isKindOfClass:NSString.class]?root[@"defaultTarget"]:@"自动";
+    self.defaultTarget=target.length?target:@"自动";
+    [sliderMaxByFeature enumerateKeysAndObjectsUsingBlock:^(NSString *featureKey,NSNumber *value,BOOL *stop){
+        (void)stop;
+        // Recover display casing from imported rows before writing the shared authoring preference.
+        NSString *name=featureKey;
+        for(ZNBinaryPatchRow *r in parsedRows){NSString *candidate=ZNW62FeatureName(r);if([candidate.lowercaseString isEqualToString:featureKey]){name=candidate;break;}}
+        ZNM585SetSliderMaximumForFeatureName(name,value.doubleValue);
+    }];
+    [self.temporarySharedSessions removeAllObjects];[self.temporaryValueSessions removeAllObjects];
+    self.showJSONFiles=NO;
+    return YES;
+}
+
 - (void)setBuildOutputs:(NSArray<NSString *> *)paths status:(NSString *)status { self.lastOutputPaths=paths?:@[];self.lastStatus=status?:@""; }
 @end
