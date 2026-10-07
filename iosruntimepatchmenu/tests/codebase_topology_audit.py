@@ -150,6 +150,9 @@ def validate(observed):
         if missing:
             failures.append(f"{domain} pipeline missing from Makefile: {sorted(missing)}")
 
+    if "ZNLegacyStaticBinaryPipeline.mm" in compiled:
+        failures.append("legacy static binary pipeline must not be linked into production")
+
     return failures
 
 def main():
