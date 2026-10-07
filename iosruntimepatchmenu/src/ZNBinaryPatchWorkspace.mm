@@ -470,7 +470,6 @@ static NSString *ZNW44SiteKeyForRow(ZNBinaryPatchRow *row, NSString *defaultTarg
     }
 
     NSArray *oldRuntime=[[ZNRuntimeActionStore sharedStore] exportDictionaries];
-    NSArray *oldNative=[[ZNNativeHookStore sharedStore] exportDictionaries];
     NSString *local=nil;
     if(![[ZNRuntimeActionStore sharedStore] replaceWithImportedDictionaries:runtimeItems error:&local]){if(error)*error=local?:@"Runtime Actions 导入失败";return NO;}
     if(![[ZNNativeHookStore sharedStore] replaceWithImportedDictionaries:nativeItems error:&local]){
