@@ -249,6 +249,11 @@ grep -q 'Field Offset：不需要' "$UI"
 ! grep -q 'zn_activate:' "$UI"
 ! grep -q 'zn_pan:' "$UI"
 
+# M6.13.8 refactor: retired M5.8.5 slider decorator stays absent; compatibility installer remains.
+! grep -q 'znm585_rangeDecorateCompact' "$UI"
+! grep -q 'znm585_rangeSliderCommitted' "$UI"
+grep -q 'ZNInstallM585StaticRuntimeRangeDeferred' "$UI"
+
 # M6.13.3 regression contracts:
 # - Direct Native Call is a first-class method-like runtime payload in verifier.
 # - sidebar relayout preserves its own scroll position.
