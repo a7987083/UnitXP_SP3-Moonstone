@@ -6,6 +6,7 @@
 #import "ZNIL2CPPRuntimeCommon.h"
 #import "ZNComplexStructCodec.h"
 #import "ZNComplexStructCodecResolver.h"
+#import "ZNRuntimeArgumentMarshaller.h"
 #import "ZNPatchCore.h"
 
 #include <errno.h>
@@ -48,6 +49,99 @@ static BOOL ZNDNCParseSigned(NSString *text, int64_t *out) {
     if(errno||end==raw||*end!='\0')return NO;
     if(out)*out=(int64_t)v;
     return YES;
+}
+
+
+static NSString *ZNDNCByRefElementName(NSDictionary *param) {
+    NSString *element=[param[@"elementName"] isKindOfClass:NSString.class]?param[@"elementName"]:@"";
+    if(element.length)return element;
+    NSString *name=[param[@"name"] isKindOfClass:NSString.class]?param[@"name"]:@"";
+    while([name hasSuffix:@"&"]||[name hasSuffix:@"*"])
+        name=[[name substringToIndex:name.length-1]
+              stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return name;
+}
+
+static ZNIL2CPPABIValueKind ZNDNCByRefElementKind(NSDictionary *param) {
+    if([param[@"elementKind"] respondsToSelector:@selector(integerValue)])
+        return (ZNIL2CPPABIValueKind)[param[@"elementKind"] integerValue];
+    return ZNIL2CPPABIKindForManagedTypeName(ZNDNCByRefElementName(param));
+}
+
+static BOOL ZNDNCParseDouble(NSString *text,double *out) {
+    NSString *value=[text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if(!value.length)return NO;
+    NSScanner *scanner=[NSScanner scannerWithString:value];
+    double v=0;
+    if(![scanner scanDouble:&v]||!scanner.isAtEnd||!isfinite(v))return NO;
+    if(out)*out=v;
+    return YES;
+}
+
+static NSMutableData *ZNDNCPrepareByRefArgument(NSString *text,
+                                                NSDictionary *param,
+                                                uintptr_t methodInfo,
+                                                NSUInteger index,
+                                                NSString *imagePath,
+                                                NSString **error) {
+    ZNIL2CPPABIValueKind kind=ZNDNCByRefElementKind(param);
+    NSString *element=ZNDNCByRefElementName(param);
+
+    if(kind==ZNIL2CPPABIValueKindComplexValueType){
+        return [ZNRuntimeArgumentMarshaller
+            encodeValueTypeParameterForMethod:methodInfo
+                                        index:index
+                                         type:element
+                                        input:text ?: @""
+                                    imagePath:imagePath ?: @""
+                                        error:error];
+    }
+
+    NSMutableData *data=nil;
+    if(kind==ZNIL2CPPABIValueKindBool){
+        NSString *lower=[[text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] lowercaseString];
+        uint8_t v=0;
+        if([lower isEqualToString:@"true"]||[lower isEqualToString:@"yes"]||[lower isEqualToString:@"1"])v=1;
+        else if(!([lower isEqualToString:@"false"]||[lower isEqualToString:@"no"]||[lower isEqualToString:@"0"])){
+            if(error)*error=@"by-ref bool 参数请输入 true/false 或 1/0";
+            return nil;
+        }
+        data=[NSMutableData dataWithBytes:&v length:sizeof(v)];
+    }else if(kind==ZNIL2CPPABIValueKindSigned32){
+        int64_t parsed=0;
+        if(!ZNDNCParseSigned(text,&parsed)||parsed<INT32_MIN||parsed>INT32_MAX){
+            if(error)*error=@"by-ref int32 参数格式错误或越界";
+            return nil;
+        }
+        int32_t v=(int32_t)parsed; data=[NSMutableData dataWithBytes:&v length:sizeof(v)];
+    }else if(kind==ZNIL2CPPABIValueKindUnsigned32){
+        uint64_t parsed=0;
+        if(!ZNDNCParseUnsigned(text,&parsed)||parsed>UINT32_MAX){
+            if(error)*error=@"by-ref uint32 参数格式错误或越界";
+            return nil;
+        }
+        uint32_t v=(uint32_t)parsed; data=[NSMutableData dataWithBytes:&v length:sizeof(v)];
+    }else if(kind==ZNIL2CPPABIValueKindSigned64){
+        int64_t v=0;
+        if(!ZNDNCParseSigned(text,&v)){if(error)*error=@"by-ref int64 参数格式错误";return nil;}
+        data=[NSMutableData dataWithBytes:&v length:sizeof(v)];
+    }else if(kind==ZNIL2CPPABIValueKindUnsigned64||kind==ZNIL2CPPABIValueKindPointer){
+        uint64_t v=0;
+        if(!ZNDNCParseUnsigned(text,&v)){if(error)*error=@"by-ref uint64/pointer 参数格式错误";return nil;}
+        data=[NSMutableData dataWithBytes:&v length:sizeof(v)];
+    }else if(kind==ZNIL2CPPABIValueKindFloat32){
+        double parsed=0;
+        if(!ZNDNCParseDouble(text,&parsed)||fabs(parsed)>FLT_MAX){if(error)*error=@"by-ref float 参数格式错误或越界";return nil;}
+        float v=(float)parsed; data=[NSMutableData dataWithBytes:&v length:sizeof(v)];
+    }else if(kind==ZNIL2CPPABIValueKindFloat64){
+        double v=0;
+        if(!ZNDNCParseDouble(text,&v)){if(error)*error=@"by-ref double 参数格式错误";return nil;}
+        data=[NSMutableData dataWithBytes:&v length:sizeof(v)];
+    }else{
+        if(error)*error=[NSString stringWithFormat:@"Direct Native Call V2 无法安全编码 by-ref 参数：%@",element.length?element:@"?"];
+        return nil;
+    }
+    return data;
 }
 
 static BOOL ZNDNCIsObscuredIntParam(NSDictionary *param) {
@@ -215,8 +309,21 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
     NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
     for(NSDictionary *p in params){
         if([p[@"byRef"] boolValue]){
-            if(reason)*reason=[NSString stringWithFormat:@"参数 %@ 是 by-ref；Direct Native Call fail-closed",p[@"name"]?:@"?"];
-            return NO;
+            ZNIL2CPPABIValueKind elementKind=ZNDNCByRefElementKind(p);
+            BOOL supported=(elementKind==ZNIL2CPPABIValueKindBool||
+                            elementKind==ZNIL2CPPABIValueKindSigned32||
+                            elementKind==ZNIL2CPPABIValueKindUnsigned32||
+                            elementKind==ZNIL2CPPABIValueKindSigned64||
+                            elementKind==ZNIL2CPPABIValueKindUnsigned64||
+                            elementKind==ZNIL2CPPABIValueKindFloat32||
+                            elementKind==ZNIL2CPPABIValueKindFloat64||
+                            elementKind==ZNIL2CPPABIValueKindPointer||
+                            elementKind==ZNIL2CPPABIValueKindComplexValueType);
+            if(!supported){
+                if(reason)*reason=[NSString stringWithFormat:@"参数 %@ 是 by-ref，但 pointee ABI 未识别/不支持",p[@"name"]?:@"?"];
+                return NO;
+            }
+            continue; // by-ref itself occupies one ARM64 GPR pointer slot
         }
         ZNIL2CPPABIValueKind pk=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
         if(ZNDNCGPRKind(pk))continue;
@@ -249,6 +356,7 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
     }
 
     uintptr_t argv[8]={0}; void *ownedStructs[8]={0}; NSUInteger ownedCount=0; NSUInteger n=0;
+    NSMutableArray<NSMutableData *> *ownedByRefBuffers=[NSMutableArray array];
     BOOL instance=[abi[@"instance"] boolValue];
     uintptr_t receiver=0;
     if(instance){
@@ -264,8 +372,23 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
         if(!receiver){if(error)*error=@"Direct Native Call instance 方法需要先选择唯一实例";return nil;}
         argv[n++]=receiver;
     }
+    uintptr_t methodInfo=[abi[@"methodInfo"] unsignedLongLongValue];
     for(NSUInteger i=0;i<params.count;i++){
         NSDictionary *param=params[i];
+        if([param[@"byRef"] boolValue]){
+            NSString *inner=nil;
+            ZNIL2CPPResolver *resolver=[ZNIL2CPPResolver sharedResolver];
+            [resolver refresh];
+            NSMutableData *buffer=ZNDNCPrepareByRefArgument(argumentValues[i],param,methodInfo,i,resolver.unityPath,&inner);
+            if(!buffer.length){
+                for(NSUInteger j=0;j<ownedCount;j++)free(ownedStructs[j]);
+                if(error)*error=[NSString stringWithFormat:@"参数%lu：%@",(unsigned long)i+1,inner?:@"by-ref 编码失败"];
+                return nil;
+            }
+            [ownedByRefBuffers addObject:buffer];
+            argv[n++]=(uintptr_t)buffer.mutableBytes;
+            continue;
+        }
         if(ZNDNCIsObscuredIntParam(param)){
             void *buffer=NULL;NSString *inner=nil;
             if(!ZNDNCPrepareObscuredIntIndirect(argumentValues[i],&buffer,&inner)){
@@ -285,7 +408,6 @@ static uintptr_t ZNDNCCall(uintptr_t target, const uintptr_t *a, NSUInteger coun
         }
         argv[n++]=raw;
     }
-    uintptr_t methodInfo=[abi[@"methodInfo"] unsignedLongLongValue];
     argv[n++]=methodInfo;
     uintptr_t target=[abi[@"methodPointer"] unsignedLongLongValue];
     uintptr_t rawReturn=ZNDNCCall(target,argv,n);

@@ -17,6 +17,10 @@ typedef int (*ZNMARTypeGetTypeFn)(const void *);
 typedef uint32_t (*ZNMARMethodGetFlagsFn)(const void *, uint32_t *);
 typedef void *(*ZNMARRuntimeInvokeFn)(const void *, void *, void **, void **);
 typedef void *(*ZNMARObjectUnboxFn)(void *);
+typedef void *(*ZNMARDomainGetFn)(void);
+typedef const void **(*ZNMARDomainGetAssembliesFn)(const void *, size_t *);
+typedef const void *(*ZNMARAssemblyGetImageFn)(const void *);
+typedef void *(*ZNMARClassFromNameFn)(const void *, const char *, const char *);
 
 
 static void *ZNMARSymbol(NSString *imagePath, const char *name) {
@@ -28,6 +32,41 @@ static void *ZNMARSymbol(NSString *imagePath, const char *name) {
     void *handle = dlopen(imagePath.fileSystemRepresentation, RTLD_LAZY);
 #endif
     return handle ? dlsym(handle, name) : NULL;
+}
+
+static NSString *ZNMARNormalizedManagedElementName(NSString *managedType) {
+    NSString *name=[managedType ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    while([name hasSuffix:@"&"]||[name hasSuffix:@"*"])
+        name=[[name substringToIndex:name.length-1]
+              stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return name;
+}
+
+static void *ZNMARFallbackClassForManagedName(NSString *managedType, NSString *imagePath) {
+    NSString *full=ZNMARNormalizedManagedElementName(managedType);
+    NSRange split=[full rangeOfString:@"." options:NSBackwardsSearch];
+    NSString *ns=split.location==NSNotFound?@"":[full substringToIndex:split.location];
+    NSString *cls=split.location==NSNotFound?full:[full substringFromIndex:split.location+1];
+    if(!cls.length)return NULL;
+
+    ZNMARDomainGetFn domainGet=(ZNMARDomainGetFn)ZNMARSymbol(imagePath,"il2cpp_domain_get");
+    ZNMARDomainGetAssembliesFn assembliesFn=(ZNMARDomainGetAssembliesFn)ZNMARSymbol(imagePath,"il2cpp_domain_get_assemblies");
+    ZNMARAssemblyGetImageFn imageFn=(ZNMARAssemblyGetImageFn)ZNMARSymbol(imagePath,"il2cpp_assembly_get_image");
+    ZNMARClassFromNameFn classFn=(ZNMARClassFromNameFn)ZNMARSymbol(imagePath,"il2cpp_class_from_name");
+    if(!domainGet||!assembliesFn||!imageFn||!classFn)return NULL;
+
+    void *domain=domainGet();
+    if(!domain)return NULL;
+    size_t count=0;
+    const void **assemblies=assembliesFn(domain,&count);
+    if(!assemblies||!count)return NULL;
+    for(size_t i=0;i<count;i++){
+        const void *image=imageFn(assemblies[i]);
+        if(!image)continue;
+        void *klass=classFn(image,ns.UTF8String ?: "",cls.UTF8String ?: "");
+        if(klass)return klass;
+    }
+    return NULL;
 }
 
 @implementation ZNRuntimeArgumentMarshaller
@@ -183,7 +222,14 @@ static void *ZNMARSymbol(NSString *imagePath, const char *name) {
     const void *paramType = getParam((const void *)methodInfo, (uint32_t)index);
     void *klass = paramType ? fromType(paramType) : NULL;
     if (!klass) {
-        if (error) *error = @"FAILED_STRUCT_ABI：无法获取参数类型 Class";
+        // Some IL2CPP exports do not return a Class for a by-ref Il2CppType.
+        // Fall back to the already-known managed element name instead of
+        // reinterpreting the private Il2CppType layout.
+        klass=ZNMARFallbackClassForManagedName(managedType,imagePath);
+    }
+    if (!klass) {
+        if (error) *error = [NSString stringWithFormat:@"FAILED_STRUCT_ABI：无法获取参数类型 Class（%@）",
+                             ZNMARNormalizedManagedElementName(managedType)];
         return nil;
     }
     uint32_t alignment = 0;

@@ -19,6 +19,7 @@ on:
       - fix/m6.13.8-static-prepared-value-hook-v1
       - work/m6.13.8-stable-next
       - feature/m6.13.3-runtime-argument-marshalling-v1
+      - feature/m6.13.9-native-redirect-v1
   workflow_dispatch:
 
 jobs:
