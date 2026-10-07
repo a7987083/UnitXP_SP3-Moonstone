@@ -82,6 +82,11 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 - (BOOL)removeActionAtIndex:(NSUInteger)index;
 - (void)clear;
 - (NSArray<ZNRuntimeMethodAction *> *)actionsSnapshot;
+// M6.13.6 project JSON authoring round-trip. These dictionaries contain only
+// authoring state required to rebuild the generated binary; runtime pointers are never serialized.
+- (NSArray<NSDictionary<NSString *, id> *> *)exportDictionaries;
+- (BOOL)replaceWithImportedDictionaries:(NSArray<NSDictionary<NSString *, id> *> *)items
+                                  error:(NSString * _Nullable * _Nullable)error;
 @end
 
 NS_ASSUME_NONNULL_END
