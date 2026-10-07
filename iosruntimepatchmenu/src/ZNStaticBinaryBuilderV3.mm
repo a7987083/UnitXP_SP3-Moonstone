@@ -1076,7 +1076,9 @@ static BOOL ZNV3BuildTarget(NSString *target,
                 if(!exists)[unique addObject:source];
             }
             if(localError)break;
-            codeNeeded=ZNV3Align(codeNeeded,16)+thunkStride+variantStride*(1+unique.count);
+            // One 16-byte resume veneer keeps fragment-chain branches local to
+            // __ZNTEXT even when the original resume RVA is > ±128MB away.
+            codeNeeded=ZNV3Align(codeNeeded,16)+thunkStride+16u+variantStride*(1+unique.count);
         }
         if(localError)break;
         codeNeeded+=64;
@@ -1132,6 +1134,22 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         uint64_t thunkRVA=codeRVA+(thunkFileOffset-codeFileOffset);
                         codeCursor=thunkBase+thunkStride;
 
+                        // Keep the fragment chain inside __ZNTEXT. The veneer
+                        // itself returns to the original post-window RVA using
+                        // an ASLR-safe ADRP+ADD+BR sequence.
+                        uint64_t resumeVeneerFileOffset=ZNV3Align(codeCursor,16);
+                        uint64_t resumeVeneerRVA=codeRVA+(resumeVeneerFileOffset-codeFileOffset);
+                        uint64_t resumeTargetRVA=physical.rva+physical.window;
+                        uint32_t resumeADRP=0;
+                        if(!ZNV3EncodeADRPX17(resumeVeneerRVA,resumeTargetRVA,&resumeADRP)){
+                            localError=@"Protection V2 resume veneer 超出 ADRP ±4GB";break;
+                        }
+                        ZNV3Write32(base+resumeVeneerFileOffset+0u,resumeADRP);
+                        ZNV3Write32(base+resumeVeneerFileOffset+4u,ZNV3AddX17PageOffset(resumeTargetRVA));
+                        ZNV3Write32(base+resumeVeneerFileOffset+8u,0xD61F0220u); // BR X17
+                        ZNV3Write32(base+resumeVeneerFileOffset+12u,NOP);
+                        codeCursor=resumeVeneerFileOffset+16u;
+
                         uint64_t variantReserved=ZN60VariantReservedBytes(physical.window);
                         uint64_t variantStride=ZN60VariantStrideBytes(physical.window);
                         if(!variantReserved||!variantStride){localError=@"Protection V2 Variant region 计算失败";break;}
@@ -1145,7 +1163,7 @@ static BOOL ZNV3BuildTarget(NSString *target,
                         uint64_t offRVA=0;
                         uint32_t offFragments=0;
                         if(!ZNV3WriteVariantV2(base,offFileOffset,offRegionRVA,variantReserved,physical.original,physical.rva,
-                                               physical.rva,physical.rva+physical.window,physical.rva+physical.window,
+                                               physical.rva,physical.rva+physical.window,resumeVeneerRVA,
                                                offState,&offRVA,&offFragments,&localError))break;
                         protectionV2Variants++;
                         protectionV2Fragments+=offFragments;
@@ -1170,7 +1188,7 @@ static BOOL ZNV3BuildTarget(NSString *target,
                             uint64_t onEntryRVA=0;
                             uint32_t onFragments=0;
                             if(!ZNV3WriteVariantV2(base,onFileOffset,onRegionRVA,variantReserved,source,physical.rva,
-                                                   physical.rva,physical.rva+physical.window,physical.rva+physical.window,
+                                                   physical.rva,physical.rva+physical.window,resumeVeneerRVA,
                                                    onState,&onEntryRVA,&onFragments,&localError))break;
                             protectionV2Variants++;
                             protectionV2Fragments+=onFragments;
