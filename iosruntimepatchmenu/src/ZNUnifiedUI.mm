@@ -3687,17 +3687,17 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     // One existing authoring toolbar: binary picker + import + export.
     // Tag 440000 is still transformed by ZNUX into the existing app-library picker.
     UIView *targetCard = [self cardAtY:y height:56 width:width compact:NO];
-    CGFloat gap = 6.0;
+    CGFloat toolbarGap = 6.0;
     CGFloat sideW = 78.0;
     CGFloat pickerX = 13.0;
-    CGFloat pickerW = MAX(96.0, targetCard.bounds.size.width - pickerX - 9.0 - sideW * 2.0 - gap * 2.0);
+    CGFloat pickerW = MAX(96.0, targetCard.bounds.size.width - pickerX - 9.0 - sideW * 2.0 - toolbarGap * 2.0);
     UITextField *target = [self zn44_field:CGRectMake(pickerX, 11, pickerW, 32)
                                         text:workspace.defaultTarget
                                  placeholder:@"选择二进制"
                                          tag:440000
                                      enabled:!locked];
     [targetCard addSubview:target];
-    CGFloat importX = CGRectGetMaxX(target.frame) + gap;
+    CGFloat importX = CGRectGetMaxX(target.frame) + toolbarGap;
     UIButton *import = [self zn40_button:(workspace.showJSONFiles ? @"收起 JSON" : @"导入 JSON")
                                 selector:@selector(zn44_importJSON:)
                                    frame:CGRectMake(importX, 11, sideW, 32)];
@@ -3705,7 +3705,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     [targetCard addSubview:import];
     UIButton *exportJSON = [self zn40_button:@"导出 JSON"
                                     selector:@selector(zn50b_exportJSON:)
-                                       frame:CGRectMake(CGRectGetMaxX(import.frame) + gap, 11, sideW, 32)];
+                                       frame:CGRectMake(CGRectGetMaxX(import.frame) + toolbarGap, 11, sideW, 32)];
     exportJSON.enabled = !locked;
     [targetCard addSubview:exportJSON];
     [self.contentView addSubview:targetCard];
