@@ -36,6 +36,11 @@ jobs:
           set -euxo pipefail
           sh iosruntimepatchmenu/tests/single_ui_owner_contract.sh
 
+      - name: ZNUnifiedUI owner/swizzle topology contract
+        run: |
+          set -euxo pipefail
+          python3 iosruntimepatchmenu/tests/znunifiedui_topology_audit.py --report /tmp/znunifiedui-topology.json
+
       - name: Verify M6.8.4 architecture contract
         run: |
           set -euxo pipefail
