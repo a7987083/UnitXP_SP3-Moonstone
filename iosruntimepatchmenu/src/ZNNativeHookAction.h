@@ -109,6 +109,11 @@ NS_ASSUME_NONNULL_BEGIN
                                                    defaultValue:(NSInteger)defaultValue
                                                           error:(NSString * _Nullable * _Nullable)error;
 - (NSArray<ZNNativeHookAction *> *)actionsSnapshot;
+// M6.13.6 project JSON authoring round-trip. Prepared/static-prepatch output
+// descriptors are deliberately excluded so a newly generated binary prepares them again.
+- (NSArray<NSDictionary<NSString *, id> *> *)exportDictionaries;
+- (BOOL)replaceWithImportedDictionaries:(NSArray<NSDictionary<NSString *, id> *> *)items
+                                  error:(NSString * _Nullable * _Nullable)error;
 
 // Build-time only: persists the final prepared RVA/static/UUID descriptor that
 // the generated dylib will consume at runtime.
