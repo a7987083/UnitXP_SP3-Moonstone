@@ -85,4 +85,65 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
 - (BOOL)removeActionAtIndex:(NSUInteger)index {@synchronized(self){if(index>=self.mutableActions.count)return NO;[self.mutableActions removeObjectAtIndex:index];return YES;}}
 - (void)clear {@synchronized(self){[self.mutableActions removeAllObjects];}}
 - (NSArray<ZNRuntimeMethodAction *> *)actionsSnapshot {@synchronized(self){NSMutableArray *copy=[NSMutableArray arrayWithCapacity:self.mutableActions.count];for(ZNRuntimeMethodAction *action in self.mutableActions)[copy addObject:[action copy]];return [copy copy];}}
+
+- (NSArray<NSDictionary<NSString *,id> *> *)exportDictionaries {
+    @synchronized(self){
+        NSMutableArray *out=[NSMutableArray arrayWithCapacity:self.mutableActions.count];
+        for(ZNRuntimeMethodAction *a in self.mutableActions){
+            [out addObject:@{
+                @"actionID":@(a.actionID), @"executionKind":@(a.executionKind),
+                @"title":a.title?:@"", @"group":a.group?:@"", @"description":a.featureDescription?:@"",
+                @"assembly":a.assembly?:@"Assembly-CSharp.dll", @"namespace":a.namespaceName?:@"",
+                @"class":a.className?:@"", @"method":a.methodName?:@"", @"methodRVA":@(a.methodRVA),
+                @"argumentCount":@(a.argumentCount), @"argumentValues":a.argumentValues?:@[],
+                @"parameterTypeNames":a.parameterTypeNames?:@[], @"signatureAvailable":@(a.signatureAvailable),
+                @"argumentControls":a.argumentControlConfigs?:@[], @"immediateChain":a.immediateChain?:@{}
+            }];
+        }
+        return [out copy];
+    }
+}
+
+- (BOOL)replaceWithImportedDictionaries:(NSArray<NSDictionary<NSString *,id> *> *)items error:(NSString **)error {
+    if(![items isKindOfClass:NSArray.class]){if(error)*error=@"Runtime Actions JSON 不是数组";return NO;}
+    NSMutableArray<ZNRuntimeMethodAction *> *parsed=[NSMutableArray arrayWithCapacity:items.count];
+    NSMutableSet<NSNumber *> *ids=[NSMutableSet set];
+    for(NSUInteger i=0;i<items.count;i++){
+        NSDictionary *d=[items[i] isKindOfClass:NSDictionary.class]?items[i]:nil;
+        if(!d){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 格式无效",(unsigned long)i+1];return NO;}
+        ZNRuntimeMethodAction *a=[ZNRuntimeMethodAction new];
+        NSInteger kind=[d[@"executionKind"] integerValue];
+        if(kind!=ZNRuntimeExecutionKindMethodCall&&kind!=ZNRuntimeExecutionKindDirectNativeCall){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu executionKind 无效",(unsigned long)i+1];return NO;}
+        a.executionKind=(ZNRuntimeExecutionKind)kind;
+        a.title=ZNRMATrim([d[@"title"] isKindOfClass:NSString.class]?d[@"title"]:@"");
+        a.group=ZNRMATrim([d[@"group"] isKindOfClass:NSString.class]?d[@"group"]:@"");
+        a.featureDescription=ZNRMATrim([d[@"description"] isKindOfClass:NSString.class]?d[@"description"]:@"");
+        a.assembly=ZNRMATrim([d[@"assembly"] isKindOfClass:NSString.class]?d[@"assembly"]:@""); if(!a.assembly.length)a.assembly=@"Assembly-CSharp.dll";
+        a.namespaceName=ZNRMATrim([d[@"namespace"] isKindOfClass:NSString.class]?d[@"namespace"]:@"");
+        a.className=ZNRMATrim([d[@"class"] isKindOfClass:NSString.class]?d[@"class"]:@"");
+        a.methodName=ZNRMATrim([d[@"method"] isKindOfClass:NSString.class]?d[@"method"]:@"");
+        a.methodRVA=[d[@"methodRVA"] unsignedLongLongValue];
+        a.argumentCount=[d[@"argumentCount"] unsignedIntegerValue];
+        if(!a.className.length||!a.methodName.length||a.argumentCount>ZN_RUNTIME_ACTION_MAX_ARGUMENTS){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 方法身份/参数数量无效",(unsigned long)i+1];return NO;}
+        if(a.executionKind==ZNRuntimeExecutionKindDirectNativeCall&&!a.methodRVA){if(error)*error=[NSString stringWithFormat:@"Direct Native Call #%lu 缺少 methodRVA",(unsigned long)i+1];return NO;}
+        NSArray *values=[d[@"argumentValues"] isKindOfClass:NSArray.class]?d[@"argumentValues"]:@[];
+        if(values.count!=a.argumentCount){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 参数值数量不匹配",(unsigned long)i+1];return NO;}
+        a.argumentValues=[values copy];
+        NSArray *types=[d[@"parameterTypeNames"] isKindOfClass:NSArray.class]?d[@"parameterTypeNames"]:@[];
+        a.signatureAvailable=[d[@"signatureAvailable"] boolValue]&&types.count==a.argumentCount;
+        a.parameterTypeNames=a.signatureAvailable?[types copy]:@[];
+        NSArray *controls=[d[@"argumentControls"] isKindOfClass:NSArray.class]?d[@"argumentControls"]:@[];
+        a.argumentControlConfigs=controls.count==a.argumentCount?[controls copy]:ZNRMADefaultConfigs(a.argumentCount,a.parameterTypeNames);
+        a.immediateChain=[d[@"immediateChain"] isKindOfClass:NSDictionary.class]?[d[@"immediateChain"] copy]:@{};
+        uint32_t actionID=[d[@"actionID"] unsignedIntValue];
+        if(!actionID){NSString *seed=[NSString stringWithFormat:@"import|%ld|%@|0x%llX|%lu",(long)a.executionKind,a.canonicalIdentity,(unsigned long long)a.methodRVA,(unsigned long)i];actionID=ZNRMAFNV1a32(seed);}
+        if([ids containsObject:@(actionID)]){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu actionID 重复",(unsigned long)i+1];return NO;}
+        [ids addObject:@(actionID)];a.actionID=actionID;
+        if(!a.title.length)a.title=a.methodName;
+        if(!a.group.length)a.group=(a.executionKind==ZNRuntimeExecutionKindDirectNativeCall)?@"Direct Native Calls":@"Runtime Methods";
+        [parsed addObject:a];
+    }
+    @synchronized(self){self.mutableActions=parsed;}
+    return YES;
+}
 @end
