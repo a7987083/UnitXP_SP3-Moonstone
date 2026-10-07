@@ -1729,9 +1729,15 @@ static void ZN48RelabelJSONList(UIView *view) {
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    (void)controller;
     NSURL *url=urls.firstObject;
     ZNBinaryPatchWorkspace *ws=[ZNBinaryPatchWorkspace sharedWorkspace];
+    if([controller.restorationIdentifier isEqualToString:@"zonoe.project-json-export"]){
+        ws.lastStatus=url.lastPathComponent.length
+            ? [NSString stringWithFormat:@"导出成功：%@",url.lastPathComponent]
+            : @"导出完成";
+        [self renderPage];
+        return;
+    }
     if (!url) {
         ws.lastStatus=@"手动导入失败：没有选择文件";
         [self renderPage];
@@ -3664,6 +3670,7 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
 - (void)zn50b_featureNameEnd:(UITextField *)field;
 - (void)zn50b_featureDescriptionEnd:(UITextField *)field;
 - (void)zn50b_sliderMaxChanged:(UITextField *)field;
+- (void)zn50b_exportJSON:(id)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNFeatureBuilderUI)
@@ -3677,23 +3684,30 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     ZN50BNormalizeImportedGroups(workspace);
     BOOL locked = workspace.hasAnyApplied || workspace.isBuilding;
 
-    // Target + JSON import. JSON is authoring-time only; it is not a runtime dependency.
+    // One existing authoring toolbar: binary picker + import + export.
+    // Tag 440000 is still transformed by ZNUX into the existing app-library picker.
     UIView *targetCard = [self cardAtY:y height:56 width:width compact:NO];
-    UILabel *binaryLabel = [self label:@"Target" size:11.2 weight:UIFontWeightSemibold color:self.theme.primaryTextColor];
-    binaryLabel.frame = CGRectMake(13, 11, 50, 32);
-    [targetCard addSubview:binaryLabel];
-    CGFloat importW = 78.0;
-    UITextField *target = [self zn44_field:CGRectMake(65, 11, targetCard.bounds.size.width - 65 - importW - 18, 32)
+    CGFloat gap = 6.0;
+    CGFloat sideW = 78.0;
+    CGFloat pickerX = 13.0;
+    CGFloat pickerW = MAX(96.0, targetCard.bounds.size.width - pickerX - 9.0 - sideW * 2.0 - gap * 2.0);
+    UITextField *target = [self zn44_field:CGRectMake(pickerX, 11, pickerW, 32)
                                         text:workspace.defaultTarget
-                                 placeholder:@"自动 / UnityFramework"
+                                 placeholder:@"选择二进制"
                                          tag:440000
                                      enabled:!locked];
     [targetCard addSubview:target];
+    CGFloat importX = CGRectGetMaxX(target.frame) + gap;
     UIButton *import = [self zn40_button:(workspace.showJSONFiles ? @"收起 JSON" : @"导入 JSON")
                                 selector:@selector(zn44_importJSON:)
-                                   frame:CGRectMake(targetCard.bounds.size.width - importW - 9, 11, importW, 32)];
+                                   frame:CGRectMake(importX, 11, sideW, 32)];
     import.enabled = !locked;
     [targetCard addSubview:import];
+    UIButton *exportJSON = [self zn40_button:@"导出 JSON"
+                                    selector:@selector(zn50b_exportJSON:)
+                                       frame:CGRectMake(CGRectGetMaxX(import.frame) + gap, 11, sideW, 32)];
+    exportJSON.enabled = !locked;
+    [targetCard addSubview:exportJSON];
     [self.contentView addSubview:targetCard];
     y += 64;
 
@@ -4021,6 +4035,87 @@ static NSMutableSet<NSString *> *ZN50BExpandedKeys(ZNRuntimeMenuControllerV040 *
     }
     [self.hostWindow endEditing:YES];
     [self renderPage];
+}
+
+- (void)zn50b_exportJSON:(id)sender {
+    (void)sender;
+    ZNBinaryPatchWorkspace *workspace=[ZNBinaryPatchWorkspace sharedWorkspace];
+    if(workspace.isBuilding||workspace.hasAnyApplied)return;
+    [self.hostWindow endEditing:YES];
+
+    UIWindow *window=self.hostWindow ?: [self currentWindow];
+    UIViewController *presenter=ZN48TopViewController(window.rootViewController);
+    if(!presenter){workspace.lastStatus=@"导出失败：找不到可用于弹窗的 ViewController";[self renderPage];return;}
+
+    NSString *appName=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleDisplayName"];
+    if(!appName.length)appName=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
+    if(!appName.length)appName=@"ZonoeConfig";
+
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"导出 JSON"
+                                                                 message:@"请输入文件名"
+                                                          preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){
+        field.text=appName;
+        field.placeholder=@"例如：我的修仙梦";
+        field.clearButtonMode=UITextFieldViewModeWhileEditing;
+        field.returnKeyType=UIReturnKeyDone;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){
+        typeof(self) selfRef=weakSelf;
+        if(!selfRef)return;
+        NSString *raw=[alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if(!raw.length)raw=appName;
+        if([[raw.pathExtension lowercaseString] isEqualToString:@"json"])raw=[raw stringByDeletingPathExtension];
+        NSCharacterSet *bad=[NSCharacterSet characterSetWithCharactersInString:@"/\\:?%*|\"<>\n\r\t"];
+        NSString *base=[[raw componentsSeparatedByCharactersInSet:bad] componentsJoinedByString:@"_"];
+        base=[base stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if(!base.length)base=@"ZonoeConfig";
+        NSString *fileName=[base stringByAppendingPathExtension:@"json"];
+
+        NSDictionary *project=[workspace projectExportDictionary];
+        NSError *jsonError=nil;
+        NSData *data=[NSJSONSerialization dataWithJSONObject:project
+                                                     options:(NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys)
+                                                       error:&jsonError];
+        if(!data.length){
+            workspace.lastStatus=[NSString stringWithFormat:@"导出失败：%@",jsonError.localizedDescription?:@"JSON 序列化失败"];
+            [selfRef renderPage];
+            return;
+        }
+
+        NSString *dir=[NSTemporaryDirectory() stringByAppendingPathComponent:@"zonoe-json-export"];
+        NSError *mkdirError=nil;
+        if(![NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:&mkdirError]){
+            workspace.lastStatus=[NSString stringWithFormat:@"导出失败：%@",mkdirError.localizedDescription?:@"无法创建临时目录"];
+            [selfRef renderPage];
+            return;
+        }
+        NSString *path=[dir stringByAppendingPathComponent:fileName];
+        NSError *writeError=nil;
+        if(![data writeToFile:path options:NSDataWritingAtomic error:&writeError]){
+            workspace.lastStatus=[NSString stringWithFormat:@"导出失败：%@",writeError.localizedDescription?:@"无法写入临时 JSON"];
+            [selfRef renderPage];
+            return;
+        }
+
+        NSURL *url=[NSURL fileURLWithPath:path];
+        UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initWithURL:url inMode:UIDocumentPickerModeExportToService];
+        picker.delegate=(id<UIDocumentPickerDelegate>)selfRef;
+        picker.restorationIdentifier=@"zonoe.project-json-export";
+        picker.modalPresentationStyle=UIModalPresentationFormSheet;
+        workspace.lastStatus=[NSString stringWithFormat:@"准备导出：%@ · Static %lu · Runtime %lu · Native Hook %lu",
+                              fileName,
+                              (unsigned long)[project[@"staticPatches"] count],
+                              (unsigned long)[project[@"runtimeActions"] count],
+                              (unsigned long)[project[@"nativeHooks"] count]];
+        [selfRef renderPage];
+        UIViewController *top=ZN48TopViewController((selfRef.hostWindow ?: [selfRef currentWindow]).rootViewController);
+        if(top)[top presentViewController:picker animated:YES completion:nil];
+    }]];
+    [presenter presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)zn50b_sliderMaxChanged:(UITextField *)field {
@@ -16490,6 +16585,10 @@ static void ZNM585StoreSliderMax(NSString *featureName, double value) {
     NSString *key = ZNM585SliderDefaultsKey(featureName);
     if (isfinite(value) && value > 0.0) [NSUserDefaults.standardUserDefaults setDouble:value forKey:key];
     else [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+}
+
+extern "C" void ZNM585SetSliderMaximumForFeatureName(NSString *featureName, double value) {
+    ZNM585StoreSliderMax(featureName ?: @"", value);
 }
 
 extern "C" double ZNM585SliderMaximumForFeatureName(NSString *featureName) {
