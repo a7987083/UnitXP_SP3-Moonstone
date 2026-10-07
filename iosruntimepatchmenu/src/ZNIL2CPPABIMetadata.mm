@@ -111,7 +111,52 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
     BOOL byRef = api.typeIsByRef ? api.typeIsByRef(type) : [name hasSuffix:@"&"];
     BOOL pointer = api.typeIsPointer ? api.typeIsPointer(type) : [name hasSuffix:@"*"];
     if (byRef || pointer) {
-        return @{@"name": name, @"kind": @(ZNIL2CPPABIValueKindPointer), @"byRef": @(byRef), @"pointer": @(pointer)};
+        NSMutableDictionary *result=[@{
+            @"name":name,
+            @"kind":@(ZNIL2CPPABIValueKindPointer),
+            @"byRef":@(byRef),
+            @"pointer":@(pointer)
+        } mutableCopy];
+
+        // Preserve the historical outer ABI contract (by-ref/pointer is passed
+        // as one GPR pointer) while also describing the pointee. Consumers that
+        // only understand the old fields continue to see exactly the same
+        // semantics; Direct Native Call V2 can use the element metadata without
+        // guessing what Foo& actually points to.
+        if(byRef){
+            NSString *elementName=[name hasSuffix:@"&"]
+                ? [[name substringToIndex:name.length-1]
+                    stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+                : name;
+            ZNIL2CPPABIValueKind elementKind=ZNIL2CPPABIKindForManagedTypeName(elementName);
+            BOOL elementValueType=NO;
+            BOOL elementObjectReference=NO;
+
+            if(elementKind==ZNIL2CPPABIValueKindUnknown){
+                void *klass=api.classFromType ? api.classFromType(type) : nullptr;
+                if(klass && api.classIsValueType){
+                    elementValueType=api.classIsValueType(klass);
+                    if(elementValueType){
+                        if(api.classIsEnum && api.classEnumBaseType && api.classIsEnum(klass)){
+                            const void *base=api.classEnumBaseType(klass);
+                            NSDictionary *baseInfo=ZNABIClassifyRuntimeType(api,base,depth+1);
+                            elementKind=(ZNIL2CPPABIValueKind)[baseInfo[@"kind"] integerValue];
+                        }else{
+                            elementKind=ZNIL2CPPABIValueKindComplexValueType;
+                        }
+                    }else{
+                        elementKind=ZNIL2CPPABIValueKindObjectReference;
+                        elementObjectReference=YES;
+                    }
+                }
+            }
+
+            result[@"elementName"]=elementName ?: @"?";
+            result[@"elementKind"]=@(elementKind);
+            result[@"elementValueType"]=@(elementValueType);
+            result[@"elementObjectReference"]=@(elementObjectReference);
+        }
+        return result;
     }
 
     ZNIL2CPPABIValueKind primitive = ZNIL2CPPABIKindForManagedTypeName(name);
