@@ -12,6 +12,7 @@
 #import <sys/stat.h>
 #import <fcntl.h>
 #import <unistd.h>
+#include <string.h>
 
 static BOOL ZNRDBuildEncodeBranch(uint64_t fromRVA,uint64_t toRVA,BOOL link,uint32_t *out) {
     int64_t delta=(int64_t)toRVA-(int64_t)fromRVA;
