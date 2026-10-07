@@ -84,3 +84,86 @@ jobs:
           #include <stdbool.h>
           #include <stdint.h>
           #include <sys/types.h>
+          '''
+          new = '''#include <stdbool.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          '''
+          if old not in s:
+              raise SystemExit('unexpected Dobby header layout')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          python3 scripts/platform_builder.py --platform iphoneos --arch arm64 --library_build_type static
+          test -f build/iphoneos/arm64/libdobby.a
+
+      - name: Build fixed baseline
+        run: |
+          set -euxo pipefail
+          git worktree add /tmp/zn-baseline 0a11326e8662f33b5245701a19bd360a22d66256
+          cd /tmp/zn-baseline/iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/baseline-build.log
+          cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_baseline.dylib
+
+      - name: Verify M6.12 capability substrate
+        run: |
+          set -euxo pipefail
+          test -f iosruntimepatchmenu/src/ZNCapabilityRegistry.h
+          test -f iosruntimepatchmenu/src/ZNCapabilityRegistry.mm
+          test -f iosruntimepatchmenu/src/ZNBuiltInCapabilityAdapters.mm
+          grep -Fq 'prepareAllForImageCount' iosruntimepatchmenu/src/ZNRuntimeCapabilityCoordinator.mm
+          grep -Fq 'ZNCapabilityNativeHookIdentifier' iosruntimepatchmenu/src/ZNNativeHookLifecycleBootstrap.mm
+          grep -Fq 'src/ZNCapabilityRegistry.mm' iosruntimepatchmenu/Makefile
+
+      - name: Build M6.13 Direct Call + Complex Struct Codec V1
+        run: |
+          set -euxo pipefail
+          cd iosruntimepatchmenu
+          make clean
+          make FINALPACKAGE=1 DOBBY_ROOT="$GITHUB_WORKSPACE/vendor/Dobby" 2>&1 | tee /tmp/unified-build.log
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          cp .theos/obj/ZonoePatchV03.dylib "/tmp/ZonoePatch_M6.13_${SHORT_SHA}.dylib"
+          cp .theos/obj/ZonoePatchV03.dylib /tmp/ZonoePatch_single_ui_owner.dylib
+
+      - name: Compare binary interface and UI contracts
+        run: |
+          set -euxo pipefail
+          file /tmp/ZonoePatch_baseline.dylib
+          file /tmp/ZonoePatch_single_ui_owner.dylib
+
+          otool -L /tmp/ZonoePatch_baseline.dylib | tail -n +2 | sort > /tmp/baseline-load.txt
+          otool -L /tmp/ZonoePatch_single_ui_owner.dylib | tail -n +2 | sort > /tmp/unified-load.txt
+          diff -u /tmp/baseline-load.txt /tmp/unified-load.txt
+
+          nm -gU /tmp/ZonoePatch_baseline.dylib | awk '{$1=""; sub(/^ /,""); print}' | sort -u > /tmp/baseline-exports.txt
+          nm -gU /tmp/ZonoePatch_single_ui_owner.dylib | awk '{$1=""; sub(/^ /,""); print}' | sort -u > /tmp/unified-exports.txt
+          diff -u /tmp/baseline-exports.txt /tmp/unified-exports.txt
+
+          strings -a /tmp/ZonoePatch_baseline.dylib > /tmp/baseline-strings.txt
+          strings -a /tmp/ZonoePatch_single_ui_owner.dylib > /tmp/unified-strings.txt
+          # strings(1) is not a reliable UTF-8 oracle for ObjC literals.
+          # Compare stable ASCII feature/runtime markers instead.
+          for marker in 'IL2CPP Native Hook' 'Runtime Method Call' 'Direct Native Call' 'arg-scale-int32' 'struct-field-transform' '[m6.3-ui]' '[native-hook]'; do
+            grep -Fq "$marker" /tmp/baseline-strings.txt
+            grep -Fq "$marker" /tmp/unified-strings.txt
+          done
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m6.13-direct-call-struct-codec-verification
+          path: |
+            /tmp/baseline-build.log
+            /tmp/unified-build.log
+            /tmp/baseline-load.txt
+            /tmp/unified-load.txt
+            /tmp/baseline-exports.txt
+            /tmp/unified-exports.txt
+            /tmp/ZonoePatch_single_ui_owner.dylib
+            /tmp/ZonoePatch_M6.13_*.dylib
+          if-no-files-found: warn
