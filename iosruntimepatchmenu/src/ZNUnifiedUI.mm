@@ -17834,7 +17834,7 @@ static BOOL ZNM591InstallOrUpdate(uintptr_t address,ZNValueType type,uint64_t ra
     uint64_t raw=0;NSString *local=nil;
     if(!ZNM591RawValue(text,authored,&raw,&local)){if(error)*error=local;return NO;}
     for(ZNStaticPatchRecord *r in hooks){
-        uintptr_t address=r.imageBase+(uintptr_t)r.entry->siteRVA;
+        uintptr_t address=r.imageBase+(uintptr_t)r.siteRVA;
         if(!address){if(error)*error=@"Offset Hook 地址无效";return NO;}
         if(!ZNM591InstallOrUpdate(address,authored,raw,&local)){if(error)*error=local;return NO;}
     }
@@ -18118,7 +18118,7 @@ extern "C" BOOL ZNM620TemporaryRestoreOffsetValue(uintptr_t address, NSString **
     if(!ZNM600RawValue(text,type,&raw,&local)){if(error)*error=local;return NO;}
 
     for(ZNStaticPatchRecord *r in hooks){
-        uint64_t rva=r.entry->siteRVA;
+        uint64_t rva=r.siteRVA;
         if(!ZNM600RequireExactMethodEntry(rva,&local)){if(error)*error=local;return NO;}
         uint32_t integerRegister=0;
         if(type==ZNValueTypeI32||type==ZNValueTypeU32||type==ZNValueTypeI64||type==ZNValueTypeU64){
