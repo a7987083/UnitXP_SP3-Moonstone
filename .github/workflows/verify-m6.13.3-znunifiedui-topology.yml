@@ -1,4 +1,4 @@
-name: Verify M6.13.3 ZNUnifiedUI topology baseline
+name: Verify M6.13.3 architecture topology baseline
 
 on:
   push:
@@ -15,12 +15,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify frozen UI/swizzle topology
+      - name: Verify whole-codebase architecture topology
         run: |
           set -euo pipefail
           mkdir -p /tmp/znui-audit
-          python3 iosruntimepatchmenu/tests/znunifiedui_topology_audit.py \
-            --report /tmp/znui-audit/ZNUnifiedUI_topology_report.json
+          python3 iosruntimepatchmenu/tests/codebase_topology_audit.py             --report /tmp/znui-audit/codebase_topology_report.json
+      - name: Verify frozen UI/swizzle topology
+        run: |
+          set -euo pipefail
+          python3 iosruntimepatchmenu/tests/znunifiedui_topology_audit.py             --report /tmp/znui-audit/ZNUnifiedUI_topology_report.json
       - name: Verify extracted modules are byte-identical to baseline
         run: |
           set -euo pipefail
@@ -60,15 +63,13 @@ jobs:
       - name: Verify stable Runtime/Native engines are untouched
         run: |
           set -euo pipefail
-          git diff --exit-code ceabd64e74898a50d329c3dec168f07c87d6c96e -- \
-            iosruntimepatchmenu/src/ZNNativeHookRuntime.mm \
-            iosruntimepatchmenu/src/ZNNativeHookScheduler.mm \
-            iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm \
-            iosruntimepatchmenu/src/ZNM47MultiArgInvoke.mm
-      - name: Upload topology report
+          git diff --exit-code ceabd64e74898a50d329c3dec168f07c87d6c96e --             iosruntimepatchmenu/src/ZNNativeHookRuntime.mm             iosruntimepatchmenu/src/ZNNativeHookScheduler.mm             iosruntimepatchmenu/src/ZNIL2CPPInvokeEngine.mm             iosruntimepatchmenu/src/ZNM47MultiArgInvoke.mm
+      - name: Upload topology reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m6.13.3-znunifiedui-topology-baseline
-          path: /tmp/znui-audit/ZNUnifiedUI_topology_report.json
+          name: m6.13.3-architecture-topology-baseline
+          path: |
+            /tmp/znui-audit/codebase_topology_report.json
+            /tmp/znui-audit/ZNUnifiedUI_topology_report.json
           if-no-files-found: warn
