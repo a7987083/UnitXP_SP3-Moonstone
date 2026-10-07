@@ -13355,6 +13355,7 @@ __attribute__((constructor)) static void ZN51SInstallSilentCustomerExecution(voi
 #import "ZNCapabilityRegistry.h"
 #import "ZNBuiltInCapabilityAdapters.h"
 #import "ZNDirectNativeCallEngine.h"
+#import "ZNNativeRedirectViewController.h"
 #import "ZNComplexStructCodec.h"
 #import "ZNComplexStructCodecResolver.h"
 #import "ZNPatchCore.h"
@@ -13385,6 +13386,7 @@ static const void *kZNM613AnalysisKey = &kZNM613AnalysisKey;
 - (void)znm613_applyOrRestoreHook:(UIButton *)sender;
 - (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
+- (void)znm613_nativeRedirectLongPress:(UILongPressGestureRecognizer *)gesture;
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
                               argumentIndex:(NSUInteger)argumentIndex
                                      source:(UIButton *)source;
@@ -14099,6 +14101,10 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
                                    frame:CGRectMake(x1,103,colW,27)];
         objc_setAssociatedObject(hook,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         hook.accessibilityHint=hookOK?@"Native Hook plan ready":(hookError?:@"Native Hook unsupported");
+        UILongPressGestureRecognizer *redirectGesture=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(znm613_nativeRedirectLongPress:)];
+        redirectGesture.minimumPressDuration=.65;
+        redirectGesture.cancelsTouchesInView=YES;
+        [hook addGestureRecognizer:redirectGesture];
         [card addSubview:hook];
 
         for(UIButton *b in @[test,apply,create,chain,reselect,batch,direct,hook])
@@ -14560,6 +14566,18 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     UIPopoverPresentationController *popover=picker.popoverPresentationController;
     if(popover){popover.sourceView=sender;popover.sourceRect=sender.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
     [top presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)znm613_nativeRedirectLongPress:(UILongPressGestureRecognizer *)gesture {
+    if(gesture.state!=UIGestureRecognizerStateBegan)return;
+    UIButton *button=[gesture.view isKindOfClass:UIButton.class]?(UIButton *)gesture.view:nil;
+    NSDictionary *candidate=button?objc_getAssociatedObject(button,ZNNativeHookCandidateAssociationKey):nil;
+    if(!candidate)return;
+    ZNNativeRedirectViewController *page=[[ZNNativeRedirectViewController alloc]initWithCandidate:candidate];
+    UINavigationController *nav=[[UINavigationController alloc]initWithRootViewController:page];
+    nav.modalPresentationStyle=UIModalPresentationPageSheet;
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(top)[top presentViewController:nav animated:YES completion:nil];
 }
 
 - (void)zn64_hookTestTapped:(UIButton *)sender {
