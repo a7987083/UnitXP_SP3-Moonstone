@@ -601,6 +601,45 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
 - (NSArray<ZNNativeHookAction *> *)actionsSnapshot {
     @synchronized(self){NSMutableArray *out=[NSMutableArray arrayWithCapacity:self.mutableActions.count];for(ZNNativeHookAction *a in self.mutableActions)[out addObject:[a copy]];return [out copy];}
 }
+
+- (NSArray<NSDictionary<NSString *,id> *> *)exportDictionaries {
+    @synchronized(self){
+        NSMutableArray *out=[NSMutableArray arrayWithCapacity:self.mutableActions.count];
+        for(ZNNativeHookAction *a in self.mutableActions){
+            NSMutableDictionary *d=[[self dictionaryForAction:a] mutableCopy];
+            // These values describe one already-generated Mach-O and must never
+            // be trusted after importing an authoring project into a new build.
+            [d removeObjectsForKeys:@[@"preparedDescriptor",@"preparedRVA",@"preparedUUID",@"preparedStaticKnown",@"preparedIsStatic",@"preparedCodecGetterRVA",@"preparedCodecSetterRVA",@"staticPrepatch",@"staticHookSlotRVA",@"staticTrampolineRVA",@"staticCodeCaveRVA",@"staticDisplacedInstruction"]];
+            [out addObject:d];
+        }
+        return [out copy];
+    }
+}
+
+- (BOOL)replaceWithImportedDictionaries:(NSArray<NSDictionary<NSString *,id> *> *)items error:(NSString **)error {
+    if(![items isKindOfClass:NSArray.class]){if(error)*error=@"Native Hooks JSON 不是数组";return NO;}
+    NSMutableArray<ZNNativeHookAction *> *parsed=[NSMutableArray arrayWithCapacity:items.count];
+    NSMutableSet<NSNumber *> *ids=[NSMutableSet set];
+    for(NSUInteger i=0;i<items.count;i++){
+        NSDictionary *src=[items[i] isKindOfClass:NSDictionary.class]?items[i]:nil;
+        if(!src){if(error)*error=[NSString stringWithFormat:@"Native Hook #%lu 格式无效",(unsigned long)i+1];return NO;}
+        NSMutableDictionary *d=[src mutableCopy];
+        uint32_t actionID=[d[@"actionID"] unsignedIntValue];
+        if(!actionID){NSString *seed=[NSString stringWithFormat:@"import-native|%@|%@|%@|%@|%lu",d[@"assembly"]?:@"",d[@"class"]?:@"",d[@"method"]?:@"",d[@"templateKind"]?:@0,(unsigned long)i];actionID=ZNNHFNV1a32(seed);d[@"actionID"]=@(actionID);}
+        if([ids containsObject:@(actionID)]){if(error)*error=[NSString stringWithFormat:@"Native Hook #%lu actionID 重复",(unsigned long)i+1];return NO;}
+        [ids addObject:@(actionID)];
+        ZNNativeHookAction *a=[self actionFromDictionary:d];
+        if(!a){if(error)*error=[NSString stringWithFormat:@"Native Hook #%lu 配置无效或模板不受支持",(unsigned long)i+1];return NO;}
+        // Import is authoring state: force every build-dependent descriptor to
+        // be prepared again against the currently selected Mach-O.
+        a.preparedDescriptor=NO;a.preparedRVA=0;a.preparedUUID=@"";a.preparedStaticKnown=NO;a.preparedIsStatic=NO;
+        a.preparedCodecGetterRVA=0;a.preparedCodecSetterRVA=0;
+        a.staticPrepatch=NO;a.staticHookSlotRVA=0;a.staticTrampolineRVA=0;a.staticCodeCaveRVA=0;a.staticDisplacedInstruction=0;
+        [parsed addObject:a];
+    }
+    @synchronized(self){self.mutableActions=parsed;[self persist];}
+    return YES;
+}
 - (BOOL)updateStaticPrepatchDescriptor:(NSDictionary<NSString *,id> *)descriptor
                                atIndex:(NSUInteger)index
                                  error:(NSString **)error {
