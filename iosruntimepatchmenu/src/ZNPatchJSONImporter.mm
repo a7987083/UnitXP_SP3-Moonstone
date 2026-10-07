@@ -196,6 +196,15 @@ static void ZNJICollectJSONNamesPOSIX(NSString *root, NSMutableOrderedSet<NSStri
     }
     NSError *je=nil; id root=[NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingFragmentsAllowed error:&je];
     if (!root) { if(error)*error=[NSString stringWithFormat:@"JSON 解析失败：%@",je.localizedDescription?:@"未知错误"]; return nil; }
+    // M6.13.6 project JSON may legitimately contain Runtime/Native-Hook only
+    // content. Mark it as recognized for discovery/probing; the workspace owns
+    // the actual transactional project import.
+    if ([root isKindOfClass:NSDictionary.class] && [root[@"format"] isEqual:@"zonoe-feature-config"]) {
+        NSInteger version=[root[@"version"] integerValue];
+        if(version==2) return @[@{@"znProject":@YES,@"confidence":@1.0}];
+        if(error)*error=[NSString stringWithFormat:@"不支持的 Zonoe JSON 版本：%ld",(long)version];
+        return nil;
+    }
     NSMutableArray *raw=[NSMutableArray array]; ZNJIWalk(root,@"$",@"",@"",@"Imported",ZNJIAliases(root),raw);
     if (!raw.count) { if(error)*error=@"未识别到 offset + enabled/patch/patchData/bytes 组合"; return nil; }
 
