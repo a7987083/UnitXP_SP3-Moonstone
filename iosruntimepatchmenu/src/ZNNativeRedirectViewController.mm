@@ -70,6 +70,7 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor=UIColor.systemBackgroundColor;
+    self.navigationItem.leftBarButtonItem=[[UIBarButtonItem alloc]initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(closePage:)];
     self.scroll=[UIScrollView new];self.scroll.frame=self.view.bounds;self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:self.scroll];
 
@@ -124,6 +125,7 @@ static uint64_t ZNRDVCParseRVA(NSString *text) {
     return a;
 }
 - (void)setStatus:(NSString *)status {self.statusLabel.text=status?:@"";}
+- (void)closePage:(id)sender {(void)sender;[self dismissViewControllerAnimated:YES completion:nil];}
 
 - (void)testRedirect:(id)sender {
     (void)sender;NSString *error=nil;ZNNativeRedirectAction *a=[self draftAction:&error];
