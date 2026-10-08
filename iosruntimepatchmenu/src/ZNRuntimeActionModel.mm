@@ -33,10 +33,10 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
 }
 
 @implementation ZNRuntimeMethodAction
-- (instancetype)init { self=[super init];if(!self)return nil;_executionKind=ZNRuntimeExecutionKindMethodCall;_title=@"";_group=@"Runtime Methods";_featureDescription=@"";_assembly=@"Assembly-CSharp.dll";_namespaceName=@"";_className=@"";_methodName=@"";_argumentValues=@[];_parameterTypeNames=@[];_signatureAvailable=NO;_argumentControlConfigs=@[];_immediateChain=@{};return self; }
+- (instancetype)init { self=[super init];if(!self)return nil;_executionKind=ZNRuntimeExecutionKindMethodCall;_title=@"";_group=@"Runtime Methods";_featureDescription=@"";_assembly=@"Assembly-CSharp.dll";_namespaceName=@"";_className=@"";_methodName=@"";_argumentValues=@[];_parameterTypeNames=@[];_signatureAvailable=NO;_argumentControlConfigs=@[];_immediateChain=@{};_methodRedirectTarget=@{};return self; }
 - (NSString *)legacyCanonicalIdentity {NSString *owner=self.namespaceName.length?[NSString stringWithFormat:@"%@.%@",self.namespaceName,self.className]:self.className;return [NSString stringWithFormat:@"%@!%@::%@/%lu",self.assembly?:@"",owner?:@"",self.methodName?:@"",(unsigned long)self.argumentCount];}
 - (NSString *)canonicalIdentity {if(self.signatureAvailable&&self.parameterTypeNames.count==self.argumentCount)return ZNIL2CPPFullMethodIdentity(self.assembly?:@"",self.namespaceName?:@"",self.className?:@"",self.methodName?:@"",self.parameterTypeNames?:@[]);return self.legacyCanonicalIdentity;}
-- (id)copyWithZone:(NSZone *)zone {ZNRuntimeMethodAction *copy=[[[self class] allocWithZone:zone]init];copy.actionID=self.actionID;copy.executionKind=self.executionKind;copy.title=self.title;copy.group=self.group;copy.featureDescription=self.featureDescription?:@"";copy.assembly=self.assembly;copy.namespaceName=self.namespaceName;copy.className=self.className;copy.methodName=self.methodName;copy.methodRVA=self.methodRVA;copy.argumentCount=self.argumentCount;copy.argumentValues=self.argumentValues?:@[];copy.parameterTypeNames=self.parameterTypeNames?:@[];copy.signatureAvailable=self.signatureAvailable;copy.argumentControlConfigs=self.argumentControlConfigs?:@[];copy.immediateChain=self.immediateChain?:@{};return copy;}
+- (id)copyWithZone:(NSZone *)zone {ZNRuntimeMethodAction *copy=[[[self class] allocWithZone:zone]init];copy.actionID=self.actionID;copy.executionKind=self.executionKind;copy.title=self.title;copy.group=self.group;copy.featureDescription=self.featureDescription?:@"";copy.assembly=self.assembly;copy.namespaceName=self.namespaceName;copy.className=self.className;copy.methodName=self.methodName;copy.methodRVA=self.methodRVA;copy.argumentCount=self.argumentCount;copy.argumentValues=self.argumentValues?:@[];copy.parameterTypeNames=self.parameterTypeNames?:@[];copy.signatureAvailable=self.signatureAvailable;copy.argumentControlConfigs=self.argumentControlConfigs?:@[];copy.immediateChain=self.immediateChain?:@{};copy.methodRedirectTarget=self.methodRedirectTarget?:@{};return copy;}
 @end
 
 @interface ZNRuntimeActionStore ()
@@ -73,6 +73,100 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
     return [self addMethodCandidate:tagged title:title argumentValues:argumentValues error:error];
 }
 
+- (ZNRuntimeMethodAction *)addMethodRedirectSourceCandidate:(NSDictionary<NSString *,id> *)source
+                                            targetCandidate:(NSDictionary<NSString *,id> *)target
+                                                      title:(NSString *)title
+                                                      error:(NSString **)error {
+    if(![source isKindOfClass:NSDictionary.class]||![target isKindOfClass:NSDictionary.class]){
+        if(error)*error=@"Method Redirect 需要 Source 和 Target 方法";
+        return nil;
+    }
+    NSString *sourceAssembly=ZNRMATrim([source[@"assembly"] isKindOfClass:NSString.class]?source[@"assembly"]:@"");
+    NSString *sourceNS=ZNRMATrim([source[@"namespace"] isKindOfClass:NSString.class]?source[@"namespace"]:@"");
+    NSString *sourceClass=ZNRMATrim([source[@"class"] isKindOfClass:NSString.class]?source[@"class"]:@"");
+    NSString *sourceMethod=ZNRMATrim([source[@"method"] isKindOfClass:NSString.class]?source[@"method"]:@"");
+    NSInteger sourceArgc=[source[@"argumentCount"] respondsToSelector:@selector(integerValue)]?[source[@"argumentCount"] integerValue]:-1;
+    NSString *targetAssembly=ZNRMATrim([target[@"assembly"] isKindOfClass:NSString.class]?target[@"assembly"]:@"");
+    NSString *targetNS=ZNRMATrim([target[@"namespace"] isKindOfClass:NSString.class]?target[@"namespace"]:@"");
+    NSString *targetClass=ZNRMATrim([target[@"class"] isKindOfClass:NSString.class]?target[@"class"]:@"");
+    NSString *targetMethod=ZNRMATrim([target[@"method"] isKindOfClass:NSString.class]?target[@"method"]:@"");
+    NSInteger targetArgc=[target[@"argumentCount"] respondsToSelector:@selector(integerValue)]?[target[@"argumentCount"] integerValue]:-1;
+    if(!sourceAssembly.length)sourceAssembly=@"Assembly-CSharp.dll";
+    if(!targetAssembly.length)targetAssembly=@"Assembly-CSharp.dll";
+    if(!sourceClass.length||!sourceMethod.length||sourceArgc<0||sourceArgc>(NSInteger)ZN_RUNTIME_ACTION_MAX_ARGUMENTS||
+       !targetClass.length||!targetMethod.length||targetArgc<0||targetArgc>(NSInteger)ZN_RUNTIME_ACTION_MAX_ARGUMENTS){
+        if(error)*error=@"Method Redirect Source/Target 方法身份不完整";
+        return nil;
+    }
+    uint64_t sourceRVA=[source[@"methodRVA"] respondsToSelector:@selector(unsignedLongLongValue)]?[source[@"methodRVA"] unsignedLongLongValue]:0;
+    if(!sourceRVA&&[source[@"rva"] respondsToSelector:@selector(unsignedLongLongValue)])sourceRVA=[source[@"rva"] unsignedLongLongValue];
+    uint64_t targetRVA=[target[@"methodRVA"] respondsToSelector:@selector(unsignedLongLongValue)]?[target[@"methodRVA"] unsignedLongLongValue]:0;
+    if(!targetRVA&&[target[@"rva"] respondsToSelector:@selector(unsignedLongLongValue)])targetRVA=[target[@"rva"] unsignedLongLongValue];
+    if(!sourceRVA||!targetRVA){
+        if(error)*error=@"Method Redirect Source/Target 必须来自已解析 RVA 的 Method Finder 候选";
+        return nil;
+    }
+
+    NSArray<NSString *> *sourceTypes=nil;BOOL sourceSig=NO;
+    id sourceCandidateTypes=source[@"parameterTypeNames"];
+    if([sourceCandidateTypes isKindOfClass:NSArray.class]&&[(NSArray *)sourceCandidateTypes count]==(NSUInteger)sourceArgc){
+        sourceTypes=[sourceCandidateTypes copy];
+        sourceSig=![source[@"signatureAvailable"] respondsToSelector:@selector(boolValue)]||[source[@"signatureAvailable"] boolValue];
+    }
+    if(!sourceSig){
+        NSString *sigError=nil;
+        NSArray<NSString *> *derived=ZNIL2CPPParameterTypeNamesForCandidate(source,&sigError);
+        if(derived&&derived.count==(NSUInteger)sourceArgc){sourceTypes=derived;sourceSig=YES;}
+    }
+
+    NSArray<NSString *> *targetTypes=nil;BOOL targetSig=NO;
+    id targetCandidateTypes=target[@"parameterTypeNames"];
+    if([targetCandidateTypes isKindOfClass:NSArray.class]&&[(NSArray *)targetCandidateTypes count]==(NSUInteger)targetArgc){
+        targetTypes=[targetCandidateTypes copy];
+        targetSig=![target[@"signatureAvailable"] respondsToSelector:@selector(boolValue)]||[target[@"signatureAvailable"] boolValue];
+    }
+    if(!targetSig){
+        NSString *sigError=nil;
+        NSArray<NSString *> *derived=ZNIL2CPPParameterTypeNamesForCandidate(target,&sigError);
+        if(derived&&derived.count==(NSUInteger)targetArgc){targetTypes=derived;targetSig=YES;}
+    }
+
+    ZNRuntimeMethodAction *action=[ZNRuntimeMethodAction new];
+    action.executionKind=ZNRuntimeExecutionKindMethodRedirect;
+    action.assembly=sourceAssembly;action.namespaceName=sourceNS;action.className=sourceClass;action.methodName=sourceMethod;
+    action.methodRVA=sourceRVA;action.argumentCount=(NSUInteger)sourceArgc;action.argumentValues=@[];
+    action.parameterTypeNames=sourceTypes?:@[];action.signatureAvailable=sourceSig;
+    action.argumentControlConfigs=@[];action.immediateChain=@{};
+    action.methodRedirectTarget=@{
+        @"assembly":targetAssembly,
+        @"namespace":targetNS,
+        @"class":targetClass,
+        @"method":targetMethod,
+        @"argumentCount":@(targetArgc),
+        @"methodRVA":@(targetRVA),
+        @"parameterTypeNames":targetTypes?:@[],
+        @"signatureAvailable":@(targetSig),
+    };
+    action.title=ZNRMATrim(title).length?ZNRMATrim(title):[NSString stringWithFormat:@"%@ → %@",sourceMethod,targetMethod];
+    action.group=@"Method Redirects";
+
+    @synchronized(self){
+        uint32_t serial=0;BOOL collision=NO;
+        do{
+            NSString *seed=[NSString stringWithFormat:@"redirect|%@|%@|0x%llX|0x%llX|%@|%lu|%u",
+                            action.canonicalIdentity,targetClass,(unsigned long long)sourceRVA,(unsigned long long)targetRVA,
+                            action.title?:@"",(unsigned long)self.mutableActions.count,serial++];
+            action.actionID=ZNRMAFNV1a32(seed);
+            collision=NO;
+            for(ZNRuntimeMethodAction *existing in self.mutableActions)if(existing.actionID==action.actionID){collision=YES;break;}
+        }while(collision);
+        [self.mutableActions addObject:action];
+    }
+    [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[method-redirect] add id=%u %@ -> %@::%@/%ld",
+        action.actionID,action.canonicalIdentity,targetClass,targetMethod,(long)targetArgc]];
+    return [action copy];
+}
+
 - (BOOL)updateTitle:(NSString *)title atIndex:(NSUInteger)index error:(NSString **)error {NSString *trimmed=ZNRMATrim(title);@synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}ZNRuntimeMethodAction *action=self.mutableActions[index];action.title=trimmed.length?trimmed:action.methodName;return YES;}}
 - (BOOL)updateFeatureDescription:(NSString *)featureDescription atIndex:(NSUInteger)index error:(NSString **)error {NSString *trimmed=ZNRMATrim(featureDescription);@synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}self.mutableActions[index].featureDescription=trimmed?:@"";return YES;}}
 - (BOOL)updateArgumentValues:(NSArray<NSString *> *)argumentValues atIndex:(NSUInteger)index error:(NSString **)error {@synchronized(self){if(index>=self.mutableActions.count){if(error)*error=@"Runtime Method Call 索引已失效";return NO;}ZNRuntimeMethodAction *action=self.mutableActions[index];NSArray<NSString *> *values=argumentValues?:@[];if(action.argumentCount==0)values=@[];if(action.argumentCount>0&&values.count!=action.argumentCount){if(error)*error=@"参数数量不匹配";return NO;}action.argumentValues=[values copy];return YES;}}
@@ -97,7 +191,8 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
                 @"class":a.className?:@"", @"method":a.methodName?:@"", @"methodRVA":@(a.methodRVA),
                 @"argumentCount":@(a.argumentCount), @"argumentValues":a.argumentValues?:@[],
                 @"parameterTypeNames":a.parameterTypeNames?:@[], @"signatureAvailable":@(a.signatureAvailable),
-                @"argumentControls":a.argumentControlConfigs?:@[], @"immediateChain":a.immediateChain?:@{}
+                @"argumentControls":a.argumentControlConfigs?:@[], @"immediateChain":a.immediateChain?:@{},
+                @"methodRedirectTarget":a.methodRedirectTarget?:@{}
             }];
         }
         return [out copy];
@@ -113,7 +208,7 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
         if(!d){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 格式无效",(unsigned long)i+1];return NO;}
         ZNRuntimeMethodAction *a=[ZNRuntimeMethodAction new];
         NSInteger kind=[d[@"executionKind"] integerValue];
-        if(kind!=ZNRuntimeExecutionKindMethodCall&&kind!=ZNRuntimeExecutionKindDirectNativeCall){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu executionKind 无效",(unsigned long)i+1];return NO;}
+        if(kind!=ZNRuntimeExecutionKindMethodCall&&kind!=ZNRuntimeExecutionKindDirectNativeCall&&kind!=ZNRuntimeExecutionKindMethodRedirect){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu executionKind 无效",(unsigned long)i+1];return NO;}
         a.executionKind=(ZNRuntimeExecutionKind)kind;
         a.title=ZNRMATrim([d[@"title"] isKindOfClass:NSString.class]?d[@"title"]:@"");
         a.group=ZNRMATrim([d[@"group"] isKindOfClass:NSString.class]?d[@"group"]:@"");
@@ -125,22 +220,39 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
         a.methodRVA=[d[@"methodRVA"] unsignedLongLongValue];
         a.argumentCount=[d[@"argumentCount"] unsignedIntegerValue];
         if(!a.className.length||!a.methodName.length||a.argumentCount>ZN_RUNTIME_ACTION_MAX_ARGUMENTS){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 方法身份/参数数量无效",(unsigned long)i+1];return NO;}
-        if(a.executionKind==ZNRuntimeExecutionKindDirectNativeCall&&!a.methodRVA){if(error)*error=[NSString stringWithFormat:@"Direct Native Call #%lu 缺少 methodRVA",(unsigned long)i+1];return NO;}
+        if((a.executionKind==ZNRuntimeExecutionKindDirectNativeCall||a.executionKind==ZNRuntimeExecutionKindMethodRedirect)&&!a.methodRVA){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 缺少 methodRVA",(unsigned long)i+1];return NO;}
         NSArray *values=[d[@"argumentValues"] isKindOfClass:NSArray.class]?d[@"argumentValues"]:@[];
-        if(values.count!=a.argumentCount){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 参数值数量不匹配",(unsigned long)i+1];return NO;}
-        a.argumentValues=[values copy];
+        if(a.executionKind==ZNRuntimeExecutionKindMethodRedirect){
+            if(values.count){if(error)*error=[NSString stringWithFormat:@"Method Redirect #%lu 不应持久化参数值",(unsigned long)i+1];return NO;}
+            a.argumentValues=@[];
+        }else{
+            if(values.count!=a.argumentCount){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu 参数值数量不匹配",(unsigned long)i+1];return NO;}
+            a.argumentValues=[values copy];
+        }
         NSArray *types=[d[@"parameterTypeNames"] isKindOfClass:NSArray.class]?d[@"parameterTypeNames"]:@[];
         a.signatureAvailable=[d[@"signatureAvailable"] boolValue]&&types.count==a.argumentCount;
         a.parameterTypeNames=a.signatureAvailable?[types copy]:@[];
         NSArray *controls=[d[@"argumentControls"] isKindOfClass:NSArray.class]?d[@"argumentControls"]:@[];
-        a.argumentControlConfigs=controls.count==a.argumentCount?[controls copy]:ZNRMADefaultConfigs(a.argumentCount,a.parameterTypeNames);
+        a.argumentControlConfigs=(a.executionKind==ZNRuntimeExecutionKindMethodRedirect)?@[]:(controls.count==a.argumentCount?[controls copy]:ZNRMADefaultConfigs(a.argumentCount,a.parameterTypeNames));
         a.immediateChain=[d[@"immediateChain"] isKindOfClass:NSDictionary.class]?[d[@"immediateChain"] copy]:@{};
+        a.methodRedirectTarget=[d[@"methodRedirectTarget"] isKindOfClass:NSDictionary.class]?[d[@"methodRedirectTarget"] copy]:@{};
+        if(a.executionKind==ZNRuntimeExecutionKindMethodRedirect){
+            NSDictionary *t=a.methodRedirectTarget;
+            NSString *tc=ZNRMATrim([t[@"class"] isKindOfClass:NSString.class]?t[@"class"]:@"");
+            NSString *tm=ZNRMATrim([t[@"method"] isKindOfClass:NSString.class]?t[@"method"]:@"");
+            NSInteger ta=[t[@"argumentCount"] integerValue];
+            uint64_t tr=[t[@"methodRVA"] unsignedLongLongValue];
+            if(!tc.length||!tm.length||ta<0||ta>(NSInteger)ZN_RUNTIME_ACTION_MAX_ARGUMENTS||!tr){
+                if(error)*error=[NSString stringWithFormat:@"Method Redirect #%lu Target descriptor 无效",(unsigned long)i+1];
+                return NO;
+            }
+        }
         uint32_t actionID=[d[@"actionID"] unsignedIntValue];
         if(!actionID){NSString *seed=[NSString stringWithFormat:@"import|%ld|%@|0x%llX|%lu",(long)a.executionKind,a.canonicalIdentity,(unsigned long long)a.methodRVA,(unsigned long)i];actionID=ZNRMAFNV1a32(seed);}
         if([ids containsObject:@(actionID)]){if(error)*error=[NSString stringWithFormat:@"Runtime Action #%lu actionID 重复",(unsigned long)i+1];return NO;}
         [ids addObject:@(actionID)];a.actionID=actionID;
         if(!a.title.length)a.title=a.methodName;
-        if(!a.group.length)a.group=(a.executionKind==ZNRuntimeExecutionKindDirectNativeCall)?@"Direct Native Calls":@"Runtime Methods";
+        if(!a.group.length)a.group=(a.executionKind==ZNRuntimeExecutionKindDirectNativeCall)?@"Direct Native Calls":(a.executionKind==ZNRuntimeExecutionKindMethodRedirect?@"Method Redirects":@"Runtime Methods");
         [parsed addObject:a];
     }
     @synchronized(self){self.mutableActions=parsed;}
