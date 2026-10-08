@@ -116,6 +116,10 @@ static void * const gZNMRReplacements[kZNMRMaxSlots]={
     (void *)&ZNMRReplacement12,(void *)&ZNMRReplacement13,(void *)&ZNMRReplacement14,(void *)&ZNMRReplacement15
 };
 
+static NSString *ZNMRPreferenceKey(uint32_t actionID){
+    return [NSString stringWithFormat:@"zonoe.method-redirect.enabled.v1.%u",actionID];
+}
+
 static NSString *ZNMRTrim(NSString *value){
     return [value ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
@@ -344,6 +348,14 @@ static BOOL ZNMRValidateRuntimeABI(NSDictionary *source,NSDictionary *target,NSS
     }
     self.lastStatus=[NSString stringWithFormat:@"PREPARED · %@ · %@",record.title?:record.canonicalIdentity,receiverStatus];
     [[ZNRuntimeLogger sharedLogger]log:[@"[method-redirect] " stringByAppendingString:self.lastStatus]];
+
+    if([NSUserDefaults.standardUserDefaults boolForKey:ZNMRPreferenceKey(record.actionID)]){
+        NSString *restoreError=nil;
+        if(![self setEnabled:YES forRecord:record error:&restoreError]){
+            @synchronized(self){self.statusByActionID[actionKey]=[NSString stringWithFormat:@"PREPARED · desired ON pending · %@",restoreError?:@"target not ready"];}
+            [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[method-redirect] restore desired ON pending id=%u %@",record.actionID,restoreError?:@""]];
+        }
+    }
     return YES;
 }
 
@@ -386,6 +398,7 @@ static BOOL ZNMRValidateRuntimeABI(NSDictionary *source,NSDictionary *target,NSS
         }
     }
     slot->enabled.store(enabled?1u:0u,std::memory_order_release);
+    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:ZNMRPreferenceKey(record.actionID)];
     NSString *status=[NSString stringWithFormat:@"%@ · hits=%llu",enabled?@"ENABLED":@"DISABLED",
                       (unsigned long long)slot->hits.load(std::memory_order_relaxed)];
     @synchronized(self){self.statusByActionID[@(record.actionID)]=status;}
