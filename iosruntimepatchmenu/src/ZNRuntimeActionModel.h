@@ -5,6 +5,7 @@ NS_ASSUME_NONNULL_BEGIN
 typedef NS_ENUM(NSInteger, ZNRuntimeExecutionKind) {
     ZNRuntimeExecutionKindMethodCall = 1,
     ZNRuntimeExecutionKindDirectNativeCall = 3,
+    ZNRuntimeExecutionKindMethodRedirect = 4,
 };
 
 typedef NS_ENUM(NSInteger, ZNRuntimeArgumentControlType) {
@@ -45,6 +46,9 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
 // M5.1 Immediate Chain. Empty means no chain. V1 stores a complete target
 // method descriptor and never persists a returned object address/GCHandle.
 @property(nonatomic,copy) NSDictionary<NSString *, id> *immediateChain;
+// Method Redirect target descriptor. Empty for Method Call / Direct Native Call.
+// The source method remains the primary action identity above.
+@property(nonatomic,copy) NSDictionary<NSString *, id> *methodRedirectTarget;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @property(nonatomic,copy,readonly) NSString *legacyCanonicalIdentity;
 @end
@@ -64,6 +68,10 @@ FOUNDATION_EXPORT ZNRuntimeArgumentControlType ZNRuntimeArgumentControlTypeFromK
                                                           title:(nullable NSString *)title
                                                  argumentValues:(NSArray<NSString *> *)argumentValues
                                                           error:(NSString * _Nullable * _Nullable)error;
+- (nullable ZNRuntimeMethodAction *)addMethodRedirectSourceCandidate:(NSDictionary<NSString *, id> *)source
+                                                     targetCandidate:(NSDictionary<NSString *, id> *)target
+                                                               title:(nullable NSString *)title
+                                                               error:(NSString * _Nullable * _Nullable)error;
 - (BOOL)updateTitle:(nullable NSString *)title
             atIndex:(NSUInteger)index
               error:(NSString * _Nullable * _Nullable)error;
