@@ -40,7 +40,8 @@
     _markerHasG = NO;
     _markerHasQ = NO;
     _activationEvaluated = NO;
-    [self refresh];
+    // Do not snapshot file 1 while the gate object is being initialized.
+    // The first activated menu entry explicitly calls refresh.
     return self;
 }
 
@@ -112,6 +113,7 @@
 }
 
 - (void)refresh {
+    if (!ZNDeferredBootstrapIsActivated()) return;
     // v0.5.5 policy: developer permission is a first-menu-activation snapshot.
     // Legacy callers may still invoke refresh from menu/timer paths, but those
     // calls must never touch the filesystem after the first evaluation.
