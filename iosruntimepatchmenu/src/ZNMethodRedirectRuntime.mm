@@ -380,12 +380,12 @@ static BOOL ZNMRValidateRuntimeABI(NSDictionary *source,NSDictionary *target,NSS
     if(!record){if(error)*error=@"Method Redirect record 为空";return NO;}
     NSNumber *slotNumber=nil;
     @synchronized(self){slotNumber=self.slotByActionID[@(record.actionID)];}
+    // Customer controls must not install hooks or perform prepare-time resolution.
+    // The capability prepare adapter owns installation via reconcileRecords:.
     if(!slotNumber){
-        NSString *inner=nil;
-        if(![self zn_prepareRecord:record error:&inner]){if(error)*error=inner;return NO;}
-        @synchronized(self){slotNumber=self.slotByActionID[@(record.actionID)];}
+        if(error)*error=@"Method Redirect 尚未准备；客户端开关不会安装 Hook";
+        return NO;
     }
-    if(!slotNumber){if(error)*error=@"Method Redirect slot 未准备";return NO;}
     NSUInteger index=slotNumber.unsignedIntegerValue;
     if(index>=kZNMRMaxSlots){if(error)*error=@"Method Redirect slot 越界";return NO;}
     ZNMRSlot *slot=&gZNMRSlots[index];
