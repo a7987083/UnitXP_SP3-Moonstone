@@ -18,6 +18,7 @@ on:
       - fix/m6.13.7-offset-hook-decoded-rva-v1
       - fix/m6.13.8-static-prepared-value-hook-v1
       - work/m6.13.8-stable-next
+      - feature/m6.13.10-method-redirect-runtime-clean
       - feature/m6.13.3-runtime-argument-marshalling-v1
   workflow_dispatch:
 
