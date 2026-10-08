@@ -23,6 +23,7 @@ enum {
     ZNRuntimeActionKindIL2CPPMethodCall = 1,
     ZNRuntimeActionKindIL2CPPNativeHook = 2,
     ZNRuntimeActionKindDirectNativeCall = 3,
+    ZNRuntimeActionKindIL2CPPMethodRedirect = 4,
 };
 
 typedef uint32_t ZNRuntimeActionFlags;
@@ -39,6 +40,10 @@ enum {
     ZNRuntimeActionFlagFeatureDescription = 1u << 5,
     // M6.4 Native Hook config JSON. For NativeHook entries reserved[0] points to it.
     ZNRuntimeActionFlagNativeHookConfig = 1u << 6,
+    // M6.13.10 Method Redirect target descriptor JSON. For MethodRedirect
+    // entries reserved[4] points to it. It is mutually exclusive with
+    // ImmediateChain for that entry kind.
+    ZNRuntimeActionFlagMethodRedirectTarget = 1u << 7,
 };
 
 typedef struct {
