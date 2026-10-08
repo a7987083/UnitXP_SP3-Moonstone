@@ -6,6 +6,7 @@
 #import "ZNNativeHookScheduler.h"
 #import "ZNNativeHookAction.h"
 #import "ZNDirectNativeCallEngine.h"
+#import "ZNMethodRedirectRuntime.h"
 #import "ZNIL2CPPHybridFinder.h"
 #import "ZNIL2CPPOwningMethodResolver.h"
 #import "ZNIL2CPPMethodSignature.h"
@@ -15,6 +16,7 @@ NSString * const ZNCapabilityStaticPatchIdentifier=@"static-patch";
 NSString * const ZNCapabilityRuntimeMethodIdentifier=@"runtime-method";
 NSString * const ZNCapabilityNativeHookIdentifier=@"native-hook";
 NSString * const ZNCapabilityDirectNativeCallIdentifier=@"direct-native-call";
+NSString * const ZNCapabilityMethodRedirectIdentifier=@"method-redirect";
 
 @interface ZNStaticPatchCapabilityAdapter:NSObject<ZNRuntimeCapabilityAdapter>@end
 @implementation ZNStaticPatchCapabilityAdapter
@@ -59,6 +61,25 @@ NSString * const ZNCapabilityDirectNativeCallIdentifier=@"direct-native-call";
 }
 @end
 
+
+@interface ZNMethodRedirectCapabilityAdapter:NSObject<ZNRuntimeCapabilityAdapter>@end
+@implementation ZNMethodRedirectCapabilityAdapter
+- (NSString *)capabilityIdentifier{return ZNCapabilityMethodRedirectIdentifier;}
+- (BOOL)prepareForImageCount:(uint32_t)c error:(NSString **)e{
+    (void)c;
+    [[ZNRuntimeActionRuntime sharedRuntime] refresh];
+    return [[ZNMethodRedirectRuntime sharedRuntime] reconcileRecords:[ZNRuntimeActionRuntime sharedRuntime].redirectRecords?:@[] error:e];
+}
+- (NSArray *)snapshotItems{return [ZNRuntimeActionRuntime sharedRuntime].redirectRecords?:@[];}
+- (BOOL)activateItem:(id)item value:(id)value error:(NSString **)error{
+    if(![item isKindOfClass:ZNRuntimeMethodActionRecord.class]){if(error)*error=@"Method Redirect item 类型错误";return NO;}
+    BOOL enabled=[value respondsToSelector:@selector(boolValue)]?[value boolValue]:NO;
+    return [[ZNMethodRedirectRuntime sharedRuntime] setEnabled:enabled forRecord:item error:error];
+}
+- (BOOL)deactivateItem:(id)item error:(NSString **)error{
+    return [self activateItem:item value:@NO error:error];
+}
+@end
 
 @interface ZNDirectNativeCallCapabilityAdapter:NSObject<ZNRuntimeCapabilityAdapter>@end
 @implementation ZNDirectNativeCallCapabilityAdapter
@@ -152,5 +173,6 @@ void ZNRegisterBuiltInCapabilityAdapters(void){
         [r registerAdapter:[ZNRuntimeMethodCapabilityAdapter new]];
         [r registerAdapter:[ZNNativeHookCapabilityAdapter new]];
         [r registerAdapter:[ZNDirectNativeCallCapabilityAdapter new]];
+        [r registerAdapter:[ZNMethodRedirectCapabilityAdapter new]];
     });
 }
