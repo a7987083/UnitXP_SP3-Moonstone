@@ -270,6 +270,8 @@ static BOOL ZNMRValidateRuntimeABI(NSDictionary *source,NSDictionary *target,NSS
 }
 
 - (BOOL)zn_prepareRecord:(ZNRuntimeMethodActionRecord *)record error:(NSString **)error{
+    // Serialize concurrent prepare requests and slot reservations.
+    @synchronized(self){
     if(!record||record.executionKind!=ZNRuntimeActionKindIL2CPPMethodRedirect){
         if(error)*error=@"Method Redirect record 类型错误";return NO;
     }
@@ -307,16 +309,8 @@ static BOOL ZNMRValidateRuntimeABI(NSDictionary *source,NSDictionary *target,NSS
     BOOL sourceInstance=[sa[@"instance"] boolValue],targetInstance=[ta[@"instance"] boolValue];
     BOOL reuseSelf=sourceInstance&&targetInstance&&ZNMRSameOwner(record,target);
 
-    uintptr_t original=0;
-    if(![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:sourcePtr
-                                                            replacement:gZNMRReplacements[(NSUInteger)index]
-                                                               original:(void **)&original
-                                                                  error:&inner]){
-        if(error)*error=inner?:@"Method Redirect DobbyHook 失败";
-        return NO;
-    }
-
-    slot->original.store(original,std::memory_order_relaxed);
+    // Publish dispatch metadata before the replacement becomes reachable.
+    // Keep enabled=0 until the original trampoline is available.
     slot->target.store(targetPtr,std::memory_order_relaxed);
     slot->targetMethodInfo.store(targetMI,std::memory_order_relaxed);
     slot->targetReceiver.store(0,std::memory_order_relaxed);
@@ -327,6 +321,17 @@ static BOOL ZNMRValidateRuntimeABI(NSDictionary *source,NSDictionary *target,NSS
     slot->enabled.store(0,std::memory_order_relaxed);
     slot->hits.store(0,std::memory_order_relaxed);
     slot->actionID.store(record.actionID,std::memory_order_relaxed);
+
+    uintptr_t original=0;
+    if(![[ZNNativeHookBackend sharedBackend] installReplacementAtAddress:sourcePtr
+                                                            replacement:gZNMRReplacements[(NSUInteger)index]
+                                                               original:(void **)&original
+                                                                  error:&inner]){
+        if(error)*error=inner?:@"Method Redirect DobbyHook 失败";
+        return NO;
+    }
+
+    slot->original.store(original,std::memory_order_release);
     slot->source.store(sourcePtr,std::memory_order_release);
 
     NSString *receiverStatus=@"static";
@@ -357,6 +362,7 @@ static BOOL ZNMRValidateRuntimeABI(NSDictionary *source,NSDictionary *target,NSS
         }
     }
     return YES;
+    } // @synchronized(self)
 }
 
 - (BOOL)reconcileRecords:(NSArray<ZNRuntimeMethodActionRecord *> *)records error:(NSString **)error{
