@@ -7206,8 +7206,9 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
     } else {
         for (NSUInteger i = 0; i < actions.count; i++) {
             ZNRuntimeMethodAction *action = actions[i];
-            BOOL hasArgument = action.argumentCount == 1;
-            CGFloat cardH = hasArgument ? 149.0 : 109.0;
+            BOOL redirect = action.executionKind == ZNRuntimeExecutionKindMethodRedirect;
+            BOOL hasArgument = !redirect && action.argumentCount == 1;
+            CGFloat cardH = hasArgument ? 149.0 : (redirect ? 123.0 : 109.0);
             UIView *card = [self cardAtY:y height:cardH width:width compact:NO];
 
             UITextField *name = ZNRMCBuilderTextField(CGRectMake(13, 7, card.bounds.size.width - 82, 27), self.theme);
@@ -7223,16 +7224,26 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             deleteButton.tag = kZNRMCBuilderDeleteTagBase + (NSInteger)i;
             [card addSubview:deleteButton];
 
-            UILabel *identity = [self label:action.canonicalIdentity
+            NSString *identityText=action.canonicalIdentity;
+            if(redirect){
+                NSDictionary *target=action.methodRedirectTarget?:@{};
+                NSString *tns=[target[@"namespace"] isKindOfClass:NSString.class]?target[@"namespace"]:@"";
+                NSString *tcls=[target[@"class"] isKindOfClass:NSString.class]?target[@"class"]:@"";
+                NSString *tm=[target[@"method"] isKindOfClass:NSString.class]?target[@"method"]:@"";
+                NSUInteger ta=[target[@"argumentCount"] unsignedIntegerValue];
+                NSString *towner=tns.length?[NSString stringWithFormat:@"%@.%@",tns,tcls]:tcls;
+                identityText=[NSString stringWithFormat:@"Redirect\n%@\n→ %@::%@/%lu",action.canonicalIdentity,towner,tm,(unsigned long)ta];
+            }
+            UILabel *identity = [self label:identityText
                                         size:7.8
                                       weight:UIFontWeightRegular
                                        color:self.theme.secondaryTextColor];
-            identity.frame = CGRectMake(13, 40, card.bounds.size.width - 26, 20);
-            identity.numberOfLines = 2;
+            identity.frame = CGRectMake(13, 38, card.bounds.size.width - 26, redirect?34:22);
+            identity.numberOfLines = redirect?3:2;
             identity.lineBreakMode = NSLineBreakByTruncatingMiddle;
             [card addSubview:identity];
 
-            UITextField *description = ZNRMCBuilderTextField(CGRectMake(13, 65, card.bounds.size.width - 26, 29), self.theme);
+            UITextField *description = ZNRMCBuilderTextField(CGRectMake(13, redirect?79:65, card.bounds.size.width - 26, 29), self.theme);
             description.tag = kZNRMCBuilderDescriptionTagBase + (NSInteger)i;
             description.text = action.featureDescription ?: @"";
             description.placeholder = @"功能说明";
@@ -14099,6 +14110,11 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
                                    frame:CGRectMake(x1,103,colW,27)];
         objc_setAssociatedObject(hook,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         hook.accessibilityHint=hookOK?@"Native Hook plan ready":(hookError?:@"Native Hook unsupported");
+        UILongPressGestureRecognizer *redirectPress=[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(znm613_methodRedirectLongPress:)];
+        redirectPress.minimumPressDuration=.65;
+        redirectPress.cancelsTouchesInView=YES;
+        objc_setAssociatedObject(redirectPress,ZNNativeHookCandidateAssociationKey,candidate,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [hook addGestureRecognizer:redirectPress];
         [card addSubview:hook];
 
         for(UIButton *b in @[test,apply,create,chain,reselect,batch,direct,hook])
@@ -14403,6 +14419,76 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     [self zn60v3_setStatus:[NSString stringWithFormat:@"Receiver Capture 中（5 秒）：请在游戏里触发 %@.%@",className.length?className:@"?",methodName]];
     [self renderPage];
 }
+- (void)znm613_methodRedirectLongPress:(UILongPressGestureRecognizer *)gesture {
+    if(gesture.state!=UIGestureRecognizerStateBegan)return;
+    NSDictionary *source=objc_getAssociatedObject(gesture,ZNNativeHookCandidateAssociationKey);
+    if(!source)return;
+
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(!top)return;
+
+    NSString *sourceClass=[source[@"class"] isKindOfClass:NSString.class]?source[@"class"]:@"";
+    NSString *sourceMethod=[source[@"method"] isKindOfClass:NSString.class]?source[@"method"]:@"";
+    NSUInteger sourceArgc=[source[@"argumentCount"] unsignedIntegerValue];
+    UIAlertController *search=[UIAlertController alertControllerWithTitle:@"Method Redirect"
+                                                                  message:[NSString stringWithFormat:@"Source：%@::%@/%lu\n输入 Target 方法",sourceClass,sourceMethod,(unsigned long)sourceArgc]
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [search addTextFieldWithConfigurationHandler:^(UITextField *field){
+        field.placeholder=@"例如 AddGemCommand::Execute/0";
+        field.autocorrectionType=UITextAutocorrectionTypeNo;
+        field.autocapitalizationType=UITextAutocapitalizationTypeNone;
+        field.returnKeyType=UIReturnKeyDone;
+    }];
+    [search addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    __weak typeof(self) weakSelf=self;
+    [search addAction:[UIAlertAction actionWithTitle:@"查找目标" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){
+        __strong typeof(weakSelf) selfRef=weakSelf;
+        if(!selfRef)return;
+        NSString *query=[search.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if(!query.length){[selfRef zn60v3_setStatus:@"Method Redirect：请输入 Target 方法"];[selfRef renderPage];return;}
+
+        NSString *findError=nil;
+        NSArray<NSDictionary *> *matches=[[ZNIL2CPPHybridFinder sharedFinder] zn60_searchCandidates:query limit:32 error:&findError];
+        if(!matches.count){[selfRef zn60v3_setStatus:findError?:@"Method Redirect：没有找到 Target 方法"];[selfRef renderPage];return;}
+
+        UIViewController *presenter=ZNM52XTop(selfRef.hostWindow);
+        if(!presenter)return;
+        UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"选择 Target Method"
+                                                                      message:[NSString stringWithFormat:@"找到 %lu 个候选",(unsigned long)matches.count]
+                                                               preferredStyle:UIAlertControllerStyleActionSheet];
+        NSUInteger visible=MIN(matches.count,(NSUInteger)20);
+        for(NSUInteger i=0;i<visible;i++){
+            NSDictionary *target=matches[i];
+            NSString *assembly=[target[@"assembly"] isKindOfClass:NSString.class]?target[@"assembly"]:@"Assembly-CSharp.dll";
+            NSString *ns=[target[@"namespace"] isKindOfClass:NSString.class]?target[@"namespace"]:@"";
+            NSString *cls=[target[@"class"] isKindOfClass:NSString.class]?target[@"class"]:@"";
+            NSString *method=[target[@"method"] isKindOfClass:NSString.class]?target[@"method"]:@"";
+            NSUInteger argc=[target[@"argumentCount"] unsignedIntegerValue];
+            NSString *owner=ns.length?[NSString stringWithFormat:@"%@.%@",ns,cls]:cls;
+            NSString *label=[NSString stringWithFormat:@"%@!%@::%@/%lu · %@",assembly,owner,method,(unsigned long)argc,target[@"rvaText"]?:@"RVA ?"];
+            [picker addAction:[UIAlertAction actionWithTitle:label style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *pick){
+                NSString *createError=nil;
+                NSString *title=[NSString stringWithFormat:@"%@ → %@",sourceMethod.length?sourceMethod:@"Method",method.length?method:@"Method"];
+                ZNRuntimeMethodAction *created=[[ZNRuntimeActionStore sharedStore] addMethodRedirectSourceCandidate:source
+                                                                                                  targetCandidate:target
+                                                                                                            title:title
+                                                                                                            error:&createError];
+                [selfRef zn60v3_setStatus:created
+                    ?[NSString stringWithFormat:@"已创建 Method Redirect：%@ → %@::%@/%lu",created.canonicalIdentity,cls,method,(unsigned long)argc]
+                    :(createError?:@"创建 Method Redirect 失败")];
+                [selfRef renderPage];
+            }]];
+        }
+        if(matches.count>visible)picker.message=[picker.message stringByAppendingString:@"\n仅显示前 20 个，请缩小搜索条件"];
+        [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        UIPopoverPresentationController *popover=picker.popoverPresentationController;
+        if(popover){popover.sourceView=gesture.view;popover.sourceRect=gesture.view.bounds;}
+        [presenter presentViewController:picker animated:YES completion:nil];
+    }]];
+    [top presentViewController:search animated:YES completion:nil];
+}
+
 - (void)znm613_createCurrentMode:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
