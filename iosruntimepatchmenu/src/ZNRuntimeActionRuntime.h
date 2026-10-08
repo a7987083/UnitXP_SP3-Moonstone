@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,assign,readonly) BOOL signatureAvailable;
 @property(nonatomic,copy,readonly) NSArray<NSDictionary<NSString *, id> *> *argumentControlConfigs;
 @property(nonatomic,copy,readonly) NSDictionary<NSString *, id> *immediateChain;
+@property(nonatomic,copy,readonly) NSDictionary<NSString *, id> *methodRedirectTarget;
 @property(nonatomic,copy,readonly) NSString *sourceImage;
 @property(nonatomic,copy,readonly) NSString *canonicalIdentity;
 @end
@@ -27,6 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)sharedRuntime;
 @property(nonatomic,copy,readonly) NSArray<ZNRuntimeMethodActionRecord *> *records;
 @property(nonatomic,copy,readonly) NSArray<ZNRuntimeMethodActionRecord *> *directRecords;
+@property(nonatomic,copy,readonly) NSArray<ZNRuntimeMethodActionRecord *> *redirectRecords;
 @property(nonatomic,copy,readonly) NSString *lastStatus;
 - (void)refresh;
 - (BOOL)executeRecord:(ZNRuntimeMethodActionRecord *)record error:(NSString * _Nullable * _Nullable)error;
