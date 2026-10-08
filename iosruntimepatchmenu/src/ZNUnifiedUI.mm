@@ -32,6 +32,7 @@
 #import "ZNIL2CPPResolver.h"
 #import "ZNDeferredBootstrap.h"
 #import "ZNRuntimeCapabilityCoordinator.h"
+#import "ZNMethodRedirectRuntime.h"
 
 static void ZNInstallV040Swizzles(void);
 
@@ -18056,6 +18057,7 @@ static const NSInteger kZNM630HardCutSliderValueTagBase = 968000;
 static const NSInteger kZNM640NativeHookSliderTagBase = 973000;
 static const NSInteger kZNM640NativeHookValueTagBase = 974000;
 static const NSInteger kZNM650NativeHookSwitchTagBase = 975000;
+static const NSInteger kZNM660MethodRedirectSwitchTagBase = 976000;
 static NSString * const kZNM640NativeHookValuePrefix = @"zonoe.native-hook.runtime-value.v1";
 
 // Keep the proven M5.8 backend tag ABI, but only for execution/value lookup.
@@ -18196,6 +18198,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 - (void)znm640_nativeHookSliderChanged:(UISlider *)sender;
 - (void)znm640_nativeHookSliderCommitted:(UISlider *)sender;
 - (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender;
+- (void)znm660_methodRedirectSwitchChanged:(UISwitch *)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
@@ -18208,8 +18211,54 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     [allRecords addObjectsFromArray:snapshot.runtimeMethods?:@[]];
     [allRecords addObjectsFromArray:snapshot.directNativeCalls?:@[]];
     NSArray<ZNRuntimeMethodActionRecord *> *records=[allRecords copy];
+    NSArray<ZNRuntimeMethodActionRecord *> *redirects=snapshot.methodRedirects?:@[];
     NSArray<ZNNativeHookAction *> *hooks=snapshot.nativeHooks?:@[];
-    if (!records.count && !hooks.count) return y;
+    if (!records.count && !hooks.count && !redirects.count) return y;
+
+    for(NSUInteger ridx=0;ridx<redirects.count;ridx++){
+        ZNRuntimeMethodActionRecord *record=redirects[ridx];
+        NSDictionary *target=record.methodRedirectTarget?:@{};
+        NSString *tns=[target[@"namespace"] isKindOfClass:NSString.class]?target[@"namespace"]:@"";
+        NSString *tcls=[target[@"class"] isKindOfClass:NSString.class]?target[@"class"]:@"";
+        NSString *tm=[target[@"method"] isKindOfClass:NSString.class]?target[@"method"]:@"";
+        NSUInteger ta=[target[@"argumentCount"] unsignedIntegerValue];
+        NSString *towner=tns.length?[NSString stringWithFormat:@"%@.%@",tns,tcls]:tcls;
+        NSString *detailText=[NSString stringWithFormat:@"%@::%@/%lu → %@::%@/%lu",
+                              record.className?:@"",record.methodName?:@"",(unsigned long)record.argumentCount,
+                              towner?:@"",tm?:@"",(unsigned long)ta];
+
+        CGFloat height=compact?58.0:(record.featureDescription.length?78.0:66.0);
+        UIView *card=[self cardAtY:y height:height width:width compact:compact];
+
+        UILabel *name=[self label:(record.title.length?record.title:@"Method Redirect")
+                              size:(compact?10.5:11.2)
+                            weight:UIFontWeightSemibold
+                             color:self.theme.primaryTextColor];
+        name.frame=CGRectMake(compact?9.0:13.0,compact?5.0:6.0,MAX(80.0,CGRectGetWidth(card.bounds)-90.0),22.0);
+        name.lineBreakMode=NSLineBreakByTruncatingTail;
+        [card addSubview:name];
+
+        UILabel *detail=[self label:(record.featureDescription.length&&!compact?record.featureDescription:detailText)
+                                size:8.2 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        detail.frame=CGRectMake(compact?9.0:13.0,compact?27.0:29.0,MAX(80.0,CGRectGetWidth(card.bounds)-92.0),compact?22.0:26.0);
+        detail.numberOfLines=compact?1:2;
+        detail.lineBreakMode=NSLineBreakByTruncatingMiddle;
+        [card addSubview:detail];
+
+        UISwitch *toggle=[UISwitch new];
+        toggle.on=[[ZNMethodRedirectRuntime sharedRuntime] isEnabledForRecord:record];
+        toggle.tag=kZNM660MethodRedirectSwitchTagBase+(NSInteger)ridx;
+        toggle.transform=compact?CGAffineTransformMakeScale(.76,.76):CGAffineTransformMakeScale(.84,.84);
+        toggle.center=CGPointMake(CGRectGetWidth(card.bounds)-38.0,height*0.5);
+        toggle.onTintColor=self.theme.accentColor;
+        toggle.accessibilityLabel=[NSString stringWithFormat:@"Method Redirect %@",record.title?:@""];
+        toggle.accessibilityHint=[[ZNMethodRedirectRuntime sharedRuntime] statusForRecord:record];
+        [toggle addTarget:self action:@selector(znm660_methodRedirectSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        [card addSubview:toggle];
+
+        [self.contentView addSubview:card];
+        y+=height+(compact?6.0:8.0);
+    }
 
     for (NSUInteger hidx=0;hidx<hooks.count;hidx++) {
         ZNNativeHookAction *hook=hooks[hidx];
@@ -18589,6 +18638,20 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     // M6.8.6: UI submits desired state only. Scheduler owns prepare/install/retry.
     [[ZNNativeHookScheduler sharedScheduler] setDesiredValue:value forAction:hook];
     [self znm640_nativeHookSliderChanged:sender];
+}
+
+- (void)znm660_methodRedirectSwitchChanged:(UISwitch *)sender {
+    NSInteger index=sender.tag-kZNM660MethodRedirectSwitchTagBase;
+    if(index<0)return;
+    NSArray<ZNRuntimeMethodActionRecord *> *redirects=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.methodRedirects?:@[];
+    if((NSUInteger)index>=redirects.count)return;
+    ZNRuntimeMethodActionRecord *record=redirects[(NSUInteger)index];
+    NSString *error=nil;
+    BOOL ok=[[ZNMethodRedirectRuntime sharedRuntime] setEnabled:sender.isOn forRecord:record error:&error];
+    if(!ok){
+        sender.on=[[ZNMethodRedirectRuntime sharedRuntime] isEnabledForRecord:record];
+        [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[method-redirect] toggle failed %@: %@",record.title?:record.canonicalIdentity,error?:@"unknown"]];
+    }
 }
 
 - (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender {
