@@ -21,6 +21,10 @@ using ClassIsValueTypeFn = bool (*)(const void *);
 using ClassIsEnumFn = bool (*)(const void *);
 using ClassEnumBaseTypeFn = const void *(*)(void *);
 using Il2CppFreeFn = void (*)(void *);
+using DomainGetFn = void *(*)(void);
+using DomainGetAssembliesFn = const void **(*)(const void *, size_t *);
+using AssemblyGetImageFn = const void *(*)(const void *);
+using ClassFromNameFn = void *(*)(const void *, const char *, const char *);
 
 struct ZNABIAPI {
     void *handle = nullptr;
@@ -39,6 +43,10 @@ struct ZNABIAPI {
     ClassIsEnumFn classIsEnum = nullptr;
     ClassEnumBaseTypeFn classEnumBaseType = nullptr;
     Il2CppFreeFn il2cppFree = nullptr;
+    DomainGetFn domainGet = nullptr;
+    DomainGetAssembliesFn domainGetAssemblies = nullptr;
+    AssemblyGetImageFn assemblyGetImage = nullptr;
+    ClassFromNameFn classFromName = nullptr;
 };
 
 static void *ZNABISymbol(void *handle, const char *name) {
@@ -89,6 +97,10 @@ static const ZNABIAPI &ZNABIResolvedAPI(void) {
         ZNABI_LOAD(classIsEnum, ClassIsEnumFn, "il2cpp_class_is_enum");
         ZNABI_LOAD(classEnumBaseType, ClassEnumBaseTypeFn, "il2cpp_class_enum_basetype");
         ZNABI_LOAD(il2cppFree, Il2CppFreeFn, "il2cpp_free");
+        ZNABI_LOAD(domainGet, DomainGetFn, "il2cpp_domain_get");
+        ZNABI_LOAD(domainGetAssemblies, DomainGetAssembliesFn, "il2cpp_domain_get_assemblies");
+        ZNABI_LOAD(assemblyGetImage, AssemblyGetImageFn, "il2cpp_assembly_get_image");
+        ZNABI_LOAD(classFromName, ClassFromNameFn, "il2cpp_class_from_name");
 #undef ZNABI_LOAD
     });
     return api;
@@ -101,6 +113,27 @@ static NSString *ZNABITypeName(const ZNABIAPI &api, const void *type) {
     NSString *name = [NSString stringWithUTF8String:raw] ?: @"?";
     if (api.il2cppFree) api.il2cppFree(raw);
     return name;
+}
+
+static void *ZNABIClassFromManagedName(const ZNABIAPI &api, NSString *managedName) {
+    if(!api.domainGet||!api.domainGetAssemblies||!api.assemblyGetImage||!api.classFromName)return nullptr;
+    NSString *full=[managedName ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    while([full hasSuffix:@"&"]||[full hasSuffix:@"*"])
+        full=[[full substringToIndex:full.length-1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSRange split=[full rangeOfString:@"." options:NSBackwardsSearch];
+    NSString *ns=split.location==NSNotFound?@"":[full substringToIndex:split.location];
+    NSString *cls=split.location==NSNotFound?full:[full substringFromIndex:split.location+1];
+    if(!cls.length)return nullptr;
+    void *domain=api.domainGet(); if(!domain)return nullptr;
+    size_t count=0; const void **assemblies=api.domainGetAssemblies(domain,&count);
+    if(!assemblies||!count)return nullptr;
+    for(size_t i=0;i<count;i++){
+        const void *image=api.assemblyGetImage(assemblies[i]);
+        if(!image)continue;
+        void *klass=api.classFromName(image,ns.UTF8String ?: "",cls.UTF8String ?: "");
+        if(klass)return klass;
+    }
+    return nullptr;
 }
 
 static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *type, NSUInteger depth) {
@@ -134,6 +167,7 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
 
             if(elementKind==ZNIL2CPPABIValueKindUnknown){
                 void *klass=api.classFromType ? api.classFromType(type) : nullptr;
+                if(!klass)klass=ZNABIClassFromManagedName(api,elementName);
                 if(klass && api.classIsValueType){
                     elementValueType=api.classIsValueType(klass);
                     if(elementValueType){
