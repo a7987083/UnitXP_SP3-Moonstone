@@ -1,6 +1,7 @@
 #import "ZNRuntimeActionModel.h"
 #import "ZNRuntimeActionFormat.h"
 #import "ZNIL2CPPMethodSignature.h"
+#import "ZNIL2CPPABIMetadata.h"
 #import "ZNValueTypeModel.h"
 #import "ZNPatchCore.h"
 
@@ -24,6 +25,91 @@ static NSDictionary *ZNRMAConfig(BOOL enabled, ZNRuntimeArgumentControlType cont
     ZNValueType resolved=valueType==ZNValueTypeAuto?ZNValueTypeForManagedTypeName(managedType):valueType;
     NSDictionary *range=ZNDefaultRangeForValueType(resolved, controlType==ZNRuntimeArgumentControlTypeSlider);
     return @{@"enabled":@(enabled),@"type":ZNRuntimeArgumentControlTypeKey(enabled?controlType:ZNRuntimeArgumentControlTypeFixed),@"valueType":ZNValueTypeKey(valueType),@"default":range[@"default"]?:@1,@"min":range[@"min"]?:@0,@"max":range[@"max"]?:@(INT32_MAX),@"step":range[@"step"]?:@1};
+}
+
+static BOOL ZNRMARedirectGPRKind(ZNIL2CPPABIValueKind kind) {
+    return kind==ZNIL2CPPABIValueKindBool ||
+           kind==ZNIL2CPPABIValueKindSigned32 ||
+           kind==ZNIL2CPPABIValueKindUnsigned32 ||
+           kind==ZNIL2CPPABIValueKindSigned64 ||
+           kind==ZNIL2CPPABIValueKindUnsigned64 ||
+           kind==ZNIL2CPPABIValueKindPointer ||
+           kind==ZNIL2CPPABIValueKindObjectReference;
+}
+
+static NSString *ZNRMARedirectTypeName(NSDictionary *info) {
+    return [info[@"name"] isKindOfClass:NSString.class] ? info[@"name"] : @"?";
+}
+
+static BOOL ZNRMARedirectCompatibleType(NSDictionary *source, NSDictionary *target) {
+    BOOL sourceByRef=[source[@"byRef"] boolValue], targetByRef=[target[@"byRef"] boolValue];
+    if(sourceByRef!=targetByRef)return NO;
+    if(sourceByRef){
+        return [ZNRMARedirectTypeName(source) caseInsensitiveCompare:ZNRMARedirectTypeName(target)]==NSOrderedSame;
+    }
+    ZNIL2CPPABIValueKind sk=(ZNIL2CPPABIValueKind)[source[@"kind"] integerValue];
+    ZNIL2CPPABIValueKind tk=(ZNIL2CPPABIValueKind)[target[@"kind"] integerValue];
+    if(sk!=tk || !ZNRMARedirectGPRKind(sk))return NO;
+    if(sk==ZNIL2CPPABIValueKindPointer || sk==ZNIL2CPPABIValueKindObjectReference)
+        return [ZNRMARedirectTypeName(source) caseInsensitiveCompare:ZNRMARedirectTypeName(target)]==NSOrderedSame;
+    return YES;
+}
+
+static BOOL ZNRMAValidateMethodRedirectABI(NSDictionary *source, NSDictionary *target, NSDictionary **outMetadata, NSString **error) {
+    NSDictionary *sa=ZNIL2CPPDescribeMethodABI(source);
+    NSDictionary *ta=ZNIL2CPPDescribeMethodABI(target);
+    if(![sa[@"available"] boolValue] || ![ta[@"available"] boolValue]){
+        if(error)*error=@"Method Redirect Source/Target ABI metadata 不完整";
+        return NO;
+    }
+    if([sa[@"generic"] boolValue]||[sa[@"inflated"] boolValue]||[ta[@"generic"] boolValue]||[ta[@"inflated"] boolValue]){
+        if(error)*error=@"Method Redirect V1 不支持 generic/inflated 方法";
+        return NO;
+    }
+    if(![sa[@"instanceKnown"] boolValue] || ![ta[@"instanceKnown"] boolValue]){
+        if(error)*error=@"Method Redirect 无法确认 Source/Target static/instance";
+        return NO;
+    }
+    NSArray *sp=[sa[@"parameters"] isKindOfClass:NSArray.class]?sa[@"parameters"]:@[];
+    NSArray *tp=[ta[@"parameters"] isKindOfClass:NSArray.class]?ta[@"parameters"]:@[];
+    if(sp.count!=tp.count){
+        if(error)*error=@"Method Redirect V1 要求 Source/Target 参数数量一致";
+        return NO;
+    }
+    for(NSUInteger i=0;i<sp.count;i++){
+        if(!ZNRMARedirectCompatibleType(sp[i],tp[i])){
+            if(error)*error=[NSString stringWithFormat:@"Method Redirect 参数%lu ABI 不兼容：%@ → %@",
+                             (unsigned long)i+1,ZNRMARedirectTypeName(sp[i]),ZNRMARedirectTypeName(tp[i])];
+            return NO;
+        }
+    }
+    NSDictionary *sr=[sa[@"return"] isKindOfClass:NSDictionary.class]?sa[@"return"]:@{};
+    NSDictionary *tr=[ta[@"return"] isKindOfClass:NSDictionary.class]?ta[@"return"]:@{};
+    ZNIL2CPPABIValueKind srk=(ZNIL2CPPABIValueKind)[sr[@"kind"] integerValue];
+    ZNIL2CPPABIValueKind trk=(ZNIL2CPPABIValueKind)[tr[@"kind"] integerValue];
+    BOOL returnOK=(srk==ZNIL2CPPABIValueKindVoid && trk==ZNIL2CPPABIValueKindVoid) ||
+                  (srk==trk && ZNRMARedirectGPRKind(srk) && ZNRMARedirectCompatibleType(sr,tr));
+    if(!returnOK){
+        if(error)*error=[NSString stringWithFormat:@"Method Redirect 返回 ABI 不兼容：%@ → %@",
+                         ZNRMARedirectTypeName(sr),ZNRMARedirectTypeName(tr)];
+        return NO;
+    }
+    NSUInteger sourceNative=sp.count+([sa[@"instance"] boolValue]?1u:0u)+1u;
+    NSUInteger targetNative=tp.count+([ta[@"instance"] boolValue]?1u:0u)+1u;
+    if(sourceNative>8 || targetNative>8){
+        if(error)*error=@"Method Redirect V1 超过 ARM64 x0~x7 GPR 参数预算";
+        return NO;
+    }
+    if(outMetadata){
+        *outMetadata=@{
+            @"sourceInstance":@([sa[@"instance"] boolValue]),
+            @"targetInstance":@([ta[@"instance"] boolValue]),
+            @"sourceReturnType":ZNRMARedirectTypeName(sr),
+            @"targetReturnType":ZNRMARedirectTypeName(tr),
+            @"abiValidated":@YES
+        };
+    }
+    return YES;
 }
 
 static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger count, NSArray<NSString *> *parameterTypes) {
@@ -106,6 +192,8 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
         if(error)*error=@"Method Redirect Source/Target 必须来自已解析 RVA 的 Method Finder 候选";
         return nil;
     }
+    NSDictionary *redirectABIMetadata=nil;
+    if(!ZNRMAValidateMethodRedirectABI(source,target,&redirectABIMetadata,error))return nil;
 
     NSArray<NSString *> *sourceTypes=nil;BOOL sourceSig=NO;
     id sourceCandidateTypes=source[@"parameterTypeNames"];
@@ -146,6 +234,11 @@ static NSArray<NSDictionary<NSString *,id> *> *ZNRMADefaultConfigs(NSUInteger co
         @"methodRVA":@(targetRVA),
         @"parameterTypeNames":targetTypes?:@[],
         @"signatureAvailable":@(targetSig),
+        @"sourceInstance":redirectABIMetadata[@"sourceInstance"]?:@NO,
+        @"targetInstance":redirectABIMetadata[@"targetInstance"]?:@NO,
+        @"sourceReturnType":redirectABIMetadata[@"sourceReturnType"]?:@"?",
+        @"targetReturnType":redirectABIMetadata[@"targetReturnType"]?:@"?",
+        @"abiValidated":@YES,
     };
     action.title=ZNRMATrim(title).length?ZNRMATrim(title):[NSString stringWithFormat:@"%@ → %@",sourceMethod,targetMethod];
     action.group=@"Method Redirects";
