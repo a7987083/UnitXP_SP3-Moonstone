@@ -6,6 +6,7 @@
 #import "ZNRuntimeOnlyBinaryBuilder.h"
 #import "ZNGeneratedBinaryPostprocess.h"
 #import "ZNPatchCore.h"
+#import "ZNDeveloperGate.h"
 
 static NSArray<NSNumber *> *ZNM684StaticRowIndexes(ZNBuildManifest *manifest) {
     NSMutableArray<NSNumber *> *indexes=[NSMutableArray array];
@@ -23,6 +24,11 @@ BOOL ZNBuildExecutorBuildWorkspace(ZNBinaryPatchWorkspace *workspace,
                                    NSString **error) {
     if(!workspace) {
         if(error)*error=@"Build workspace 不存在";
+        return NO;
+    }
+    // Enforcement belongs at the build executor, not only the visible UI button.
+    if(!ZonoePatchDeveloperAuthorized()) {
+        if(error)*error=@"生成二进制需要文件 1 中的 g 开发权限";
         return NO;
     }
     if(workspace.hasAnyApplied) {
