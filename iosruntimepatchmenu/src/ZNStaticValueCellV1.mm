@@ -26,6 +26,54 @@ static BOOL ZNVCDecodeBTarget(uint64_t branchRVA,uint32_t insn,uint64_t *targetR
     int64_t imm=(int64_t)(insn&0x03FFFFFFu);if(imm&0x02000000LL)imm|=~0x03FFFFFFLL;
     if(targetRVA)*targetRVA=(uint64_t)((int64_t)branchRVA+(imm<<2));return YES;
 }
+
+static int64_t ZNVCSignExtend(uint64_t value,unsigned bits){
+    uint64_t sign=UINT64_C(1)<<(bits-1u);
+    return (int64_t)((value^sign)-sign);
+}
+
+// Builder V3 has two legal site forms:
+//   near: B thunk
+//   far : STP X16,X17,[SP,#-16]!; ADRP X17,target@PAGE;
+//         ADD X17,X17,target@PAGEOFF; BR X17
+// The far veneer performs the thunk's STP at the site and branches to thunk+4,
+// therefore the canonical thunk base is decodedTarget-4.
+static BOOL ZNVCDecodeBuilderThunkTarget(const uint8_t *site,
+                                         uint64_t siteRVA,
+                                         uint64_t *thunkRVA,
+                                         BOOL *usedFarVeneer) {
+    if(usedFarVeneer)*usedFarVeneer=NO;
+    if(!site)return NO;
+
+    uint32_t i0=ZNVCRead32(site);
+    uint64_t direct=0;
+    if(ZNVCDecodeBTarget(siteRVA,i0,&direct)){
+        if(thunkRVA)*thunkRVA=direct;
+        return YES;
+    }
+
+    uint32_t i1=ZNVCRead32(site+4u);
+    uint32_t i2=ZNVCRead32(site+8u);
+    uint32_t i3=ZNVCRead32(site+12u);
+    if(i0!=0xA9BF47F0u ||                         // STP X16,X17,[SP,#-16]!
+       (i1&0x9F00001Fu)!=0x90000011u ||           // ADRP X17, ...
+       (i2&0xFFC003FFu)!=(0x91000000u|(17u<<5)|17u) || // ADD X17,X17,#imm12
+       i3!=0xD61F0220u) {                         // BR X17
+        return NO;
+    }
+
+    uint64_t imm21=((uint64_t)((i1>>5)&0x7FFFFu)<<2)|((i1>>29)&3u);
+    int64_t pages=ZNVCSignExtend(imm21,21);
+    uint64_t page=(siteRVA+4u)&~UINT64_C(0xFFF);
+    int64_t targetPage=(int64_t)page+(pages<<12);
+    uint64_t pageoff=(uint64_t)((i2>>10)&0xFFFu);
+    int64_t target=targetPage+(int64_t)pageoff;
+    if(target<4)return NO;
+
+    if(thunkRVA)*thunkRVA=(uint64_t)target-4u;
+    if(usedFarVeneer)*usedFarVeneer=YES;
+    return YES;
+}
 static uint32_t ZNVCExpandF32(uint8_t imm){uint32_t sign=(imm>>7)&1u,b=(imm>>6)&1u,low=(imm>>4)&3u,frac=imm&15u;uint32_t exp=((b?0u:1u)<<7)|(b?0x7Cu:0u)|low;return(sign<<31)|(exp<<23)|(frac<<19);}
 static uint64_t ZNVCExpandF64(uint8_t imm){uint64_t sign=(imm>>7)&1u,b=(imm>>6)&1u,low=(imm>>4)&3u,frac=imm&15u;uint64_t exp=((b?0ULL:1ULL)<<10)|(b?0x3FCULL:0ULL)|low;return(sign<<63)|(exp<<52)|(frac<<48);}
 
@@ -209,8 +257,17 @@ BOOL ZNStaticValueCellAugmentAtPath(NSString *path,NSUInteger *convertedEntries,
                     local=[NSString stringWithFormat:@"Patch #%u site RVA 无法映射",entry->patchID];
                     break;
                 }
-                if(!ZNVCDecodeBTarget(entry->siteRVA,ZNVCRead32(base+siteOff),&thunkRVA)){
-                    local=[NSString stringWithFormat:@"Patch #%u site 不是 Builder V3 B thunk",entry->patchID];
+                BOOL farVeneer=NO;
+                BOOL decoded=ZNVCDecodeBTarget(entry->siteRVA,ZNVCRead32(base+siteOff),&thunkRVA);
+                if(!decoded){
+                    uint64_t farSiteOff=0;
+                    if(mapExecRVA(entry->siteRVA,16u,&farSiteOff)){
+                        decoded=ZNVCDecodeBuilderThunkTarget(base+farSiteOff,entry->siteRVA,&thunkRVA,&farVeneer);
+                        siteOff=farSiteOff;
+                    }
+                }
+                if(!decoded){
+                    local=[NSString stringWithFormat:@"Patch #%u site 既不是 Builder V3 direct B，也不是 16-byte far veneer",entry->patchID];
                     break;
                 }
                 uint64_t thunkVA=imageVMBase+thunkRVA;
@@ -227,6 +284,12 @@ BOOL ZNStaticValueCellAugmentAtPath(NSString *path,NSUInteger *convertedEntries,
                     local=[NSString stringWithFormat:@"Patch #%u thunk prologue 不匹配",entry->patchID];
                     break;
                 }
+                [[ZNRuntimeLogger sharedLogger] log:[NSString stringWithFormat:
+                    @"[value-cell] Patch #%u site=0x%llX thunk=0x%llX route=%@",
+                    entry->patchID,
+                    (unsigned long long)entry->siteRVA,
+                    (unsigned long long)thunkRVA,
+                    farVeneer?@"far-veneer":@"direct-b"]];
 
                 uint32_t cbz=0,offADRP=0,beq=0,cellADRP=0,valueLoad=0,offBranch=0;
                 uint64_t offPathRVA=thunkRVA+44u;
