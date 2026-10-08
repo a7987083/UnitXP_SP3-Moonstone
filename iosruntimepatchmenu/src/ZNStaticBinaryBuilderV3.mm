@@ -306,11 +306,16 @@ static BOOL ZNV3Relocate(uint32_t instruction,
                          uint64_t destinationRVA,
                          uint64_t windowStart,
                          uint64_t windowEnd,
+                         uint64_t farVeneerRVA,
                          std::vector<uint32_t> &outInstructions,
                          BOOL *terminal,
+                         BOOL *usedFarVeneer,
+                         uint64_t *farTargetRVA,
                          NSString **error) {
     outInstructions.clear();
     *terminal = NO;
+    if(usedFarVeneer)*usedFarVeneer=NO;
+    if(farTargetRVA)*farTargetRVA=0;
 
     // B / BL keep the original single-instruction form when the destination is
     // still reachable by imm26. These are terminal only for B, never for BL.
@@ -380,9 +385,14 @@ static BOOL ZNV3Relocate(uint32_t instruction,
             return NO;
         }
         uint32_t longBranch = 0;
-        if (!ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch)) {
-            if (error) *error = @"B.cond widened long branch 超出 ±128MB";
-            return NO;
+        BOOL far = !ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch);
+        if(far){
+            if(!farVeneerRVA || !ZNV3EncodeB(destinationRVA + 4u, farVeneerRVA, NO, &longBranch)){
+                if (error) *error = @"B.cond widened veneer branch 编码失败";
+                return NO;
+            }
+            if(usedFarVeneer)*usedFarVeneer=YES;
+            if(farTargetRVA)*farTargetRVA=target;
         }
         uint32_t inverted = instruction & ~0x00FFFFE0u;
         inverted = (inverted & ~0xFu) | ((cond ^ 1u) & 0xFu);
@@ -411,9 +421,14 @@ static BOOL ZNV3Relocate(uint32_t instruction,
         }
 
         uint32_t longBranch = 0;
-        if (!ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch)) {
-            if (error) *error = @"CBZ/CBNZ widened long branch 超出 ±128MB";
-            return NO;
+        BOOL far = !ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch);
+        if(far){
+            if(!farVeneerRVA || !ZNV3EncodeB(destinationRVA + 4u, farVeneerRVA, NO, &longBranch)){
+                if (error) *error = @"CBZ/CBNZ widened veneer branch 编码失败";
+                return NO;
+            }
+            if(usedFarVeneer)*usedFarVeneer=YES;
+            if(farTargetRVA)*farTargetRVA=target;
         }
         uint32_t inverted = (instruction ^ (1u << 24)) & ~0x00FFFFE0u;
         inverted |= (2u << 5); // +8 -> fragment chain trailing branch
@@ -460,9 +475,14 @@ static BOOL ZNV3Relocate(uint32_t instruction,
         }
 
         uint32_t longBranch = 0;
-        if (!ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch)) {
-            if (error) *error = @"TBZ/TBNZ widened long branch 超出 ±128MB";
-            return NO;
+        BOOL far = !ZNV3EncodeB(destinationRVA + 4u, target, NO, &longBranch);
+        if(far){
+            if(!farVeneerRVA || !ZNV3EncodeB(destinationRVA + 4u, farVeneerRVA, NO, &longBranch)){
+                if (error) *error = @"TBZ/TBNZ widened veneer branch 编码失败";
+                return NO;
+            }
+            if(usedFarVeneer)*usedFarVeneer=YES;
+            if(farTargetRVA)*farTargetRVA=target;
         }
         uint32_t inverted = (instruction ^ (1u << 24)) & ~0x0007FFE0u;
         inverted |= (2u << 5); // +8 -> fragment chain trailing branch
@@ -575,6 +595,10 @@ static BOOL ZNV3WriteVariantV2(uint8_t *base,
     const uint8_t *sourceBytes = (const uint8_t *)source.bytes;
     BOOL terminalSeen = NO;
     uint32_t emitted = 0;
+    uint32_t farVeneerCount = 0;
+    const uint64_t farVeneerBaseFileOffset = fileOffset + required;
+    const uint64_t farVeneerBaseRVA = variantRVA + required;
+    const uint32_t farVeneerCapacity = (uint32_t)(ZN60_PAYLOAD_VARIANT_PAD / 16u);
     if (entryRVAOut) *entryRVAOut = variantRVA + (uint64_t)slots[0] * ZN60_PAYLOAD_SLOT_SIZE;
 
     for (uint32_t logicalIndex = 0; logicalIndex < (uint32_t)slotCount64; ++logicalIndex) {
@@ -592,15 +616,42 @@ static BOOL ZNV3WriteVariantV2(uint8_t *base,
 
         std::vector<uint32_t> relocated;
         BOOL terminal = NO;
+        BOOL usedFarVeneer = NO;
+        uint64_t farTargetRVA = 0;
+        uint64_t candidateVeneerRVA = farVeneerCount < farVeneerCapacity
+            ? farVeneerBaseRVA + (uint64_t)farVeneerCount * 16u
+            : 0;
         uint64_t originalInstructionRVA = sourceRVA + (uint64_t)logicalIndex * 4u;
         if (!ZNV3Relocate(ZNV3Read32(sourceBytes + (size_t)logicalIndex * 4u),
                           originalInstructionRVA,
                           instructionRVA,
                           windowStart,
                           windowEnd,
+                          candidateVeneerRVA,
                           relocated,
                           &terminal,
+                          &usedFarVeneer,
+                          &farTargetRVA,
                           error)) return NO;
+
+        if(usedFarVeneer){
+            if(farVeneerCount>=farVeneerCapacity){
+                if(error)*error=@"Protection V2 far branch veneer pool 已满";
+                return NO;
+            }
+            uint64_t veneerFileOffset=farVeneerBaseFileOffset+(uint64_t)farVeneerCount*16u;
+            uint64_t veneerRVA=farVeneerBaseRVA+(uint64_t)farVeneerCount*16u;
+            uint32_t adrp=0;
+            if(!farTargetRVA || !ZNV3EncodeADRPX17(veneerRVA,farTargetRVA,&adrp)){
+                if(error)*error=@"Protection V2 far branch veneer 超出 ADRP ±4GB";
+                return NO;
+            }
+            ZNV3Write32(base+veneerFileOffset+0u,adrp);
+            ZNV3Write32(base+veneerFileOffset+4u,ZNV3AddX17PageOffset(farTargetRVA));
+            ZNV3Write32(base+veneerFileOffset+8u,0xD61F0220u); // BR X17
+            ZNV3Write32(base+veneerFileOffset+12u,NOP);
+            farVeneerCount++;
+        }
 
         uint64_t slotEndFileOffset = fileOffset + slotOffset + ZN60_PAYLOAD_SLOT_SIZE;
         uint64_t requiredBytes = (uint64_t)relocated.size() * 4u + (terminal ? 0u : 4u);
