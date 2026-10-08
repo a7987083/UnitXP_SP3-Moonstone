@@ -13722,9 +13722,6 @@ static void ZNM613ApplyModeVisual(ZNRuntimeMenuControllerV040 *self,UIView *card
     UIButton *hook=ZNM52XButtonWithTitles(card,@[@"Native Hook"]);
     NSDictionary *analysis=objc_getAssociatedObject(card,kZNM613AnalysisKey);
     if(![analysis isKindOfClass:NSDictionary.class])analysis=ZNM613AnalyzeCandidate(candidate);
-    BOOL runtimeOK=[analysis[@"runtimeOK"] boolValue];
-    BOOL directOK=[analysis[@"directOK"] boolValue];
-    BOOL hookOK=[analysis[@"hookOK"] boolValue];
 
     ZNM613StyleModeButton(direct,[mode isEqualToString:@"direct"],self.theme);
     ZNM613StyleModeButton(hook,[mode isEqualToString:@"hook"],self.theme);
