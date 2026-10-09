@@ -1032,7 +1032,9 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
         ZNNativeHookAction *a=[ZNNativeHookAction new];
         a.actionID=entry->actionID;a.title=title.length?title:method;a.group=group.length?group:@"Native Hooks";
-        a.featureDescription=desc;a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=method;
+        a.featureDescription=desc;
+        a.controlTypeKey=[cfg[@"controlType"] isKindOfClass:NSString.class]?cfg[@"controlType"]:@"";
+        a.assembly=assembly;a.namespaceName=ns;a.className=cls;a.methodName=method;
         a.argumentCount=entry->argumentCount;a.parameterTypeNames=types;a.signatureAvailable=sig;
         if(isArgScale){
             a.templateKind=ZNNativeHookTemplateArgScaleInt32;a.argumentIndex=arg;
