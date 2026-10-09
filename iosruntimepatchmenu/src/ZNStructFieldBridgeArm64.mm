@@ -1,7 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <stdint.h>
 
-extern "C" void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs);
+extern "C" void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs, const uint64_t *originalSP);
 extern "C" uintptr_t ZNStructFieldBridgeOriginal(uint32_t index);
 
 #if defined(__arm64__) || defined(__aarch64__)
@@ -20,6 +20,7 @@ extern "C" uintptr_t ZNStructFieldBridgeOriginal(uint32_t index);
         "stp q6, q7, [sp, #176]\n" \
         "mov x0, #" #SLOT "\n" \
         "mov x1, sp\n" \
+        "add x2, sp, #208\n" \
         "bl _ZNStructFieldBridgeMutate\n" \
         "mov x0, #" #SLOT "\n" \
         "bl _ZNStructFieldBridgeOriginal\n" \
