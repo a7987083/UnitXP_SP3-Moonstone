@@ -7285,6 +7285,8 @@ static UITextField *ZNRMCBuilderTextField(CGRect frame, ZNTheme *theme) {
             name.frame=CGRectMake(13,7,card.bounds.size.width-82,22);[card addSubview:name];
             UIButton *del=[self zn40_button:@"删除" selector:@selector(zn64_deleteNativeHook:) frame:CGRectMake(card.bounds.size.width-65,7,52,27)];
             del.tag=kZNNativeHookDeleteTagBase+(NSInteger)i;[card addSubview:del];
+            UIButton *edit=[self zn40_button:@"控件" selector:@selector(znm660_editHookControlTapped:) frame:CGRectMake(card.bounds.size.width-122,7,50,27)];
+            edit.tag=kZNNativeHookDeleteTagBase+(NSInteger)i;[card addSubview:edit];
             UILabel *identity=[self label:hook.canonicalIdentity size:7.8 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
             identity.frame=CGRectMake(13,35,card.bounds.size.width-26,20);identity.lineBreakMode=NSLineBreakByTruncatingMiddle;[card addSubview:identity];
             NSString *info=nil;
@@ -13385,6 +13387,8 @@ static const void *kZNM613AnalysisKey = &kZNM613AnalysisKey;
 - (void)znm613_applyOrRestoreHook:(UIButton *)sender;
 - (void)zn64_testModeTapped:(UIButton *)sender;
 - (void)zn64_hookTestTapped:(UIButton *)sender;
+- (void)znm660_chooseHookControlForAction:(ZNNativeHookAction *)action source:(UIView *)source;
+- (void)znm660_editHookControlTapped:(UIButton *)sender;
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
                               argumentIndex:(NSUInteger)argumentIndex
                                      source:(UIButton *)source;
@@ -13853,6 +13857,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
             ? [NSString stringWithFormat:@"已创建 ComplexStructTransform：%@ · %@ · Slider 1~%ld",
                created.title,codecDisplay,(long)maxValue]
             : (error?:@"创建 ComplexStructTransform 失败")];
+        if(created)[weakSelf znm660_chooseHookControlForAction:created source:weakSelf.contentView];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -14429,21 +14434,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
             created=[[ZNNativeHookStore sharedStore] addReturnBoolOverrideCandidate:candidate title:title value:YES error:&error];
         }
         [self zn60v3_setStatus:created?[NSString stringWithFormat:@"已创建 Native Hook：%@",created.canonicalIdentity]:(error?:@"创建 Native Hook 失败")];
-        if(created){
-            BOOL booleanTemplate=created.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||created.templateKind==ZNNativeHookTemplateReturnBoolOverride;
-            UIAlertController *chooser=[UIAlertController alertControllerWithTitle:@"Native Hook 控件类型" message:@"选择客户端控件。方法参数仍保留在内部，不会在客户端显示。" preferredStyle:UIAlertControllerStyleActionSheet];
-            NSArray<NSString *> *types=booleanTemplate?@[@"switch",@"button"]:@[@"slider",@"number",@"switch",@"button"];
-            for(NSString *type in types){
-                [chooser addAction:[UIAlertAction actionWithTitle:ZNRuntimeArgumentControlTypeName(ZNRuntimeArgumentControlTypeFromKey(type)) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice){
-                    [[ZNNativeHookStore sharedStore] updateControlTypeKey:type forActionID:created.actionID];
-                    [self renderPage];
-                }]];
-            }
-            [chooser addAction:[UIAlertAction actionWithTitle:@"保持默认" style:UIAlertActionStyleCancel handler:nil]];
-            UIViewController *top=ZNM52XTop(self.hostWindow);
-            if(chooser.popoverPresentationController){chooser.popoverPresentationController.sourceView=sender;chooser.popoverPresentationController.sourceRect=sender.bounds;}
-            if(top)[top presentViewController:chooser animated:YES completion:nil];
-        }
+        if(created)[self znm660_chooseHookControlForAction:created source:sender];
 
         return;
     }
@@ -14661,6 +14652,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
             ? [NSString stringWithFormat:@"已创建 StructFieldTransform：%@ · +0x%llX · Slider 1~%ld",
                created.title,(unsigned long long)offset,(long)maxValue]
             : (error?:@"创建 StructFieldTransform 失败")];
+        if(created)[weakSelf znm660_chooseHookControlForAction:created source:weakSelf.contentView];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -14668,6 +14660,40 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
     if(top)[top presentViewController:alert animated:YES completion:nil];
 }
 
+
+- (void)znm660_chooseHookControlForAction:(ZNNativeHookAction *)action source:(UIView *)source {
+    if(!action)return;
+    BOOL booleanTemplate=action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
+                         action.templateKind==ZNNativeHookTemplateReturnBoolOverride;
+    NSString *selected=action.controlTypeKey.length?action.controlTypeKey:(booleanTemplate?@"switch":@"slider");
+    UIAlertController *chooser=[UIAlertController alertControllerWithTitle:@"Native Hook 控件类型"
+        message:[NSString stringWithFormat:@"%@ · 当前：%@\n只更新控件配置，不修改 Hook 安装方式。",action.title?:@"Native Hook",selected]
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    NSArray<NSString *> *types=booleanTemplate?@[@"switch",@"button"]:@[@"slider",@"number",@"switch",@"button"];
+    __weak typeof(self) weakSelf=self;
+    for(NSString *type in types){
+        NSString *name=ZNRuntimeArgumentControlTypeName(ZNRuntimeArgumentControlTypeFromKey(type));
+        [chooser addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice){
+            BOOL saved=[[ZNNativeHookStore sharedStore] updateControlTypeKey:type forActionID:action.actionID];
+            [weakSelf zn60v3_setStatus:saved?[NSString stringWithFormat:@"Native Hook 控件已设置：%@",name]:@"Native Hook 控件类型保存失败"];
+            [weakSelf renderPage];
+        }]];
+    }
+    [chooser addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(chooser.popoverPresentationController){
+        chooser.popoverPresentationController.sourceView=source?:self.contentView;
+        chooser.popoverPresentationController.sourceRect=source?source.bounds:self.contentView.bounds;
+    }
+    if(top)[top presentViewController:chooser animated:YES completion:nil];
+}
+
+- (void)znm660_editHookControlTapped:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNNativeHookDeleteTagBase;
+    NSArray<ZNNativeHookAction *> *hooks=[[ZNNativeHookStore sharedStore] allActions];
+    if(index<0||(NSUInteger)index>=hooks.count)return;
+    [self znm660_chooseHookControlForAction:hooks[(NSUInteger)index] source:sender];
+}
 
 - (void)zn64_hookTestTapped:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
