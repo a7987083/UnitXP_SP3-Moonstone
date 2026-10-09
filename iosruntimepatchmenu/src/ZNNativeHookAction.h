@@ -130,6 +130,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL)updateTitle:(nullable NSString *)title atIndex:(NSUInteger)index;
 - (BOOL)updateDescription:(nullable NSString *)featureDescription atIndex:(NSUInteger)index;
+- (BOOL)updateControlTypeKey:(NSString *)key forActionID:(uint32_t)actionID;
 - (BOOL)removeActionAtIndex:(NSUInteger)index;
 - (void)clear;
 @end
