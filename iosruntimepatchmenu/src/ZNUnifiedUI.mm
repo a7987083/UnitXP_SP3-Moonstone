@@ -14663,29 +14663,42 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
 
 - (void)znm660_chooseHookControlForAction:(ZNNativeHookAction *)action source:(UIView *)source {
     if(!action)return;
+    NSArray<ZNNativeHookAction *> *actions=[[ZNNativeHookStore sharedStore] actionsSnapshot];
+    NSUInteger actionIndex=NSNotFound;
+    for(NSUInteger i=0;i<actions.count;i++)if(actions[i].actionID==action.actionID){actionIndex=i;break;}
+    if(actionIndex==NSNotFound){[self zn60v3_setStatus:@"Native Hook Action 未找到"];return;}
+
     BOOL booleanTemplate=action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
                          action.templateKind==ZNNativeHookTemplateReturnBoolOverride;
     NSString *selected=action.controlTypeKey.length?action.controlTypeKey:(booleanTemplate?@"switch":@"slider");
-    UIAlertController *chooser=[UIAlertController alertControllerWithTitle:@"Native Hook 控件类型"
-        message:[NSString stringWithFormat:@"%@ · 当前：%@\n只更新控件配置，不修改 Hook 安装方式。",action.title?:@"Native Hook",selected]
-        preferredStyle:UIAlertControllerStyleActionSheet];
-    NSArray<NSString *> *types=booleanTemplate?@[@"switch",@"button"]:@[@"slider",@"number",@"switch",@"button"];
+    UIAlertController *editor=[UIAlertController alertControllerWithTitle:@"Native Hook 功能配置"
+        message:@"统一设置功能名称、说明和客户端控件。Hook ABI、Codec、Field Offset 仅保存在内部配置。"
+        preferredStyle:UIAlertControllerStyleAlert];
+    [editor addTextFieldWithConfigurationHandler:^(UITextField *field){
+        field.placeholder=@"功能名称";
+        field.text=action.title.length?action.title:action.methodName;
+    }];
+    [editor addTextFieldWithConfigurationHandler:^(UITextField *field){
+        field.placeholder=@"功能说明（可留空）";
+        field.text=action.featureDescription?:@"";
+    }];
     __weak typeof(self) weakSelf=self;
-    for(NSString *type in types){
-        NSString *name=ZNRuntimeArgumentControlTypeName(ZNRuntimeArgumentControlTypeFromKey(type));
-        [chooser addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice){
-            BOOL saved=[[ZNNativeHookStore sharedStore] updateControlTypeKey:type forActionID:action.actionID];
-            [weakSelf zn60v3_setStatus:saved?[NSString stringWithFormat:@"Native Hook 控件已设置：%@",name]:@"Native Hook 控件类型保存失败"];
+    for(NSString *type in (booleanTemplate?@[@"switch",@"button"]:@[@"slider",@"number",@"switch",@"button"])){
+        NSString *display=ZNRuntimeArgumentControlTypeName(ZNRuntimeArgumentControlTypeFromKey(type));
+        NSString *label=[NSString stringWithFormat:@"%@%@",[type isEqualToString:selected]?@"✓ ":@"",display];
+        [editor addAction:[UIAlertAction actionWithTitle:label style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice){
+            NSString *title=[editor.textFields[0].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if(!title.length){[weakSelf zn60v3_setStatus:@"Native Hook 功能名称不能为空"];return;}
+            BOOL titleOK=[[ZNNativeHookStore sharedStore] updateTitle:title atIndex:actionIndex];
+            BOOL descriptionOK=titleOK&&[[ZNNativeHookStore sharedStore] updateDescription:editor.textFields[1].text?:@"" atIndex:actionIndex];
+            BOOL controlOK=descriptionOK&&[[ZNNativeHookStore sharedStore] updateControlTypeKey:type forActionID:action.actionID];
+            [weakSelf zn60v3_setStatus:controlOK?[NSString stringWithFormat:@"Native Hook 已保存：%@ · %@",title,display]:@"Native Hook 功能配置保存失败"];
             [weakSelf renderPage];
         }]];
     }
-    [chooser addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [editor addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     UIViewController *top=ZNM52XTop(self.hostWindow);
-    if(chooser.popoverPresentationController){
-        chooser.popoverPresentationController.sourceView=source?:self.contentView;
-        chooser.popoverPresentationController.sourceRect=source?source.bounds:self.contentView.bounds;
-    }
-    if(top)[top presentViewController:chooser animated:YES completion:nil];
+    if(top)[top presentViewController:editor animated:YES completion:nil];
 }
 
 - (void)znm660_editHookControlTapped:(UIButton *)sender {
