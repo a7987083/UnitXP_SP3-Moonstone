@@ -1165,26 +1165,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         NSDictionary *p=params[i];
         ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
         BOOL candidateKind=(kind==ZNIL2CPPABIValueKindComplexValueType)||[p[@"byRef"] boolValue];
-        // The current bridge assumes every preceding managed argument occupies
-        // exactly one GPR. Mixed FP/by-value aggregates need a separate ABI
-        // location map; never expose an unsafe Struct/by-ref hook candidate.
-        BOOL gprPrefixSafe=YES;
-        for(NSUInteger j=0;j<i;j++){
-            NSDictionary *preceding=params[j];
-            ZNIL2CPPABIValueKind prior=(ZNIL2CPPABIValueKind)[preceding[@"kind"] integerValue];
-            BOOL pointerLike=[preceding[@"byRef"] boolValue]||
-                prior==ZNIL2CPPABIValueKindPointer||
-                prior==ZNIL2CPPABIValueKindObjectReference;
-            BOOL integerLike=prior==ZNIL2CPPABIValueKindBool||
-                prior==ZNIL2CPPABIValueKindSigned32||
-                prior==ZNIL2CPPABIValueKindUnsigned32||
-                prior==ZNIL2CPPABIValueKindSigned64||
-                prior==ZNIL2CPPABIValueKindUnsigned64;
-            if(!pointerLike&&!integerLike){gprPrefixSafe=NO;break;}
-        }
         uint32_t reg=0;
-        if(candidateKind&&gprPrefixSafe&&
-           ZNNativeHookArgRegisterIndex(isStatic,i,argc,&reg)&&reg<8)
+        if(candidateKind&&ZNIL2CPPABIGPRLocation(abi,i,&reg))
             [indices addObject:@(i)];
     }
     if(!indices.count&&reason)*reason=@"没有可用于 StructFieldTransform V1 的 complex/by-ref 参数";
@@ -1456,9 +1438,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
     if(!resolved)return NO;
 
+    // Revalidate at installation time; do not rely only on picker preflight.
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
     uint32_t reg=0;
-    if(!ZNNativeHookArgRegisterIndex([resolved[@"static"] boolValue],argumentIndex,argc,&reg)){
-        if(error)*error=@"StructFieldTransform 参数无法映射到 ARM64 x0~x7";
+    if(!ZNIL2CPPABIGPRLocation(abi,argumentIndex,&reg) ||
+       [abi[@"instance"] boolValue]==[resolved[@"static"] boolValue]){
+        if(error)*error=@"StructFieldTransform 参数 ABI 位置不明确或方法 static 状态不匹配";
         return NO;
     }
     NSDictionary *codec=nil;
