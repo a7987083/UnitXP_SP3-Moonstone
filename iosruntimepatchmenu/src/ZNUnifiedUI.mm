@@ -18161,7 +18161,7 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
             [card addSubview:number];
         }else if([control isEqualToString:@"switch"]||booleanTemplate){
             UISwitch *toggle=[UISwitch new];
-            toggle.on=value!=0;
+            toggle.on=booleanTemplate?(value!=0):(value!=1);
             toggle.tag=kZNM650NativeHookSwitchTagBase+(NSInteger)hidx;
             toggle.transform=compact?CGAffineTransformMakeScale(.76,.76):CGAffineTransformMakeScale(.84,.84);
             toggle.center=CGPointMake(CGRectGetWidth(card.bounds)-38.0,sliderY+14.0);
@@ -18518,14 +18518,10 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     NSArray<ZNNativeHookAction *> *hooks=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.nativeHooks?:@[];
     if((NSUInteger)index>=hooks.count)return;
     ZNNativeHookAction *hook=hooks[(NSUInteger)index];
-    if(hook.templateKind!=ZNNativeHookTemplateManagedCallbackShortCircuit&&
-       hook.templateKind!=ZNNativeHookTemplateReturnBoolOverride)return;
-
-    NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
-    [NSUserDefaults.standardUserDefaults setInteger:(sender.isOn?1:0) forKey:key];
-    // Permanent hook lifecycle: OFF means enabled=0 in the runtime slot,
-    // never DobbyDestroy from the menu path.
-    [[ZNNativeHookScheduler sharedScheduler] setDesiredValue:(sender.isOn?1:0) forAction:hook];
+    BOOL booleanTemplate=hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||hook.templateKind==ZNNativeHookTemplateReturnBoolOverride;
+    NSInteger desired=sender.isOn?(booleanTemplate?1:hook.maxValue):(booleanTemplate?0:1);
+    // UI sends the desired value only; never installs/uninstalls native code.
+    [self znm660_nativeHookSetValue:desired index:index];
 }
 
 - (void)znm660_nativeHookSetValue:(NSInteger)value index:(NSInteger)index {
