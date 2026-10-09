@@ -2,6 +2,7 @@
 
 #import "ZNNativeHookAction.h"
 #import "ZNIL2CPPResolver.h"
+#import "ZNIL2CPPABIMetadata.h"
 
 #import <dlfcn.h>
 #import <mach-o/loader.h>
@@ -109,6 +110,29 @@ static NSDictionary<NSString *,id> *ZNM69ResolvePreparedDescriptor(
     uint32_t flags=methodGetFlags((const void *)methodInfo,&implFlags);
     BOOL isStatic=(flags&kZNM69MethodAttributeStatic)!=0;
 
+    NSString *fieldStorage=@"";
+    NSUInteger fieldSlot=NSNotFound;
+    if(action.templateKind==ZNNativeHookTemplateStructFieldTransform ||
+       action.templateKind==ZNNativeHookTemplateComplexStructTransform){
+        NSDictionary *abi=ZNIL2CPPDescribeMethodABI(resolved);
+        if(![abi[@"available"] boolValue] || ![abi[@"instanceKnown"] boolValue] ||
+           [abi[@"instance"] boolValue]==isStatic ||
+           [abi[@"parameters"] count]!=action.argumentCount){
+            if(error)*error=@"Prepared StructField ABI 签名不完整或 static 状态不一致";
+            return nil;
+        }
+        NSDictionary *loc=ZNIL2CPPABIArgumentLocation(abi,action.fieldArgumentIndex);
+        NSString *storage=loc[@"storage"];
+        NSUInteger index=[loc[@"index"] unsignedIntegerValue];
+        if(!(([storage isEqualToString:@"gpr"]&&index<8) ||
+             ([storage isEqualToString:@"stack"]&&index<16))){
+            if(error)*error=@"Prepared StructField 参数无法安全映射到 GPR 或栈参数槽";
+            return nil;
+        }
+        fieldStorage=storage;
+        fieldSlot=index;
+    }
+
     uint64_t codecGetterRVA=0,codecSetterRVA=0;
     // Legacy field-offset codec still bakes two accessor RVAs.
     // ComplexStructTransform resolves its exact type codec during capability
@@ -144,6 +168,8 @@ static NSDictionary<NSString *,id> *ZNM69ResolvePreparedDescriptor(
         @"staticKnown":@YES,
         @"isStatic":@(isStatic),
         @"methodFlags":@(flags),
+        @"fieldStorage":fieldStorage,
+        @"fieldSlot":@(fieldSlot==NSNotFound?NSUIntegerMax:fieldSlot),
         @"codecGetterRVA":@(codecGetterRVA),
         @"codecSetterRVA":@(codecSetterRVA),
     };
