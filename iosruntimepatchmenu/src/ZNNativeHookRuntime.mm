@@ -16,6 +16,8 @@
 
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
+#import <mach/mach_vm.h>
+#import <mach/vm_region.h>
 
 #import <atomic>
 #import <limits.h>
@@ -764,7 +766,26 @@ static BOOL ZNNativeRuntimeAddressHasProtection(uintptr_t imageBase,
                 uintptr_t start=imageBase+(uintptr_t)(seg->vmaddr-textVM);
                 uintptr_t finish=start+(uintptr_t)seg->vmsize;
                 if(address>=start&&address<finish)
-                    return (seg->initprot&required)==required;
+                    {
+                    // initprot is the Mach-O load-time declaration, not the
+                    // effective protection after dyld has finalized data pages.
+                    if((seg->initprot&required)!=required)return NO;
+                    mach_vm_address_t region=(mach_vm_address_t)address;
+                    mach_vm_size_t regionSize=0;
+                    vm_region_basic_info_data_64_t info={};
+                    mach_msg_type_number_t infoCount=VM_REGION_BASIC_INFO_COUNT_64;
+                    mach_port_t objectName=MACH_PORT_NULL;
+                    kern_return_t kr=mach_vm_region(mach_task_self(),&region,&regionSize,
+                        VM_REGION_BASIC_INFO_64,(vm_region_info_t)&info,&infoCount,&objectName);
+                    if(objectName!=MACH_PORT_NULL)
+                        mach_port_deallocate(mach_task_self(),objectName);
+                    if(kr!=KERN_SUCCESS||region>(mach_vm_address_t)address)return NO;
+                    mach_vm_size_t offset=(mach_vm_size_t)((mach_vm_address_t)address-region);
+                    mach_vm_size_t requiredBytes=(required&VM_PROT_WRITE)?sizeof(uintptr_t):1u;
+                    if(offset>regionSize||regionSize-offset<requiredBytes)return NO;
+                    if((required&VM_PROT_WRITE) && (finish-address)<sizeof(uintptr_t))return NO;
+                    return (info.protection&required)==required;
+                }
             }
         }
         cursor+=lc->cmdsize;
