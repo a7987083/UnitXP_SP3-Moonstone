@@ -122,6 +122,10 @@ static NSDictionary<NSString *,id> *ZNM69ResolvePreparedDescriptor(
             if(error)*error=@"Prepared StructField ABI 签名不完整或 static 状态不一致";
             return nil;
         }
+        if(action.fieldArgumentIndex>=action.argumentCount){
+            if(error)*error=@"Prepared StructField 目标参数索引越界";
+            return nil;
+        }
         NSDictionary *param=abi[@"parameters"][action.fieldArgumentIndex];
         ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
         BOOL byRef=[param[@"byRef"] boolValue];
