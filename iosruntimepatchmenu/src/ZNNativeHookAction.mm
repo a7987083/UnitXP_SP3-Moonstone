@@ -340,7 +340,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.parameterTypeNames=[types copy];a.signatureAvailable=YES;a.templateKind=ZNNativeHookTemplateReturnBoolOverride;
     a.returnBoolValue=value;a.minValue=0;a.maxValue=1;a.defaultValue=0;
     a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Override",methodName];
-    a.featureDescription=[NSString stringWithFormat:@"Return Bool Override · force %@",value?@"true":@"false"];
+    a.featureDescription=@"";
     a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
 
     @synchronized(self){
@@ -397,7 +397,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.callbackArgumentIndex=argumentIndex;a.callbackValue=callbackValue;a.skipOriginal=YES;
     a.minValue=0;a.maxValue=1;a.defaultValue=0;
     a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Short Circuit",method];
-    a.featureDescription=@"Managed callback short circuit · Skip Original";
+    a.featureDescription=@"";
     a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
 
     @synchronized(self){
@@ -487,8 +487,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.codecGetterMethod=@"";a.codecSetterMethod=@"";a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=0;
     a.minValue=minValue;a.maxValue=maxValue;a.defaultValue=defaultValue;
     a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Struct Multiplier",methodName];
-    a.featureDescription=[NSString stringWithFormat:@"Complex Struct Transform · arg%lu · decode/transform/encode · %@",
-                          (unsigned long)argumentIndex+1,a.fieldCodec];
+    a.featureDescription=@"";
     a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
 
     @synchronized(self){
@@ -560,8 +559,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.codecGetterMethod=cg;a.codecSetterMethod=cs;a.codecGetterArgumentCount=0;a.codecSetterArgumentCount=1;
     a.minValue=minValue;a.maxValue=maxValue;a.defaultValue=defaultValue;
     a.title=ZNNHTrim(title).length?ZNNHTrim(title):[NSString stringWithFormat:@"%@ Field Multiplier",methodName];
-    a.featureDescription=[NSString stringWithFormat:@"Struct Field Transform · arg%lu +0x%llX · SecureLong",
-                          (unsigned long)argumentIndex,(unsigned long long)fieldOffset];
+    a.featureDescription=@"";
     a.fallbackRVA=[candidate[@"rva"] unsignedLongLongValue];
 
     @synchronized(self){
