@@ -130,8 +130,11 @@ static NSDictionary<NSString *,id> *ZNM69ResolvePreparedDescriptor(
         ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
         BOOL byRef=[param[@"byRef"] boolValue];
         BOOL pointer=[param[@"pointer"] boolValue];
-        if(!byRef && !pointer && kind!=ZNIL2CPPABIValueKindPointer){
-            if(error)*error=@"Prepared StructField 目标参数不是间接指针；禁止将值类型作为地址写入";
+        // IntPtr/UIntPtr are scalar address-sized integers. They are not
+        // evidence that a managed T object exists at the supplied address.
+        // Only an explicit T* or T& metadata type is an eligible indirect target.
+        if(kind!=ZNIL2CPPABIValueKindPointer || (!byRef && !pointer)){
+            if(error)*error=@"Prepared StructField 目标不是显式 T*/T&；IntPtr/UIntPtr 不允许作为结构体地址";
             return nil;
         }
         if(action.templateKind==ZNNativeHookTemplateComplexStructTransform){
