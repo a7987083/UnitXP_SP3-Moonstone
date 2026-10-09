@@ -20,6 +20,7 @@ on:
       - work/m6.13.8-stable-next
       - fix/m6.13.9-static-value-far-veneer-v1
       - fix/m6.13.9-native-slot-runtime-protection-v1
+      - fix/m6.13.9-hook-registry-preflight-v1
       - feature/m6.13.3-runtime-argument-marshalling-v1
   workflow_dispatch:
 
