@@ -14690,7 +14690,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
 
 - (void)znm660_editHookControlTapped:(UIButton *)sender {
     NSInteger index=sender.tag-kZNNativeHookDeleteTagBase;
-    NSArray<ZNNativeHookAction *> *hooks=[[ZNNativeHookStore sharedStore] allActions];
+    NSArray<ZNNativeHookAction *> *hooks=[[ZNNativeHookStore sharedStore] actionsSnapshot];
     if(index<0||(NSUInteger)index>=hooks.count)return;
     [self znm660_chooseHookControlForAction:hooks[(NSUInteger)index] source:sender];
 }
