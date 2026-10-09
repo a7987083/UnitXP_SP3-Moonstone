@@ -128,6 +128,10 @@ NS_ASSUME_NONNULL_BEGIN
                                atIndex:(NSUInteger)index
                                  error:(NSString * _Nullable * _Nullable)error;
 
+- (BOOL)updatePresentationForActionID:(uint32_t)actionID
+                                  title:(NSString *)title
+                            description:(nullable NSString *)description
+                            controlType:(NSString *)controlType;
 - (BOOL)updateTitle:(nullable NSString *)title atIndex:(NSUInteger)index;
 - (BOOL)updateDescription:(nullable NSString *)featureDescription atIndex:(NSUInteger)index;
 - (BOOL)updateControlTypeKey:(NSString *)key forActionID:(uint32_t)actionID;
