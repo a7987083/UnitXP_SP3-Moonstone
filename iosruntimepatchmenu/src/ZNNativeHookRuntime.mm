@@ -1074,6 +1074,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         a.preparedUUID=[cfg[@"preparedUUID"] isKindOfClass:NSString.class]?cfg[@"preparedUUID"]:@"";
         a.preparedStaticKnown=[cfg[@"preparedStaticKnown"] boolValue];
         a.preparedIsStatic=[cfg[@"preparedIsStatic"] boolValue];
+        a.preparedFieldStorage=[cfg[@"preparedFieldStorage"] isKindOfClass:NSString.class]?cfg[@"preparedFieldStorage"]:@"";
+        a.preparedFieldSlot=cfg[@"preparedFieldSlot"]?[cfg[@"preparedFieldSlot"] unsignedIntegerValue]:NSNotFound;
         a.preparedCodecGetterRVA=[cfg[@"preparedCodecGetterRVA"] unsignedLongLongValue];
         a.preparedCodecSetterRVA=[cfg[@"preparedCodecSetterRVA"] unsignedLongLongValue];
         a.staticPrepatch=[cfg[@"staticPrepatch"] boolValue]||[resolutionMode isEqual:@"static-prepatch-v1"];
@@ -2126,10 +2128,21 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     }
 
     uint32_t reg=0;
-    if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
-                                     action.fieldArgumentIndex,
-                                     action.argumentCount,&reg)){
-        if(error)*error=@"Prepared StructField 缺少可验证的参数 ABI 位置；仅允许原有 GPR x0~x7，栈参数需生成时显式保存 ABI 元数据";
+    BOOL explicitLocation=action.preparedFieldStorage.length>0;
+    if(explicitLocation){
+        NSUInteger slot=action.preparedFieldSlot;
+        if([action.preparedFieldStorage isEqualToString:@"gpr"]&&slot<8){
+            reg=(uint32_t)slot;
+        }else if([action.preparedFieldStorage isEqualToString:@"stack"]&&slot<16){
+            reg=(uint32_t)(8u+slot);
+        }else{
+            if(error)*error=@"Prepared StructField ABI 描述无效，拒绝安装";
+            return NO;
+        }
+    }else if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
+                                           action.fieldArgumentIndex,
+                                           action.argumentCount,&reg)){
+        if(error)*error=@"Prepared StructField 缺少可验证的参数 ABI 位置；栈参数需生成时显式保存 ABI 元数据";
         return NO;
     }
     if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)){
