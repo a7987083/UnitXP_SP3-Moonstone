@@ -18306,6 +18306,17 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
 
+static NSString *ZNM660PublicNativeHookDescription(NSString *raw) {
+    NSString *value=[raw isKindOfClass:NSString.class]?raw:@"";
+    // Historical auto-generated diagnostic strings are not user-facing descriptions.
+    if([value hasPrefix:@"Return Bool Override · force "] ||
+       [value isEqualToString:@"Managed callback short circuit · Skip Original"] ||
+       ([value hasPrefix:@"Complex Struct Transform · arg"] && [value containsString:@" · decode/transform/encode · "]) ||
+       ([value hasPrefix:@"Struct Field Transform · arg"] && [value containsString:@" · SecureLong"]))
+        return @"";
+    return value;
+}
+
 - (CGFloat)znm630_hardCutRenderRuntimeAtY:(CGFloat)y width:(CGFloat)width compact:(BOOL)compact {
     ZNRuntimeCapabilityCoordinator *coordinator=[ZNRuntimeCapabilityCoordinator sharedCoordinator];
     [coordinator requestRefresh];
@@ -18319,7 +18330,8 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 
     for (NSUInteger hidx=0;hidx<hooks.count;hidx++) {
         ZNNativeHookAction *hook=hooks[hidx];
-        CGFloat height=compact?56.0:(hook.featureDescription.length?76.0:64.0);
+        NSString *publicDescription=ZNM660PublicNativeHookDescription(hook.featureDescription);
+        CGFloat height=compact?56.0:(publicDescription.length?76.0:64.0);
         UIView *card=[self cardAtY:y height:height width:width compact:compact];
 
         UILabel *name=[self label:(hook.title.length?hook.title:hook.methodName)
@@ -18330,9 +18342,9 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
         name.lineBreakMode=NSLineBreakByTruncatingTail;
         [card addSubview:name];
 
-        CGFloat sliderY=compact?27.0:(hook.featureDescription.length?43.0:31.0);
-        if(!compact&&hook.featureDescription.length){
-            UILabel *detail=[self label:hook.featureDescription size:8.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
+        CGFloat sliderY=compact?27.0:(publicDescription.length?43.0:31.0);
+        if(!compact&&publicDescription.length){
+            UILabel *detail=[self label:publicDescription size:8.4 weight:UIFontWeightRegular color:self.theme.secondaryTextColor];
             detail.frame=CGRectMake(13.0,26.0,CGRectGetWidth(card.bounds)-26.0,16.0);
             detail.lineBreakMode=NSLineBreakByTruncatingTail;
             [card addSubview:detail];
