@@ -1466,8 +1466,30 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     NSDictionary *resolved=ZNNativeResolveDescriptor(assembly,ns,cls,method,argc,candidate,error);
     if(!resolved)return NO;
 
-    // Revalidate at installation time; do not rely only on picker preflight.
-    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    // Revalidate using the freshly resolved MethodInfo, not the UI candidate
+    // (which may be stale after UnityFramework reload / resolution changes).
+    NSDictionary *abi=ZNIL2CPPDescribeMethodABI(resolved);
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(argumentIndex>=params.count || params.count!=argc){
+        if(error)*error=@"StructFieldTransform 目标参数签名不完整或索引越界";
+        return NO;
+    }
+    NSDictionary *param=params[argumentIndex];
+    ZNIL2CPPABIValueKind targetKind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+    BOOL indirect=[param[@"byRef"] boolValue] || [param[@"pointer"] boolValue];
+    if(!indirect || targetKind!=ZNIL2CPPABIValueKindPointer){
+        if(error)*error=@"StructFieldTransform 目标不是已识别的间接参数";
+        return NO;
+    }
+    if(whole){
+        NSString *actual=ZNComplexStructNormalizedManagedType(param[@"name"]);
+        NSString *expected=ZNComplexStructNormalizedManagedType(codecClass);
+        if(!expected.length || ![actual isEqualToString:expected] ||
+           ![ZNComplexStructCodecKeyForManagedType(actual) isEqualToString:fieldCodec]){
+            if(error)*error=@"StructFieldTransform 目标类型与 Codec 不匹配";
+            return NO;
+        }
+    }
     NSDictionary *loc=ZNIL2CPPABIArgumentLocation(abi,argumentIndex);
     NSString *storage=loc[@"storage"];
     NSUInteger abiIndex=[loc[@"index"] unsignedIntegerValue];
