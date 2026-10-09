@@ -1160,15 +1160,28 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         return @[];
     }
     NSMutableArray<NSNumber *> *indices=[NSMutableArray array];
+    NSString *unsupportedPointer=nil;
     for(NSUInteger i=0;i<params.count;i++){
         NSDictionary *p=params[i];
         ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
-        BOOL candidateKind=(kind==ZNIL2CPPABIValueKindComplexValueType)||[p[@"byRef"] boolValue];
+        BOOL byRef=[p[@"byRef"] boolValue];
+        BOOL pointer=(kind==ZNIL2CPPABIValueKindPointer)&&!byRef;
+        NSString *type=[p[@"name"] isKindOfClass:NSString.class]?p[@"name"]:@"";
+        NSString *codecKey=ZNComplexStructCodecKeyForManagedType(type);
+        // Bare T* is an ABI pointer, not an implicit license to mutate T.
+        // Admit pointer-backed transformations only for explicitly registered codecs.
+        BOOL candidateKind=(kind==ZNIL2CPPABIValueKindComplexValueType)||byRef||
+            (pointer&&codecKey.length>0);
+        if(pointer&&!codecKey.length)unsupportedPointer=type.length?type:@"Pointer";
         uint32_t reg=0;
         if(candidateKind&&ZNIL2CPPABIGPRLocation(abi,i,&reg))
             [indices addObject:@(i)];
     }
-    if(!indices.count&&reason)*reason=@"没有可用于 StructFieldTransform V1 的 complex/by-ref 参数";
+    if(!indices.count&&reason){
+        *reason=unsupportedPointer.length
+            ? [NSString stringWithFormat:@"已识别 Pointer 参数 %@，但未注册匹配 Codec；不能作为 StructFieldTransform 直接写入",unsupportedPointer]
+            : @"没有可用于 StructFieldTransform V1 的 ABI-safe complex/by-ref/typed-pointer 参数";
+    }
     return indices;
 }
 
