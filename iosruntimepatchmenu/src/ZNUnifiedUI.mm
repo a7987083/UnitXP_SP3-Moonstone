@@ -16054,15 +16054,12 @@ static NSString *ZNM584FixedSummary(ZNRuntimeMethodActionRecord *record, NSArray
         self.readyDot.frame = CGRectMake(CGRectGetMinX(self.readyLabel.frame) - 12.0, 22.0, 8.0, 8.0);
 
         CGFloat sidebarW = w < 430.0 ? kZNM584SidebarPhoneW : kZNM584SidebarWideW;
-        CGFloat bodyH = MAX(0.0, h - kZNM584HeaderH - kZNM584FooterH);
+        // Footer version/status is display-only. Give its space back to content.
+        CGFloat bodyH = MAX(0.0, h - kZNM584HeaderH);
         self.sidebarView.hidden = NO;
-        self.footerView.hidden = NO;
+        self.footerView.hidden = YES;
         self.sidebarView.frame = CGRectMake(0, kZNM584HeaderH, sidebarW, bodyH);
         self.contentScroll.frame = CGRectMake(sidebarW, kZNM584HeaderH, MAX(0.0, w - sidebarW), bodyH);
-        self.footerView.frame = CGRectMake(0, h - kZNM584FooterH, w, kZNM584FooterH);
-        self.footerLabel.frame = CGRectMake(10, 0, w - 20, kZNM584FooterH);
-        self.footerLabel.alpha = 0.82;
-        self.footerLabel.font = [self menuFont:8.0 weight:UIFontWeightRegular];
         [self znm584_layoutSidebar];
     }
 
