@@ -689,6 +689,31 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     return YES;
 }
 
+- (BOOL)updatePresentationForActionID:(uint32_t)actionID
+                                  title:(NSString *)title
+                            description:(NSString *)description
+                            controlType:(NSString *)controlType {
+    NSString *cleanTitle=ZNNHTrim(title);
+    NSString *cleanDescription=ZNNHTrim(description);
+    NSString *type=[controlType.lowercaseString stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if(!actionID||!cleanTitle.length||
+       ![@[@"button",@"switch",@"number",@"slider"] containsObject:type])return NO;
+    @synchronized(self){
+        for(ZNNativeHookAction *action in self.mutableActions){
+            if(action.actionID!=actionID)continue;
+            BOOL booleanTemplate=(action.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
+                                  action.templateKind==ZNNativeHookTemplateReturnBoolOverride);
+            if(booleanTemplate&&([type isEqualToString:@"number"]||[type isEqualToString:@"slider"]))return NO;
+            action.title=cleanTitle;
+            action.featureDescription=cleanDescription;
+            action.controlTypeKey=type;
+            [self persist];
+            return YES;
+        }
+    }
+    return NO;
+}
+
 - (BOOL)updateTitle:(NSString *)title atIndex:(NSUInteger)index {
     @synchronized(self){if(index>=self.mutableActions.count)return NO;ZNNativeHookAction *a=self.mutableActions[index];NSString *v=ZNNHTrim(title);a.title=v.length?v:a.methodName;[self persist];return YES;}
 }
