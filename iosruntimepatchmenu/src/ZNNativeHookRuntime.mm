@@ -1262,6 +1262,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                   multiplier:(NSInteger)multiplier
                     actionID:(uint32_t)actionID
                        error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     if(multiplier<1||multiplier>1000){if(error)*error=@"测试倍率必须在 1~1000";return NO;}
     uint32_t reg=0;
     if(!ZNNativeHookArgRegisterIndex(isStatic,argumentIndex,argumentCount,&reg)){
@@ -1329,6 +1331,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                            (unsigned long long)target,reg,(long)multiplier,actionID,
                                            (unsigned long long)(uintptr_t)original]];
     return YES;
+    }
 }
 
 
@@ -1336,6 +1339,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                      argumentIndex:(NSUInteger)argumentIndex
                                         multiplier:(NSInteger)multiplier
                                              error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     NSArray *supported=[self supportedInt32ArgumentIndicesForCandidate:candidate reason:error];
     if(![supported containsObject:@(argumentIndex)])return NO;
     if(!ZNManagedPrepareInvokeBridge(error))return NO;
@@ -1360,6 +1365,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     self.liveLifecycle=ok?@"installed":@"failed";
     self.liveError=ok?@"":((error&&*error)?*error:@"Native Hook 安装失败");
     return ok;
+    }
 }
 
 
@@ -1373,6 +1379,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                       setterMethod:(NSString *)setterMethod
                                                         multiplier:(NSInteger)multiplier
                                                              error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     (void)codecAssembly;(void)codecNamespace;(void)codecClass;(void)getterMethod;(void)setterMethod;
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
     NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
@@ -1395,6 +1403,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                       setterMethod:@""
                                                        multiplier:multiplier
                                                             error:error];
+    }
 }
 
 - (BOOL)installTemporaryStructFieldTransformForCandidate:(NSDictionary<NSString *,id> *)candidate
@@ -1409,6 +1418,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                                setterMethod:(NSString *)setterMethod
                                                 multiplier:(NSInteger)multiplier
                                                      error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     if(multiplier<1||multiplier>1000){if(error)*error=@"StructFieldTransform 倍率必须在 1~1000";return NO;}
     if(![argumentMode isEqualToString:@"indirect-pointer"]){if(error)*error=@"StructFieldTransform V1 仅支持 indirect-pointer";return NO;}
     BOOL legacy=[fieldCodec isEqualToString:@"secure-long-accessor"];
@@ -1521,11 +1532,14 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                        whole?(codec[@"codecKey"]?:fieldCodec):fieldCodec,
                                        whole?(codec[@"managedType"]?:codecClass):codecClass]];
     return YES;
+    }
 }
 
 - (BOOL)installTemporaryReturnBoolOverrideForCandidate:(NSDictionary<NSString *,id> *)candidate
                                                   value:(BOOL)value
                                                   error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     NSString *reason=nil;
     if(![self supportsReturnBoolOverrideForCandidate:candidate reason:&reason]){
         if(error)*error=reason?:@"ReturnBoolOverride ABI 不支持";
@@ -1589,12 +1603,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[return-bool-hook] installed target=0x%llX force=%@ original=0x%llX",
                                        (unsigned long long)target,value?@"true":@"false",(unsigned long long)(uintptr_t)original]];
     return YES;
+    }
 }
 
 - (BOOL)installTemporaryManagedCallbackShortCircuitForCandidate:(NSDictionary<NSString *,id> *)candidate
                                                    argumentIndex:(NSUInteger)argumentIndex
                                                    callbackValue:(BOOL)callbackValue
                                                            error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     NSArray<NSNumber *> *supported=[self supportedManagedBoolCallbackArgumentIndicesForCandidate:candidate reason:error];
     if(![supported containsObject:@(argumentIndex)])return NO;
     NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
@@ -1679,9 +1696,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                        (unsigned long long)target,reg,callbackValue?@"true":@"false",
                                        (unsigned long long)(uintptr_t)original]];
     return YES;
+    }
 }
 
 - (BOOL)removeTemporaryHookForCandidate:(NSDictionary<NSString *,id> *)candidate error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     NSString *assembly=ZNNativeString(candidate[@"assembly"]);if(!assembly.length)assembly=@"Assembly-CSharp.dll";
     NSString *ns=ZNNativeString(candidate[@"namespace"]);
     NSString *cls=ZNNativeString(candidate[@"class"]);
@@ -1738,6 +1758,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     self.liveError=@"";
     [[ZNRuntimeLogger sharedLogger]log:[NSString stringWithFormat:@"[native-hook] restored target=0x%llX",(unsigned long long)target]];
     return YES;
+    }
 }
 
 - (NSString *)diagnosticsForCandidate:(NSDictionary<NSString *,id> *)candidate {
@@ -2149,6 +2170,8 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 }
 
 - (BOOL)installAction:(ZNNativeHookAction *)action value:(NSInteger)value error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
     value=MIN(MAX(value,action.minValue),action.maxValue);
 
@@ -2170,12 +2193,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
     if(error)*error=@"Native Hook Action 模板不受支持";
     return NO;
+    }
 }
 
 // Permanent lifecycle: normal feature changes mutate local slot state only.
 // If the scheduler has not bound the action yet, installAction performs the
 // one-time M6.10 writable-slot bind. It never patches executable memory.
 - (BOOL)setValue:(NSInteger)value forAction:(ZNNativeHookAction *)action error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     if(!action){if(error)*error=@"Native Hook Action 为空";return NO;}
     value=MIN(MAX(value,action.minValue),action.maxValue);
 
@@ -2216,9 +2242,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
             if(error)*error=@"Permanent Hook registry kind 无效";
             return NO;
     }
+    }
 }
 
 - (BOOL)removeAction:(ZNNativeHookAction *)action error:(NSString **)error {
+    // Serialize runtime installers, state updates and teardown under one owner.
+    @synchronized(self) {
     if(!action||!action.actionID)return YES;
     ZNNativeHookRegistryEntry *entry=ZNNativeHookRegistryFind(action.actionID);
     if(!entry)return YES;
@@ -2283,6 +2312,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
      [NSString stringWithFormat:@"[native-hook-registry] teardown action=%u target=0x%llX original=0x%llX kind=%u",
       action.actionID,(unsigned long long)target,(unsigned long long)original,(unsigned)kind]];
     return YES;
+    }
 }
 
 @end
