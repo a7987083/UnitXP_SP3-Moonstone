@@ -20,6 +20,11 @@ typedef NS_ENUM(NSInteger, ZNIL2CPPABIValueKind) {
 FOUNDATION_EXPORT NSString *ZNIL2CPPABIValueKindName(ZNIL2CPPABIValueKind kind);
 FOUNDATION_EXPORT ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSString *typeName);
 FOUNDATION_EXPORT NSDictionary<NSString *, id> *ZNIL2CPPDescribeMethodABI(NSDictionary<NSString *, id> *candidate);
+// Conservative AAPCS64 location for scalar/by-ref parameters only.
+// storage: gpr, fpr or stack; index is the register number or 8-byte stack slot.
+// Does not claim support for aggregates, HFA, varargs or hidden sret.
+FOUNDATION_EXPORT NSDictionary<NSString *, id> * _Nullable
+ZNIL2CPPABIArgumentLocation(NSDictionary<NSString *, id> *abi, NSUInteger argumentIndex);
 // Only returns a location when all preceding arguments have known one-slot ABI classes.
 FOUNDATION_EXPORT BOOL ZNIL2CPPABIGPRLocation(NSDictionary<NSString *, id> *abi,
                                               NSUInteger argumentIndex,
