@@ -606,17 +606,17 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
             if(error)*error=@"Prepared Native Hook 缺少 RVA/UUID/static";
             return NO;
         }
+        NSString *storage=[descriptor[@"fieldStorage"] isKindOfClass:NSString.class]?descriptor[@"fieldStorage"]:@"";
+        NSUInteger slot=[descriptor[@"fieldSlot"] unsignedIntegerValue];
+        if(storage.length && !(([storage isEqualToString:@"gpr"]&&slot<8)||([storage isEqualToString:@"stack"]&&slot<16))){
+            if(error)*error=@"Prepared Hook ABI 位置描述无效";return NO;
+        }
         ZNNativeHookAction *a=self.mutableActions[index];
         a.preparedDescriptor=YES;
         a.preparedRVA=rva;
         a.preparedUUID=uuid;
         a.preparedStaticKnown=YES;
         a.preparedIsStatic=[descriptor[@"isStatic"] boolValue];
-        NSString *storage=[descriptor[@"fieldStorage"] isKindOfClass:NSString.class]?descriptor[@"fieldStorage"]:@"";
-        NSUInteger slot=[descriptor[@"fieldSlot"] unsignedIntegerValue];
-        if(storage.length && !(([storage isEqualToString:@"gpr"]&&slot<8)||([storage isEqualToString:@"stack"]&&slot<16))){
-            if(error)*error=@"Prepared Hook ABI 位置描述无效";return NO;
-        }
         a.preparedFieldStorage=storage;
         a.preparedFieldSlot=storage.length?slot:NSNotFound;
         a.preparedCodecGetterRVA=[descriptor[@"codecGetterRVA"] unsignedLongLongValue];
