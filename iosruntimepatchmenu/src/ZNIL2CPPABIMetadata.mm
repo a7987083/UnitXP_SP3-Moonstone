@@ -202,6 +202,42 @@ ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSString *typeName) {
     return ZNIL2CPPABIValueKindUnknown;
 }
 
+BOOL ZNIL2CPPABIGPRLocation(NSDictionary<NSString *, id> *abi,
+                            NSUInteger argumentIndex,
+                            uint32_t *outRegister) {
+    if(![abi[@"available"] boolValue] || ![abi[@"instanceKnown"] boolValue] ||
+       [abi[@"generic"] boolValue] || [abi[@"inflated"] boolValue]) return NO;
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(argumentIndex>=params.count)return NO;
+    NSUInteger gpr=[abi[@"instance"] boolValue]?1u:0u;
+    for(NSUInteger i=0;i<=argumentIndex;i++){
+        NSDictionary *param=params[i];
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+        BOOL byRef=[param[@"byRef"] boolValue];
+        if(!byRef&&(kind==ZNIL2CPPABIValueKindFloat32||
+                    kind==ZNIL2CPPABIValueKindFloat64)){
+            if(i==argumentIndex)return NO; // Target resides in an FP register.
+            continue; // AAPCS64: scalar FP arguments do not consume GPRs.
+        }
+        BOOL gprKind=byRef||kind==ZNIL2CPPABIValueKindPointer||
+            kind==ZNIL2CPPABIValueKindObjectReference||
+            kind==ZNIL2CPPABIValueKindBool||
+            kind==ZNIL2CPPABIValueKindSigned32||
+            kind==ZNIL2CPPABIValueKindUnsigned32||
+            kind==ZNIL2CPPABIValueKindSigned64||
+            kind==ZNIL2CPPABIValueKindUnsigned64;
+        // Aggregate by-value parameters need exact layout and register allocation.
+        if(!gprKind)return NO;
+        if(i==argumentIndex){
+            if(gpr>=8u)return NO;
+            if(outRegister)*outRegister=(uint32_t)gpr;
+            return YES;
+        }
+        ++gpr;
+    }
+    return NO;
+}
+
 NSDictionary<NSString *, id> *ZNIL2CPPDescribeMethodABI(NSDictionary<NSString *, id> *candidate) {
     uintptr_t methodInfoAddress = (uintptr_t)[candidate[@"methodInfo"] unsignedLongLongValue];
     uintptr_t methodPointer = (uintptr_t)[candidate[@"methodPointer"] unsignedLongLongValue];
