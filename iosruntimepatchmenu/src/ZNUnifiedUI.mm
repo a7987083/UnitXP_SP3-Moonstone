@@ -14426,6 +14426,22 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
             created=[[ZNNativeHookStore sharedStore] addReturnBoolOverrideCandidate:candidate title:title value:YES error:&error];
         }
         [self zn60v3_setStatus:created?[NSString stringWithFormat:@"已创建 Native Hook：%@",created.canonicalIdentity]:(error?:@"创建 Native Hook 失败")];
+        if(created){
+            BOOL booleanTemplate=created.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||created.templateKind==ZNNativeHookTemplateReturnBoolOverride;
+            UIAlertController *chooser=[UIAlertController alertControllerWithTitle:@"Native Hook 控件类型" message:@"选择客户端控件。方法参数仍保留在内部，不会在客户端显示。" preferredStyle:UIAlertControllerStyleActionSheet];
+            NSArray<NSString *> *types=booleanTemplate?@[@"switch",@"button"]:@[@"slider",@"number",@"switch",@"button"];
+            for(NSString *type in types){
+                [chooser addAction:[UIAlertAction actionWithTitle:ZNRuntimeArgumentControlTypeName(ZNRuntimeArgumentControlTypeFromKey(type)) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice){
+                    [[ZNNativeHookStore sharedStore] updateControlTypeKey:type forActionID:created.actionID];
+                    [self renderPage];
+                }]];
+            }
+            [chooser addAction:[UIAlertAction actionWithTitle:@"保持默认" style:UIAlertActionStyleCancel handler:nil]];
+            UIViewController *top=ZNM52XTop(self.hostWindow);
+            if(chooser.popoverPresentationController){chooser.popoverPresentationController.sourceView=sender;chooser.popoverPresentationController.sourceRect=sender.bounds;}
+            if(top)[top presentViewController:chooser animated:YES completion:nil];
+        }
+
         return;
     }
 
@@ -18090,6 +18106,8 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
 - (void)znm640_nativeHookSliderChanged:(UISlider *)sender;
 - (void)znm640_nativeHookSliderCommitted:(UISlider *)sender;
 - (void)znm650_nativeHookSwitchChanged:(UISwitch *)sender;
+- (void)znm660_nativeHookButtonTapped:(UIButton *)sender;
+- (void)znm660_nativeHookNumberTapped:(UIButton *)sender;
 @end
 
 @implementation ZNRuntimeMenuControllerV040 (ZNM630HardCutUI)
@@ -18131,8 +18149,17 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
         NSInteger value=stored?[stored integerValue]:hook.defaultValue;
         value=MIN(MAX(value,hook.minValue),hook.maxValue);
 
-        if(hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||
-           hook.templateKind==ZNNativeHookTemplateReturnBoolOverride){
+        BOOL booleanTemplate=hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||hook.templateKind==ZNNativeHookTemplateReturnBoolOverride;
+        NSString *control=hook.controlTypeKey.length?hook.controlTypeKey:(booleanTemplate?@"switch":@"slider");
+        if([control isEqualToString:@"button"]){
+            UIButton *button=[self zn40_button:(value==(booleanTemplate?0:1)?@"启用":@"关闭") selector:@selector(znm660_nativeHookButtonTapped:) frame:CGRectMake(13.0,sliderY,MAX(80.0,CGRectGetWidth(card.bounds)-26.0),28.0)];
+            button.tag=kZNM650NativeHookSwitchTagBase+(NSInteger)hidx;
+            [card addSubview:button];
+        }else if([control isEqualToString:@"number"]&&!booleanTemplate){
+            UIButton *number=[self zn40_button:[NSString stringWithFormat:@"数值：%ld",(long)value] selector:@selector(znm660_nativeHookNumberTapped:) frame:CGRectMake(13.0,sliderY,MAX(80.0,CGRectGetWidth(card.bounds)-26.0),28.0)];
+            number.tag=kZNM650NativeHookSwitchTagBase+(NSInteger)hidx;
+            [card addSubview:number];
+        }else if([control isEqualToString:@"switch"]||booleanTemplate){
             UISwitch *toggle=[UISwitch new];
             toggle.on=value!=0;
             toggle.tag=kZNM650NativeHookSwitchTagBase+(NSInteger)hidx;
@@ -18499,6 +18526,50 @@ static NSString *ZNM630RuntimeShortType(NSString *type) {
     // Permanent hook lifecycle: OFF means enabled=0 in the runtime slot,
     // never DobbyDestroy from the menu path.
     [[ZNNativeHookScheduler sharedScheduler] setDesiredValue:(sender.isOn?1:0) forAction:hook];
+}
+
+- (void)znm660_nativeHookSetValue:(NSInteger)value index:(NSInteger)index {
+    if(index<0)return;
+    NSArray<ZNNativeHookAction *> *hooks=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.nativeHooks?:@[];
+    if((NSUInteger)index>=hooks.count)return;
+    ZNNativeHookAction *hook=hooks[(NSUInteger)index];
+    value=MIN(MAX(value,hook.minValue),hook.maxValue);
+    NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
+    [NSUserDefaults.standardUserDefaults setInteger:value forKey:key];
+    [[ZNNativeHookScheduler sharedScheduler] setDesiredValue:value forAction:hook];
+    [self renderPage];
+}
+- (void)znm660_nativeHookButtonTapped:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNM650NativeHookSwitchTagBase;
+    NSArray<ZNNativeHookAction *> *hooks=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.nativeHooks?:@[];
+    if(index<0||(NSUInteger)index>=hooks.count)return;
+    ZNNativeHookAction *hook=hooks[(NSUInteger)index];
+    BOOL booleanTemplate=hook.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||hook.templateKind==ZNNativeHookTemplateReturnBoolOverride;
+    NSString *key=[NSString stringWithFormat:@"%@.%u",kZNM640NativeHookValuePrefix,hook.actionID];
+    NSInteger current=[NSUserDefaults.standardUserDefaults objectForKey:key]?[NSUserDefaults.standardUserDefaults integerForKey:key]:hook.defaultValue;
+    NSInteger off=booleanTemplate?0:1;
+    [self znm660_nativeHookSetValue:(current==off?(booleanTemplate?1:hook.maxValue):off) index:index];
+}
+- (void)znm660_nativeHookNumberTapped:(UIButton *)sender {
+    NSInteger index=sender.tag-kZNM650NativeHookSwitchTagBase;
+    NSArray<ZNNativeHookAction *> *hooks=[ZNRuntimeCapabilityCoordinator sharedCoordinator].currentSnapshot.nativeHooks?:@[];
+    if(index<0||(NSUInteger)index>=hooks.count)return;
+    ZNNativeHookAction *hook=hooks[(NSUInteger)index];
+    UIAlertController *dialog=[UIAlertController alertControllerWithTitle:hook.title message:[NSString stringWithFormat:@"范围：%ld ～ %ld",(long)hook.minValue,(long)hook.maxValue] preferredStyle:UIAlertControllerStyleAlert];
+    [dialog addTextFieldWithConfigurationHandler:^(UITextField *field){field.keyboardType=UIKeyboardTypeNumbersAndPunctuation;field.placeholder=@"输入数值";}];
+    [dialog addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [dialog addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+        NSString *valueText=dialog.textFields.firstObject.text?:@"";
+        NSScanner *scanner=[NSScanner scannerWithString:valueText];
+        NSInteger value=0;
+        if(![scanner scanInteger:&value]||!scanner.isAtEnd||value<hook.minValue||value>hook.maxValue){
+            [self zn60v3_setStatus:@"Native Hook 数值超出范围或格式无效"];
+            return;
+        }
+        [self znm660_nativeHookSetValue:value index:index];
+    }]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(top)[top presentViewController:dialog animated:YES completion:nil];
 }
 
 - (void)znm630_hardCutSwitchChanged:(UISwitch *)sender {
