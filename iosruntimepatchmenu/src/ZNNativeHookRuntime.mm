@@ -56,6 +56,28 @@ static ZNNativeHookRegistryEntry *ZNNativeHookRegistryFind(uint32_t actionID) {
     return NULL;
 }
 
+// Read-only preflight: rejects conflicting owners and a full registry before
+// the Prepared path changes any executable hook slot. The eventual reservation
+// and commit protocol must additionally serialize competing installers.
+static BOOL ZNNativeHookRegistryPreflight(uint32_t actionID, uintptr_t target) {
+    if(!actionID||!target)return NO;
+    BOOL hasFree=NO, hasSelf=NO;
+    for(NSUInteger i=0;i<kZNNativeHookRegistryCapacity;i++){
+        ZNNativeHookRegistryEntry *entry=&gZNNativeHookRegistry[i];
+        uint32_t owner=entry->actionID.load(std::memory_order_acquire);
+        uintptr_t occupied=entry->target.load(std::memory_order_acquire);
+        if(owner==actionID){
+            if(occupied&&occupied!=target)return NO;
+            hasSelf=YES;
+        }else if(owner && occupied==target){
+            return NO;
+        }else if(!owner){
+            hasFree=YES;
+        }
+    }
+    return hasSelf||hasFree;
+}
+
 static BOOL ZNNativeHookRegistryBind(uint32_t actionID,
                                      ZNNativeHookSlotKind kind,
                                      uintptr_t target,
@@ -1808,6 +1830,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                           target:(uintptr_t)target
                                            value:(NSInteger)value
                                            error:(NSString **)error {
+    if(!ZNNativeHookRegistryPreflight(action.actionID,target)){
+        if(error)*error=@"Native Hook target ownership conflict or registry capacity exhausted";
+        return NO;
+    }
     if(value<1||value>1000){if(error)*error=@"ArgScaleInt32 倍率必须在 1~1000";return NO;}
     uint32_t reg=0;
     if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
@@ -1870,6 +1896,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                             target:(uintptr_t)target
                                              value:(NSInteger)value
                                              error:(NSString **)error {
+    if(!ZNNativeHookRegistryPreflight(action.actionID,target)){
+        if(error)*error=@"Native Hook target ownership conflict or registry capacity exhausted";
+        return NO;
+    }
     if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNStructFieldSlotForTarget(target)){
         if(error)*error=@"同一 target 已安装其他 Native Hook";
         return NO;
@@ -1920,6 +1950,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                            target:(uintptr_t)target
                                             value:(NSInteger)value
                                             error:(NSString **)error {
+    if(!ZNNativeHookRegistryPreflight(action.actionID,target)){
+        if(error)*error=@"Native Hook target ownership conflict or registry capacity exhausted";
+        return NO;
+    }
     uint32_t reg=0;
     if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
                                      action.callbackArgumentIndex,
@@ -1987,6 +2021,10 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
                                       target:(uintptr_t)target
                                        value:(NSInteger)value
                                        error:(NSString **)error {
+    if(!ZNNativeHookRegistryPreflight(action.actionID,target)){
+        if(error)*error=@"Native Hook target ownership conflict or registry capacity exhausted";
+        return NO;
+    }
     BOOL whole=action.templateKind==ZNNativeHookTemplateComplexStructTransform;
     uintptr_t fn0=0,fn1=0,fn2=0,fn3=0;
     uintptr_t mi0=0,mi1=0,mi2=0,mi3=0;
