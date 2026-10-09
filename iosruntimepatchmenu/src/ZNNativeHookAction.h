@@ -45,6 +45,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy) NSString *preparedUUID;
 @property(nonatomic,assign) BOOL preparedStaticKnown;
 @property(nonatomic,assign) BOOL preparedIsStatic;
+// Build-scoped ABI location, emitted only after verified signature layout.
+@property(nonatomic,copy) NSString *preparedFieldStorage;
+@property(nonatomic,assign) NSUInteger preparedFieldSlot;
 @property(nonatomic,assign) uint64_t preparedCodecGetterRVA;
 @property(nonatomic,assign) uint64_t preparedCodecSetterRVA;
 
