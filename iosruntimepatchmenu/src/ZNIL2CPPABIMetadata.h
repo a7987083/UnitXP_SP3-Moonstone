@@ -20,6 +20,10 @@ typedef NS_ENUM(NSInteger, ZNIL2CPPABIValueKind) {
 FOUNDATION_EXPORT NSString *ZNIL2CPPABIValueKindName(ZNIL2CPPABIValueKind kind);
 FOUNDATION_EXPORT ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSString *typeName);
 FOUNDATION_EXPORT NSDictionary<NSString *, id> *ZNIL2CPPDescribeMethodABI(NSDictionary<NSString *, id> *candidate);
+// Only returns a location when all preceding arguments have known one-slot ABI classes.
+FOUNDATION_EXPORT BOOL ZNIL2CPPABIGPRLocation(NSDictionary<NSString *, id> *abi,
+                                              NSUInteger argumentIndex,
+                                              uint32_t * _Nullable outRegister);
 FOUNDATION_EXPORT NSDictionary<NSString *, id> * _Nullable ZNIL2CPPBuildReturnOverridePlan(
     NSDictionary<NSString *, id> *candidate,
     NSNumber *value,
