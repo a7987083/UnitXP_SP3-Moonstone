@@ -115,6 +115,24 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     return self;
 }
 
+- (BOOL)updateControlTypeKey:(NSString *)key forActionID:(uint32_t)actionID {
+    if(!actionID)return NO;
+    NSString *requested=key.lowercaseString?:@"";
+    if(![@[@"button",@"switch",@"number",@"slider"] containsObject:requested])return NO;
+    @synchronized(self){
+        for(ZNNativeHookAction *a in self.mutableActions){
+            if(a.actionID!=actionID)continue;
+            BOOL booleanTemplate=(a.templateKind==ZNNativeHookTemplateManagedCallbackShortCircuit||a.templateKind==ZNNativeHookTemplateReturnBoolOverride);
+            // Boolean templates cannot consume numeric multipliers.
+            if(booleanTemplate && ([requested isEqualToString:@"number"]||[requested isEqualToString:@"slider"]))return NO;
+            a.controlTypeKey=requested;
+            [self persist];
+            return YES;
+        }
+    }
+    return NO;
+}
+
 - (NSDictionary *)dictionaryForAction:(ZNNativeHookAction *)a {
     return @{
         @"actionID":@(a.actionID),@"title":a.title?:@"",@"group":a.group?:@"Native Hooks",
