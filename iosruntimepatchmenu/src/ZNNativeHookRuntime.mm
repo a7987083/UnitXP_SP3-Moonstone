@@ -1165,8 +1165,27 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         NSDictionary *p=params[i];
         ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[p[@"kind"] integerValue];
         BOOL candidateKind=(kind==ZNIL2CPPABIValueKindComplexValueType)||[p[@"byRef"] boolValue];
+        // The current bridge assumes every preceding managed argument occupies
+        // exactly one GPR. Mixed FP/by-value aggregates need a separate ABI
+        // location map; never expose an unsafe Struct/by-ref hook candidate.
+        BOOL gprPrefixSafe=YES;
+        for(NSUInteger j=0;j<i;j++){
+            NSDictionary *preceding=params[j];
+            ZNIL2CPPABIValueKind prior=(ZNIL2CPPABIValueKind)[preceding[@"kind"] integerValue];
+            BOOL pointerLike=[preceding[@"byRef"] boolValue]||
+                prior==ZNIL2CPPABIValueKindPointer||
+                prior==ZNIL2CPPABIValueKindObjectReference;
+            BOOL integerLike=prior==ZNIL2CPPABIValueKindBool||
+                prior==ZNIL2CPPABIValueKindSigned32||
+                prior==ZNIL2CPPABIValueKindUnsigned32||
+                prior==ZNIL2CPPABIValueKindSigned64||
+                prior==ZNIL2CPPABIValueKindUnsigned64;
+            if(!pointerLike&&!integerLike){gprPrefixSafe=NO;break;}
+        }
         uint32_t reg=0;
-        if(candidateKind&&ZNNativeHookArgRegisterIndex(isStatic,i,argc,&reg)&&reg<8)[indices addObject:@(i)];
+        if(candidateKind&&gprPrefixSafe&&
+           ZNNativeHookArgRegisterIndex(isStatic,i,argc,&reg)&&reg<8)
+            [indices addObject:@(i)];
     }
     if(!indices.count&&reason)*reason=@"没有可用于 StructFieldTransform V1 的 complex/by-ref 参数";
     return indices;
