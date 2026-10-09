@@ -269,14 +269,19 @@ static void * const gZNStructFieldBridgeReplacements[kZNStructFieldMaxSlots]={
 };
 
 extern "C" __attribute__((visibility("hidden")))
-void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs) {
+void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs, const uint64_t *originalSP) {
     if(!savedGPRs||index>=kZNStructFieldMaxSlots)return;
     ZNStructFieldSlot *slot=&gZNStructFieldSlots[index];
     if(!slot->target.load(std::memory_order_acquire))return;
     if(!slot->enabled.load(std::memory_order_relaxed))return;
     uint32_t reg=slot->argumentRegister.load(std::memory_order_relaxed);
-    if(reg>=8){slot->failures.fetch_add(1,std::memory_order_relaxed);return;}
-    uintptr_t base=(uintptr_t)savedGPRs[reg];
+    // Encoding: 0..7 = X registers, 8..23 = caller stack slots.
+    // originalSP is captured before the trampoline's 208-byte frame.
+    if(reg>=24 || (reg>=8 && !originalSP)){
+        slot->failures.fetch_add(1,std::memory_order_relaxed);return;
+    }
+    uintptr_t base=reg<8?(uintptr_t)savedGPRs[reg]:
+        (uintptr_t)originalSP[reg-8];
     uint64_t offset=slot->fieldOffset.load(std::memory_order_relaxed);
     uintptr_t getterAddr=slot->getter.load(std::memory_order_acquire);
     uintptr_t setterAddr=slot->setter.load(std::memory_order_acquire);
@@ -1173,9 +1178,12 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         BOOL candidateKind=(kind==ZNIL2CPPABIValueKindComplexValueType)||byRef||
             (pointer&&codecKey.length>0);
         if(pointer&&!codecKey.length)unsupportedPointer=type.length?type:@"Pointer";
-        uint32_t reg=0;
-        if(candidateKind&&ZNIL2CPPABIGPRLocation(abi,i,&reg))
-            [indices addObject:@(i)];
+        NSDictionary *loc=ZNIL2CPPABIArgumentLocation(abi,i);
+        NSString *storage=loc[@"storage"];
+        NSUInteger slot=[loc[@"index"] unsignedIntegerValue];
+        BOOL addressable=([storage isEqualToString:@"gpr"]&&slot<8)||
+                         ([storage isEqualToString:@"stack"]&&slot<16);
+        if(candidateKind&&addressable)[indices addObject:@(i)];
     }
     if(!indices.count&&reason){
         *reason=unsupportedPointer.length
@@ -1452,8 +1460,15 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
 
     // Revalidate at installation time; do not rely only on picker preflight.
     NSDictionary *abi=ZNIL2CPPDescribeMethodABI(candidate);
+    NSDictionary *loc=ZNIL2CPPABIArgumentLocation(abi,argumentIndex);
+    NSString *storage=loc[@"storage"];
+    NSUInteger abiIndex=[loc[@"index"] unsignedIntegerValue];
     uint32_t reg=0;
-    if(!ZNIL2CPPABIGPRLocation(abi,argumentIndex,&reg) ||
+    BOOL mapped=[storage isEqualToString:@"gpr"] && abiIndex<8;
+    BOOL stackMapped=[storage isEqualToString:@"stack"] && abiIndex<16;
+    if(mapped)reg=(uint32_t)abiIndex;
+    else if(stackMapped)reg=(uint32_t)(8+abiIndex);
+    if((!mapped&&!stackMapped) ||
        [abi[@"instance"] boolValue]==[resolved[@"static"] boolValue]){
         if(error)*error=@"StructFieldTransform 参数 ABI 位置不明确或方法 static 状态不匹配";
         return NO;
