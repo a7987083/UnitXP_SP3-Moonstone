@@ -3,6 +3,7 @@
 #import "ZNNativeHookAction.h"
 #import "ZNIL2CPPResolver.h"
 #import "ZNIL2CPPABIMetadata.h"
+#import "ZNComplexStructCodec.h"
 
 #import <dlfcn.h>
 #import <mach-o/loader.h>
@@ -120,6 +121,24 @@ static NSDictionary<NSString *,id> *ZNM69ResolvePreparedDescriptor(
            [abi[@"parameters"] count]!=action.argumentCount){
             if(error)*error=@"Prepared StructField ABI 签名不完整或 static 状态不一致";
             return nil;
+        }
+        NSDictionary *param=abi[@"parameters"][action.fieldArgumentIndex];
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+        BOOL byRef=[param[@"byRef"] boolValue];
+        BOOL pointer=[param[@"pointer"] boolValue];
+        if(!byRef && !pointer && kind!=ZNIL2CPPABIValueKindPointer){
+            if(error)*error=@"Prepared StructField 目标参数不是间接指针；禁止将值类型作为地址写入";
+            return nil;
+        }
+        if(action.templateKind==ZNNativeHookTemplateComplexStructTransform){
+            NSString *actual=ZNComplexStructNormalizedManagedType(param[@"name"]);
+            NSString *expected=ZNComplexStructNormalizedManagedType(action.codecClassName);
+            NSString *registered=ZNComplexStructCodecKeyForManagedType(actual);
+            if(!expected.length || ![actual isEqualToString:expected] ||
+               !registered.length || ![registered isEqualToString:action.fieldCodec]){
+                if(error)*error=@"Prepared Complex Struct 的目标参数类型与 Codec 不匹配";
+                return nil;
+            }
         }
         NSDictionary *loc=ZNIL2CPPABIArgumentLocation(abi,action.fieldArgumentIndex);
         NSString *storage=loc[@"storage"];
