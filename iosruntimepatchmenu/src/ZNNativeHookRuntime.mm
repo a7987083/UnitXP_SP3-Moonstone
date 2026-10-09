@@ -1159,7 +1159,6 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
         if(reason)*reason=@"StructFieldTransform V1 暂不支持 generic/inflated 方法";
         return @[];
     }
-    BOOL isStatic=!([abi[@"instanceKnown"] boolValue]&&[abi[@"instance"] boolValue]);
     NSMutableArray<NSNumber *> *indices=[NSMutableArray array];
     for(NSUInteger i=0;i<params.count;i++){
         NSDictionary *p=params[i];
