@@ -55,6 +55,8 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     _preparedUUID=@"";
     _preparedStaticKnown=NO;
     _preparedIsStatic=NO;
+    _preparedFieldStorage=@"";
+    _preparedFieldSlot=NSNotFound;
     _preparedCodecGetterRVA=0;
     _preparedCodecSetterRVA=0;
     _staticPrepatch=NO;
@@ -85,6 +87,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     c.codecGetterArgumentCount=self.codecGetterArgumentCount;c.codecSetterArgumentCount=self.codecSetterArgumentCount;
     c.preparedDescriptor=self.preparedDescriptor;c.preparedRVA=self.preparedRVA;c.preparedUUID=self.preparedUUID;
     c.preparedStaticKnown=self.preparedStaticKnown;c.preparedIsStatic=self.preparedIsStatic;
+    c.preparedFieldStorage=self.preparedFieldStorage;c.preparedFieldSlot=self.preparedFieldSlot;
     c.preparedCodecGetterRVA=self.preparedCodecGetterRVA;c.preparedCodecSetterRVA=self.preparedCodecSetterRVA;
     c.staticPrepatch=self.staticPrepatch;c.staticHookSlotRVA=self.staticHookSlotRVA;
     c.staticTrampolineRVA=self.staticTrampolineRVA;c.staticCodeCaveRVA=self.staticCodeCaveRVA;
@@ -158,6 +161,8 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         @"preparedUUID":a.preparedUUID?:@"",
         @"preparedStaticKnown":@(a.preparedStaticKnown),
         @"preparedIsStatic":@(a.preparedIsStatic),
+        @"preparedFieldStorage":a.preparedFieldStorage?:@"",
+        @"preparedFieldSlot":@(a.preparedFieldSlot==NSNotFound?NSUIntegerMax:a.preparedFieldSlot),
         @"preparedCodecGetterRVA":@(a.preparedCodecGetterRVA),
         @"preparedCodecSetterRVA":@(a.preparedCodecSetterRVA),
         @"staticPrepatch":@(a.staticPrepatch),
@@ -209,6 +214,8 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.preparedUUID=[d[@"preparedUUID"] isKindOfClass:NSString.class]?d[@"preparedUUID"]:@"";
     a.preparedStaticKnown=[d[@"preparedStaticKnown"] boolValue];
     a.preparedIsStatic=[d[@"preparedIsStatic"] boolValue];
+    a.preparedFieldStorage=[d[@"preparedFieldStorage"] isKindOfClass:NSString.class]?d[@"preparedFieldStorage"]:@"";
+    a.preparedFieldSlot=d[@"preparedFieldSlot"]?[d[@"preparedFieldSlot"] unsignedIntegerValue]:NSNotFound;
     a.preparedCodecGetterRVA=[d[@"preparedCodecGetterRVA"] unsignedLongLongValue];
     a.preparedCodecSetterRVA=[d[@"preparedCodecSetterRVA"] unsignedLongLongValue];
     a.staticPrepatch=[d[@"staticPrepatch"] boolValue];
@@ -605,6 +612,13 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         a.preparedUUID=uuid;
         a.preparedStaticKnown=YES;
         a.preparedIsStatic=[descriptor[@"isStatic"] boolValue];
+        NSString *storage=[descriptor[@"fieldStorage"] isKindOfClass:NSString.class]?descriptor[@"fieldStorage"]:@"";
+        NSUInteger slot=[descriptor[@"fieldSlot"] unsignedIntegerValue];
+        if(storage.length && !(([storage isEqualToString:@"gpr"]&&slot<8)||([storage isEqualToString:@"stack"]&&slot<16))){
+            if(error)*error=@"Prepared Hook ABI 位置描述无效";return NO;
+        }
+        a.preparedFieldStorage=storage;
+        a.preparedFieldSlot=storage.length?slot:NSNotFound;
         a.preparedCodecGetterRVA=[descriptor[@"codecGetterRVA"] unsignedLongLongValue];
         a.preparedCodecSetterRVA=[descriptor[@"codecSetterRVA"] unsignedLongLongValue];
 
@@ -627,7 +641,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
             NSMutableDictionary *d=[[self dictionaryForAction:a] mutableCopy];
             // These values describe one already-generated Mach-O and must never
             // be trusted after importing an authoring project into a new build.
-            [d removeObjectsForKeys:@[@"preparedDescriptor",@"preparedRVA",@"preparedUUID",@"preparedStaticKnown",@"preparedIsStatic",@"preparedCodecGetterRVA",@"preparedCodecSetterRVA",@"staticPrepatch",@"staticHookSlotRVA",@"staticTrampolineRVA",@"staticCodeCaveRVA",@"staticDisplacedInstruction"]];
+            [d removeObjectsForKeys:@[@"preparedDescriptor",@"preparedRVA",@"preparedUUID",@"preparedStaticKnown",@"preparedIsStatic",@"preparedFieldStorage",@"preparedFieldSlot",@"preparedCodecGetterRVA",@"preparedCodecSetterRVA",@"staticPrepatch",@"staticHookSlotRVA",@"staticTrampolineRVA",@"staticCodeCaveRVA",@"staticDisplacedInstruction"]];
             [out addObject:d];
         }
         return [out copy];
