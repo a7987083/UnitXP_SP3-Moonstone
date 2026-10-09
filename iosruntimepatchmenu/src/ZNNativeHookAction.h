@@ -8,6 +8,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic,copy) NSString *title;
 @property(nonatomic,copy) NSString *group;
 @property(nonatomic,copy) NSString *featureDescription;
+// Shared Call/Hook control vocabulary; execution semantics stay separate.
+@property(nonatomic,copy) NSString *controlTypeKey;
 @property(nonatomic,copy) NSString *assembly;
 @property(nonatomic,copy) NSString *namespaceName;
 @property(nonatomic,copy) NSString *className;
