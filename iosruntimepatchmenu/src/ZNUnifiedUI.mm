@@ -14561,20 +14561,45 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
 - (void)zn64_hookTestTapped:(UIButton *)sender {
     NSDictionary *candidate=objc_getAssociatedObject(sender,ZNNativeHookCandidateAssociationKey);
     if(!candidate)return;
-    NSString *error=nil;
-    NSDictionary *plan=ZNM613HookPlan(candidate,&error);
-    if(!plan){
-        [self zn60v3_setStatus:error?:@"Native Hook：unsupported"];
-        [self renderPage];
-        return;
+
+    NSString *planError=nil;
+    NSDictionary *plan=ZNM613HookPlan(candidate,&planError);
+    NSString *intReason=nil,*structReason=nil;
+    NSArray<NSNumber *> *intArgs=[[ZNNativeHookRuntime sharedRuntime] supportedInt32ArgumentIndicesForCandidate:candidate reason:&intReason];
+    NSArray<NSNumber *> *structArgs=[[ZNNativeHookRuntime sharedRuntime] supportedStructFieldArgumentIndicesForCandidate:candidate reason:&structReason];
+
+    // Opening the selector must not depend on automatic ABI plan inference.
+    // Actual installs remain guarded by each template's runtime ABI validation.
+    UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"Native Hook 测试"
+        message:plan?@"选择测试模板；创建方法与实际安装分别验证 ABI。":
+            [NSString stringWithFormat:@"自动方案不可用：%@\n可查看受支持的模板；不支持的类型不会执行 Hook。",planError?:@"unsupported"]
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf=self;
+    if(intArgs.count){
+        for(NSNumber *n in intArgs){
+            NSUInteger idx=n.unsignedIntegerValue;
+            [picker addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Int32 倍率 · 参数%lu",(unsigned long)idx+1]
+                style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+                    [weakSelf zn64_presentHookConfigForCandidate:candidate argumentIndex:idx source:sender];
+                }]];
+        }
     }
-    ZNM613SetModeForCard(self,sender.superview,candidate,@"hook");
-    NSString *kind=plan[@"kind"]?:@"?";
-    NSString *extra=[kind isEqualToString:@"complex"]
-        ? [NSString stringWithFormat:@" · %@ · %@",plan[@"type"]?:@"?",plan[@"codec"]?:@"?"]
-        : (plan[@"index"]?[NSString stringWithFormat:@" · arg%lu",(unsigned long)[plan[@"index"] unsignedIntegerValue]+1]:@"");
-    [self zn60v3_setStatus:[NSString stringWithFormat:@"Native Hook READY · %@%@",kind,extra]];
-    [self renderPage];
+    if(structArgs.count){
+        [picker addAction:[UIAlertAction actionWithTitle:@"Complex Struct Transform"
+            style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
+                [weakSelf zn68_presentStructFieldPickerForCandidate:candidate indices:structArgs source:sender];
+            }]];
+    }
+    if(!intArgs.count&&!structArgs.count){
+        NSString *reason=structReason.length?structReason:(intReason.length?intReason:planError);
+        if(reason.length)picker.message=[picker.message stringByAppendingFormat:@"\n诊断：%@",reason];
+    }
+    [picker addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *top=ZNM52XTop(self.hostWindow);
+    if(!top)return;
+    UIPopoverPresentationController *popover=picker.popoverPresentationController;
+    if(popover){popover.sourceView=sender;popover.sourceRect=sender.bounds;popover.permittedArrowDirections=UIPopoverArrowDirectionAny;}
+    [top presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)zn64_presentHookConfigForCandidate:(NSDictionary *)candidate
