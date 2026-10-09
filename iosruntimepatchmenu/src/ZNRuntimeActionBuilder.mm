@@ -126,6 +126,7 @@ static NSData *ZNRABSerialize(NSArray<ZNRuntimeMethodAction *> *actions,
         NSMutableDictionary *config=[@{
             @"version":@3,
             @"template":ZNNativeHookTemplateKey(hook.templateKind),
+            @"controlType":hook.controlTypeKey?:@"",
             @"resolutionMode":@"static-prepatch-v1",
             @"prepared":@YES,
             @"preparedRVA":@(hook.preparedRVA),
