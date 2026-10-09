@@ -285,7 +285,13 @@ void ZNStructFieldBridgeMutate(uint32_t index, uint64_t *savedGPRs, const uint64
     uint64_t offset=slot->fieldOffset.load(std::memory_order_relaxed);
     uintptr_t getterAddr=slot->getter.load(std::memory_order_acquire);
     uintptr_t setterAddr=slot->setter.load(std::memory_order_acquire);
-    if(base<0x1000||offset>0x100000ULL||!getterAddr||!setterAddr){
+    // Fail closed for clearly invalid ARM64 pointers before dispatching codecs.
+    // This is a sanity gate, not a proof that target memory is mapped/writable.
+    const BOOL aligned=(base & (sizeof(uintptr_t)-1u))==0;
+    const BOOL canonical=(base>=0x1000u && (base>>56)==0);
+    const BOOL fieldInRange=(offset<=0x100000ULL &&
+                             offset<=UINTPTR_MAX-base);
+    if(!canonical||!aligned||!fieldInRange||!getterAddr||!setterAddr){
         slot->failures.fetch_add(1,std::memory_order_relaxed);
         return;
     }
@@ -2123,7 +2129,7 @@ static void ZNNativeParseGeneratedImage(uint32_t imageIndex,NSMutableArray<ZNNat
     if(!ZNNativeHookArgRegisterIndex(action.preparedIsStatic,
                                      action.fieldArgumentIndex,
                                      action.argumentCount,&reg)){
-        if(error)*error=@"Prepared StructField 参数无法映射到 ARM64 x0~x7";
+        if(error)*error=@"Prepared StructField 缺少可验证的参数 ABI 位置；仅允许原有 GPR x0~x7，栈参数需生成时显式保存 ABI 元数据";
         return NO;
     }
     if(ZNNativeSlotForTarget(target)||ZNManagedCallbackSlotForTarget(target)||ZNReturnBoolSlotForTarget(target)){
