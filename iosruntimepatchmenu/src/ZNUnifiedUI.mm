@@ -14689,9 +14689,8 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         [editor addAction:[UIAlertAction actionWithTitle:label style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *choice){
             NSString *title=[editor.textFields[0].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
             if(!title.length){[weakSelf zn60v3_setStatus:@"Native Hook 功能名称不能为空"];return;}
-            BOOL titleOK=[[ZNNativeHookStore sharedStore] updateTitle:title atIndex:actionIndex];
-            BOOL descriptionOK=titleOK&&[[ZNNativeHookStore sharedStore] updateDescription:editor.textFields[1].text?:@"" atIndex:actionIndex];
-            BOOL controlOK=descriptionOK&&[[ZNNativeHookStore sharedStore] updateControlTypeKey:type forActionID:action.actionID];
+            BOOL controlOK=[[ZNNativeHookStore sharedStore] updatePresentationForActionID:action.actionID
+                title:title description:editor.textFields[1].text?:@"" controlType:type];
             [weakSelf zn60v3_setStatus:controlOK?[NSString stringWithFormat:@"Native Hook 已保存：%@ · %@",title,display]:@"Native Hook 功能配置保存失败"];
             [weakSelf renderPage];
         }]];
@@ -14838,6 +14837,7 @@ static void ZNM613SetModeForCard(ZNRuntimeMenuControllerV040 *self,UIView *card,
         [weakSelf zn60v3_setStatus:created
             ? [NSString stringWithFormat:@"已创建 Native Hook：%@ · Slider 1~%ld",created.title,(long)maxValue]
             : (error?:@"创建 Native Hook 失败")];
+        if(created)[weakSelf znm660_chooseHookControlForAction:created source:weakSelf.contentView];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
