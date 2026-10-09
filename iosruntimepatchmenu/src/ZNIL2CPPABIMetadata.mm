@@ -202,6 +202,45 @@ ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSString *typeName) {
     return ZNIL2CPPABIValueKindUnknown;
 }
 
+NSDictionary<NSString *, id> *ZNIL2CPPABIArgumentLocation(
+    NSDictionary<NSString *, id> *abi, NSUInteger argumentIndex) {
+    if(![abi[@"available"] boolValue] || ![abi[@"instanceKnown"] boolValue] ||
+       ![abi[@"genericStatusKnown"] boolValue] ||
+       [abi[@"generic"] boolValue] || [abi[@"inflated"] boolValue]) return nil;
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    if(argumentIndex>=params.count)return nil;
+    NSUInteger gpr=[abi[@"instance"] boolValue]?1u:0u;
+    NSUInteger fpr=0, stackSlots=0;
+    for(NSUInteger i=0;i<=argumentIndex;i++){
+        NSDictionary *param=params[i];
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+        BOOL byRef=[param[@"byRef"] boolValue];
+        BOOL fp=!byRef&&(kind==ZNIL2CPPABIValueKindFloat32||
+                         kind==ZNIL2CPPABIValueKindFloat64);
+        BOOL gp=byRef||kind==ZNIL2CPPABIValueKindPointer||
+            kind==ZNIL2CPPABIValueKindObjectReference||
+            kind==ZNIL2CPPABIValueKindBool||
+            kind==ZNIL2CPPABIValueKindSigned32||
+            kind==ZNIL2CPPABIValueKindUnsigned32||
+            kind==ZNIL2CPPABIValueKindSigned64||
+            kind==ZNIL2CPPABIValueKindUnsigned64;
+        // Reject unknown aggregates instead of guessing the remaining layout.
+        if(!fp&&!gp)return nil;
+        NSString *storage=nil;
+        NSUInteger index=0;
+        if(fp&&fpr<8u){storage=@"fpr";index=fpr++;}
+        else if(gp&&gpr<8u){storage=@"gpr";index=gpr++;}
+        else {
+            storage=@"stack";
+            index=stackSlots++;
+        }
+        if(i==argumentIndex)
+            return @{@"storage":storage, @"index":@(index),
+                     @"stackOffset":@(index*8u), @"byRef":@(byRef)};
+    }
+    return nil;
+}
+
 BOOL ZNIL2CPPABIGPRLocation(NSDictionary<NSString *, id> *abi,
                             NSUInteger argumentIndex,
                             uint32_t *outRegister) {
