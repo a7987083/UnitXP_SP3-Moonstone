@@ -25,6 +25,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     _title=@"";
     _group=@"Native Hooks";
     _featureDescription=@"";
+    _controlTypeKey=@"";
     _assembly=@"Assembly-CSharp.dll";
     _namespaceName=@"";
     _className=@"";
@@ -72,7 +73,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
 }
 - (id)copyWithZone:(NSZone *)zone {
     ZNNativeHookAction *c=[[[self class] allocWithZone:zone]init];
-    c.actionID=self.actionID;c.title=self.title;c.group=self.group;c.featureDescription=self.featureDescription;
+    c.actionID=self.actionID;c.title=self.title;c.group=self.group;c.featureDescription=self.featureDescription;c.controlTypeKey=self.controlTypeKey;
     c.assembly=self.assembly;c.namespaceName=self.namespaceName;c.className=self.className;c.methodName=self.methodName;
     c.argumentCount=self.argumentCount;c.parameterTypeNames=self.parameterTypeNames;c.signatureAvailable=self.signatureAvailable;
     c.templateKind=self.templateKind;c.argumentIndex=self.argumentIndex;c.minValue=self.minValue;c.maxValue=self.maxValue;
@@ -117,7 +118,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
 - (NSDictionary *)dictionaryForAction:(ZNNativeHookAction *)a {
     return @{
         @"actionID":@(a.actionID),@"title":a.title?:@"",@"group":a.group?:@"Native Hooks",
-        @"description":a.featureDescription?:@"",@"assembly":a.assembly?:@"Assembly-CSharp.dll",
+        @"description":a.featureDescription?:@"",@"controlType":a.controlTypeKey?:@"",@"assembly":a.assembly?:@"Assembly-CSharp.dll",
         @"namespace":a.namespaceName?:@"",@"class":a.className?:@"",@"method":a.methodName?:@"",
         @"argumentCount":@(a.argumentCount),@"parameterTypeNames":a.parameterTypeNames?:@[],
         @"signatureAvailable":@(a.signatureAvailable),@"template":ZNNativeHookTemplateKey(a.templateKind),
@@ -157,6 +158,7 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
     a.title=[d[@"title"] isKindOfClass:NSString.class]?d[@"title"]:@"";
     a.group=[d[@"group"] isKindOfClass:NSString.class]?d[@"group"]:@"Native Hooks";
     a.featureDescription=[d[@"description"] isKindOfClass:NSString.class]?d[@"description"]:@"";
+    a.controlTypeKey=[d[@"controlType"] isKindOfClass:NSString.class]?d[@"controlType"]:@"";
     a.assembly=[d[@"assembly"] isKindOfClass:NSString.class]?d[@"assembly"]:@"Assembly-CSharp.dll";
     a.namespaceName=[d[@"namespace"] isKindOfClass:NSString.class]?d[@"namespace"]:@"";
     a.className=[d[@"class"] isKindOfClass:NSString.class]?d[@"class"]:@"";
