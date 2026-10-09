@@ -162,7 +162,11 @@ static BOOL ZNM610CollectLayout(const uint8_t *base,
             if(strncmp(seg->segname,SEG_TEXT,16)==0)textVM=seg->vmaddr;
 
             BOOL executable=(seg->initprot&VM_PROT_EXECUTE)!=0;
-            BOOL writable=(seg->initprot&VM_PROT_WRITE)!=0;
+            // Hook pointer slots must remain writable after dyld applies __DATA_CONST protections.
+            // Prefer a strict persistent-data segment allowlist over Mach-O initprot alone.
+            BOOL persistentData=(strncmp(seg->segname,"__DATA",16)==0 ||
+                                 strncmp(seg->segname,"__DATA_DIRTY",16)==0);
+            BOOL writable=persistentData && (seg->initprot&VM_PROT_WRITE)!=0;
             if((executable||writable)&&seg->filesize){
                 std::vector<std::pair<uint64_t,uint64_t>> used;
                 const struct section_64 *sections=(const struct section_64 *)(seg+1);
