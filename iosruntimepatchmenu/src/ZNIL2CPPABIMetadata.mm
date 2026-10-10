@@ -145,10 +145,15 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
     uint32_t size=api.classValueSize ? api.classValueSize(klass,&align) : 0;
     BOOL valid=(size>0 && size<=65536u && align>0 && align<=16u &&
                 (align&(align-1u))==0);
+    // AAPCS64: non-HFA composites larger than 16 bytes are passed via a
+    // caller-provided copy pointer. Member inspection is still required to
+    // rule out HFA/HVA, regardless of the aggregate's total size.
     return @{@"name":name,@"kind":@(ZNIL2CPPABIValueKindComplexValueType),
              @"byRef":@NO,@"pointer":@NO,@"valueType":@YES,
              @"layoutKnown":@(valid),@"valueSize":@(valid?size:0u),
-             @"alignment":@(valid?align:0u),@"abiClass":@"unclassified"};
+             @"alignment":@(valid?align:0u),
+             @"abiClass":valid?@"aggregate-needs-member-classification":@"layout-unknown",
+             @"memberLayoutVerified":@NO};
 }
 
 static BOOL ZNABIReturnKindFoundationSafe(ZNIL2CPPABIValueKind kind) {
@@ -236,7 +241,15 @@ NSDictionary<NSString *, id> *ZNIL2CPPABIArgumentLocation(
             kind==ZNIL2CPPABIValueKindUnsigned32||
             kind==ZNIL2CPPABIValueKindSigned64||
             kind==ZNIL2CPPABIValueKindUnsigned64;
-        // Reject unknown aggregates instead of guessing the remaining layout.
+        // Composite arguments may consume several GPR/FPR slots or an
+        // indirect copy pointer. Size/alignment alone cannot identify an
+        // HFA/HVA, so fail closed until members have been classified.
+        if(kind==ZNIL2CPPABIValueKindComplexValueType && !byRef){
+            if(![param[@"memberLayoutVerified"] boolValue])return nil;
+            // A member verifier and multi-slot allocator must be introduced
+            // together; never assume one scalar register for aggregates.
+            return nil;
+        }
         if(!fp&&!gp)return nil;
         NSString *storage=nil;
         NSUInteger index=0;
