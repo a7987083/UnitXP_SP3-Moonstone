@@ -76,7 +76,6 @@ jobs:
             'fpr_overflow':(r'\bd0\b',r'\bd5\b'),
             'aligned_stack':(r'\bx0\b',r'\bx7\b'),
           }
-          # Use symbol labels as boundaries; .cfi_endproc may be absent.
           labels=list(re.finditer(r'(?m)^_([A-Za-z][A-Za-z0-9_]*):[ \t]*$',assembly))
           for symbol,registers in expected.items():
               match=next((m for m in labels if m.group(1)==symbol),None)
@@ -108,14 +107,3 @@ jobs:
         run: |
           set -euo pipefail
           /tmp/arm64-compiler-abi-fixture
-,assembly))
-          for symbol,registers in expected.items():
-              match=next((m for m in labels if m.group(1)==symbol),None)
-              assert match, f'missing compiler-emitted entry: {symbol}'
-              subsequent=next((m.start() for m in labels if m.start()>match.end()),len(assembly))
-              body=assembly[match.end():subsequent]
-              for reg in registers:
-                  assert re.search(reg,body), f'{symbol}: missing expected ABI register {reg}'
-              print(f'{symbol}: ABI register assertions PASS')
-          print('arm64 per-function compiler ABI register checks: PASS')
-          PY
