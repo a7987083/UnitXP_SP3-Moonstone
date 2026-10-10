@@ -295,6 +295,35 @@ ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSString *typeName) {
     return ZNIL2CPPABIValueKindUnknown;
 }
 
+// Descriptive aggregate allocation candidate only. This intentionally does
+// not feed ZNIL2CPPABIArgumentLocation or any Hook install path.
+NSDictionary<NSString *, id> *ZNIL2CPPABIAggregateCandidate(
+    NSDictionary<NSString *, id> *param) {
+    if((ZNIL2CPPABIValueKind)[param[@"kind"] integerValue]!=
+       ZNIL2CPPABIValueKindComplexValueType ||
+       ![param[@"layoutKnown"] boolValue])return nil;
+    NSUInteger size=[param[@"valueSize"] unsignedIntegerValue];
+    NSUInteger align=[param[@"alignment"] unsignedIntegerValue];
+    if(!size || size>65536u || !align || align>16u)return nil;
+    BOOL hfa=[param[@"hfaShapeConsistent"] boolValue] &&
+             [param[@"hfaCandidate"] boolValue];
+    NSArray *members=[param[@"members"] isKindOfClass:NSArray.class]?
+        param[@"members"]:@[];
+    if(hfa && members.count>=1 && members.count<=4){
+        return @{@"candidateClass":@"hfa-fpr",
+                 @"registerSlots":@(members.count),
+                 @"stackBytes":@(((size+7u)/8u)*8u),
+                 @"verified":@NO};
+    }
+    // Non-HFA aggregate candidates: <=16 bytes may occupy 1-2 GPRs,
+    // >16 bytes use an indirect copy. Missing layout proof bars execution.
+    NSUInteger slots=size<=16u?(size+7u)/8u:1u;
+    return @{@"candidateClass":size<=16u?@"aggregate-gpr":@"indirect-copy",
+             @"registerSlots":@(slots),
+             @"stackBytes":@(((size+7u)/8u)*8u),
+             @"verified":@NO};
+}
+
 NSDictionary<NSString *, id> *ZNIL2CPPABIArgumentLocation(
     NSDictionary<NSString *, id> *abi, NSUInteger argumentIndex) {
     if(![abi[@"available"] boolValue] || ![abi[@"instanceKnown"] boolValue] ||
