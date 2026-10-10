@@ -68,18 +68,25 @@ jobs:
           # Inspect each callee independently: a global register grep would
           # pass even if a particular aggregate were lowered incorrectly.
           expected={
-            'pair_call':(r'\\bx0\\b',r'\\bx1\\b'),
-            'indirect_call':(r'\\bx0\\b',),
-            'hfa_call':(r'\\bs0\\b',r'\\bs1\\b',r'\\bs2\\b',r'\\bs3\\b'),
-            'hfad_call':(r'\\bd0\\b',r'\\bd1\\b'),
-            'gpr_overflow':(r'\\bx0\\b',r'\\bx6\\b'),
-            'fpr_overflow':(r'\\bd0\\b',r'\\bd5\\b'),
-            'aligned_stack':(r'\\bx0\\b',r'\\bx7\\b'),
+            'pair_call':(r'\bx0\b',r'\bx1\b'),
+            'indirect_call':(r'\bx0\b',),
+            'hfa_call':(r'\bs0\b',r'\bs1\b',r'\bs2\b',r'\bs3\b'),
+            'hfad_call':(r'\bd0\b',r'\bd1\b'),
+            'gpr_overflow':(r'\bx0\b',r'\bx6\b'),
+            'fpr_overflow':(r'\bd0\b',r'\bd5\b'),
+            'aligned_stack':(r'\bx0\b',r'\bx7\b'),
           }
-          # Apple Clang may insert .p2align, .cfi_startproc and Lfunc_begin
-          # labels, and need not emit .cfi_endproc. Isolate each body at
-          # the next global function symbol rather than a specific directive.
-          labels=list(re.finditer(r'(?m)^_([A-Za-z][A-Za-z0-9_]*):[ \\t]*          print('arm64 per-function compiler ABI register checks: PASS')
+          # Use symbol labels as boundaries; .cfi_endproc may be absent.
+          labels=list(re.finditer(r'(?m)^_([A-Za-z][A-Za-z0-9_]*):[ \t]*$',assembly))
+          for symbol,registers in expected.items():
+              match=next((m for m in labels if m.group(1)==symbol),None)
+              assert match, f'missing compiler-emitted entry: {symbol}'
+              subsequent=next((m.start() for m in labels if m.start()>match.end()),len(assembly))
+              body=assembly[match.end():subsequent]
+              for reg in registers:
+                  assert re.search(reg,body), f'{symbol}: missing expected ABI register {reg}'
+              print(f'{symbol}: ABI register assertions PASS')
+          print('arm64 per-function compiler ABI register checks: PASS')
           PY
   arm64-compiler-abi:
     if: github.event_name == 'workflow_dispatch' && inputs.run_native_arm64 == true
@@ -112,23 +119,3 @@ jobs:
               print(f'{symbol}: ABI register assertions PASS')
           print('arm64 per-function compiler ABI register checks: PASS')
           PY
-  arm64-compiler-abi:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_native_arm64 == true
-    runs-on: macos-15-arm64
-    timeout-minutes: 15
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-      - name: Build compiler-native arm64 ABI fixture
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(uname -m)" = arm64
-          xcrun clang++ -std=c++17 -O0 -Wall -Wextra -Werror \
-            iosruntimepatchmenu/tests/arm64_compiler_abi_fixture.cpp \
-            -o /tmp/arm64-compiler-abi-fixture
-      - name: Execute real arm64 cross-call assertions
-        shell: bash
-        run: |
-          set -euo pipefail
-          /tmp/arm64-compiler-abi-fixture
