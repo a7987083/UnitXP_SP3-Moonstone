@@ -22,6 +22,9 @@ FOUNDATION_EXPORT ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSStrin
 // Descriptive only: never use candidate slots to install hooks before verification.
 FOUNDATION_EXPORT NSDictionary<NSString *, id> * _Nullable
 ZNIL2CPPABIAggregateCandidate(NSDictionary<NSString *, id> *param);
+// Non-executable allocation simulation; aggregate results are unverified.
+FOUNDATION_EXPORT NSArray<NSDictionary<NSString *, id> *> * _Nullable
+ZNIL2CPPABIDescribeAllocationPlan(NSDictionary<NSString *, id> *abi);
 FOUNDATION_EXPORT NSDictionary<NSString *, id> *ZNIL2CPPDescribeMethodABI(NSDictionary<NSString *, id> *candidate);
 // Conservative AAPCS64 location for scalar/by-ref parameters only.
 // storage: gpr, fpr or stack; index is the register number or 8-byte stack slot.
