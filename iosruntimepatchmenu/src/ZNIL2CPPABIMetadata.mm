@@ -177,11 +177,31 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
             if((ZNIL2CPPABIValueKind)[member[@"kind"] integerValue]==ZNIL2CPPABIValueKindUnknown){
                 complete=NO;break;
             }
+            // Keep nested layouts available for later recursive ABI checks.
+            // Do not normalize raw offsets using a guessed object-header size.
             [members addObject:@{@"type":member[@"name"]?:@"?",
                                  @"kind":member[@"kind"]?:@(ZNIL2CPPABIValueKindUnknown),
                                  @"rawOffset":@(offset),
-                                 @"nested":@([member[@"valueType"] boolValue])}];
+                                 @"nested":@([member[@"valueType"] boolValue]),
+                                 @"layoutKnown":@([member[@"layoutKnown"] boolValue]),
+                                 @"valueSize":member[@"valueSize"]?:@0,
+                                 @"alignment":member[@"alignment"]?:@0,
+                                 @"members":member[@"members"]?:@[]}];
         }
+    }
+    // HFA is only a candidate here: reliable field offsets, packing,
+    // inherited fields and nested members must still be reconciled.
+    ZNIL2CPPABIValueKind homogeneous=ZNIL2CPPABIValueKindUnknown;
+    BOOL hfaCandidate=complete && members.count>=1 && members.count<=4;
+    for(NSDictionary *member in members){
+        ZNIL2CPPABIValueKind mk=(ZNIL2CPPABIValueKind)[member[@"kind"] integerValue];
+        if([member[@"nested"] boolValue] ||
+           (mk!=ZNIL2CPPABIValueKindFloat32 && mk!=ZNIL2CPPABIValueKindFloat64) ||
+           (homogeneous!=ZNIL2CPPABIValueKindUnknown && homogeneous!=mk)){
+            hfaCandidate=NO;
+            break;
+        }
+        homogeneous=mk;
     }
     // Member enumeration is useful evidence, NOT verified AAPCS64 layout.
     return @{@"name":name,@"kind":@(ZNIL2CPPABIValueKindComplexValueType),
@@ -189,6 +209,8 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
              @"layoutKnown":@(valid),@"valueSize":@(valid?size:0u),
              @"alignment":@(valid?align:0u),@"memberEnumerationComplete":@(complete),
              @"members":[members copy],
+             @"hfaCandidate":@(hfaCandidate),
+             @"hfaCandidateElementKind":@(hfaCandidate?homogeneous:ZNIL2CPPABIValueKindUnknown),
              @"abiClass":valid?@"aggregate-needs-member-classification":@"layout-unknown",
              @"memberLayoutVerified":@NO};
 }
