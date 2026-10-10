@@ -76,10 +76,37 @@ jobs:
             'fpr_overflow':(r'\\bd0\\b',r'\\bd5\\b'),
             'aligned_stack':(r'\\bx0\\b',r'\\bx7\\b'),
           }
+          # Apple Clang may insert .p2align, .cfi_startproc and Lfunc_begin
+          # labels, and need not emit .cfi_endproc. Isolate each body at
+          # the next global function symbol rather than a specific directive.
+          labels=list(re.finditer(r'(?m)^_([A-Za-z][A-Za-z0-9_]*):[ \\t]*          print('arm64 per-function compiler ABI register checks: PASS')
+          PY
+  arm64-compiler-abi:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_native_arm64 == true
+    runs-on: macos-15-arm64
+    timeout-minutes: 15
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Build compiler-native arm64 ABI fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          xcrun clang++ -std=c++17 -O0 -Wall -Wextra -Werror \
+            iosruntimepatchmenu/tests/arm64_compiler_abi_fixture.cpp \
+            -o /tmp/arm64-compiler-abi-fixture
+      - name: Execute real arm64 cross-call assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/arm64-compiler-abi-fixture
+,assembly))
           for symbol,registers in expected.items():
-              match=re.search(r'(?ms)^_'+symbol+r':\\s*(.*?)(?=^\\s*\\.cfi_endproc)',assembly)
-              assert match, f'missing compiler-emitted body: {symbol}'
-              body=match.group(1)
+              match=next((m for m in labels if m.group(1)==symbol),None)
+              assert match, f'missing compiler-emitted entry: {symbol}'
+              subsequent=next((m.start() for m in labels if m.start()>match.end()),len(assembly))
+              body=assembly[match.end():subsequent]
               for reg in registers:
                   assert re.search(reg,body), f'{symbol}: missing expected ABI register {reg}'
               print(f'{symbol}: ABI register assertions PASS')
