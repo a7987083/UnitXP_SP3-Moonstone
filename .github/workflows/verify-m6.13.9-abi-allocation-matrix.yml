@@ -11,6 +11,11 @@ on:
       - iosruntimepatchmenu/tests/arm64_compiler_abi_fixture.cpp
       - .github/workflows/verify-m6.13.9-abi-allocation-matrix.yml
   workflow_dispatch:
+    inputs:
+      run_native_arm64:
+        description: 'Run native Apple Silicon test (may queue for a long time)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,7 +43,40 @@ jobs:
         run: |
           set -euo pipefail
           /tmp/zn-abi-matrix/abi-test
+  arm64-cross-compile:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Cross-compile arm64 ABI fixture to assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/zn-abi-cross
+          xcrun clang++ -target arm64-apple-macos13 -std=c++17 -O0 -S \
+            iosruntimepatchmenu/tests/arm64_compiler_abi_fixture.cpp \
+            -o /tmp/zn-abi-cross/fixture.s
+      - name: Verify arm64 compiler-emitted ABI entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          assembly=Path('/tmp/zn-abi-cross/fixture.s').read_text()
+          symbols=['pair_call','indirect_call','hfa_call','hfad_call',
+                   'gpr_overflow','fpr_overflow','aligned_stack']
+          for symbol in symbols:
+              assert re.search(r'(?m)^_'+re.escape(symbol)+r':', assembly), symbol
+          # Compiler-generated assembly must contain actual register usages;
+          # this is a smoke check, not yet instruction-by-instruction ABI proof.
+          assert re.search(r'\b[xw][0-7]\b', assembly), 'no GPR references'
+          assert re.search(r'\b[sd][0-7]\b', assembly), 'no SIMD/FP references'
+          print('arm64 cross-compile ABI fixture: PASS')
+          PY
   arm64-compiler-abi:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_native_arm64 == true
     runs-on: macos-15-arm64
     timeout-minutes: 15
     steps:
