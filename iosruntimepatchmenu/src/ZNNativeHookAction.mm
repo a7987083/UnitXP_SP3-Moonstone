@@ -608,10 +608,18 @@ static uint32_t ZNNHFNV1a32(NSString *text) {
         }
         NSString *storage=[descriptor[@"fieldStorage"] isKindOfClass:NSString.class]?descriptor[@"fieldStorage"]:@"";
         NSUInteger slot=[descriptor[@"fieldSlot"] unsignedIntegerValue];
-        if(storage.length && !(([storage isEqualToString:@"gpr"]&&slot<8)||([storage isEqualToString:@"stack"]&&slot<16))){
-            if(error)*error=@"Prepared Hook ABI 位置描述无效";return NO;
-        }
         ZNNativeHookAction *a=self.mutableActions[index];
+        BOOL structTransform=a.templateKind==ZNNativeHookTemplateStructFieldTransform ||
+                             a.templateKind==ZNNativeHookTemplateComplexStructTransform;
+        BOOL validLocation=([storage isEqualToString:@"gpr"]&&slot<8) ||
+                           ([storage isEqualToString:@"stack"]&&slot<16);
+        // Freshly generated Struct descriptors must never silently downgrade to
+        // legacy positional GPR inference when ABI metadata is absent.
+        // Existing serialized legacy actions are not modified here.
+        if((structTransform&&!validLocation) || (storage.length&&!validLocation)){
+            if(error)*error=@"Prepared StructField 生成缺少有效 ABI 参数位置；拒绝保存 descriptor";
+            return NO;
+        }
         a.preparedDescriptor=YES;
         a.preparedRVA=rva;
         a.preparedUUID=uuid;
