@@ -8,6 +8,7 @@ on:
       - iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.h
       - iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.mm
       - iosruntimepatchmenu/tests/il2cpp_abi_classifier_test.mm
+      - iosruntimepatchmenu/tests/arm64_compiler_abi_fixture.cpp
       - .github/workflows/verify-m6.13.9-abi-allocation-matrix.yml
   workflow_dispatch:
 
@@ -37,3 +38,22 @@ jobs:
         run: |
           set -euo pipefail
           /tmp/zn-abi-matrix/abi-test
+  arm64-compiler-abi:
+    runs-on: macos-15-arm64
+    timeout-minutes: 15
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Build compiler-native arm64 ABI fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          xcrun clang++ -std=c++17 -O0 -Wall -Wextra -Werror \
+            iosruntimepatchmenu/tests/arm64_compiler_abi_fixture.cpp \
+            -o /tmp/arm64-compiler-abi-fixture
+      - name: Execute real arm64 cross-call assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/arm64-compiler-abi-fixture
