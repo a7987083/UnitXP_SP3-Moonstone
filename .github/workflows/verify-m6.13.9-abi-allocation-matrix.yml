@@ -1,0 +1,39 @@
+name: Verify M6.13.9 ABI Allocation Matrix
+
+on:
+  push:
+    branches:
+      - fix/m6.13.9-native-hook-authoring-atomic-v1
+    paths:
+      - iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.h
+      - iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.mm
+      - iosruntimepatchmenu/tests/il2cpp_abi_classifier_test.mm
+      - .github/workflows/verify-m6.13.9-abi-allocation-matrix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  abi-allocation-matrix:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Compile production ABI metadata with test matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/zn-abi-matrix
+          xcrun clang++ -std=c++17 -fobjc-arc -fblocks -O0 \
+            -Iiosruntimepatchmenu/src \
+            iosruntimepatchmenu/src/ZNIL2CPPABIMetadata.mm \
+            iosruntimepatchmenu/tests/il2cpp_abi_classifier_test.mm \
+            -framework Foundation \
+            -o /tmp/zn-abi-matrix/abi-test
+      - name: Run ABI allocation assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/zn-abi-matrix/abi-test
