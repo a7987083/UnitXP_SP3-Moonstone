@@ -18,6 +18,7 @@ using TypeIsByRefFn = bool (*)(const void *);
 using TypeIsPointerFn = bool (*)(const void *);
 using ClassFromTypeFn = void *(*)(const void *);
 using ClassIsValueTypeFn = bool (*)(const void *);
+using ClassValueSizeFn = uint32_t (*)(void *, uint32_t *);
 using ClassIsEnumFn = bool (*)(const void *);
 using ClassEnumBaseTypeFn = const void *(*)(void *);
 using Il2CppFreeFn = void (*)(void *);
@@ -36,6 +37,7 @@ struct ZNABIAPI {
     TypeIsPointerFn typeIsPointer = nullptr;
     ClassFromTypeFn classFromType = nullptr;
     ClassIsValueTypeFn classIsValueType = nullptr;
+    ClassValueSizeFn classValueSize = nullptr;
     ClassIsEnumFn classIsEnum = nullptr;
     ClassEnumBaseTypeFn classEnumBaseType = nullptr;
     Il2CppFreeFn il2cppFree = nullptr;
@@ -86,6 +88,7 @@ static const ZNABIAPI &ZNABIResolvedAPI(void) {
             ZNABI_LOAD(classFromType, ClassFromTypeFn, "il2cpp_class_from_il2cpp_type");
         }
         ZNABI_LOAD(classIsValueType, ClassIsValueTypeFn, "il2cpp_class_is_valuetype");
+        ZNABI_LOAD(classValueSize, ClassValueSizeFn, "il2cpp_class_value_size");
         ZNABI_LOAD(classIsEnum, ClassIsEnumFn, "il2cpp_class_is_enum");
         ZNABI_LOAD(classEnumBaseType, ClassEnumBaseTypeFn, "il2cpp_class_enum_basetype");
         ZNABI_LOAD(il2cppFree, Il2CppFreeFn, "il2cpp_free");
@@ -136,7 +139,16 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
         result[@"enumBase"] = baseInfo[@"name"] ?: @"?";
         return result;
     }
-    return @{@"name": name, @"kind": @(ZNIL2CPPABIValueKindComplexValueType), @"byRef": @NO, @"pointer": @NO, @"valueType": @YES};
+    // Layout metadata is descriptive only: HFA/member classification, nesting,
+    // packing and ABI register allocation still need a separate verifier.
+    uint32_t align=0;
+    uint32_t size=api.classValueSize ? api.classValueSize(klass,&align) : 0;
+    BOOL valid=(size>0 && size<=65536u && align>0 && align<=16u &&
+                (align&(align-1u))==0);
+    return @{@"name":name,@"kind":@(ZNIL2CPPABIValueKindComplexValueType),
+             @"byRef":@NO,@"pointer":@NO,@"valueType":@YES,
+             @"layoutKnown":@(valid),@"valueSize":@(valid?size:0u),
+             @"alignment":@(valid?align:0u),@"abiClass":@"unclassified"};
 }
 
 static BOOL ZNABIReturnKindFoundationSafe(ZNIL2CPPABIValueKind kind) {
