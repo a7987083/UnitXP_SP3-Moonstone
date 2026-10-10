@@ -324,6 +324,61 @@ NSDictionary<NSString *, id> *ZNIL2CPPABIAggregateCandidate(
              @"verified":@NO};
 }
 
+// AAPCS64 allocation simulation for diagnostics only. An unverified
+// aggregate blocks executable ABI location mapping in the existing resolver.
+NSArray<NSDictionary<NSString *, id> *> *ZNIL2CPPABIDescribeAllocationPlan(
+    NSDictionary<NSString *, id> *abi) {
+    if(![abi[@"available"] boolValue] || ![abi[@"instanceKnown"] boolValue] ||
+       ![abi[@"genericStatusKnown"] boolValue] ||
+       [abi[@"generic"] boolValue] || [abi[@"inflated"] boolValue])return nil;
+    NSArray *params=[abi[@"parameters"] isKindOfClass:NSArray.class]?abi[@"parameters"]:@[];
+    NSUInteger ngrn=[abi[@"instance"] boolValue]?1u:0u;
+    NSUInteger nsrn=0, stack=0;
+    NSMutableArray *locations=[NSMutableArray arrayWithCapacity:params.count];
+    for(NSDictionary *param in params){
+        ZNIL2CPPABIValueKind kind=(ZNIL2CPPABIValueKind)[param[@"kind"] integerValue];
+        BOOL byRef=[param[@"byRef"] boolValue];
+        BOOL fp=!byRef&&(kind==ZNIL2CPPABIValueKindFloat32||kind==ZNIL2CPPABIValueKindFloat64);
+        BOOL gp=byRef||kind==ZNIL2CPPABIValueKindPointer||
+            kind==ZNIL2CPPABIValueKindObjectReference||kind==ZNIL2CPPABIValueKindBool||
+            kind==ZNIL2CPPABIValueKindSigned32||kind==ZNIL2CPPABIValueKindUnsigned32||
+            kind==ZNIL2CPPABIValueKindSigned64||kind==ZNIL2CPPABIValueKindUnsigned64;
+        NSString *type=fp?@"fpr":@"gpr";
+        NSUInteger slots=1,bytes=8;
+        BOOL verified=YES;
+        if(!fp&&!gp){
+            NSDictionary *candidate=ZNIL2CPPABIAggregateCandidate(param);
+            if(!candidate)return nil;
+            NSString *klass=candidate[@"candidateClass"];
+            slots=[candidate[@"registerSlots"] unsignedIntegerValue];
+            bytes=[candidate[@"stackBytes"] unsignedIntegerValue];
+            type=[klass isEqualToString:@"hfa-fpr"]?@"fpr":@"gpr";
+            verified=NO;
+        }
+        if(slots<1||slots>4||bytes<8||bytes>65536)return nil;
+        NSUInteger start=0;
+        NSString *storage=nil;
+        if([type isEqualToString:@"fpr"]&&nsrn+slots<=8){
+            storage=@"fpr";start=nsrn;nsrn+=slots;
+        }else if([type isEqualToString:@"gpr"]&&ngrn+slots<=8){
+            storage=@"gpr";start=ngrn;ngrn+=slots;
+        }else{
+            // Failed GPR aggregate allocation consumes no partial registers.
+            // Once GPRs are exhausted, later arguments remain stack-bound.
+            if([type isEqualToString:@"gpr"])ngrn=8;
+            storage=@"stack";start=stack;
+            NSUInteger align=[param[@"alignment"] unsignedIntegerValue];
+            if(align>8 && (stack&1u))++start;
+            if(start>UINT32_MAX/8 || bytes/8>UINT32_MAX/8-start)return nil;
+            stack=start+bytes/8;
+        }
+        [locations addObject:@{@"storage":storage,@"index":@(start),
+                               @"registerSlots":@(slots),@"stackBytes":@(bytes),
+                               @"verified":@(verified)}];
+    }
+    return [locations copy];
+}
+
 NSDictionary<NSString *, id> *ZNIL2CPPABIArgumentLocation(
     NSDictionary<NSString *, id> *abi, NSUInteger argumentIndex) {
     if(![abi[@"available"] boolValue] || ![abi[@"instanceKnown"] boolValue] ||
