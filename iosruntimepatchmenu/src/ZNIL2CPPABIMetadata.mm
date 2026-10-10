@@ -203,6 +203,22 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
         }
         homogeneous=mk;
     }
+    // Verify a narrow flat HFA shape using relative field offsets. Relative
+    // differences are independent of a uniform IL2CPP value-type header bias.
+    // This is deliberately not a complete ABI layout proof: the origin and
+    // nested/padded/explicit-layout cases remain untrusted.
+    BOOL hfaShapeConsistent=hfaCandidate;
+    NSUInteger elementBytes=homogeneous==ZNIL2CPPABIValueKindFloat32?4u:
+                            homogeneous==ZNIL2CPPABIValueKindFloat64?8u:0u;
+    if(!elementBytes || size!=members.count*elementBytes || align<elementBytes)
+        hfaShapeConsistent=NO;
+    int64_t firstOffset=members.count?[members[0][@"rawOffset"] longLongValue]:0;
+    for(NSUInteger i=0;hfaShapeConsistent&&i<members.count;i++){
+        int64_t actual=[members[i][@"rawOffset"] longLongValue];
+        if(actual<firstOffset || (uint64_t)(actual-firstOffset)!=i*elementBytes)
+            hfaShapeConsistent=NO;
+    }
+    hfaCandidate=hfaShapeConsistent;
     // Member enumeration is useful evidence, NOT verified AAPCS64 layout.
     return @{@"name":name,@"kind":@(ZNIL2CPPABIValueKindComplexValueType),
              @"byRef":@NO,@"pointer":@NO,@"valueType":@YES,
@@ -210,6 +226,7 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
              @"alignment":@(valid?align:0u),@"memberEnumerationComplete":@(complete),
              @"members":[members copy],
              @"hfaCandidate":@(hfaCandidate),
+             @"hfaShapeConsistent":@(hfaShapeConsistent),
              @"hfaCandidateElementKind":@(hfaCandidate?homogeneous:ZNIL2CPPABIValueKindUnknown),
              @"abiClass":valid?@"aggregate-needs-member-classification":@"layout-unknown",
              @"memberLayoutVerified":@NO};
