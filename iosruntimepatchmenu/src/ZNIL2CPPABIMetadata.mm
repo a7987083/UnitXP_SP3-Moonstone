@@ -19,6 +19,10 @@ using TypeIsPointerFn = bool (*)(const void *);
 using ClassFromTypeFn = void *(*)(const void *);
 using ClassIsValueTypeFn = bool (*)(const void *);
 using ClassValueSizeFn = uint32_t (*)(void *, uint32_t *);
+using ClassGetFieldsFn = void *(*)(void *, void **);
+using FieldGetTypeFn = const void *(*)(void *);
+using FieldGetOffsetFn = int32_t (*)(void *);
+using FieldGetFlagsFn = uint32_t (*)(void *);
 using ClassIsEnumFn = bool (*)(const void *);
 using ClassEnumBaseTypeFn = const void *(*)(void *);
 using Il2CppFreeFn = void (*)(void *);
@@ -38,6 +42,10 @@ struct ZNABIAPI {
     ClassFromTypeFn classFromType = nullptr;
     ClassIsValueTypeFn classIsValueType = nullptr;
     ClassValueSizeFn classValueSize = nullptr;
+    ClassGetFieldsFn classGetFields = nullptr;
+    FieldGetTypeFn fieldGetType = nullptr;
+    FieldGetOffsetFn fieldGetOffset = nullptr;
+    FieldGetFlagsFn fieldGetFlags = nullptr;
     ClassIsEnumFn classIsEnum = nullptr;
     ClassEnumBaseTypeFn classEnumBaseType = nullptr;
     Il2CppFreeFn il2cppFree = nullptr;
@@ -89,6 +97,10 @@ static const ZNABIAPI &ZNABIResolvedAPI(void) {
         }
         ZNABI_LOAD(classIsValueType, ClassIsValueTypeFn, "il2cpp_class_is_valuetype");
         ZNABI_LOAD(classValueSize, ClassValueSizeFn, "il2cpp_class_value_size");
+        ZNABI_LOAD(classGetFields, ClassGetFieldsFn, "il2cpp_class_get_fields");
+        ZNABI_LOAD(fieldGetType, FieldGetTypeFn, "il2cpp_field_get_type");
+        ZNABI_LOAD(fieldGetOffset, FieldGetOffsetFn, "il2cpp_field_get_offset");
+        ZNABI_LOAD(fieldGetFlags, FieldGetFlagsFn, "il2cpp_field_get_flags");
         ZNABI_LOAD(classIsEnum, ClassIsEnumFn, "il2cpp_class_is_enum");
         ZNABI_LOAD(classEnumBaseType, ClassEnumBaseTypeFn, "il2cpp_class_enum_basetype");
         ZNABI_LOAD(il2cppFree, Il2CppFreeFn, "il2cpp_free");
@@ -145,13 +157,38 @@ static NSDictionary *ZNABIClassifyRuntimeType(const ZNABIAPI &api, const void *t
     uint32_t size=api.classValueSize ? api.classValueSize(klass,&align) : 0;
     BOOL valid=(size>0 && size<=65536u && align>0 && align<=16u &&
                 (align&(align-1u))==0);
-    // AAPCS64: non-HFA composites larger than 16 bytes are passed via a
-    // caller-provided copy pointer. Member inspection is still required to
-    // rule out HFA/HVA, regardless of the aggregate's total size.
+    // Enumerate bounded instance members for diagnostics. IL2CPP field
+    // offsets can include a value-type header bias on some runtimes, so
+    // raw offsets are not yet suitable for ABI packing or memory writes.
+    NSMutableArray<NSDictionary *> *members=[NSMutableArray array];
+    BOOL complete=valid && api.classGetFields && api.fieldGetType &&
+                  api.fieldGetOffset && api.fieldGetFlags;
+    if(complete){
+        void *iterator=nullptr;
+        void *field=nullptr;
+        NSUInteger inspected=0;
+        while((field=api.classGetFields(klass,&iterator))){
+            if(++inspected>128u){complete=NO;break;}
+            if(api.fieldGetFlags(field)&0x0010u)continue; // static
+            const void *fieldType=api.fieldGetType(field);
+            int32_t offset=api.fieldGetOffset(field);
+            if(!fieldType || offset<0){complete=NO;break;}
+            NSDictionary *member=ZNABIClassifyRuntimeType(api,fieldType,depth+1);
+            if((ZNIL2CPPABIValueKind)[member[@"kind"] integerValue]==ZNIL2CPPABIValueKindUnknown){
+                complete=NO;break;
+            }
+            [members addObject:@{@"type":member[@"name"]?:@"?",
+                                 @"kind":member[@"kind"]?:@(ZNIL2CPPABIValueKindUnknown),
+                                 @"rawOffset":@(offset),
+                                 @"nested":@([member[@"valueType"] boolValue])}];
+        }
+    }
+    // Member enumeration is useful evidence, NOT verified AAPCS64 layout.
     return @{@"name":name,@"kind":@(ZNIL2CPPABIValueKindComplexValueType),
              @"byRef":@NO,@"pointer":@NO,@"valueType":@YES,
              @"layoutKnown":@(valid),@"valueSize":@(valid?size:0u),
-             @"alignment":@(valid?align:0u),
+             @"alignment":@(valid?align:0u),@"memberEnumerationComplete":@(complete),
+             @"members":[members copy],
              @"abiClass":valid?@"aggregate-needs-member-classification":@"layout-unknown",
              @"memberLayoutVerified":@NO};
 }
