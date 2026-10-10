@@ -19,6 +19,9 @@ typedef NS_ENUM(NSInteger, ZNIL2CPPABIValueKind) {
 
 FOUNDATION_EXPORT NSString *ZNIL2CPPABIValueKindName(ZNIL2CPPABIValueKind kind);
 FOUNDATION_EXPORT ZNIL2CPPABIValueKind ZNIL2CPPABIKindForManagedTypeName(NSString *typeName);
+// Descriptive only: never use candidate slots to install hooks before verification.
+FOUNDATION_EXPORT NSDictionary<NSString *, id> * _Nullable
+ZNIL2CPPABIAggregateCandidate(NSDictionary<NSString *, id> *param);
 FOUNDATION_EXPORT NSDictionary<NSString *, id> *ZNIL2CPPDescribeMethodABI(NSDictionary<NSString *, id> *candidate);
 // Conservative AAPCS64 location for scalar/by-ref parameters only.
 // storage: gpr, fpr or stack; index is the register number or 8-byte stack slot.
