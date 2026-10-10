@@ -353,6 +353,10 @@ NSArray<NSDictionary<NSString *, id> *> *ZNIL2CPPABIDescribeAllocationPlan(
             slots=[candidate[@"registerSlots"] unsignedIntegerValue];
             bytes=[candidate[@"stackBytes"] unsignedIntegerValue];
             type=[klass isEqualToString:@"hfa-fpr"]?@"fpr":@"gpr";
+            // An aggregate over 16 bytes is passed through a pointer to
+            // caller-owned copy; the pointer itself occupies one 8-byte
+            // argument slot. The copy size is separate from stack usage.
+            if([klass isEqualToString:@"indirect-copy"])bytes=8u;
             verified=NO;
         }
         if(slots<1||slots>4||bytes<8||bytes>65536)return nil;
@@ -366,8 +370,16 @@ NSArray<NSDictionary<NSString *, id> *> *ZNIL2CPPABIDescribeAllocationPlan(
             // Failed GPR aggregate allocation consumes no partial registers.
             // Once GPRs are exhausted, later arguments remain stack-bound.
             if([type isEqualToString:@"gpr"])ngrn=8;
+            // An HFA that cannot fit entirely in FP registers spills to
+            // the stack; later FP arguments cannot reuse remaining slots.
+            if([type isEqualToString:@"fpr"] && slots>1u)nsrn=8;
             storage=@"stack";start=stack;
             NSUInteger align=[param[@"alignment"] unsignedIntegerValue];
+            // Scalar values and indirect-copy pointers need only a normal
+            // eight-byte argument slot, regardless of pointee alignment.
+            if(verified || (kind==ZNIL2CPPABIValueKindComplexValueType &&
+               [ZNIL2CPPABIAggregateCandidate(param)[@"candidateClass"] isEqualToString:@"indirect-copy"]))
+                align=8u;
             if(align>8 && (stack&1u))++start;
             if(start>UINT32_MAX/8 || bytes/8>UINT32_MAX/8-start)return nil;
             stack=start+bytes/8;
